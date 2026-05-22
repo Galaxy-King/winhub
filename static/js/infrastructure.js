@@ -22,6 +22,7 @@ let allQueueJobs = [];
 let allReports = [];
 let smtpProfiles = [];
 let currentJobTasks = [];
+let currentJobStatusFilter = 'all';
 let currentViewedHostId = null;
 let currentViewedGroupId = null;
 let currentGroupNonMembers = [];
@@ -1128,6 +1129,29 @@ async function saveAsTemplate() {
     } catch(e) { alert("Error connecting to server."); }
 }
 
+async function deleteTemplate(id) {
+    if (!id) return;
+    if (!confirm("Delete this template? Scheduled jobs using it will be removed.")) return;
+
+    try {
+        const res = await fetch('/api/infrastructure/templates/' + encodeURIComponent(id), {
+            method: 'DELETE'
+        });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok || data.success === false) {
+            return alert(data.message || 'Failed to delete template.');
+        }
+
+        if (selectedTemplateId === id || editingTemplateId === id) {
+            selectedTemplateId = null;
+            editingTemplateId = null;
+        }
+        window.location.reload();
+    } catch(e) {
+        alert("Error deleting template.");
+    }
+}
+
 async function submitDeployment() {
     const btn = document.getElementById('btnDeploy');
     const oldText = btn.innerText; 
@@ -1695,18 +1719,83 @@ async function viewTaskDetails(taskId) {
 function viewJobDetails(jobId) {
     const job = allQueueJobs.find(j => j.job_id === jobId);
     if(!job) return;
-    currentJobTasks = job.tasks;
+    currentJobTasks = job.tasks || [];
+    currentJobStatusFilter = 'all';
     document.getElementById('jTitle').innerText = job.title || 'Job Details';
     document.getElementById('jInfo').innerText = `${job.action} • Total targets: ${job.total}`;
-    document.getElementById('jobHostsBody').innerHTML = currentJobTasks.map(t => {
+    renderJobStatusFilters();
+    renderJobTaskRows();
+    openModal('jobModal');
+}
+
+function normalizeJobTaskStatus(status) {
+    const value = (status || 'Pending').toLowerCase();
+    if (value === 'success') return 'success';
+    if (value === 'error') return 'error';
+    if (value === 'pickedup' || value === 'picked_up' || value === 'running') return 'running';
+    return 'pending';
+}
+
+function jobStatusLabel(status) {
+    const normalized = normalizeJobTaskStatus(status);
+    if (normalized === 'success') return 'Success';
+    if (normalized === 'error') return 'Error';
+    if (normalized === 'running') return 'Running';
+    return 'Pending';
+}
+
+function jobStatusBadgeClass(status) {
+    const normalized = normalizeJobTaskStatus(status);
+    if (normalized === 'success') return 'bg-emerald-50 text-emerald-700 border-emerald-100';
+    if (normalized === 'error') return 'bg-rose-50 text-rose-700 border-rose-100';
+    if (normalized === 'running') return 'bg-indigo-50 text-indigo-700 border-indigo-100';
+    return 'bg-amber-50 text-amber-700 border-amber-100';
+}
+
+function renderJobStatusFilters() {
+    const wrap = document.getElementById('jobStatusFilters');
+    if (!wrap) return;
+    const counts = currentJobTasks.reduce((acc, task) => {
+        acc[normalizeJobTaskStatus(task.status)] += 1;
+        return acc;
+    }, { all: currentJobTasks.length, pending: 0, running: 0, error: 0, success: 0 });
+
+    const filters = [
+        ['all', 'All', counts.all],
+        ['pending', 'Pending', counts.pending],
+        ['running', 'Running', counts.running],
+        ['error', 'Errors', counts.error],
+        ['success', 'Success', counts.success]
+    ];
+
+    wrap.innerHTML = filters.map(([key, label, count]) => {
+        const active = currentJobStatusFilter === key;
+        return `<button onclick="setJobStatusFilter('${key}')" class="job-status-filter px-4 py-2 rounded-xl text-[10px] font-black uppercase tracking-widest border transition-all ${active ? 'bg-slate-900 text-white border-slate-900 shadow-sm' : 'bg-white text-slate-500 border-slate-200 hover:bg-slate-50'}">${label} <span class="${active ? 'text-white/70' : 'text-slate-400'}">${count}</span></button>`;
+    }).join('');
+}
+
+function setJobStatusFilter(status) {
+    currentJobStatusFilter = status || 'all';
+    renderJobStatusFilters();
+    renderJobTaskRows();
+}
+
+function renderJobTaskRows() {
+    const body = document.getElementById('jobHostsBody');
+    if (!body) return;
+    const filteredTasks = currentJobStatusFilter === 'all'
+        ? currentJobTasks
+        : currentJobTasks.filter(t => normalizeJobTaskStatus(t.status) === currentJobStatusFilter);
+
+    const empty = `<tr><td colspan="3" class="p-16 text-center text-slate-300 font-black uppercase tracking-widest text-xs">No hosts in this status</td></tr>`;
+    body.innerHTML = filteredTasks.map(t => {
         const statusStr = t.status || 'Pending';
         return `<tr class="hover:bg-slate-50 transition-colors">
-            <td class="px-6 py-4 font-black text-slate-700 text-lg">${t.hostname || 'Unknown'}</td>
-            <td class="px-6 py-4 text-center"><span class="font-black uppercase tracking-widest text-[10px] bg-slate-100 px-3 py-1 rounded-lg ${statusStr === 'Success' ? 'text-emerald-500' : (statusStr === 'Error' ? 'text-rose-500' : 'text-amber-500')}">${statusStr}</span></td>
+            <td class="px-6 py-4 font-black text-slate-700 text-base">${t.hostname || 'Unknown'}</td>
+            <td class="px-6 py-4 text-center"><span class="font-black uppercase tracking-widest text-[10px] px-3 py-1 rounded-lg border ${jobStatusBadgeClass(statusStr)}">${jobStatusLabel(statusStr)}</span></td>
             <td class="px-6 py-4 text-right"><button onclick="viewTaskDetails('${t.task_id}')" class="px-4 py-2 bg-white border border-slate-200 rounded-xl text-xs font-black uppercase text-indigo-600 hover:bg-indigo-50 transition-colors shadow-sm">View Log</button></td>
         </tr>`;
-    }).join('');
-    openModal('jobModal');
+    }).join('') || empty;
 }
 
 async function viewHost(id) {
