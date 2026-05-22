@@ -23,7 +23,7 @@ if ! id winhub >/dev/null 2>&1; then
   useradd --system --home "${APP_DIR}" --shell /usr/sbin/nologin winhub
 fi
 
-mkdir -p "${APP_DIR}" "${ENV_DIR}/certs" "${DATA_DIR}/logs" "${LOG_DIR}"
+mkdir -p "${APP_DIR}" "${ENV_DIR}/certs" "${DATA_DIR}/logs" "${DATA_DIR}/gnupg" "${LOG_DIR}"
 rsync -a \
   --exclude venv \
   --exclude data \
@@ -58,6 +58,7 @@ install -m 0644 "${APP_DIR}/deploy/debian/winhub.logrotate" /etc/logrotate.d/win
 chmod 0755 "${APP_DIR}/deploy/debian/backup_winhub.sh" "${APP_DIR}/deploy/debian/healthcheck_winhub.sh" "${APP_DIR}/deploy/debian/migrate_winhub.sh" "${APP_DIR}/deploy/debian/restore_winhub.sh" "${APP_DIR}/deploy/debian/rollback_winhub.sh" "${APP_DIR}/deploy/debian/update_winhub.sh"
 
 chown -R winhub:winhub "${APP_DIR}" "${DATA_DIR}" "${LOG_DIR}"
+chmod 0700 "${DATA_DIR}/gnupg"
 chown -R root:winhub "${ENV_DIR}"
 chmod 0750 "${ENV_DIR}"
 chmod 0750 "${ENV_DIR}/certs"

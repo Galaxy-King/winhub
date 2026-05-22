@@ -121,3 +121,4 @@ class Config:
     GPG_PATH = clean_env_value(os.environ.get('GPG_PATH')) or shutil.which('gpg') or (
         r"C:\Program Files (x86)\GnuPG\bin\gpg.exe" if os.name == 'nt' else '/usr/bin/gpg'
     )
+    GPG_HOME = clean_env_value(os.environ.get('GNUPGHOME')) or clean_env_value(os.environ.get('GPG_HOME')) or os.path.join(DATA_DIR, 'gnupg')

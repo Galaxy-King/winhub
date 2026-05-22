@@ -20,6 +20,7 @@ from core.config import Config
 from core.module_registry import get_module_registry
 from core.permissions import MODULE_PERMISSION_CATALOG, parse_allowed_modules
 from core.sdk import WinHubCore
+from core.gpg import gpg_env, import_public_key, fetch_public_key, list_public_keys, delete_public_key, validate_gpg
 
 log = logging.getLogger("winhub.admin")
 admin_bp = Blueprint('admin', __name__)
@@ -133,7 +134,7 @@ def send_notification_email(subject, recipient, body_content, encrypt=True):
             with open(tmp_in, 'w', encoding='utf-8') as f: f.write(body_content)
             cmd = [gpg_path, "--batch", "--yes", "--trust-model", "always",
                    "--encrypt", "--armor", "-r", recipient, "-r", sender_email, "-o", tmp_out, tmp_in]
-            subprocess.run(cmd, capture_output=True, text=True, timeout=15, **hidden_subprocess_kwargs())
+            subprocess.run(cmd, capture_output=True, text=True, timeout=15, env=gpg_env(), **hidden_subprocess_kwargs())
             if os.path.exists(tmp_out):
                 with open(tmp_out, 'r', encoding='utf-8') as f: final_body = f.read()
         except Exception: return False
@@ -623,3 +624,53 @@ def get_system_logs():
         "selected": selected,
         "lines": output_lines,
     })
+
+
+@admin_bp.route('/api/admin/gpg/keys', methods=['GET'])
+def get_gpg_keys():
+    ok, message = validate_gpg()
+    if not ok:
+        return jsonify({"success": False, "message": message, "keys": []}), 500
+    listed, list_message, keys = list_public_keys()
+    return jsonify({"success": listed, "message": list_message, "keys": keys})
+
+
+@admin_bp.route('/api/admin/gpg/import', methods=['POST'])
+def import_gpg_key():
+    data = request.json or {}
+    ok, message = import_public_key(data.get("key") or "")
+    WinHubCore.audit(
+        user_id=session.get('user_id'),
+        module="Admin",
+        action="Import GPG Key",
+        details={"success": bool(ok), "message": message[:300]},
+        status="Success" if ok else "Error"
+    )
+    return jsonify({"success": ok, "message": message}), 200 if ok else 400
+
+
+@admin_bp.route('/api/admin/gpg/fetch', methods=['POST'])
+def fetch_gpg_key_route():
+    data = request.json or {}
+    ok, message = fetch_public_key(data.get("keyserver"), data.get("search"))
+    WinHubCore.audit(
+        user_id=session.get('user_id'),
+        module="Admin",
+        action="Fetch GPG Key",
+        details={"success": bool(ok), "search": data.get("search"), "keyserver": data.get("keyserver"), "message": message[:300]},
+        status="Success" if ok else "Error"
+    )
+    return jsonify({"success": ok, "message": message}), 200 if ok else 400
+
+
+@admin_bp.route('/api/admin/gpg/keys/<fingerprint>', methods=['DELETE'])
+def delete_gpg_key_route(fingerprint):
+    ok, message = delete_public_key(fingerprint)
+    WinHubCore.audit(
+        user_id=session.get('user_id'),
+        module="Admin",
+        action="Delete GPG Key",
+        details={"success": bool(ok), "fingerprint": fingerprint, "message": message[:300]},
+        status="Success" if ok else "Error"
+    )
+    return jsonify({"success": ok, "message": message}), 200 if ok else 400
