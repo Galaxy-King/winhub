@@ -52,7 +52,7 @@ namespace WinHUBAgent
 
     public static class AgentBuildInfo
     {
-        public const string Version = "1.2.0";
+        public const string Version = "1.2.1";
     }
 
     [JsonSerializable(typeof(EnrollPayload))]
@@ -830,17 +830,59 @@ namespace WinHUBAgent
 
         private string GetHardwareId()
         {
+            string machineGuid = GetMachineGuid();
+            string[] macs = GetStableMacAddresses();
+            string source = string.Join("|", new[]
+            {
+                "winhub-agent-v2",
+                machineGuid,
+                Environment.MachineName,
+                string.Join(",", macs)
+            });
+
+            if (string.IsNullOrWhiteSpace(machineGuid) && macs.Length == 0)
+            {
+                return "HWID-FALLBACK-" + Environment.MachineName;
+            }
+
+            using var sha = SHA256.Create();
+            byte[] hash = sha.ComputeHash(Encoding.UTF8.GetBytes(source));
+            return "WINHUB-" + Convert.ToHexString(hash).ToLowerInvariant();
+        }
+
+        private static string GetMachineGuid()
+        {
             try
             {
                 using var key = Registry.LocalMachine.OpenSubKey(@"SOFTWARE\Microsoft\Cryptography");
                 if (key != null)
                 {
                     var guid = key.GetValue("MachineGuid")?.ToString();
-                    if (!string.IsNullOrEmpty(guid)) return guid;
+                    if (!string.IsNullOrWhiteSpace(guid)) return guid.Trim();
                 }
             }
             catch { }
-            return "HWID-FALLBACK-" + Environment.MachineName;
+            return "";
+        }
+
+        private static string[] GetStableMacAddresses()
+        {
+            try
+            {
+                return NetworkInterface.GetAllNetworkInterfaces()
+                    .Where(nic =>
+                        nic.NetworkInterfaceType != NetworkInterfaceType.Loopback &&
+                        nic.NetworkInterfaceType != NetworkInterfaceType.Tunnel)
+                    .Select(nic => nic.GetPhysicalAddress().ToString().Trim().ToUpperInvariant())
+                    .Where(mac => !string.IsNullOrWhiteSpace(mac))
+                    .Distinct()
+                    .OrderBy(mac => mac, StringComparer.Ordinal)
+                    .ToArray();
+            }
+            catch
+            {
+                return Array.Empty<string>();
+            }
         }
 
         private NetworkInterfaceInfo[] GetNetworkInterfaces()

@@ -1,61 +1,64 @@
 <!-- VIEW: ENDPOINTS -->
 <section id="view-hosts" class="hidden space-y-6 animate-in fade-in duration-300">
-    {% if permissions.manage_hosts and pending_agents %}
-    <div class="bg-amber-50 border border-amber-200 rounded-[2rem] p-6 shadow-sm">
-        <div class="flex flex-col lg:flex-row lg:items-center justify-between gap-4 mb-5">
-            <div>
-                <h3 class="text-lg font-black text-slate-900 uppercase tracking-tight">Pending Approval Center</h3>
-                <p class="text-xs font-bold text-amber-700 mt-1">New agents are quarantined here and cannot receive tasks until approved.</p>
-            </div>
-            <span class="px-4 py-2 bg-white text-amber-700 rounded-xl border border-amber-200 text-xs font-black uppercase w-fit">{{ pending_agents|length }} waiting</span>
-        </div>
-        <div class="grid grid-cols-1 xl:grid-cols-2 gap-4">
-            {% for agent in pending_agents %}
-            <div class="bg-white border border-amber-100 rounded-2xl p-5 shadow-sm">
-                <div class="flex items-start justify-between gap-4">
-                    <div class="min-w-0">
-                        <button onclick="viewHost('{{ agent.id }}')" class="text-left text-lg font-black text-slate-800 hover:text-indigo-600 transition-colors truncate block">{{ agent.hostname or agent.id }}</button>
-                        <div class="text-[10px] font-black text-slate-400 uppercase tracking-widest mt-1">{{ agent.os_type or 'Unknown' }} / {{ agent.agent_version or 'Unknown agent' }}</div>
-                    </div>
-                    <span class="px-3 py-1 bg-amber-100 text-amber-700 rounded-lg text-[10px] font-black uppercase">Pending</span>
-                </div>
-                <div class="grid grid-cols-2 gap-3 mt-4 text-xs">
-                    <div class="p-3 bg-slate-50 rounded-xl border border-slate-100">
-                        <div class="text-[10px] font-black text-slate-400 uppercase">IP</div>
-                        <div class="font-mono text-slate-700 mt-1 break-all">{{ agent.ip_address or '-' }}</div>
-                    </div>
-                    <div class="p-3 bg-slate-50 rounded-xl border border-slate-100">
-                        <div class="text-[10px] font-black text-slate-400 uppercase">Attempts</div>
-                        <div class="font-black text-slate-700 mt-1">{{ agent.enrollment_attempts or 0 }}</div>
-                    </div>
-                    <div class="p-3 bg-slate-50 rounded-xl border border-slate-100">
-                        <div class="text-[10px] font-black text-slate-400 uppercase">First Seen</div>
-                        <div class="font-bold text-slate-700 mt-1">{{ agent.first_seen | string if agent.first_seen else '-' }}</div>
-                    </div>
-                    <div class="p-3 bg-slate-50 rounded-xl border border-slate-100">
-                        <div class="text-[10px] font-black text-slate-400 uppercase">Last Enrollment</div>
-                        <div class="font-bold text-slate-700 mt-1">{{ agent.last_enrollment_at | string if agent.last_enrollment_at else '-' }}</div>
-                    </div>
-                </div>
-                {% if agent.identity_warning %}
-                <div class="mt-4 p-3 bg-rose-50 border border-rose-100 text-rose-700 rounded-xl text-xs font-bold">{{ agent.identity_warning }}</div>
-                {% endif %}
-                <div class="flex justify-end gap-2 mt-5">
-                    <button onclick="viewHost('{{ agent.id }}')" class="px-4 py-2 bg-white text-slate-600 border border-slate-200 rounded-xl text-xs font-black uppercase hover:bg-slate-50">Review</button>
-                    <button onclick="setHostApprovalQuick('{{ agent.id }}', 'Rejected')" class="px-4 py-2 bg-rose-50 text-rose-600 border border-rose-100 rounded-xl text-xs font-black uppercase hover:bg-rose-100">Reject</button>
-                    <button onclick="setHostApprovalQuick('{{ agent.id }}', 'Approved')" class="px-4 py-2 bg-emerald-600 text-white rounded-xl text-xs font-black uppercase hover:bg-emerald-700">Approve</button>
-                </div>
-            </div>
-            {% endfor %}
-        </div>
+    {% if permissions.manage_hosts %}
+    <div class="bg-white p-2 rounded-2xl border border-slate-200 shadow-sm flex gap-2 w-fit">
+        <button onclick="switchNodeTab('approved')" id="nodeTab-approved" class="node-tab-btn px-5 py-2.5 rounded-xl text-xs font-black uppercase bg-slate-900 text-white shadow-sm">Approved Nodes</button>
+        <button onclick="switchNodeTab('pending')" id="nodeTab-pending" class="node-tab-btn px-5 py-2.5 rounded-xl text-xs font-black uppercase text-slate-500 hover:text-amber-700">
+            Pending Approval
+            {% if pending_agents %}<span class="ml-2 bg-amber-100 text-amber-700 px-2 py-0.5 rounded-lg">{{ pending_agents|length }}</span>{% endif %}
+        </button>
     </div>
     {% endif %}
 
+    {% if permissions.manage_hosts %}
+    <div id="nodesPendingPanel" class="hidden bg-white rounded-[2rem] border border-slate-200 shadow-sm overflow-hidden overflow-x-auto">
+        <table class="w-full text-left min-w-[920px]">
+            <thead class="bg-amber-50/70 border-b border-amber-100 text-[10px] font-black text-amber-700 uppercase tracking-widest">
+                <tr>
+                    <th class="px-6 py-4">Hostname</th>
+                    <th class="px-6 py-4">IP / OS</th>
+                    <th class="px-6 py-4">Agent</th>
+                    <th class="px-6 py-4">Enrollment</th>
+                    <th class="px-6 py-4 text-right">Actions</th>
+                </tr>
+            </thead>
+            <tbody class="divide-y divide-slate-50">
+                {% for agent in pending_agents %}
+                <tr class="hover:bg-slate-50 transition-colors">
+                    <td class="px-6 py-4">
+                        <button onclick="viewHost('{{ agent.id }}')" class="text-left font-black text-slate-800 hover:text-indigo-600">{{ agent.hostname or agent.id }}</button>
+                        {% if agent.identity_warning %}<div class="text-[10px] text-rose-600 font-bold mt-1">{{ agent.identity_warning }}</div>{% endif %}
+                    </td>
+                    <td class="px-6 py-4 text-xs">
+                        <div class="font-mono text-slate-700">{{ agent.ip_address or '-' }}</div>
+                        <div class="text-[10px] font-black text-slate-400 uppercase mt-1">{{ agent.os_type or 'Unknown' }}</div>
+                    </td>
+                    <td class="px-6 py-4 text-xs font-bold text-slate-600">{{ agent.agent_version or 'Unknown' }}</td>
+                    <td class="px-6 py-4 text-xs">
+                        <div class="font-black text-slate-700">{{ agent.enrollment_attempts or 0 }} attempts</div>
+                        <div class="text-[10px] text-slate-400 font-bold mt-1">{{ agent.last_enrollment_at | string if agent.last_enrollment_at else '-' }}</div>
+                    </td>
+                    <td class="px-6 py-4">
+                        <div class="flex justify-end gap-2">
+                            <button onclick="viewHost('{{ agent.id }}')" class="px-3 py-2 bg-white text-slate-600 border border-slate-200 rounded-xl text-[10px] font-black uppercase hover:bg-slate-50">Review</button>
+                            <button onclick="setHostApprovalQuick('{{ agent.id }}', 'Rejected')" class="px-3 py-2 bg-rose-50 text-rose-600 border border-rose-100 rounded-xl text-[10px] font-black uppercase hover:bg-rose-100">Reject</button>
+                            <button onclick="setHostApprovalQuick('{{ agent.id }}', 'Approved')" class="px-3 py-2 bg-emerald-600 text-white rounded-xl text-[10px] font-black uppercase hover:bg-emerald-700">Approve</button>
+                        </div>
+                    </td>
+                </tr>
+                {% else %}
+                <tr><td colspan="5" class="px-6 py-10 text-center text-slate-400 text-sm font-bold">No pending agents.</td></tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+    {% endif %}
+
+    <div id="nodesApprovedPanel" class="space-y-6">
     <div class="bg-white p-5 rounded-[2.5rem] border border-slate-200 shadow-sm flex flex-col md:flex-row justify-between items-center gap-4">
         <div class="flex flex-col sm:flex-row gap-4 w-full md:w-auto">
             <div class="flex gap-2 bg-slate-100 p-1.5 rounded-xl border border-slate-200/60 shadow-inner overflow-x-auto">
                 <button onclick="filterHosts('all', this)" class="host-filter-btn px-6 py-2 rounded-lg text-xs font-black uppercase bg-white text-indigo-600 shadow-sm transition-all whitespace-nowrap">All Nodes</button>
-                <button onclick="filterHosts('pending', this)" class="host-filter-btn px-6 py-2 rounded-lg text-xs font-black uppercase text-slate-500 hover:text-amber-600 transition-all whitespace-nowrap">Pending</button>
                 <button onclick="filterHosts('online', this)" class="host-filter-btn px-6 py-2 rounded-lg text-xs font-black uppercase text-slate-500 hover:text-emerald-600 transition-all whitespace-nowrap">Online</button>
                 <button onclick="filterHosts('offline', this)" class="host-filter-btn px-6 py-2 rounded-lg text-xs font-black uppercase text-slate-500 hover:text-slate-800 transition-all whitespace-nowrap">Offline</button>
             </div>
@@ -86,7 +89,7 @@
                 </tr>
             </thead>
             <tbody class="divide-y divide-slate-50">
-                {% for agent in agents %}
+                {% for agent in agents if (agent.approval_status or 'Approved') == 'Approved' %}
                 <tr class="host-row hover:bg-slate-50/80 cursor-pointer transition-all" data-status="{{ 'online' if agent.is_online else 'offline' }}" data-approval="{{ agent.approval_status or 'Approved' }}" data-groups="{% for g in agent.groups %}{{ g.name }}{% if not loop.last %},{% endif %}{% endfor %}" onclick="viewHost('{{ agent.id }}')">
                     <td class="px-10 py-5 font-black text-slate-700 text-lg">
                         <div class="flex items-center gap-3">
@@ -132,8 +135,11 @@
                         {% endfor %}
                     </td>
                 </tr>
+                {% else %}
+                <tr><td colspan="6" class="px-10 py-12 text-center text-slate-400 text-sm font-bold">No approved hosts.</td></tr>
                 {% endfor %}
             </tbody>
         </table>
+    </div>
     </div>
 </section>

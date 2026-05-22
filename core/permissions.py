@@ -100,6 +100,9 @@ def has_permission(user, module_id, permission_id):
     token = permission_token(module_id, permission_id)
     tokens = module_tokens(allowed, module_id)
 
+    if module_id in allowed:
+        return True
+
     if token in allowed:
         return True
 
@@ -111,6 +114,8 @@ def user_permissions(user, module_id):
         return {}
     api_permissions = request_api_permissions()
     if api_permissions is not None:
+        if module_id in api_permissions:
+            return {p["id"]: True for p in MODULE_PERMISSION_CATALOG.get(module_id, [])}
         return {
             p["id"]: permission_token(module_id, p["id"]) in api_permissions
             for p in MODULE_PERMISSION_CATALOG.get(module_id, [])

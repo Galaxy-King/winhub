@@ -798,7 +798,7 @@ $StaticPassword = "{{secret:local_admin_password}}"
     function toggleModulePermissions(moduleId, enabled) {
         const block = document.getElementById('permBlock_' + moduleId);
         if(block) block.classList.toggle('hidden', !enabled);
-        if(!enabled) document.querySelectorAll('.perm-' + moduleId).forEach(cb => cb.checked = false);
+        document.querySelectorAll('.perm-' + moduleId).forEach(cb => cb.checked = enabled);
     }
 
     async function saveUserAccess() {
