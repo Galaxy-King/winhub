@@ -159,21 +159,28 @@
     
     /* Активний стан картки шаблону у Workspace */
     .template-card.active { 
-        border-color: #4f46e5 !important; 
-        background-color: #f5f3ff !important; 
-        box-shadow: 0 10px 15px -3px rgba(79, 70, 229, 0.1);
+        border-color: #75a7f7 !important; 
+        background:
+            radial-gradient(circle at top left, rgba(31, 111, 235, 0.16), transparent 12rem),
+            linear-gradient(135deg, #ffffff 0%, #eef6ff 100%) !important;
+        box-shadow: 0 16px 30px rgba(15, 61, 138, 0.16);
         transform: translateX(4px);
     }
     .template-card.active h4 {
-        color: #4f46e5 !important;
+        color: #0f3d8a !important;
+    }
+    .template-card:hover {
+        background:
+            radial-gradient(circle at top left, rgba(31, 111, 235, 0.10), transparent 10rem),
+            linear-gradient(135deg, #ffffff 0%, #f6faff 100%) !important;
     }
     
     /* Навігація */
     #nav-hosts.active, #nav-groups.active, #nav-queue.active, #nav-deploy.active, #nav-scheduler.active, #nav-triggers.active, #nav-reports.active {
-        background-color: white;
-        color: #4f46e5;
-        box-shadow: 0 1px 2px 0 rgba(0, 0, 0, 0.05);
-        border-color: rgba(226, 232, 240, 0.8);
+        background: linear-gradient(135deg, #1554b7, #07152e) !important;
+        color: white !important;
+        box-shadow: 0 12px 24px rgba(15, 61, 138, 0.18);
+        border-color: rgba(117, 167, 247, 0.45);
     }
 </style>
 

@@ -36,6 +36,11 @@ let currentHostStatus = 'all';
 let queueTypeFilter = 'ALL';
 const infraPermissions = window.WinhubPermissions || {};
 let payloadEditor = null;
+const infraStateKeys = {
+    view: 'infra_vfinal_view',
+    categories: 'infra_open_categories',
+    template: 'infra_selected_template'
+};
 
 function getPayloadValue() {
     if (payloadEditor) return payloadEditor.getValue();
@@ -660,6 +665,32 @@ function toggleCategory(catId, btn) {
         el.classList.remove('block'); 
         if(chevron) chevron.classList.remove('rotate-180');
     }
+    saveOpenCategories();
+}
+
+function saveOpenCategories() {
+    const openIds = Array.from(document.querySelectorAll('[id^="cat_"], [id^="sch_cat_"], [id^="trg_cat_"]'))
+        .filter(el => !el.classList.contains('hidden'))
+        .map(el => el.id);
+    localStorage.setItem(infraStateKeys.categories, JSON.stringify(openIds));
+}
+
+function restoreOpenCategories() {
+    let openIds = [];
+    try {
+        openIds = JSON.parse(localStorage.getItem(infraStateKeys.categories) || '[]');
+    } catch(e) {
+        openIds = [];
+    }
+    openIds.forEach(catId => {
+        const el = document.getElementById(catId);
+        if (!el) return;
+        el.classList.remove('hidden');
+        el.classList.add('block');
+        const btn = Array.from(document.querySelectorAll('button')).find(item => (item.getAttribute('onclick') || '').includes(catId));
+        const chevron = btn?.querySelector('.cat-chevron') || btn?.querySelector('.sch-chevron') || btn?.querySelector('.trg-chevron');
+        if (chevron) chevron.classList.add('rotate-180');
+    });
 }
 
 function scrollInfraNav(direction) {
@@ -692,9 +723,10 @@ document.addEventListener('DOMContentLoaded', () => {
         
         const defaultView = ['hosts', 'groups', 'queue', 'reports', 'deploy', 'scheduler', 'triggers']
             .find(v => document.getElementById('view-' + v)) || 'hosts';
-        const saved = localStorage.getItem('infra_vfinal_view') || defaultView;
+        const saved = localStorage.getItem(infraStateKeys.view) || defaultView;
         switchView(document.getElementById('view-' + saved) ? saved : defaultView, false);
         renderCategoryListUI(); 
+        restoreOpenCategories();
         updateInfraNavArrows();
         document.getElementById('infraNavScroller')?.addEventListener('scroll', updateInfraNavArrows);
         window.addEventListener('resize', updateInfraNavArrows);
@@ -702,12 +734,11 @@ document.addEventListener('DOMContentLoaded', () => {
         fetchSmtpProfilesGlobally(); // ГЛОБАЛЬНЕ ЗАВАНТАЖЕННЯ ПОШТ
         initAvailableHostsData();
         
-        if (document.getElementById('btnNewScript')) resetWorkspace();
-        
         const hostSearchEl = document.getElementById('hostSearch');
         if(hostSearchEl) hostSearchEl.addEventListener('input', applyHostFilters);
         
         initPayloadEditor();
+        restoreWorkspaceState();
         const payloadEl = document.getElementById('depPayload');
         if(payloadEl) payloadEl.addEventListener('input', updateVariablesUI);
         
@@ -733,7 +764,7 @@ document.addEventListener('DOMContentLoaded', () => {
 });
 
 function switchView(view, save=true) {
-    if(save) localStorage.setItem('infra_vfinal_view', view);
+    if(save) localStorage.setItem(infraStateKeys.view, view);
     ['hosts', 'groups', 'group-detail', 'queue', 'deploy', 'scheduler', 'triggers', 'reports'].forEach(v => {
         const el = document.getElementById('view-' + v);
         const nav = document.getElementById('nav-' + v);
@@ -856,8 +887,9 @@ function confirmMultiHostSelection() {
 }
 
 // --- WORKSPACE BUILDER ---
-function resetWorkspace() {
+function resetWorkspace(clearPersistedState = true) {
     editingTemplateId = null; selectedTemplateId = null;
+    if (clearPersistedState) localStorage.removeItem(infraStateKeys.template);
     
     ['depTitle', 'depCategory', 'depReportTemplate'].forEach(id => {
         const el = document.getElementById(id);
@@ -910,11 +942,12 @@ function resetWorkspace() {
 }
 
 function loadTemplate(el) {
-    resetWorkspace();
+    resetWorkspace(false);
     el.classList.add('active');
     
     const isAdmin = checkIsAdmin();
     selectedTemplateId = el.dataset.id;
+    localStorage.setItem(infraStateKeys.template, selectedTemplateId);
     
     const titleEl = document.getElementById('depTitle');
     if(titleEl) titleEl.value = el.dataset.name;
@@ -981,6 +1014,32 @@ function loadTemplate(el) {
 
     updateVariablesUI();
     toggleActionView();
+}
+
+function restoreWorkspaceState() {
+    const templateId = localStorage.getItem(infraStateKeys.template);
+    if (!templateId) {
+        if (document.getElementById('btnNewScript')) resetWorkspace(false);
+        return;
+    }
+
+    const card = Array.from(document.querySelectorAll('.template-card')).find(item => item.dataset.id === templateId);
+    if (!card) {
+        localStorage.removeItem(infraStateKeys.template);
+        if (document.getElementById('btnNewScript')) resetWorkspace(false);
+        return;
+    }
+
+    const group = card.closest('[id^="cat_"]');
+    if (group) {
+        group.classList.remove('hidden');
+        group.classList.add('block');
+        const btn = Array.from(document.querySelectorAll('button')).find(item => (item.getAttribute('onclick') || '').includes(group.id));
+        const chevron = btn?.querySelector('.cat-chevron');
+        if (chevron) chevron.classList.add('rotate-180');
+        saveOpenCategories();
+    }
+    loadTemplate(card);
 }
 
 function toggleCodeEditorMode() {
