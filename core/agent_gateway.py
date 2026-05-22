@@ -17,6 +17,24 @@ log = logging.getLogger("winhub.triggers")
 
 GLOBAL_ENROLLMENT_TOKEN = Config.AGENT_API_KEY
 
+def current_client_ip():
+    forwarded = request.headers.get("X-Forwarded-For", "")
+    if forwarded:
+        return forwarded.split(",")[0].strip()
+    real_ip = request.headers.get("X-Real-IP", "")
+    if real_ip:
+        return real_ip.strip()
+    return request.remote_addr or ""
+
+
+def update_agent_connection(agent):
+    current_ip = current_client_ip()
+    changed = False
+    if current_ip and current_ip != (agent.ip_address or ""):
+        agent.ip_address = current_ip
+        changed = True
+    return changed
+
 def enrollment_source_allowed(remote_addr):
     allowlist = [item.strip() for item in str(getattr(Config, "AGENT_ENROLLMENT_ALLOWLIST", "") or "").split(",") if item.strip()]
     if not allowlist:
@@ -134,7 +152,8 @@ def enroll_agent():
     data = request.json or {}
     if not getattr(Config, "AGENT_ENROLLMENT_ENABLED", True):
         return jsonify({"error": "Enrollment Disabled"}), 403
-    if not enrollment_source_allowed(request.remote_addr or ""):
+    source_ip = current_client_ip()
+    if not enrollment_source_allowed(source_ip):
         return jsonify({"error": "Enrollment Source Denied"}), 403
     if data.get('global_token') != GLOBAL_ENROLLMENT_TOKEN: 
         return jsonify({"error": "Auth Failed"}), 401
@@ -161,25 +180,25 @@ def enroll_agent():
     
     if not agent:
         agent = Endpoint(id=hw_id, hostname=hostname, auth_token=raw_token, 
-                         os_version=data.get('os_version'), os_type=os_type, ip_address=request.remote_addr)
+                         os_version=data.get('os_version'), os_type=os_type, ip_address=source_ip)
         agent.approval_status = "Pending"
         agent.first_seen = datetime.utcnow()
         agent.last_enrollment_at = datetime.utcnow()
-        agent.last_enrollment_ip = request.remote_addr
+        agent.last_enrollment_ip = source_ip
         agent.enrollment_attempts = 1
         agent.identity_fingerprint = fingerprint
         agent.agent_version = agent_version
         agent.network_info = network_info
         agent.host_info = host_info
         db.session.add(agent)
-        db.session.add(RegistrationHistory(hw_id=hw_id, hostname=hostname, ip_address=request.remote_addr, event_type="Pending Approval"))
+        db.session.add(RegistrationHistory(hw_id=hw_id, hostname=hostname, ip_address=source_ip, event_type="Pending Approval"))
     else:
         previous_fingerprint = getattr(agent, "identity_fingerprint", None)
         agent.hostname = hostname
-        agent.ip_address = request.remote_addr
+        agent.ip_address = source_ip
         agent.last_seen = datetime.utcnow()
         agent.last_enrollment_at = datetime.utcnow()
-        agent.last_enrollment_ip = request.remote_addr
+        agent.last_enrollment_ip = source_ip
         agent.enrollment_attempts = int(agent.enrollment_attempts or 0) + 1
         agent.auth_token = raw_token
         agent.os_version = data.get('os_version', agent.os_version)
@@ -193,7 +212,7 @@ def enroll_agent():
             agent.identity_warning = "Enrollment identity changed. Review hostname, IP and network interfaces before approval."
         if not getattr(agent, "approval_status", None):
             agent.approval_status = "Approved"
-        db.session.add(RegistrationHistory(hw_id=hw_id, hostname=hostname, ip_address=request.remote_addr, event_type="Re-enrolled"))
+        db.session.add(RegistrationHistory(hw_id=hw_id, hostname=hostname, ip_address=source_ip, event_type="Re-enrolled"))
         
     if getattr(agent, "approval_status", "Approved") == "Approved":
         ensure_default_groups_and_assign(agent, os_type)
@@ -209,20 +228,21 @@ def agent_poll():
         return jsonify({"status": "error"}), 403
     if getattr(agent, "approval_status", "Approved") != "Approved":
         agent.last_seen = datetime.utcnow()
-        agent.ip_address = request.remote_addr
+        update_agent_connection(agent)
         db.session.commit()
         return jsonify({"status": "pending_approval"}), 200
         
     now = datetime.utcnow()
     needs_commit = False
     agent_version = str(data.get('agent_version') or '').strip()[:50]
+    if update_agent_connection(agent):
+        needs_commit = True
     if agent_version and agent_version != (agent.agent_version or ""):
         agent.agent_version = agent_version
         needs_commit = True
 	    
     if not agent.last_seen or (now - agent.last_seen).total_seconds() > 60:
         agent.last_seen = now
-        agent.ip_address = request.remote_addr
         needs_commit = True
     
     task = AgentTask.query.filter_by(endpoint_id=agent.id, status="Pending").order_by(AgentTask.created_at.asc()).first()
@@ -274,6 +294,7 @@ def agent_result():
     
     if not agent or agent.is_blocked or agent.auth_token != data.get('auth_token'): 
         return jsonify({"status": "error"}), 403
+    update_agent_connection(agent)
     
     task = AgentTask.query.filter_by(id=data.get('task_id'), endpoint_id=agent.id).first()
     if task:
@@ -335,6 +356,7 @@ def agent_telemetry():
     agent_version = str(data.get('agent_version') or '').strip()[:50]
     if agent_version:
         agent.agent_version = agent_version
+    update_agent_connection(agent)
 
     telemetry = TelemetryHistory(
         endpoint_id=agent.id,
