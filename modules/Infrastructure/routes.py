@@ -985,8 +985,6 @@ def create_task():
             return jsonify({"success": False, "message": "Template denied or not found"}), 403
         action_type = 'agent_update'
         payload_dict = load_template_payload(template) if template else dict(data.get('payload', {}))
-        if not payload_dict.get('package_url'):
-            return jsonify({"success": False, "message": "Agent update requires package_url"}), 400
 
     # Метадані для звітності та автовідправки
     if data.get('report_template_id'): 
@@ -1015,13 +1013,32 @@ def create_task():
             }), 400
 
     if action_type == 'agent_update':
+        try:
+            payload_dict, unresolved = apply_template_variables(
+                payload_dict,
+                tpl_vars if isinstance(tpl_vars, dict) else {}
+            )
+        except ValueError as e:
+            return jsonify({"success": False, "message": str(e)}), 400
+        unresolved_required = [item for item in unresolved if item != 'sha256']
+        if unresolved_required:
+            return jsonify({
+                "success": False,
+                "message": "Missing template variables",
+                "missing_variables": unresolved_required
+            }), 400
+        if not str(payload_dict.get('package_url') or '').strip() or '{{' in str(payload_dict.get('package_url') or ''):
+            return jsonify({"success": False, "message": "Agent update requires package_url"}), 400
+
         sha256_value = str(payload_dict.get('sha256') or '').strip()
         if sha256_value:
             sha256_match = re.search(r"(?<![A-Fa-f0-9])[A-Fa-f0-9]{64}(?![A-Fa-f0-9])", sha256_value)
-            normalized_sha256 = sha256_match.group(0).upper() if sha256_match else re.sub(r"[^A-Fa-f0-9]", "", sha256_value).upper()
-            if len(normalized_sha256) != 64:
-                return jsonify({"success": False, "message": "Invalid package SHA256 format"}), 400
-            payload_dict['sha256'] = normalized_sha256
+            if sha256_match:
+                payload_dict['sha256'] = sha256_match.group(0).upper()
+            else:
+                payload_dict.pop('sha256', None)
+        else:
+            payload_dict.pop('sha256', None)
 
     # Розбір цілей
     agent_ids = []
