@@ -1,0 +1,11 @@
+{
+  "ServerUrl": "https://192.168.37.223:8443",
+  "GlobalApiKey": "",
+  "PollIntervalSeconds": 30,
+  "TaskHmacSecret": "",
+  "DefaultTaskTimeoutSeconds": 1800,
+  "MaxResultLogBytes": 262144,
+  "IgnoreTlsCertificateErrors": false,
+  "ServerCertificateSha256": "PASTE_SERVER_CERT_SHA256_WITHOUT_COLONS",
+  "RequireTaskSignature": true
+}

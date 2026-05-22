@@ -1,0 +1,510 @@
+{% extends "base.html" %}
+
+{% block title %}Newsletter Manager - WinHUB{% endblock %}
+
+{% block extra_head %}
+<script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.7.1/socket.io.min.js"></script>
+<style>
+    /* Toggle Switch Custom CSS for GPG Slider */
+    .toggle-switch { position: relative; display: inline-block; width: 44px; height: 24px; flex-shrink: 0;}
+    .toggle-switch input { opacity: 0; width: 0; height: 0; }
+    .toggle-slider { position: absolute; cursor: pointer; top: 0; left: 0; right: 0; bottom: 0; background-color: #cbd5e1; transition: .3s; border-radius: 24px; }
+    .toggle-slider:before { position: absolute; content: ""; height: 18px; width: 18px; left: 3px; bottom: 3px; background-color: white; transition: .3s; border-radius: 50%; box-shadow: 0 2px 4px rgba(0,0,0,0.2); }
+    input:checked + .toggle-slider { background-color: #10b981; }
+    input:checked + .toggle-slider:before { transform: translateX(20px); }
+</style>
+{% endblock %}
+
+{% block content %}
+<!-- Include Universal Sidebar -->
+{% include "sidebar.html" %}
+
+<!-- Main Content -->
+<main class="flex-1 flex flex-col bg-slate-50 relative z-10 overflow-hidden h-screen">
+    <header class="h-16 bg-white border-b border-slate-200 flex items-center justify-between px-8 shrink-0 shadow-sm">
+        <h2 class="text-lg font-bold text-slate-800">Newsletter Manager</h2>
+        <div class="flex items-center gap-4">
+            {% if permissions.manage_smtp %}
+            <button onclick="openSmtpModal()" class="flex items-center gap-2 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold py-1.5 px-3 rounded-lg border border-slate-300 transition-colors text-sm">
+                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z"></path><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"></path></svg>
+                SMTP Settings
+            </button>
+            {% endif %}
+            <div class="flex items-center gap-2 border-l border-slate-200 pl-4">
+                <div class="w-8 h-8 rounded-full bg-primary/10 text-primary flex items-center justify-center font-bold border border-primary/20">{{ username[0]|upper if username else 'U' }}</div>
+                <span class="text-sm font-medium text-slate-600">{{ username }}</span>
+            </div>
+        </div>
+    </header>
+
+    <div class="flex-1 p-6 overflow-hidden flex flex-col xl:flex-row gap-6">
+        
+        <!-- Left Column: Form & Lists -->
+        <div class="w-full xl:w-[600px] flex flex-col gap-6 shrink-0 overflow-y-auto">
+            
+            <!-- Campaign Setup Card -->
+            <article class="bg-white rounded-xl shadow-sm border border-slate-200 p-6 flex flex-col shrink-0">
+                <h3 class="text-md font-bold text-slate-800 mb-4 flex items-center gap-2">
+                    <svg class="w-5 h-5 text-primary" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z"></path></svg>
+                    Campaign Setup
+                </h3>
+
+                <form id="campaignForm" onsubmit="sendCampaign(event)">
+                    <div class="mb-4">
+                        <label class="block text-sm font-bold text-slate-700 mb-2">Sender Profile*</label>
+                        <select id="nlSender" required class="w-full px-4 py-2.5 border border-slate-300 rounded-lg outline-none focus:ring-2 focus:ring-primary font-medium text-slate-800 bg-slate-50">
+                            <option value="" disabled selected>Loading senders...</option>
+                        </select>
+                    </div>
+
+                    <div class="mb-4">
+                        <label class="block text-sm font-bold text-slate-700 mb-2">Target Lists*</label>
+                        <div id="nlListsCheckboxes" class="border border-slate-200 rounded-lg p-3 bg-slate-50 max-h-40 overflow-y-auto space-y-2">
+                            <span class="text-slate-500 text-sm italic">Loading lists...</span>
+                        </div>
+                    </div>
+
+                    <div class="mb-4 flex justify-between items-center bg-slate-100 p-3 rounded-lg border border-slate-200">
+                        <div>
+                            <span class="block text-sm font-bold text-slate-800">GPG Encryption</span>
+                            <span class="block text-xs text-slate-500">Encrypt email body before sending</span>
+                        </div>
+                        <label class="toggle-switch">
+                            <input type="checkbox" id="nlUseGpg" checked>
+                            <span class="toggle-slider"></span>
+                        </label>
+                    </div>
+
+                    <div class="mb-4">
+                        <label class="block text-sm font-bold text-slate-700 mb-2">Subject*</label>
+                        <input type="text" id="nlSubject" required class="w-full px-4 py-2 border border-slate-300 rounded-lg outline-none focus:ring-2 focus:ring-primary font-medium" placeholder="Email subject...">
+                    </div>
+
+                    <div class="mb-6">
+                        <label class="block text-sm font-bold text-slate-700 mb-2">Email Body*</label>
+                        <textarea id="nlBody" required rows="5" class="w-full px-4 py-2 border border-slate-300 rounded-lg outline-none focus:ring-2 focus:ring-primary font-mono text-sm resize-none" placeholder="Write your message here..."></textarea>
+                    </div>
+
+                    <button type="submit" id="btnSend" class="w-full bg-primary hover:bg-primary-dark text-white font-bold py-3 rounded-lg shadow-sm transition-all flex justify-center items-center gap-2">
+                        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><line x1="22" y1="2" x2="11" y2="13"></line><polygon points="22 2 15 22 11 13 2 9 22 2"></polygon></svg>
+                        Send Campaign
+                    </button>
+                </form>
+            </article>
+
+            <!-- Manage Lists Card -->
+            <article class="bg-white rounded-xl shadow-sm border border-slate-200 p-6 flex flex-col shrink-0 flex-1 min-h-[300px]">
+                <div class="flex justify-between items-center mb-4">
+                    <h3 class="text-md font-bold text-slate-800 flex items-center gap-2">
+                        <svg class="w-5 h-5 text-emerald-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4.354a4 4 0 110 5.292M15 21H3v-1a6 6 0 0112 0v1zm0 0h6v-1a6 6 0 00-9-5.197M13 7a4 4 0 11-8 0 4 4 0 018 0z"></path></svg>
+                        Mailing Lists
+                    </h3>
+                    {% if permissions.manage_lists %}
+                    <button onclick="openListModal()" class="bg-emerald-500 hover:bg-emerald-600 text-white text-xs font-bold py-1.5 px-3 rounded shadow-sm transition-colors flex items-center gap-1">
+                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg> Create New
+                    </button>
+                    {% endif %}
+                </div>
+                
+                {% if permissions.manage_lists %}
+                <div id="nlExistingLists" class="flex-1 overflow-y-auto space-y-2 pr-1">
+                    <div class="text-center text-slate-400 italic text-sm mt-10">Loading lists...</div>
+                </div>
+                {% else %}
+                <div class="flex-1 flex flex-col items-center justify-center text-center p-4">
+                    <svg class="w-12 h-12 text-slate-200 mb-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z"></path></svg>
+                    <p class="text-sm text-slate-500">List management is restricted to administrators.<br>You can select available lists from the left panel.</p>
+                </div>
+                {% endif %}
+            </article>
+
+        </div>
+
+        <!-- Right Column: Live Terminal -->
+        <article class="flex-1 flex flex-col bg-slate-900 rounded-xl shadow-lg border border-slate-800 overflow-hidden min-h-[500px]">
+            <div class="h-10 bg-slate-800 border-b border-slate-700 flex items-center px-4 justify-between shrink-0">
+                <div class="flex items-center gap-2">
+                    <div class="w-3 h-3 rounded-full bg-rose-500"></div>
+                    <div class="w-3 h-3 rounded-full bg-amber-500"></div>
+                    <div class="w-3 h-3 rounded-full bg-emerald-500"></div>
+                    <span class="ml-2 text-xs font-mono text-slate-400">Campaign Execution Logs</span>
+                </div>
+                <button onclick="document.getElementById('terminalBody').innerHTML = ''" class="text-xs font-bold text-slate-400 hover:text-white transition-colors border border-slate-600 px-3 py-1 rounded">CLEAR</button>
+            </div>
+            <div id="terminalBody" class="flex-1 p-4 overflow-y-auto font-mono text-sm leading-relaxed text-emerald-400 whitespace-pre-wrap"></div>
+        </article>
+
+    </div>
+</main>
+
+<!-- Modal: List Editor (Admin Only) -->
+{% if permissions.manage_lists %}
+<div id="listModal" class="hidden fixed inset-0 z-50 flex items-center justify-center bg-slate-900/80 p-6 backdrop-blur-sm">
+    <div class="bg-white rounded-2xl shadow-2xl w-full max-w-2xl p-6 flex flex-col max-h-[85vh]">
+        <h3 class="text-xl font-bold text-slate-800 mb-4 flex items-center gap-2">
+            <svg class="w-6 h-6 text-primary" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"></path></svg>
+            List Editor
+        </h3>
+        
+        <div class="mb-4">
+            <label class="block text-xs font-bold text-slate-500 uppercase mb-1">List Name</label>
+            <input type="text" id="modalListName" class="w-full px-4 py-2 border border-slate-300 rounded-lg outline-none focus:ring-2 focus:ring-primary font-bold text-lg">
+        </div>
+
+        <div class="mb-4">
+            <label class="block text-xs font-bold text-slate-500 uppercase mb-1">Add Users (comma/space/newline separated)</label>
+            <div class="flex gap-2">
+                <textarea id="modalUserAdd" rows="2" class="flex-1 px-4 py-2 border border-slate-300 rounded-lg outline-none focus:ring-2 focus:ring-primary font-mono text-sm resize-none"></textarea>
+                <button onclick="addUsersToList()" class="bg-slate-800 hover:bg-slate-900 text-white font-bold px-6 rounded-lg transition-colors flex items-center justify-center">Add</button>
+            </div>
+        </div>
+
+        <div class="flex justify-between items-center mb-2">
+            <span class="font-bold text-sm text-slate-700">Total Users: <span id="modalUserCount" class="text-primary">0</span></span>
+            <input type="text" id="modalSearch" onkeyup="renderModalUsers()" placeholder="Search users..." class="px-3 py-1.5 border border-slate-300 rounded-lg text-sm outline-none focus:border-primary">
+        </div>
+
+        <div id="modalUsersContainer" class="flex-1 overflow-y-auto border border-slate-200 rounded-lg bg-slate-50 p-2 mb-4 space-y-1"></div>
+        
+        <div class="flex justify-end gap-3 shrink-0 pt-2 border-t border-slate-100">
+            <button onclick="closeListModal()" class="px-4 py-2 text-slate-500 hover:bg-slate-100 font-bold rounded-lg transition-colors">Cancel</button>
+            <button onclick="saveList()" class="bg-primary hover:bg-primary-dark text-white font-bold py-2 px-6 rounded-lg transition-all shadow-sm">Save List</button>
+        </div>
+    </div>
+</div>
+{% endif %}
+
+<!-- Modal: Admin SMTP Settings -->
+{% if permissions.manage_smtp %}
+<div id="smtpModal" class="hidden fixed inset-0 z-50 flex items-center justify-center bg-slate-900/80 p-6 backdrop-blur-sm">
+    <div class="bg-white rounded-2xl shadow-2xl w-full max-w-4xl p-6 flex flex-col max-h-[85vh]">
+        <h3 class="text-xl font-bold text-slate-800 mb-4 flex items-center gap-2 border-b border-slate-200 pb-3">
+            <svg class="w-6 h-6 text-slate-700" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z"></path><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"></path></svg>
+            SMTP & GPG Profiles Management
+        </h3>
+        
+        <div class="flex gap-6 flex-1 min-h-0">
+            <!-- Add New Form -->
+            <div class="w-1/2 flex flex-col bg-slate-50 p-4 rounded-xl border border-slate-200 overflow-y-auto">
+                <h4 class="font-bold text-sm text-slate-600 mb-3 uppercase">Add New Profile</h4>
+                
+                <label class="block text-xs font-bold text-slate-500 mb-1">Sender Email</label>
+                <input type="email" id="smtpEmail" placeholder="e.g. news@domain.com" class="w-full px-3 py-2 border border-slate-300 rounded-lg mb-3 text-sm focus:ring-2 focus:ring-primary outline-none">
+                
+                <label class="block text-xs font-bold text-slate-500 mb-1">SMTP Host</label>
+                <input type="text" id="smtpHost" placeholder="e.g. mail.domain.com" class="w-full px-3 py-2 border border-slate-300 rounded-lg mb-3 text-sm focus:ring-2 focus:ring-primary outline-none">
+                
+                <div class="flex gap-3 mb-3">
+                    <div class="w-1/3">
+                        <label class="block text-xs font-bold text-slate-500 mb-1">Port</label>
+                        <input type="number" id="smtpPort" placeholder="587" value="587" class="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-primary outline-none">
+                    </div>
+                    <div class="w-2/3">
+                        <label class="block text-xs font-bold text-slate-500 mb-1">Password</label>
+                        <input type="password" id="smtpPass" placeholder="••••••••" class="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-primary outline-none">
+                    </div>
+                </div>
+
+                <div class="mt-2 mb-4 p-3 bg-blue-50 border border-blue-200 rounded-lg">
+                    <label class="block text-xs font-bold text-blue-700 mb-1">GPG Keyserver URL (Optional)</label>
+                    <p class="text-xs text-blue-600 mb-2">If provided, the system will automatically fetch missing GPG keys for this domain.</p>
+                    <input type="url" id="smtpKeyserver" placeholder="e.g. hkps://keys.domain.com" class="w-full px-3 py-2 border border-blue-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 outline-none">
+                </div>
+
+                <div class="text-xs text-amber-600 bg-amber-50 p-2 rounded mb-4 border border-amber-200">
+                    🔒 Passwords are encrypted using AES-128 (Fernet) before being saved to the configuration file.
+                </div>
+                <button onclick="saveSmtpProfile()" class="w-full bg-slate-800 hover:bg-slate-900 text-white font-bold py-2.5 rounded-lg transition-colors mt-auto">Save Profile</button>
+            </div>
+            
+            <!-- Existing Profiles -->
+            <div class="w-1/2 flex flex-col">
+                <h4 class="font-bold text-sm text-slate-600 mb-3 uppercase">Saved Profiles</h4>
+                <div id="smtpSavedList" class="flex-1 overflow-y-auto space-y-2 border border-slate-200 rounded-xl p-2 bg-slate-50"></div>
+            </div>
+        </div>
+
+        <div class="flex justify-end pt-4 border-t border-slate-200 mt-4">
+            <button onclick="closeSmtpModal()" class="bg-slate-200 hover:bg-slate-300 text-slate-700 font-bold py-2 px-6 rounded-lg transition-colors">Close</button>
+        </div>
+    </div>
+</div>
+{% endif %}
+
+<script>
+    const socket = io();
+    const terminal = document.getElementById('terminalBody');
+    let moduleData = { senders: [], lists: {} };
+    let currentEditListUsers = [];
+    let originalEditListName = null;
+
+    window.onload = () => { loadConfig(); };
+
+    socket.on('connect', function() {
+        socket.emit('join_newsletter_logs');
+    });
+    socket.on('log_update', function(msg) { appendLog(msg.data); });
+
+    document.getElementById('nlUseGpg').addEventListener('change', function() {
+        if (!this.checked) {
+            const confirmed = confirm('Are you sure you want to send this campaign without GPG encryption? The email body will be sent as plain text.');
+            if (!confirmed) this.checked = true;
+        }
+    });
+
+    function appendLog(msg) {
+        const div = document.createElement('div');
+        div.className = "mb-0.5 text-emerald-400";
+        if(msg.includes("❌") || msg.includes("ERROR") || msg.includes("Failed")) div.className = "mb-0.5 text-rose-400";
+        else if(msg.includes("===") || msg.includes("---")) div.className = "mb-0.5 text-blue-400 font-bold mt-2";
+        else if(msg.includes("⏳") || msg.includes("⚠️") || msg.includes("🔑")) div.className = "mb-0.5 text-amber-400";
+        else if(msg.includes("📊") || msg.includes("Total") || msg.includes("Campaign completed")) div.className = "mb-0.5 text-white font-bold";
+        
+        div.innerText = msg;
+        terminal.appendChild(div);
+        terminal.scrollTop = terminal.scrollHeight;
+    }
+
+    async function loadConfig() {
+        try {
+            const res = await fetch('/api/newsletter/config');
+            moduleData = await res.json();
+            renderUI();
+            {% if permissions.manage_smtp %} renderSmtpModalList(); {% endif %}
+        } catch (e) { console.error("Config load error", e); }
+    }
+
+    function renderUI() {
+        // Senders Dropdown
+        const senderSelect = document.getElementById('nlSender');
+        if (moduleData.senders.length === 0) {
+            senderSelect.innerHTML = '<option value="" disabled selected>No profiles configured (Contact Admin)</option>';
+        } else {
+            senderSelect.innerHTML = moduleData.senders.map(s => `<option value="${s.email}">${s.email}</option>`).join('');
+        }
+
+        // Checkboxes & Right Panel Lists
+        const cbContainer = document.getElementById('nlListsCheckboxes');
+        const rightPanel = document.getElementById('nlExistingLists');
+        const listNames = Object.keys(moduleData.lists);
+
+        if (listNames.length === 0) {
+            cbContainer.innerHTML = '<span class="text-slate-500 text-sm italic">No lists created yet.</span>';
+            if (rightPanel) rightPanel.innerHTML = '<div class="text-center text-slate-400 italic text-sm mt-10">No lists created. Click "Create New".</div>';
+        } else {
+            // Для звичайних юзерів ми не показуємо бейдж з кількістю
+            cbContainer.innerHTML = listNames.map(name => `
+                <label class="flex items-center gap-3 p-2 hover:bg-slate-100 rounded cursor-pointer border border-slate-200 bg-white shadow-sm">
+                    <input type="checkbox" value="${name}" class="nl-list-cb w-4 h-4 text-primary border-slate-300 rounded cursor-pointer">
+                    <span class="text-sm font-bold text-slate-700 flex-1">${name}</span>
+                    ${moduleData.lists[name].length > 0 ? `<span class="text-xs bg-slate-200 text-slate-600 px-2 py-0.5 rounded-full font-bold">${moduleData.lists[name].length}</span>` : ''}
+                </label>
+            `).join('');
+
+            // Панель списків для адмінів
+            if (rightPanel) {
+                rightPanel.innerHTML = listNames.map(name => `
+                    <div class="flex justify-between items-center p-3 bg-slate-50 border border-slate-200 rounded-lg hover:border-slate-300 transition-colors">
+                        <div>
+                            <div class="font-bold text-slate-700 text-sm">${name}</div>
+                            <div class="text-xs text-slate-500 mt-0.5 font-bold">${moduleData.lists[name].length} users</div>
+                        </div>
+                        <div class="flex gap-2">
+                            <button onclick="openListModal('${name}')" class="p-1.5 text-primary hover:bg-blue-50 rounded transition-colors bg-white border border-slate-200 shadow-sm"><svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z"></path></svg></button>
+                            <button onclick="deleteList('${name}')" class="p-1.5 text-rose-500 hover:bg-rose-50 rounded transition-colors bg-white border border-slate-200 shadow-sm"><svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"></path></svg></button>
+                        </div>
+                    </div>
+                `).join('');
+            }
+        }
+    }
+
+    // --- Campaign Execution ---
+    async function sendCampaign(e) {
+        e.preventDefault();
+        const btn = document.getElementById('btnSend');
+        const originalHtml = btn.innerHTML;
+        
+        const payload = {
+            sender: document.getElementById('nlSender').value,
+            lists: Array.from(document.querySelectorAll('.nl-list-cb:checked')).map(cb => cb.value),
+            subject: document.getElementById('nlSubject').value,
+            body: document.getElementById('nlBody').value,
+            use_gpg: document.getElementById('nlUseGpg').checked
+        };
+
+        if(payload.lists.length === 0) return alert('Please select at least one target list.');
+        if(!payload.use_gpg) {
+            const confirmed = confirm('Final confirmation: send this campaign without GPG encryption?');
+            if(!confirmed) return;
+        }
+
+        btn.disabled = true;
+        btn.innerHTML = '<svg class="animate-spin h-5 w-5 border-2 border-white border-t-transparent rounded-full"></svg> Executing...';
+        btn.classList.add('opacity-75', 'cursor-not-allowed');
+
+        appendLog("\n\n⏳ [BACKGROUND PROCESS] CAMPAIGN STARTED. Waiting for server logs...");
+
+        try {
+            const res = await fetch('/api/newsletter/send', {
+                method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(payload)
+            });
+            const data = await res.json();
+            if (!data.success) appendLog(`[SYSTEM ERROR] ${data.message}`);
+        } catch(err) { appendLog(`[NETWORK ERROR] Failed to send request.`); }
+        finally {
+            setTimeout(() => {
+                btn.disabled = false; btn.innerHTML = originalHtml; btn.classList.remove('opacity-75', 'cursor-not-allowed');
+                document.getElementById('nlSubject').value = '';
+                document.getElementById('nlBody').value = '';
+                document.querySelectorAll('.nl-list-cb').forEach(cb => cb.checked = false);
+            }, 1000);
+        }
+    }
+
+    // --- Permission-controlled management functions ---
+    {% if permissions.manage_lists %}
+    // --- List Management ---
+    function openListModal(listName = null) {
+        originalEditListName = listName;
+        document.getElementById('modalUserAdd').value = '';
+        document.getElementById('modalSearch').value = '';
+        
+        if (listName) {
+            document.getElementById('modalListName').value = listName;
+            currentEditListUsers = [...moduleData.lists[listName]];
+        } else {
+            document.getElementById('modalListName').value = '';
+            currentEditListUsers = [];
+        }
+        renderModalUsers();
+        document.getElementById('listModal').classList.remove('hidden');
+    }
+
+    function closeListModal() { document.getElementById('listModal').classList.add('hidden'); }
+
+    function addUsersToList() {
+        const input = document.getElementById('modalUserAdd').value;
+        if (!input.trim()) return;
+        const newUsers = input.split(/[\n,\s]+/).map(u => u.trim()).filter(u => u.length > 0);
+        
+        const set = new Set(currentEditListUsers);
+        newUsers.forEach(u => set.add(u));
+        currentEditListUsers = Array.from(set);
+        
+        document.getElementById('modalUserAdd').value = '';
+        renderModalUsers();
+    }
+
+    function renderModalUsers() {
+        const search = document.getElementById('modalSearch').value.toLowerCase();
+        const filtered = search ? currentEditListUsers.filter(u => u.toLowerCase().includes(search)) : currentEditListUsers;
+        
+        document.getElementById('modalUserCount').innerText = currentEditListUsers.length;
+        const container = document.getElementById('modalUsersContainer');
+        
+        if (filtered.length === 0) {
+            container.innerHTML = '<div class="text-center text-slate-400 font-bold italic py-6 text-sm">List is empty</div>';
+            return;
+        }
+
+        const chunk = filtered.slice(0, 300);
+        container.innerHTML = chunk.map(u => `
+            <div class="flex justify-between items-center bg-white border border-slate-200 p-2 rounded shadow-sm">
+                <span class="font-mono text-sm font-bold text-slate-700">${u}</span>
+                <button onclick="removeUser('${u}')" class="text-rose-400 hover:text-rose-600 transition-colors"><svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path></svg></button>
+            </div>
+        `).join('') + (filtered.length > 300 ? `<div class="text-center text-xs text-slate-400 mt-2 font-bold">+ ${filtered.length - 300} more hidden for UI performance</div>` : '');
+    }
+
+    function removeUser(user) {
+        currentEditListUsers = currentEditListUsers.filter(u => u !== user);
+        renderModalUsers();
+    }
+
+    async function saveList() {
+        const newName = document.getElementById('modalListName').value.trim().replace(/\s+/g, '_');
+        if (!newName) return alert("List name is required!");
+        if (currentEditListUsers.length === 0) return alert("List cannot be empty!");
+
+        try {
+            if (originalEditListName && originalEditListName !== newName) {
+                await fetch(`/api/newsletter/lists/${originalEditListName}`, { method: 'DELETE' });
+            }
+            await fetch('/api/newsletter/lists', {
+                method: 'POST', headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({ list_name: newName, users: currentEditListUsers })
+            });
+            closeListModal();
+            loadConfig();
+        } catch(e) { alert("Network Error"); }
+    }
+
+    async function deleteList(listName) {
+        if (!confirm(`Permanently delete the list "${listName}"?`)) return;
+        try {
+            await fetch(`/api/newsletter/lists/${listName}`, { method: 'DELETE' });
+            loadConfig();
+        } catch(e) { alert("Network Error"); }
+    }
+
+    {% endif %}
+
+    {% if permissions.manage_smtp %}
+    // --- SMTP Management ---
+    function openSmtpModal() { document.getElementById('smtpModal').classList.remove('hidden'); }
+    function closeSmtpModal() { document.getElementById('smtpModal').classList.add('hidden'); }
+
+    function renderSmtpModalList() {
+        const container = document.getElementById('smtpSavedList');
+        if (moduleData.senders.length === 0) {
+            container.innerHTML = '<div class="text-center text-slate-400 italic text-sm mt-4">No profiles saved.</div>';
+            return;
+        }
+        container.innerHTML = moduleData.senders.map(s => `
+            <div class="flex justify-between items-start bg-white border border-slate-200 p-3 rounded-lg shadow-sm">
+                <div>
+                    <div class="font-bold text-slate-700 text-sm flex items-center gap-2"><svg class="w-4 h-4 text-emerald-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z"></path></svg> ${s.email}</div>
+                    <div class="text-xs text-slate-500 font-mono mt-1">Host: ${s.host}:${s.port}</div>
+                    ${s.keyserver ? `<div class="text-xs text-blue-600 font-mono mt-1 flex items-center gap-1"><svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 12a9 9 0 01-9 9m9-9a9 9 0 00-9-9m9 9H3m9 9a9 9 0 01-9-9m9 9c1.657 0 3-4.03 3-9s-1.343-9-3-9m0 18c-1.657 0-3-4.03-3-9s1.343-9 3-9m-9 9a9 9 0 019-9"></path></svg> ${s.keyserver}</div>` : ''}
+                </div>
+                <button onclick="deleteSmtpProfile('${s.email}')" class="p-1.5 text-rose-500 hover:bg-rose-50 rounded transition-colors"><svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"></path></svg></button>
+            </div>
+        `).join('');
+    }
+
+    async function saveSmtpProfile() {
+        const email = document.getElementById('smtpEmail').value;
+        const host = document.getElementById('smtpHost').value;
+        const port = document.getElementById('smtpPort').value;
+        const password = document.getElementById('smtpPass').value;
+        const keyserver = document.getElementById('smtpKeyserver').value;
+
+        if(!email || !host || !password) return alert("Please fill all required fields.");
+
+        try {
+            await fetch('/api/newsletter/smtp', {
+                method: 'POST', headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({ action: "add", email, host, port, password, keyserver })
+            });
+            document.getElementById('smtpEmail').value = '';
+            document.getElementById('smtpHost').value = '';
+            document.getElementById('smtpPass').value = '';
+            document.getElementById('smtpKeyserver').value = '';
+            loadConfig();
+        } catch(e) { alert("Network Error"); }
+    }
+
+    async function deleteSmtpProfile(email) {
+        if(!confirm(`Delete profile ${email}?`)) return;
+        try {
+            await fetch('/api/newsletter/smtp', {
+                method: 'POST', headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({ action: "delete", email })
+            });
+            loadConfig();
+        } catch(e) { alert("Network Error"); }
+    }
+    {% endif %}
+</script>
+{% endblock %}

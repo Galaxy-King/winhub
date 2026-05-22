@@ -1,0 +1,4 @@
+{
+  "GlobalApiKey": "replace-with-AGENT_API_KEY-from-server-env",
+  "TaskHmacSecret": "replace-with-AGENT_TASK_HMAC_SECRET-from-server-env"
+}

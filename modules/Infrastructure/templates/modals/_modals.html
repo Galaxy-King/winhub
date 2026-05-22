@@ -1,0 +1,631 @@
+<!-- HOST DETAILS MODAL -->
+<div id="hostModal" class="fixed inset-0 z-[100] hidden flex items-center justify-center bg-slate-900/60 backdrop-blur-md p-4 animate-in fade-in">
+    <div class="bg-white w-full max-w-5xl rounded-[3rem] shadow-2xl overflow-hidden flex flex-col max-h-[92vh]">
+        <div class="p-6 sm:p-10 border-b border-slate-100 flex justify-between items-start shrink-0 bg-slate-50/50">
+            <div class="flex items-center gap-4 sm:gap-6">
+                <div id="mOsIcon" class="w-12 h-12 sm:w-16 sm:h-16 bg-white rounded-2xl sm:rounded-3xl shadow-sm border border-slate-100 flex items-center justify-center text-slate-500 shrink-0">
+                    <svg class="w-6 h-6 sm:w-8 sm:h-8" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9.75 17L9 20l-1 1h8l-1-1-.75-3M3 13h18M5 17h14a2 2 0 002-2V5a2 2 0 00-2 2v10a2 2 0 002 2z"></path></svg>
+                </div>
+                <div class="overflow-hidden">
+                    <h2 id="mName" class="text-xl sm:text-3xl font-black text-slate-900 mb-1 truncate">Loading...</h2>
+                    <p id="mId" class="text-[10px] sm:text-xs font-mono text-slate-400 truncate">ID: ...</p>
+                </div>
+            </div>
+            <button onclick="closeModal('hostModal')" class="p-2 sm:p-3 bg-white border border-slate-200 hover:bg-slate-50 rounded-xl sm:rounded-2xl text-slate-500 hover:text-slate-800 transition-colors shadow-sm"><svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path d="M6 18L18 6M6 6l12 12" stroke-width="2.5"/></svg></button>
+        </div>
+        
+        <div class="flex border-b border-slate-200 px-6 sm:px-10 shrink-0 bg-white overflow-x-auto no-scrollbar">
+            <button onclick="switchHostTab('info')" id="htabBtn_info" class="px-4 py-3 font-bold text-sm text-indigo-600 border-b-2 border-indigo-600 transition-colors whitespace-nowrap">Information & Actions</button>
+            <button onclick="switchHostTab('items')" id="htabBtn_items" class="px-4 py-3 font-bold text-sm text-slate-500 border-b-2 border-transparent hover:text-slate-800 transition-colors flex items-center gap-2 whitespace-nowrap">
+                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2"></path></svg>
+                Custom Items
+            </button>
+            <button onclick="switchHostTab('telemetry')" id="htabBtn_telemetry" class="px-4 py-3 font-bold text-sm text-slate-500 border-b-2 border-transparent hover:text-slate-800 transition-colors flex items-center gap-2 whitespace-nowrap">
+                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 12l3-3 3 3 4-4M8 21l4-4 4 4M3 4h18M4 4h16v12a1 1 0 01-1 1H5a1 1 0 01-1-1V4z"></path></svg>
+                Telemetry (RMM)
+            </button>
+        </div>
+
+        <div id="htab_info" class="flex-1 overflow-y-auto p-6 sm:p-10 grid grid-cols-1 lg:grid-cols-12 gap-8 sm:gap-10 block">
+            <div class="lg:col-span-4 space-y-8 text-sm">
+                <div class="bg-slate-50 rounded-[2rem] p-6 space-y-4 border border-slate-100">
+                    <label class="text-[10px] font-black text-slate-400 uppercase tracking-widest block">Specifications</label>
+                    <div class="space-y-3">
+                        <div class="flex justify-between font-bold items-center"><span class="text-slate-400">IP:</span><span id="mIp" class="text-slate-700 font-mono">...</span></div>
+                        <div class="flex flex-col gap-1"><span class="text-slate-400 font-bold">OS:</span><span id="mOs" class="text-slate-700 text-xs break-words leading-relaxed">...</span></div>
+                        <div class="flex justify-between font-bold items-center"><span class="text-slate-400">Agent:</span><span id="mAgentVersion" class="text-slate-700 text-[10px]">...</span></div>
+                        <div class="flex justify-between font-bold items-center"><span class="text-slate-400">Last Pulse:</span><span id="mSeen" class="text-slate-700 text-[10px]">...</span></div>
+                        <div class="flex justify-between font-bold items-center"><span class="text-slate-400">Approval:</span><span id="mApprovalStatus">...</span></div>
+                        <div class="flex justify-between font-bold items-center"><span class="text-slate-400">Access:</span><span id="mAccessStatus">...</span></div>
+                    </div>
+                </div>
+                <div class="bg-slate-50 rounded-[2rem] p-6 space-y-4 border border-slate-100">
+                    <label class="text-[10px] font-black text-slate-400 uppercase tracking-widest block">Network Interfaces</label>
+                    <div id="mNetworkInfo" class="space-y-3 text-xs"></div>
+                </div>
+                <div class="bg-slate-50 rounded-[2rem] p-6 space-y-4 border border-slate-100">
+                    <label class="text-[10px] font-black text-slate-400 uppercase tracking-widest block">Host Inventory</label>
+                    <div id="mHostInfo" class="space-y-3 text-xs"></div>
+                </div>
+                <div class="bg-slate-50 rounded-[2rem] p-6 space-y-4 border border-slate-100">
+                    <label class="text-[10px] font-black text-slate-400 uppercase tracking-widest block">Security State</label>
+                    <div id="mSecurityInfo" class="space-y-3 text-xs"></div>
+                </div>
+                <div class="bg-slate-50 rounded-[2rem] p-6 space-y-4 border border-slate-100"><label class="text-[10px] font-black text-slate-400 uppercase tracking-widest block">Groups</label><div id="mGroups" class="flex flex-wrap gap-2"></div></div>
+                
+                {% if permissions.manage_hosts %}
+                <div class="pt-6 border-t border-slate-100 flex flex-col gap-3">
+                    <button onclick="setHostApproval('Approved')" id="btnApproveHost" class="w-full py-4 bg-emerald-50 text-emerald-600 rounded-2xl text-xs font-black uppercase tracking-wider hover:bg-emerald-100 transition-all border border-emerald-100">Approve Host</button>
+                    <button onclick="setHostApproval('Rejected')" id="btnRejectHost" class="w-full py-4 bg-amber-50 text-amber-600 rounded-2xl text-xs font-black uppercase tracking-wider hover:bg-amber-100 transition-all border border-amber-100">Reject Host</button>
+                    <button onclick="toggleBlockHost()" id="btnBlockHost" class="w-full py-4 bg-slate-100 text-slate-600 rounded-2xl text-xs font-black uppercase tracking-wider hover:bg-slate-200 transition-all border border-slate-200">Block Host</button>
+                    <button onclick="confirmDeleteHost()" class="w-full py-4 bg-rose-50 text-rose-600 rounded-2xl text-xs font-black uppercase tracking-wider hover:bg-rose-100 transition-all border border-rose-100">Delete Record</button>
+                </div>
+                {% endif %}
+            </div>
+            <div class="lg:col-span-8">
+                <label class="text-[10px] font-black text-slate-400 uppercase tracking-widest block mb-6">Task History (Click to view log)</label>
+                <div id="mHistory" class="space-y-3"></div>
+            </div>
+        </div>
+
+        <div id="htab_items" class="hidden flex-1 overflow-y-auto p-6 sm:p-10 flex-col gap-6 bg-slate-50/30">
+            <div class="flex justify-between items-center bg-white p-5 rounded-[2rem] border border-slate-200 shadow-sm shrink-0">
+                <div>
+                    <h3 class="text-lg font-black text-slate-800 uppercase tracking-tight">Latest Data</h3>
+                    <p class="text-[10px] font-bold text-slate-400 uppercase tracking-widest mt-1">Results from Metric Collection Scripts</p>
+                </div>
+                <button onclick="loadHostMetrics()" class="p-3 bg-slate-100 hover:bg-slate-200 rounded-xl text-slate-500 transition-colors">
+                    <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"></path></svg>
+                </button>
+            </div>
+            
+            <div class="bg-white rounded-[2.5rem] border border-slate-200 shadow-sm overflow-hidden flex-1">
+                <table class="w-full text-left">
+                    <thead class="bg-slate-50/50 border-b border-slate-100 text-[10px] font-black text-slate-400 uppercase tracking-widest">
+                        <tr>
+                            <th class="px-8 py-5">Item Name</th>
+                            <th class="px-8 py-5">Last Value</th>
+                            <th class="px-8 py-5 text-right">Last Updated</th>
+                        </tr>
+                    </thead>
+                    <tbody id="mItemsBody" class="divide-y divide-slate-50"></tbody>
+                </table>
+            </div>
+        </div>
+
+        <div id="htab_telemetry" class="hidden flex-1 overflow-y-auto p-6 sm:p-10 flex-col gap-8">
+            <div class="flex justify-between items-center shrink-0 bg-slate-50 p-2 rounded-2xl border border-slate-100 w-fit">
+                <button onclick="loadTelemetry(currentViewedHostId, 1)" id="telFilter1" class="px-6 py-2 rounded-xl text-xs font-black uppercase bg-white text-indigo-600 shadow-sm transition-all tel-filter-btn">1 Day</button>
+                <button onclick="loadTelemetry(currentViewedHostId, 7)" id="telFilter7" class="px-6 py-2 rounded-xl text-xs font-black uppercase text-slate-500 hover:text-slate-800 transition-all tel-filter-btn">7 Days</button>
+                <button onclick="loadTelemetry(currentViewedHostId, 30)" id="telFilter30" class="px-6 py-2 rounded-xl text-xs font-black uppercase text-slate-500 hover:text-slate-800 transition-all tel-filter-btn">30 Days</button>
+            </div>
+
+            <div class="shrink-0">
+                <label class="text-[10px] font-black text-slate-400 uppercase tracking-widest block mb-4">Resource Usage Trends</label>
+                <div class="bg-slate-50 rounded-[2rem] p-6 border border-slate-100 h-[300px] flex items-center justify-center relative shadow-inner">
+                    <canvas id="telemetryChart"></canvas>
+                    <div id="telemetryLoading" class="absolute inset-0 flex items-center justify-center bg-white/80 font-bold text-slate-400 rounded-[2rem]">Loading metrics...</div>
+                </div>
+            </div>
+
+            <div class="shrink-0">
+                <label class="text-[10px] font-black text-slate-400 uppercase tracking-widest block mb-4">Disk C: Free Space (GB)</label>
+                <div class="bg-slate-50 rounded-[2rem] p-6 border border-slate-100 h-[300px] flex items-center justify-center relative shadow-inner">
+                    <canvas id="diskChart"></canvas>
+                    <div id="diskLoading" class="absolute inset-0 flex items-center justify-center bg-white/80 font-bold text-slate-400 rounded-[2rem]">Loading disk metrics...</div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- CREATE GROUP MODAL -->
+<div id="createGroupModal" class="fixed inset-0 z-[120] hidden flex items-center justify-center bg-slate-900/60 backdrop-blur-md p-4 animate-in fade-in">
+    <div class="bg-white w-full max-w-md rounded-[3rem] shadow-2xl p-10 space-y-6">
+        <h2 class="text-2xl font-black text-slate-800 uppercase tracking-tight text-center">New Group</h2>
+        <div class="space-y-4">
+            <input type="text" id="cgName" placeholder="Group Name (e.g. Accounting)" class="w-full p-4 bg-slate-50 border border-slate-200 rounded-2xl text-sm font-bold outline-none focus:bg-white focus:ring-4 focus:ring-indigo-500/10 transition-all">
+            <input type="text" id="cgDesc" placeholder="Description (Optional)" class="w-full p-4 bg-slate-50 border border-slate-200 rounded-2xl text-sm font-medium outline-none focus:bg-white focus:ring-4 focus:ring-indigo-500/10 transition-all">
+        </div>
+        <div class="flex gap-4 pt-2">
+            <button onclick="closeModal('createGroupModal')" class="flex-1 py-4 bg-slate-100 hover:bg-slate-200 text-slate-600 rounded-2xl text-xs font-black uppercase transition-all">Cancel</button>
+            <button onclick="submitCreateGroup()" class="flex-1 py-4 bg-slate-800 hover:bg-slate-900 text-white rounded-2xl text-xs font-black uppercase shadow-lg transition-all">Create</button>
+        </div>
+    </div>
+</div>
+
+<!-- ADD HOST TO GROUP MODAL -->
+<div id="groupAddHostModal" class="fixed inset-0 z-[120] hidden flex items-center justify-center bg-slate-900/60 backdrop-blur-md p-4 animate-in fade-in">
+    <div class="bg-white w-full max-w-2xl rounded-[3rem] shadow-2xl overflow-hidden flex flex-col max-h-[85vh]">
+        <div class="p-8 sm:p-10 border-b border-slate-100 flex justify-between items-center shrink-0">
+            <h2 class="text-2xl font-black text-slate-800 uppercase tracking-tight">Add Hosts</h2>
+            <button onclick="closeModal('groupAddHostModal')" class="p-3 bg-white border border-slate-200 hover:bg-slate-50 rounded-2xl text-slate-500 hover:text-slate-800 transition-colors shadow-sm"><svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path d="M6 18L18 6M6 6l12 12" stroke-width="2.5"/></svg></button>
+        </div>
+        <div class="p-6 sm:p-8 shrink-0 border-b border-slate-50 bg-slate-50/50">
+            <input type="text" id="addHostSearch" onkeyup="filterAddHostList()" placeholder="Search available hosts..." class="w-full px-6 py-4 bg-white border border-slate-200 rounded-2xl text-sm font-medium outline-none focus:ring-4 focus:ring-indigo-500/10 transition-all shadow-sm">
+        </div>
+        <div class="flex-1 overflow-y-auto p-4 sm:p-6 custom-scrollbar" id="availableHostsList"></div>
+        <div class="p-6 sm:p-8 border-t border-slate-100 flex justify-between items-center bg-slate-50/50 shrink-0">
+            <span class="text-xs font-black text-indigo-600 uppercase tracking-widest bg-indigo-50 px-4 py-2 rounded-xl border border-indigo-100">Selected: <span id="selCount" class="text-indigo-800 text-sm">0</span></span>
+            <button onclick="submitAddHostsToGroup()" class="px-10 py-4 bg-indigo-600 text-white font-black uppercase text-xs rounded-2xl shadow-lg hover:bg-indigo-700 transition-colors">Add Selected</button>
+        </div>
+    </div>
+</div>
+
+<!-- CONFIRM DELETE MODAL -->
+<div id="confirmModal" class="fixed inset-0 z-[130] hidden flex items-center justify-center bg-slate-900/60 backdrop-blur-md p-4 animate-in zoom-in-95">
+    <div class="bg-white p-10 rounded-[3rem] shadow-2xl max-w-sm w-full text-center border border-rose-100">
+        <div class="w-20 h-20 bg-rose-100 text-rose-500 rounded-full flex items-center justify-center mx-auto mb-6">
+            <svg class="w-10 h-10" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"></path></svg>
+        </div>
+        <h3 class="text-2xl font-black text-slate-900 mb-3 tracking-tight">Warning!</h3>
+        <p class="text-sm text-slate-500 mb-8 font-medium leading-relaxed">Are you sure you want to permanently delete <br><span id="confName" class="font-black text-slate-800 bg-slate-100 px-2 py-0.5 rounded"></span>?</p>
+        <div class="grid grid-cols-2 gap-4">
+            <button onclick="closeModal('confirmModal')" class="py-4 bg-slate-100 text-slate-600 rounded-2xl text-xs font-black uppercase hover:bg-slate-200 transition-colors">Cancel</button>
+            <button id="finalDelBtn" class="py-4 bg-rose-600 text-white rounded-2xl text-xs font-black uppercase shadow-lg shadow-rose-200 hover:bg-rose-700 transition-colors">Delete</button>
+        </div>
+    </div>
+</div>
+
+<!-- JOB MODAL -->
+<div id="jobModal" class="fixed inset-0 z-[100] hidden flex items-center justify-center bg-slate-900/60 backdrop-blur-md p-4 animate-in fade-in">
+    <div class="bg-white w-full max-w-5xl rounded-[3rem] shadow-2xl overflow-hidden flex flex-col max-h-[90vh]">
+        <div class="p-6 sm:p-10 border-b border-slate-100 flex justify-between items-center bg-slate-50/50 shrink-0">
+            <div>
+                <h2 id="jTitle" class="text-2xl font-black text-slate-800 uppercase tracking-tight">Job Details</h2>
+                <p id="jInfo" class="text-xs text-slate-400 font-bold mt-2 tracking-widest uppercase">...</p>
+            </div>
+            <button onclick="closeModal('jobModal')" class="p-3 bg-white border border-slate-200 hover:bg-slate-50 rounded-2xl text-slate-500 hover:text-slate-800 transition-colors shadow-sm"><svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path d="M6 18L18 6M6 6l12 12" stroke-width="2.5"/></svg></button>
+        </div>
+        <div class="flex-1 overflow-y-auto overflow-x-auto p-6 sm:p-10">
+            <table class="w-full text-left min-w-[500px]">
+                <thead class="sticky top-0 bg-white">
+                    <tr class="border-b border-slate-100 text-[10px] font-black text-slate-400 uppercase tracking-widest">
+                        <th class="py-4 px-4">Hostname</th>
+                        <th class="py-4 px-4 text-center">Status</th>
+                        <th class="py-4 px-4 text-right">Action</th>
+                    </tr>
+                </thead>
+                <tbody id="jobHostsBody" class="divide-y divide-slate-50"></tbody>
+            </table>
+        </div>
+    </div>
+</div>
+
+<!-- TASK MODAL -->
+<div id="taskModal" class="fixed inset-0 z-[110] hidden flex items-center justify-center bg-slate-900/80 backdrop-blur-md p-4 animate-in fade-in">
+    <div class="bg-white w-full max-w-5xl rounded-[3rem] shadow-2xl overflow-hidden flex flex-col max-h-[95vh] h-full">
+        <div class="p-6 sm:p-8 border-b border-slate-100 flex justify-between items-center bg-slate-50/50 shrink-0">
+            <div>
+                <h2 id="tTitle" class="text-xl font-black text-slate-800 uppercase tracking-tight">Terminal Log</h2>
+                <p id="tId" class="text-[10px] text-slate-400 font-mono mt-1.5 uppercase tracking-widest">...</p>
+            </div>
+            <button onclick="closeModal('taskModal')" class="p-3 bg-white border border-slate-200 hover:bg-slate-50 rounded-2xl text-slate-500 hover:text-slate-800 transition-colors shadow-sm"><svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path d="M6 18L18 6M6 6l12 12" stroke-width="2.5"/></svg></button>
+        </div>
+        <div class="p-6 sm:p-8 flex flex-col flex-1 overflow-hidden gap-6">
+            <div class="grid grid-cols-1 sm:grid-cols-2 gap-4 shrink-0">
+                <div class="bg-slate-50 p-5 rounded-[2rem] border border-slate-100">
+                    <p class="text-[10px] text-slate-400 font-black uppercase tracking-widest mb-1.5">Node</p>
+                    <p id="tHost" class="font-bold text-slate-800 text-lg">...</p>
+                </div>
+                <div class="bg-slate-50 p-5 rounded-[2rem] border border-slate-100">
+                    <p class="text-[10px] text-slate-400 font-black uppercase tracking-widest mb-1.5">Status</p>
+                    <p id="tStatus" class="font-bold text-lg">...</p>
+                </div>
+            </div>
+            <div class="bg-slate-900 rounded-[2.5rem] p-6 sm:p-8 border border-slate-800 flex-1 overflow-hidden shadow-inner flex flex-col">
+                <pre id="tLog" class="text-emerald-400 font-mono text-xs whitespace-pre-wrap overflow-y-auto custom-scrollbar flex-1">Loading...</pre>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- ВІКНО ПЕРЕГЛЯДУ ТА РЕДАГУВАННЯ ЗВІТУ -->
+<div id="reportViewModal" class="fixed inset-0 z-[115] hidden flex items-center justify-center bg-slate-900/60 backdrop-blur-md p-4 animate-in fade-in">
+    <div class="bg-white w-full max-w-5xl rounded-[3rem] shadow-2xl overflow-hidden flex flex-col h-[90vh]">
+        <div class="p-6 sm:p-8 border-b border-slate-100 flex justify-between items-start bg-slate-50/50 shrink-0">
+            <div>
+                <h2 id="vrTitle" class="text-2xl font-black text-slate-800 uppercase tracking-tight">Report Details</h2>
+                <div class="flex items-center gap-3 mt-2">
+                    <span id="vrStatus" class="px-3 py-1 rounded-lg text-[10px] font-black uppercase tracking-widest border shadow-sm">...</span>
+                </div>
+            </div>
+            <div class="flex items-center gap-3">
+                {% if permissions.manage_reports %}
+                <button id="btnSaveReportText" onclick="saveReportChanges()" class="px-6 py-3 bg-emerald-50 text-emerald-600 border border-emerald-200 hover:bg-emerald-100 rounded-2xl text-xs font-black uppercase transition-all shadow-sm">Save Changes</button>
+                {% endif %}
+                <button onclick="closeModal('reportViewModal')" class="p-3 bg-white border border-slate-200 hover:bg-slate-50 rounded-2xl text-slate-500 hover:text-slate-800 transition-colors shadow-sm"><svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path d="M6 18L18 6M6 6l12 12" stroke-width="2.5"/></svg></button>
+            </div>
+        </div>
+        
+        <div class="flex-1 bg-slate-900 shadow-inner flex flex-col p-6 sm:p-8">
+            <textarea id="vrBody" spellcheck="false" class="w-full flex-1 bg-transparent text-emerald-400 font-mono text-sm leading-relaxed resize-none outline-none custom-scrollbar border-0 p-0 focus:ring-0" {% if not permissions.manage_reports %}readonly{% endif %}>Loading...</textarea>
+        </div>
+        
+        <div class="p-6 sm:p-8 border-t border-slate-100 bg-white flex flex-wrap justify-between items-center gap-4 shrink-0">
+            {% if permissions.manage_reports %}
+            <button onclick="deleteCurrentReport()" class="px-6 py-3.5 bg-white border border-rose-200 text-rose-500 hover:bg-rose-50 rounded-2xl text-xs font-black uppercase transition-all shadow-sm">Delete Report</button>
+            {% else %}
+            <div></div> <!-- Spacer -->
+            {% endif %}
+            
+            <div class="flex gap-3">
+                {% if permissions.manage_reports %}
+                <button onclick="dismissCurrentReport()" class="px-6 py-3.5 bg-white border border-slate-200 text-slate-600 hover:bg-slate-100 rounded-2xl text-xs font-black uppercase transition-all shadow-sm">Dismiss</button>
+                {% endif %}
+                {% if permissions.send_reports %}
+                <button onclick="openReportEmailModal(currentReportId)" class="px-10 py-3.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-2xl text-xs font-black uppercase transition-all shadow-lg flex items-center gap-3">
+                    <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z"/></svg> 
+                    Send to Email
+                </button>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- ВІКНО ВІДПРАВКИ EMAIL (ДОСТУПНО ВСІМ, АЛЕ КЕРУВАННЯ ТІЛЬКИ ДЛЯ АДМІНІВ) -->
+<div id="reportEmailModal" class="fixed inset-0 z-[120] hidden flex items-center justify-center bg-slate-900/60 backdrop-blur-md p-4 animate-in fade-in">
+    <div class="bg-white w-full max-w-xl rounded-[3rem] shadow-2xl p-8 sm:p-10 flex flex-col max-h-[90vh]">
+        <div class="flex justify-between items-center mb-6 shrink-0">
+            <h2 class="text-2xl font-black text-slate-800 uppercase tracking-tight">Send Secure Report</h2>
+            <button onclick="closeModal('reportEmailModal')" class="text-slate-400 hover:text-slate-700 bg-slate-50 p-2 rounded-xl"><svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path></svg></button>
+        </div>
+        
+        <div class="overflow-y-auto custom-scrollbar flex-1 pr-2 space-y-5">
+            <div>
+                <label class="text-[10px] font-black text-slate-400 uppercase tracking-widest block mb-2 ml-2">Sender Profile (From)</label>
+                <div class="flex gap-2">
+                    <select id="reportSenderEmail" class="flex-1 p-4 bg-slate-50 border border-slate-200 rounded-2xl text-sm font-bold outline-none focus:ring-2 focus:ring-indigo-500">
+                        <!-- Заповнюється через JS -->
+                    </select>
+                    {% if permissions.manage_smtp %}
+                    <button type="button" onclick="openSmtpManager()" class="p-4 bg-slate-100 hover:bg-slate-200 text-slate-600 rounded-2xl transition-colors shadow-sm" title="Manage SMTP Accounts">
+                        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z"></path><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"></path></svg>
+                    </button>
+                    {% endif %}
+                </div>
+            </div>
+
+            <div>
+                <label class="text-[10px] font-black text-slate-400 uppercase tracking-widest block mb-2 ml-2">Email Subject</label>
+                <input type="text" id="reportEmailSubject" placeholder="e.g. Weekly Server Check" class="w-full p-4 bg-slate-50 border border-slate-200 rounded-2xl text-sm font-bold outline-none focus:bg-white focus:ring-4 focus:ring-indigo-500/10 transition-all">
+            </div>
+
+            <div>
+                <label class="text-[10px] font-black text-slate-400 uppercase tracking-widest block mb-2 ml-2">Recipients (To)</label>
+                <input type="text" id="reportEmailInput" placeholder="manager@company.com, admin@company.com" class="w-full p-4 bg-slate-50 border border-slate-200 rounded-2xl text-sm font-bold outline-none focus:bg-white focus:ring-4 focus:ring-indigo-500/10 transition-all">
+                <p class="text-[10px] text-slate-400 mt-2 ml-2 font-medium">Use commas for multiple addresses.</p>
+            </div>
+
+            <!-- ПОЛЕ ДЛЯ ПРИМІТКИ -->
+            <div>
+                <label class="text-[10px] font-black text-indigo-500 uppercase tracking-widest block mb-2 ml-2">Custom Note (Optional)</label>
+                <textarea id="reportCustomMessage" placeholder="Add a personal message, greeting, or instructions that will appear at the top of the email..." class="w-full h-24 p-4 bg-indigo-50/50 border border-indigo-100 rounded-2xl text-sm font-medium outline-none focus:bg-white focus:ring-2 focus:ring-indigo-500 transition-all resize-none custom-scrollbar"></textarea>
+            </div>
+
+            <label class="flex items-center gap-3 cursor-pointer bg-emerald-50 p-4 rounded-2xl border border-emerald-100">
+                <input type="checkbox" id="reportUseGpg" checked class="w-5 h-5 text-emerald-600 rounded border-slate-300 focus:ring-emerald-500">
+                <div>
+                    <span class="text-sm font-bold text-emerald-800 block">Encrypt Email (PGP/GPG)</span>
+                    <span class="text-[10px] font-bold text-emerald-600">Ensure keys exist for recipients.</span>
+                </div>
+            </label>
+        </div>
+        
+        <div class="pt-6 shrink-0 border-t border-slate-100 mt-2">
+            <button id="btnSendReport" onclick="sendReportEmail()" class="w-full py-4 bg-indigo-600 hover:bg-indigo-700 text-white rounded-2xl text-sm font-black uppercase shadow-lg transition-all flex justify-center items-center gap-2">
+                <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z"/></svg>
+                Send Securely
+            </button>
+        </div>
+    </div>
+</div>
+
+<!-- MULTI HOST SELECTION MODAL -->
+<div id="selectMultipleHostsModal" class="fixed inset-0 z-[120] hidden flex items-center justify-center bg-slate-900/60 backdrop-blur-md p-4 animate-in fade-in">
+    <div class="bg-white w-full max-w-3xl rounded-[3rem] shadow-2xl overflow-hidden flex flex-col max-h-[88vh]">
+        <div class="p-6 sm:p-8 border-b border-slate-100 flex justify-between items-center shrink-0 bg-slate-50/50">
+            <div>
+                <h2 class="text-2xl font-black text-slate-800 uppercase tracking-tight">Select Endpoints</h2>
+                <p class="text-[10px] text-slate-400 font-bold mt-2 uppercase tracking-widest">Choose allowed hosts for this deployment</p>
+            </div>
+            <button onclick="closeModal('selectMultipleHostsModal')" class="p-3 bg-white border border-slate-200 hover:bg-slate-50 rounded-2xl text-slate-500 hover:text-slate-800 transition-colors shadow-sm">
+                <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path d="M6 18L18 6M6 6l12 12" stroke-width="2.5"/></svg>
+            </button>
+        </div>
+        <div class="p-6 sm:p-8 shrink-0 border-b border-slate-50 bg-white">
+            <div class="flex flex-col sm:flex-row gap-3">
+                <input type="text" id="multiHostSearch" oninput="filterMultiHostList()" placeholder="Search endpoints..." class="flex-1 px-6 py-4 bg-slate-50 border border-slate-200 rounded-2xl text-sm font-bold outline-none focus:bg-white focus:ring-4 focus:ring-indigo-500/10 transition-all shadow-inner">
+                <button onclick="toggleAllMultiHosts()" class="px-6 py-4 bg-slate-800 hover:bg-slate-900 text-white rounded-2xl text-xs font-black uppercase transition-all shadow-sm">Toggle All</button>
+            </div>
+        </div>
+        <div id="multiHostListContainer" class="flex-1 overflow-y-auto custom-scrollbar p-4 sm:p-6"></div>
+        <div class="p-6 sm:p-8 border-t border-slate-100 flex flex-col sm:flex-row justify-between items-center gap-4 bg-slate-50/50 shrink-0">
+            <span class="text-xs font-black text-indigo-600 uppercase tracking-widest bg-indigo-50 px-4 py-2 rounded-xl border border-indigo-100">Selected: <span id="multiHostSelCount" class="text-indigo-800 text-sm">0</span></span>
+            <div class="flex gap-3 w-full sm:w-auto">
+                <button onclick="closeModal('selectMultipleHostsModal')" class="flex-1 sm:flex-none px-8 py-4 bg-white border border-slate-200 text-slate-600 rounded-2xl text-xs font-black uppercase hover:bg-slate-50 transition-all shadow-sm">Cancel</button>
+                <button onclick="confirmMultiHostSelection()" class="flex-1 sm:flex-none px-8 py-4 bg-indigo-600 text-white rounded-2xl text-xs font-black uppercase hover:bg-indigo-700 transition-all shadow-lg">Use Selected</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+{% if permissions.manage_smtp or permissions.manage_scheduler or permissions.manage_triggers or permissions.manage_templates %}
+<!-- ВІКНО МЕНЕДЖМЕНТУ SMTP ПРОФІЛІВ -->
+<div id="smtpManagerModal" class="fixed inset-0 z-[130] hidden flex items-center justify-center bg-slate-900/60 backdrop-blur-md p-4 animate-in fade-in">
+    <div class="bg-white w-full max-w-2xl rounded-[3rem] shadow-2xl p-8 sm:p-10 border border-slate-200 flex flex-col max-h-[90vh]">
+        <div class="flex justify-between items-center mb-6 shrink-0">
+            <h2 class="text-2xl font-black text-slate-800 uppercase tracking-tight">SMTP Profiles</h2>
+            <button onclick="closeModal('smtpManagerModal')" class="text-slate-400 hover:text-slate-700 bg-slate-50 hover:bg-slate-100 p-2 rounded-xl transition-colors"><svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path></svg></button>
+        </div>
+
+        <div class="bg-slate-50 p-6 rounded-[2rem] border border-slate-200 mb-6 shrink-0 grid grid-cols-2 gap-4">
+            <div class="col-span-2 sm:col-span-1">
+                <input type="text" id="smtpEmail" placeholder="Email (e.g. alert@domain.com)" class="w-full p-3 bg-white border border-slate-200 rounded-xl text-sm font-bold outline-none focus:ring-2 focus:ring-indigo-500 shadow-sm">
+            </div>
+            <div class="col-span-2 sm:col-span-1">
+                <input type="text" id="smtpHost" placeholder="SMTP Host (e.g. smtp.gmail.com)" class="w-full p-3 bg-white border border-slate-200 rounded-xl text-sm font-bold outline-none focus:ring-2 focus:ring-indigo-500 shadow-sm">
+            </div>
+            <div class="col-span-2 sm:col-span-1">
+                <input type="password" id="smtpPass" placeholder="App Password" class="w-full p-3 bg-white border border-slate-200 rounded-xl text-sm font-bold outline-none focus:ring-2 focus:ring-indigo-500 shadow-sm">
+            </div>
+            <div class="col-span-1 sm:col-span-1 flex gap-2">
+                <input type="number" id="smtpPort" value="587" placeholder="Port" class="w-24 p-3 bg-white border border-slate-200 rounded-xl text-sm font-bold outline-none focus:ring-2 focus:ring-indigo-500 shadow-sm text-center">
+                <button onclick="saveSmtpProfile()" class="flex-1 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-xs font-black uppercase shadow-sm transition-all">Add Profile</button>
+            </div>
+        </div>
+
+        <div class="overflow-y-auto custom-scrollbar flex-1 pr-2 space-y-3" id="smtpListContainer">
+            <!-- Заповнюється через JS -->
+        </div>
+    </div>
+</div>
+
+<!-- TEMPLATE SECRETS MODAL -->
+<div id="secretsManagerModal" class="fixed inset-0 z-[130] hidden flex items-center justify-center bg-slate-900/60 backdrop-blur-md p-4 animate-in fade-in">
+    <div class="bg-white w-full max-w-2xl rounded-[3rem] shadow-2xl p-8 sm:p-10 border border-slate-200 flex flex-col max-h-[90vh]">
+        <div class="flex justify-between items-center mb-6 shrink-0">
+            <div>
+                <h2 class="text-2xl font-black text-slate-800 uppercase tracking-tight">Template Secrets</h2>
+                <p class="text-xs font-bold text-slate-400 mt-1">Use placeholders like <span class="font-mono text-slate-700">{{ "{{secret:local_admin_password}}" }}</span> in action templates.</p>
+            </div>
+            <button onclick="closeModal('secretsManagerModal')" class="text-slate-400 hover:text-slate-700 bg-slate-50 hover:bg-slate-100 p-2 rounded-xl transition-colors"><svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path></svg></button>
+        </div>
+
+        <div class="bg-slate-50 p-6 rounded-[2rem] border border-slate-200 mb-6 shrink-0 grid grid-cols-2 gap-4">
+            <div class="col-span-2 sm:col-span-1">
+                <input type="text" id="secretName" placeholder="Secret name, e.g. local_admin_password" class="w-full p-3 bg-white border border-slate-200 rounded-xl text-sm font-bold outline-none focus:ring-2 focus:ring-indigo-500 shadow-sm">
+            </div>
+            <div class="col-span-2 sm:col-span-1">
+                <input type="password" id="secretValue" placeholder="Secret value" class="w-full p-3 bg-white border border-slate-200 rounded-xl text-sm font-bold outline-none focus:ring-2 focus:ring-indigo-500 shadow-sm">
+            </div>
+            <div class="col-span-2">
+                <button onclick="saveTemplateSecret()" class="w-full bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-xs font-black uppercase shadow-sm transition-all py-3">Save Secret</button>
+            </div>
+        </div>
+
+        <div class="text-xs font-bold text-amber-700 bg-amber-50 border border-amber-200 rounded-2xl p-4 mb-4">
+            Secret values are encrypted at rest and are never returned to the browser. They are inserted only when WinHUB dispatches a task to an agent.
+        </div>
+
+        <div class="overflow-y-auto custom-scrollbar flex-1 pr-2 space-y-3" id="secretsListContainer">
+            <!-- Filled by JS -->
+        </div>
+    </div>
+</div>
+
+<!-- TRIGGER MODAL -->
+<div id="triggerModal" class="fixed inset-0 z-[120] hidden flex items-center justify-center bg-slate-900/60 backdrop-blur-md p-4 animate-in fade-in">
+    <div class="bg-white w-full max-w-xl rounded-[3rem] shadow-2xl p-8 sm:p-10 border border-slate-200 flex flex-col max-h-[90vh]">
+        <div class="flex justify-between items-center mb-6 shrink-0">
+            <h2 class="text-2xl font-black text-slate-800 uppercase tracking-tight" id="trgModalTitle">New Trigger</h2>
+            <button onclick="closeModal('triggerModal')" class="text-slate-400 hover:text-slate-700 bg-slate-50 hover:bg-slate-100 p-2 rounded-xl transition-colors"><svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path></svg></button>
+        </div>
+        
+        <div class="overflow-y-auto custom-scrollbar flex-1 pr-2 space-y-6">
+            <input type="hidden" id="trgId">
+            
+            <div class="grid grid-cols-2 gap-4">
+                <div>
+                    <label class="text-[10px] font-black text-slate-400 uppercase tracking-widest block mb-2 ml-2">Trigger Name</label>
+                    <input type="text" id="trgName" placeholder="e.g. Auto-start Spooler" class="w-full p-4 bg-slate-50 border border-slate-200 rounded-2xl text-sm font-bold outline-none focus:bg-white focus:ring-4 focus:ring-indigo-500/10 transition-all shadow-inner">
+                </div>
+                <div>
+                    <label class="text-[10px] font-black text-slate-400 uppercase tracking-widest block mb-2 ml-2">Target Group</label>
+                    <select id="trgGroup" class="w-full p-4 bg-slate-50 border border-slate-200 rounded-2xl text-sm font-bold outline-none focus:bg-white focus:ring-4 focus:ring-indigo-500/10 transition-all shadow-inner">
+                        <option value="all">All Groups / Global</option>
+                        {% for g in groups %}
+                        <option value="{{ g.id }}">{{ g.name }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+            </div>
+
+            <div class="bg-slate-50 p-6 rounded-3xl border border-slate-200 space-y-4">
+                <label class="text-[10px] font-black text-slate-500 uppercase tracking-widest block mb-2">Condition (IF)</label>
+                
+                <div>
+                    <label class="text-[10px] font-black text-slate-400 uppercase tracking-widest block mb-1 ml-1">Metric / Item Name</label>
+                    <select id="trgMetric" class="w-full p-4 bg-white border border-slate-200 rounded-2xl text-sm font-bold shadow-sm outline-none focus:ring-2 focus:ring-indigo-500">
+                        {% for t in templates if t.type == 'metric' %}
+                        <option value="{{ t.name }}">{{ t.name }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+
+                <div class="grid grid-cols-3 gap-4">
+                    <div class="col-span-1">
+                        <label class="text-[10px] font-black text-slate-400 uppercase tracking-widest block mb-1 ml-1">Operator</label>
+                        <select id="trgOperator" class="w-full p-4 bg-white border border-slate-200 rounded-2xl text-sm font-bold shadow-sm outline-none focus:ring-2 focus:ring-indigo-500">
+                            <option value="==">== (Equals)</option>
+                            <option value="!=">!= (Not Eq)</option>
+                            <option value=">">> (Greater)</option>
+                            <option value="<">< (Less)</option>
+                            <option value="contains">Contains</option>
+                        </select>
+                    </div>
+                    <div class="col-span-2">
+                        <label class="text-[10px] font-black text-slate-400 uppercase tracking-widest block mb-1 ml-1">Value</label>
+                        <input type="text" id="trgValue" placeholder="e.g. Stopped or 90" class="w-full p-4 bg-white border border-slate-200 rounded-2xl text-sm font-bold shadow-sm outline-none focus:ring-2 focus:ring-indigo-500">
+                    </div>
+                </div>
+            </div>
+
+            <div class="bg-indigo-50 p-6 rounded-3xl border border-indigo-100 space-y-4">
+                <label class="text-[10px] font-black text-indigo-500 uppercase tracking-widest block mb-2">Reaction (THEN)</label>
+                <div>
+                    <label class="text-[10px] font-black text-indigo-400 uppercase tracking-widest block mb-1 ml-1">Run Action Script</label>
+                    <select id="trgAction" class="w-full p-4 bg-white border border-slate-200 rounded-2xl text-sm font-bold shadow-sm outline-none focus:ring-2 focus:ring-indigo-500">
+                        {% for t in templates if t.type == 'action' %}
+                        <option value="{{ t.id }}">{{ t.name }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+            </div>
+
+            <label class="flex items-center gap-3 cursor-pointer bg-white p-4 rounded-2xl border border-slate-200">
+                <input type="checkbox" id="trgActive" checked class="w-5 h-5 text-indigo-600 rounded border-slate-300 focus:ring-indigo-500">
+                <span class="text-sm font-bold text-slate-700">Enable this trigger</span>
+            </label>
+        </div>
+        
+        <div class="pt-6 shrink-0 border-t border-slate-100 mt-2">
+            <button onclick="saveTrigger()" class="w-full bg-indigo-600 hover:bg-indigo-700 text-white rounded-2xl font-black uppercase text-sm py-4 shadow-lg transition-all">Save Trigger</button>
+        </div>
+    </div>
+</div>
+
+<!-- SCHEDULER MODAL -->
+<div id="scheduleModal" class="fixed inset-0 z-[120] hidden flex items-center justify-center bg-slate-900/60 backdrop-blur-md p-4 animate-in fade-in">
+    <div class="bg-white w-full max-w-xl rounded-[3rem] shadow-2xl p-8 sm:p-10 border border-slate-200 flex flex-col max-h-[90vh]">
+        <div class="flex justify-between items-center mb-6 shrink-0">
+            <h2 class="text-2xl font-black text-slate-800 uppercase tracking-tight" id="schModalTitle">New Schedule</h2>
+            <button onclick="closeModal('scheduleModal')" class="text-slate-400 hover:text-slate-700 bg-slate-50 hover:bg-slate-100 p-2 rounded-xl transition-colors"><svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path></svg></button>
+        </div>
+        
+        <div class="overflow-y-auto custom-scrollbar flex-1 pr-2 space-y-6">
+            <input type="hidden" id="schId">
+            
+            <div class="grid grid-cols-2 gap-4">
+                <div>
+                    <label class="text-[10px] font-black text-slate-400 uppercase tracking-widest block mb-2 ml-2">Job Name</label>
+                    <input type="text" id="schName" placeholder="e.g. Nightly Reboot" class="w-full p-4 bg-slate-50 border border-slate-200 rounded-2xl text-sm font-bold outline-none focus:bg-white focus:ring-4 focus:ring-indigo-500/10 transition-all shadow-inner">
+                </div>
+                <div>
+                    <label class="text-[10px] font-black text-slate-400 uppercase tracking-widest block mb-2 ml-2">Category</label>
+                    <input type="text" id="schCategory" placeholder="e.g. Maintenance" class="w-full p-4 bg-slate-50 border border-slate-200 rounded-2xl text-sm font-bold outline-none focus:bg-white focus:ring-4 focus:ring-indigo-500/10 transition-all shadow-inner">
+                </div>
+            </div>
+
+            <div>
+                <label class="text-[10px] font-black text-slate-400 uppercase tracking-widest block mb-2 ml-2">Script Template</label>
+                <select id="schTemplate" class="w-full p-4 bg-white border border-slate-200 rounded-2xl text-sm font-bold shadow-sm outline-none focus:ring-2 focus:ring-indigo-500">
+                    {% for t in templates %}
+                    <option value="{{ t.id }}">
+                        {{ t.name }} ({{ t.category }})
+                        {% if t.type == 'metric' %} [ITEM] {% endif %}
+                    </option>
+                    {% endfor %}
+                </select>
+            </div>
+
+            <div class="grid grid-cols-2 gap-4">
+                <div>
+                    <label class="text-[10px] font-black text-slate-400 uppercase tracking-widest block mb-2 ml-2">Target Type</label>
+                    <select id="schTargetType" onchange="document.getElementById('schTargetHost').classList.toggle('hidden', this.value !== 'host'); document.getElementById('schTargetGroup').classList.toggle('hidden', this.value !== 'group');" class="w-full p-4 bg-white border border-slate-200 rounded-2xl text-sm font-bold shadow-sm outline-none">
+                        <option value="group">Target Group</option>
+                        <option value="host">Specific Endpoint</option>
+                    </select>
+                </div>
+                <div>
+                    <label class="text-[10px] font-black text-slate-400 uppercase tracking-widest block mb-2 ml-2">Select Target</label>
+                    <select id="schTargetGroup" class="w-full p-4 bg-white border border-slate-200 rounded-2xl text-sm font-bold shadow-sm">
+                        {% for g in groups %}<option value="{{ g.id }}">{{ g.name }}</option>{% endfor %}
+                    </select>
+                    <select id="schTargetHost" class="w-full p-4 bg-white border border-slate-200 rounded-2xl text-sm font-bold shadow-sm hidden">
+                        {% for a in agents %}<option value="{{ a.id }}">{{ a.hostname }}</option>{% endfor %}
+                    </select>
+                </div>
+            </div>
+
+            <!-- ВИБІР ЧАСУ -->
+            <div class="bg-indigo-50/50 p-6 rounded-3xl border border-indigo-100">
+                <label class="text-[10px] font-black text-indigo-500 uppercase tracking-widest block mb-4 ml-2">Execution Timing (Kyiv Time)</label>
+                
+                <div class="flex gap-4 mb-6">
+                    <label class="flex-1 cursor-pointer">
+                        <input type="radio" name="schType" value="once" onchange="toggleSchType()" class="peer hidden" checked>
+                        <div class="p-4 bg-white border border-slate-200 rounded-2xl text-center peer-checked:border-indigo-500 peer-checked:bg-indigo-50 peer-checked:text-indigo-700 font-bold transition-all shadow-sm">Execute Once</div>
+                    </label>
+                    <label class="flex-1 cursor-pointer">
+                        <input type="radio" name="schType" value="recurring" onchange="toggleSchType()" class="peer hidden">
+                        <div class="p-4 bg-white border border-slate-200 rounded-2xl text-center peer-checked:border-indigo-500 peer-checked:bg-indigo-50 peer-checked:text-indigo-700 font-bold transition-all shadow-sm">Recurring Weekly</div>
+                    </label>
+                </div>
+
+                <div id="schUiOnce" class="grid grid-cols-2 gap-4">
+                    <div>
+                        <label class="text-[10px] font-bold text-slate-500 uppercase tracking-widest block mb-2 ml-1">Execution Date</label>
+                        <input type="date" id="schDate" class="w-full p-4 bg-white border border-slate-200 rounded-2xl text-sm font-bold shadow-sm outline-none focus:ring-2 focus:ring-indigo-500">
+                    </div>
+                    <div>
+                        <label class="text-[10px] font-bold text-slate-500 uppercase tracking-widest block mb-2 ml-1">Time (24h)</label>
+                        <input type="time" id="schTimeOnce" class="w-full p-4 bg-white border border-slate-200 rounded-2xl text-sm font-bold shadow-sm outline-none focus:ring-2 focus:ring-indigo-500">
+                    </div>
+                </div>
+
+                <div id="schUiRecurring" class="hidden space-y-5">
+                    <div>
+                        <label class="text-[10px] font-bold text-slate-500 uppercase tracking-widest block mb-2 ml-1">Time (24h)</label>
+                        <input type="time" id="schTimeRec" class="w-full p-4 bg-white border border-slate-200 rounded-2xl text-sm font-bold shadow-sm outline-none focus:ring-2 focus:ring-indigo-500">
+                    </div>
+                    <div>
+                        <label class="text-[10px] font-bold text-slate-500 uppercase tracking-widest block mb-2 ml-1">Days of Week</label>
+                        <div class="flex flex-wrap gap-2">
+                            <label><input type="checkbox" class="sch-day peer hidden" value="1"><div class="w-12 h-12 flex items-center justify-center rounded-xl bg-white border border-slate-200 text-slate-400 font-black peer-checked:bg-indigo-500 peer-checked:text-white peer-checked:border-indigo-600 cursor-pointer transition-colors shadow-sm text-sm hover:border-indigo-300">Mon</div></label>
+                            <label><input type="checkbox" class="sch-day peer hidden" value="2"><div class="w-12 h-12 flex items-center justify-center rounded-xl bg-white border border-slate-200 text-slate-400 font-black peer-checked:bg-indigo-500 peer-checked:text-white peer-checked:border-indigo-600 cursor-pointer transition-colors shadow-sm text-sm hover:border-indigo-300">Tue</div></label>
+                            <label><input type="checkbox" class="sch-day peer hidden" value="3"><div class="w-12 h-12 flex items-center justify-center rounded-xl bg-white border border-slate-200 text-slate-400 font-black peer-checked:bg-indigo-500 peer-checked:text-white peer-checked:border-indigo-600 cursor-pointer transition-colors shadow-sm text-sm hover:border-indigo-300">Wed</div></label>
+                            <label><input type="checkbox" class="sch-day peer hidden" value="4"><div class="w-12 h-12 flex items-center justify-center rounded-xl bg-white border border-slate-200 text-slate-400 font-black peer-checked:bg-indigo-500 peer-checked:text-white peer-checked:border-indigo-600 cursor-pointer transition-colors shadow-sm text-sm hover:border-indigo-300">Thu</div></label>
+                            <label><input type="checkbox" class="sch-day peer hidden" value="5"><div class="w-12 h-12 flex items-center justify-center rounded-xl bg-white border border-slate-200 text-slate-400 font-black peer-checked:bg-indigo-500 peer-checked:text-white peer-checked:border-indigo-600 cursor-pointer transition-colors shadow-sm text-sm hover:border-indigo-300">Fri</div></label>
+                            <label><input type="checkbox" class="sch-day peer hidden" value="6"><div class="w-12 h-12 flex items-center justify-center rounded-xl bg-white border border-slate-200 text-slate-400 font-black peer-checked:bg-indigo-500 peer-checked:text-white peer-checked:border-indigo-600 cursor-pointer transition-colors shadow-sm text-sm hover:border-indigo-300">Sat</div></label>
+                            <label><input type="checkbox" class="sch-day peer hidden" value="0"><div class="w-12 h-12 flex items-center justify-center rounded-xl bg-white border border-slate-200 text-slate-400 font-black peer-checked:bg-rose-500 peer-checked:text-white peer-checked:border-rose-600 cursor-pointer transition-colors shadow-sm text-sm hover:border-rose-300">Sun</div></label>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <label class="flex items-center gap-3 cursor-pointer bg-slate-50 p-4 rounded-2xl border border-slate-200">
+                <input type="checkbox" id="schActive" checked class="w-5 h-5 text-indigo-600 rounded border-slate-300 focus:ring-indigo-500">
+                <span class="text-sm font-bold text-slate-700">Enable this schedule immediately</span>
+            </label>
+        </div>
+        
+        <div class="pt-6 shrink-0 border-t border-slate-100 mt-2">
+            <button onclick="saveSchedule()" class="w-full bg-indigo-600 hover:bg-indigo-700 text-white rounded-2xl font-black uppercase text-sm py-4 shadow-lg transition-all">Save Schedule</button>
+        </div>
+    </div>
+</div>
+
+<!-- CATEGORY MANAGER MODAL -->
+<div id="categoryModal" class="fixed inset-0 z-[120] hidden flex items-center justify-center bg-slate-900/60 backdrop-blur-md p-4 animate-in fade-in">
+    <div class="bg-white w-full max-w-md rounded-[3rem] shadow-2xl p-8 space-y-6 border border-slate-200">
+        <div class="flex justify-between items-center mb-2">
+            <h2 class="text-xl font-black text-slate-800 uppercase tracking-tight">Manage Categories</h2>
+            <button onclick="closeModal('categoryModal')" class="text-slate-400 hover:text-slate-700 bg-slate-50 hover:bg-slate-100 p-2 rounded-xl transition-colors"><svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path></svg></button>
+        </div>
+        
+        <div class="flex gap-2">
+            <input type="text" id="newCategoryName" placeholder="New category name..." class="w-full p-4 bg-slate-50 border border-slate-200 rounded-2xl text-sm font-bold outline-none focus:bg-white focus:ring-4 focus:ring-indigo-500/10 transition-all">
+            <button onclick="addCategoryUI()" class="px-6 bg-indigo-600 hover:bg-indigo-700 text-white rounded-2xl font-black text-xl shadow-lg transition-all">+</button>
+        </div>
+        
+        <div class="bg-slate-50 border border-slate-200 rounded-2xl p-4">
+            <p class="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-3 px-2">Available Categories</p>
+            <div id="categoryListUI" class="max-h-[250px] overflow-y-auto space-y-2 custom-scrollbar pr-2">
+                <!-- Заповнюється через JS -->
+            </div>
+        </div>
+    </div>
+</div>
+{% endif %}

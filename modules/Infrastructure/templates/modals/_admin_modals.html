@@ -1,0 +1,228 @@
+<!-- REPORT EMAIL MODAL -->
+<div id="reportEmailModal" class="fixed inset-0 z-[120] hidden flex items-center justify-center bg-slate-900/60 backdrop-blur-md p-4 animate-in fade-in">
+    <div class="bg-white w-full max-w-md rounded-[3rem] shadow-2xl p-10 space-y-6">
+        <h2 class="text-2xl font-black text-slate-800 uppercase tracking-tight text-center">Send Report</h2>
+        <div class="space-y-4">
+            <p class="text-sm text-slate-500 font-medium text-center">Enter the email address to send this report to. You can use comma separation for multiple emails.</p>
+            <input type="text" id="reportEmailInput" placeholder="manager@company.com" class="w-full p-4 bg-slate-50 border border-slate-200 rounded-2xl text-sm font-bold outline-none focus:bg-white focus:ring-4 focus:ring-indigo-500/10 transition-all">
+        </div>
+        <div class="flex gap-4 pt-2">
+            <button onclick="closeModal('reportEmailModal')" class="flex-1 py-4 bg-slate-100 hover:bg-slate-200 text-slate-600 rounded-2xl text-xs font-black uppercase transition-all">Cancel</button>
+            <button id="btnSendReport" onclick="sendReportEmail()" class="flex-1 py-4 bg-indigo-600 hover:bg-indigo-700 text-white rounded-2xl text-xs font-black uppercase shadow-lg transition-all">Send</button>
+        </div>
+    </div>
+</div>
+
+<!-- TRIGGER MODAL -->
+<div id="triggerModal" class="fixed inset-0 z-[120] hidden flex items-center justify-center bg-slate-900/60 backdrop-blur-md p-4 animate-in fade-in">
+    <div class="bg-white w-full max-w-xl rounded-[3rem] shadow-2xl p-8 sm:p-10 border border-slate-200 flex flex-col max-h-[90vh]">
+        <div class="flex justify-between items-center mb-6 shrink-0">
+            <h2 class="text-2xl font-black text-slate-800 uppercase tracking-tight" id="trgModalTitle">New Trigger</h2>
+            <button onclick="closeModal('triggerModal')" class="text-slate-400 hover:text-slate-700 bg-slate-50 hover:bg-slate-100 p-2 rounded-xl transition-colors"><svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path></svg></button>
+        </div>
+        
+        <div class="overflow-y-auto custom-scrollbar flex-1 pr-2 space-y-6">
+            <input type="hidden" id="trgId">
+            
+            <div class="grid grid-cols-2 gap-4">
+                <div>
+                    <label class="text-[10px] font-black text-slate-400 uppercase tracking-widest block mb-2 ml-2">Trigger Name</label>
+                    <input type="text" id="trgName" placeholder="e.g. Auto-start Spooler" class="w-full p-4 bg-slate-50 border border-slate-200 rounded-2xl text-sm font-bold outline-none focus:bg-white focus:ring-4 focus:ring-indigo-500/10 transition-all shadow-inner">
+                </div>
+                <div>
+                    <label class="text-[10px] font-black text-slate-400 uppercase tracking-widest block mb-2 ml-2">Target Group</label>
+                    <select id="trgGroup" class="w-full p-4 bg-slate-50 border border-slate-200 rounded-2xl text-sm font-bold outline-none focus:bg-white focus:ring-4 focus:ring-indigo-500/10 transition-all shadow-inner">
+                        <option value="all">All Groups / Global</option>
+                        {% for g in groups %}
+                        <option value="{{ g.id }}">{{ g.name }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+            </div>
+
+            <div class="bg-slate-50 p-6 rounded-3xl border border-slate-200 space-y-4">
+                <label class="text-[10px] font-black text-slate-500 uppercase tracking-widest block mb-2">Condition (IF)</label>
+                
+                <div>
+                    <label class="text-[10px] font-black text-slate-400 uppercase tracking-widest block mb-1 ml-1">Metric / Item Name</label>
+                    <select id="trgMetric" class="w-full p-4 bg-white border border-slate-200 rounded-2xl text-sm font-bold shadow-sm outline-none focus:ring-2 focus:ring-indigo-500">
+                        {% for t in templates if t.type == 'metric' %}
+                        <option value="{{ t.name }}">{{ t.name }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+
+                <div class="grid grid-cols-3 gap-4">
+                    <div class="col-span-1">
+                        <label class="text-[10px] font-black text-slate-400 uppercase tracking-widest block mb-1 ml-1">Operator</label>
+                        <select id="trgOperator" class="w-full p-4 bg-white border border-slate-200 rounded-2xl text-sm font-bold shadow-sm outline-none focus:ring-2 focus:ring-indigo-500">
+                            <option value="==">== (Equals)</option>
+                            <option value="!=">!= (Not Eq)</option>
+                            <option value=">">> (Greater)</option>
+                            <option value="<">< (Less)</option>
+                            <option value="contains">Contains</option>
+                        </select>
+                    </div>
+                    <div class="col-span-2">
+                        <label class="text-[10px] font-black text-slate-400 uppercase tracking-widest block mb-1 ml-1">Value</label>
+                        <input type="text" id="trgValue" placeholder="e.g. Stopped or 90" class="w-full p-4 bg-white border border-slate-200 rounded-2xl text-sm font-bold shadow-sm outline-none focus:ring-2 focus:ring-indigo-500">
+                    </div>
+                </div>
+            </div>
+
+            <div class="bg-indigo-50 p-6 rounded-3xl border border-indigo-100 space-y-4">
+                <label class="text-[10px] font-black text-indigo-500 uppercase tracking-widest block mb-2">Reaction (THEN)</label>
+                <div>
+                    <label class="text-[10px] font-black text-indigo-400 uppercase tracking-widest block mb-1 ml-1">Run Action Script</label>
+                    <select id="trgAction" class="w-full p-4 bg-white border border-slate-200 rounded-2xl text-sm font-bold shadow-sm outline-none focus:ring-2 focus:ring-indigo-500">
+                        {% for t in templates if t.type == 'action' %}
+                        <option value="{{ t.id }}">{{ t.name }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+            </div>
+
+            <label class="flex items-center gap-3 cursor-pointer bg-white p-4 rounded-2xl border border-slate-200">
+                <input type="checkbox" id="trgActive" checked class="w-5 h-5 text-indigo-600 rounded border-slate-300 focus:ring-indigo-500">
+                <span class="text-sm font-bold text-slate-700">Enable this trigger</span>
+            </label>
+        </div>
+        
+        <div class="pt-6 shrink-0 border-t border-slate-100 mt-2">
+            <button onclick="saveTrigger()" class="w-full bg-indigo-600 hover:bg-indigo-700 text-white rounded-2xl font-black uppercase text-sm py-4 shadow-lg transition-all">Save Trigger</button>
+        </div>
+    </div>
+</div>
+
+<!-- SCHEDULER MODAL -->
+<div id="scheduleModal" class="fixed inset-0 z-[120] hidden flex items-center justify-center bg-slate-900/60 backdrop-blur-md p-4 animate-in fade-in">
+    <div class="bg-white w-full max-w-xl rounded-[3rem] shadow-2xl p-8 sm:p-10 border border-slate-200 flex flex-col max-h-[90vh]">
+        <div class="flex justify-between items-center mb-6 shrink-0">
+            <h2 class="text-2xl font-black text-slate-800 uppercase tracking-tight" id="schModalTitle">New Schedule</h2>
+            <button onclick="closeModal('scheduleModal')" class="text-slate-400 hover:text-slate-700 bg-slate-50 hover:bg-slate-100 p-2 rounded-xl transition-colors"><svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path></svg></button>
+        </div>
+        
+        <div class="overflow-y-auto custom-scrollbar flex-1 pr-2 space-y-6">
+            <input type="hidden" id="schId">
+            
+            <div class="grid grid-cols-2 gap-4">
+                <div>
+                    <label class="text-[10px] font-black text-slate-400 uppercase tracking-widest block mb-2 ml-2">Job Name</label>
+                    <input type="text" id="schName" placeholder="e.g. Nightly Reboot" class="w-full p-4 bg-slate-50 border border-slate-200 rounded-2xl text-sm font-bold outline-none focus:bg-white focus:ring-4 focus:ring-indigo-500/10 transition-all shadow-inner">
+                </div>
+                <div>
+                    <label class="text-[10px] font-black text-slate-400 uppercase tracking-widest block mb-2 ml-2">Category</label>
+                    <input type="text" id="schCategory" placeholder="e.g. Maintenance" class="w-full p-4 bg-slate-50 border border-slate-200 rounded-2xl text-sm font-bold outline-none focus:bg-white focus:ring-4 focus:ring-indigo-500/10 transition-all shadow-inner">
+                </div>
+            </div>
+
+            <div>
+                <label class="text-[10px] font-black text-slate-400 uppercase tracking-widest block mb-2 ml-2">Script Template</label>
+                <select id="schTemplate" class="w-full p-4 bg-white border border-slate-200 rounded-2xl text-sm font-bold shadow-sm outline-none focus:ring-2 focus:ring-indigo-500">
+                    {% for t in templates %}
+                    <option value="{{ t.id }}">
+                        {{ t.name }} ({{ t.category }})
+                        {% if t.type == 'metric' %} [ITEM] {% endif %}
+                    </option>
+                    {% endfor %}
+                </select>
+            </div>
+
+            <div class="grid grid-cols-2 gap-4">
+                <div>
+                    <label class="text-[10px] font-black text-slate-400 uppercase tracking-widest block mb-2 ml-2">Target Type</label>
+                    <select id="schTargetType" onchange="document.getElementById('schTargetHost').classList.toggle('hidden', this.value !== 'host'); document.getElementById('schTargetGroup').classList.toggle('hidden', this.value !== 'group');" class="w-full p-4 bg-white border border-slate-200 rounded-2xl text-sm font-bold shadow-sm outline-none">
+                        <option value="group">Target Group</option>
+                        <option value="host">Specific Endpoint</option>
+                    </select>
+                </div>
+                <div>
+                    <label class="text-[10px] font-black text-slate-400 uppercase tracking-widest block mb-2 ml-2">Select Target</label>
+                    <select id="schTargetGroup" class="w-full p-4 bg-white border border-slate-200 rounded-2xl text-sm font-bold shadow-sm">
+                        {% for g in groups %}<option value="{{ g.id }}">{{ g.name }}</option>{% endfor %}
+                    </select>
+                    <select id="schTargetHost" class="w-full p-4 bg-white border border-slate-200 rounded-2xl text-sm font-bold shadow-sm hidden">
+                        {% for a in agents %}<option value="{{ a.id }}">{{ a.hostname }}</option>{% endfor %}
+                    </select>
+                </div>
+            </div>
+
+            <!-- ВИБІР ЧАСУ -->
+            <div class="bg-indigo-50/50 p-6 rounded-3xl border border-indigo-100">
+                <label class="text-[10px] font-black text-indigo-500 uppercase tracking-widest block mb-4 ml-2">Execution Timing (Kyiv Time)</label>
+                
+                <div class="flex gap-4 mb-6">
+                    <label class="flex-1 cursor-pointer">
+                        <input type="radio" name="schType" value="once" onchange="toggleSchType()" class="peer hidden" checked>
+                        <div class="p-4 bg-white border border-slate-200 rounded-2xl text-center peer-checked:border-indigo-500 peer-checked:bg-indigo-50 peer-checked:text-indigo-700 font-bold transition-all shadow-sm">Execute Once</div>
+                    </label>
+                    <label class="flex-1 cursor-pointer">
+                        <input type="radio" name="schType" value="recurring" onchange="toggleSchType()" class="peer hidden">
+                        <div class="p-4 bg-white border border-slate-200 rounded-2xl text-center peer-checked:border-indigo-500 peer-checked:bg-indigo-50 peer-checked:text-indigo-700 font-bold transition-all shadow-sm">Recurring Weekly</div>
+                    </label>
+                </div>
+
+                <div id="schUiOnce" class="grid grid-cols-2 gap-4">
+                    <div>
+                        <label class="text-[10px] font-bold text-slate-500 uppercase tracking-widest block mb-2 ml-1">Execution Date</label>
+                        <input type="date" id="schDate" class="w-full p-4 bg-white border border-slate-200 rounded-2xl text-sm font-bold shadow-sm outline-none focus:ring-2 focus:ring-indigo-500">
+                    </div>
+                    <div>
+                        <label class="text-[10px] font-bold text-slate-500 uppercase tracking-widest block mb-2 ml-1">Time (24h)</label>
+                        <input type="time" id="schTimeOnce" class="w-full p-4 bg-white border border-slate-200 rounded-2xl text-sm font-bold shadow-sm outline-none focus:ring-2 focus:ring-indigo-500">
+                    </div>
+                </div>
+
+                <div id="schUiRecurring" class="hidden space-y-5">
+                    <div>
+                        <label class="text-[10px] font-bold text-slate-500 uppercase tracking-widest block mb-2 ml-1">Time (24h)</label>
+                        <input type="time" id="schTimeRec" class="w-full p-4 bg-white border border-slate-200 rounded-2xl text-sm font-bold shadow-sm outline-none focus:ring-2 focus:ring-indigo-500">
+                    </div>
+                    <div>
+                        <label class="text-[10px] font-bold text-slate-500 uppercase tracking-widest block mb-2 ml-1">Days of Week</label>
+                        <div class="flex flex-wrap gap-2">
+                            <label><input type="checkbox" class="sch-day peer hidden" value="1"><div class="w-12 h-12 flex items-center justify-center rounded-xl bg-white border border-slate-200 text-slate-400 font-black peer-checked:bg-indigo-500 peer-checked:text-white peer-checked:border-indigo-600 cursor-pointer transition-colors shadow-sm text-sm hover:border-indigo-300">Mon</div></label>
+                            <label><input type="checkbox" class="sch-day peer hidden" value="2"><div class="w-12 h-12 flex items-center justify-center rounded-xl bg-white border border-slate-200 text-slate-400 font-black peer-checked:bg-indigo-500 peer-checked:text-white peer-checked:border-indigo-600 cursor-pointer transition-colors shadow-sm text-sm hover:border-indigo-300">Tue</div></label>
+                            <label><input type="checkbox" class="sch-day peer hidden" value="3"><div class="w-12 h-12 flex items-center justify-center rounded-xl bg-white border border-slate-200 text-slate-400 font-black peer-checked:bg-indigo-500 peer-checked:text-white peer-checked:border-indigo-600 cursor-pointer transition-colors shadow-sm text-sm hover:border-indigo-300">Wed</div></label>
+                            <label><input type="checkbox" class="sch-day peer hidden" value="4"><div class="w-12 h-12 flex items-center justify-center rounded-xl bg-white border border-slate-200 text-slate-400 font-black peer-checked:bg-indigo-500 peer-checked:text-white peer-checked:border-indigo-600 cursor-pointer transition-colors shadow-sm text-sm hover:border-indigo-300">Thu</div></label>
+                            <label><input type="checkbox" class="sch-day peer hidden" value="5"><div class="w-12 h-12 flex items-center justify-center rounded-xl bg-white border border-slate-200 text-slate-400 font-black peer-checked:bg-indigo-500 peer-checked:text-white peer-checked:border-indigo-600 cursor-pointer transition-colors shadow-sm text-sm hover:border-indigo-300">Fri</div></label>
+                            <label><input type="checkbox" class="sch-day peer hidden" value="6"><div class="w-12 h-12 flex items-center justify-center rounded-xl bg-white border border-slate-200 text-slate-400 font-black peer-checked:bg-indigo-500 peer-checked:text-white peer-checked:border-indigo-600 cursor-pointer transition-colors shadow-sm text-sm hover:border-indigo-300">Sat</div></label>
+                            <label><input type="checkbox" class="sch-day peer hidden" value="0"><div class="w-12 h-12 flex items-center justify-center rounded-xl bg-white border border-slate-200 text-slate-400 font-black peer-checked:bg-rose-500 peer-checked:text-white peer-checked:border-rose-600 cursor-pointer transition-colors shadow-sm text-sm hover:border-rose-300">Sun</div></label>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <label class="flex items-center gap-3 cursor-pointer bg-slate-50 p-4 rounded-2xl border border-slate-200">
+                <input type="checkbox" id="schActive" checked class="w-5 h-5 text-indigo-600 rounded border-slate-300 focus:ring-indigo-500">
+                <span class="text-sm font-bold text-slate-700">Enable this schedule immediately</span>
+            </label>
+        </div>
+        
+        <div class="pt-6 shrink-0 border-t border-slate-100 mt-2">
+            <button onclick="saveSchedule()" class="w-full bg-indigo-600 hover:bg-indigo-700 text-white rounded-2xl font-black uppercase text-sm py-4 shadow-lg transition-all">Save Schedule</button>
+        </div>
+    </div>
+</div>
+
+<!-- CATEGORY MANAGER MODAL -->
+<div id="categoryModal" class="fixed inset-0 z-[120] hidden flex items-center justify-center bg-slate-900/60 backdrop-blur-md p-4 animate-in fade-in">
+    <div class="bg-white w-full max-w-md rounded-[3rem] shadow-2xl p-8 space-y-6 border border-slate-200">
+        <div class="flex justify-between items-center mb-2">
+            <h2 class="text-xl font-black text-slate-800 uppercase tracking-tight">Manage Categories</h2>
+            <button onclick="closeModal('categoryModal')" class="text-slate-400 hover:text-slate-700 bg-slate-50 hover:bg-slate-100 p-2 rounded-xl transition-colors"><svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path></svg></button>
+        </div>
+        
+        <div class="flex gap-2">
+            <input type="text" id="newCategoryName" placeholder="New category name..." class="w-full p-4 bg-slate-50 border border-slate-200 rounded-2xl text-sm font-bold outline-none focus:bg-white focus:ring-4 focus:ring-indigo-500/10 transition-all">
+            <button onclick="addCategoryUI()" class="px-6 bg-indigo-600 hover:bg-indigo-700 text-white rounded-2xl font-black text-xl shadow-lg transition-all">+</button>
+        </div>
+        
+        <div class="bg-slate-50 border border-slate-200 rounded-2xl p-4">
+            <p class="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-3 px-2">Available Categories</p>
+            <div id="categoryListUI" class="max-h-[250px] overflow-y-auto space-y-2 custom-scrollbar pr-2">
+                <!-- Заповнюється через JS -->
+            </div>
+        </div>
+    </div>
+</div>

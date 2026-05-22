@@ -1,0 +1,130 @@
+<!-- VIEW: ENDPOINTS -->
+<section id="view-hosts" class="hidden space-y-6 animate-in fade-in duration-300">
+    {% if permissions.manage_hosts and pending_agents %}
+    <div class="bg-amber-50 border border-amber-200 rounded-[2rem] p-6 shadow-sm">
+        <div class="flex flex-col lg:flex-row lg:items-center justify-between gap-4 mb-5">
+            <div>
+                <h3 class="text-lg font-black text-slate-900 uppercase tracking-tight">Pending Approval Center</h3>
+                <p class="text-xs font-bold text-amber-700 mt-1">New agents are quarantined here and cannot receive tasks until approved.</p>
+            </div>
+            <span class="px-4 py-2 bg-white text-amber-700 rounded-xl border border-amber-200 text-xs font-black uppercase w-fit">{{ pending_agents|length }} waiting</span>
+        </div>
+        <div class="grid grid-cols-1 xl:grid-cols-2 gap-4">
+            {% for agent in pending_agents %}
+            <div class="bg-white border border-amber-100 rounded-2xl p-5 shadow-sm">
+                <div class="flex items-start justify-between gap-4">
+                    <div class="min-w-0">
+                        <button onclick="viewHost('{{ agent.id }}')" class="text-left text-lg font-black text-slate-800 hover:text-indigo-600 transition-colors truncate block">{{ agent.hostname or agent.id }}</button>
+                        <div class="text-[10px] font-black text-slate-400 uppercase tracking-widest mt-1">{{ agent.os_type or 'Unknown' }} / {{ agent.agent_version or 'Unknown agent' }}</div>
+                    </div>
+                    <span class="px-3 py-1 bg-amber-100 text-amber-700 rounded-lg text-[10px] font-black uppercase">Pending</span>
+                </div>
+                <div class="grid grid-cols-2 gap-3 mt-4 text-xs">
+                    <div class="p-3 bg-slate-50 rounded-xl border border-slate-100">
+                        <div class="text-[10px] font-black text-slate-400 uppercase">IP</div>
+                        <div class="font-mono text-slate-700 mt-1 break-all">{{ agent.ip_address or '-' }}</div>
+                    </div>
+                    <div class="p-3 bg-slate-50 rounded-xl border border-slate-100">
+                        <div class="text-[10px] font-black text-slate-400 uppercase">Attempts</div>
+                        <div class="font-black text-slate-700 mt-1">{{ agent.enrollment_attempts or 0 }}</div>
+                    </div>
+                    <div class="p-3 bg-slate-50 rounded-xl border border-slate-100">
+                        <div class="text-[10px] font-black text-slate-400 uppercase">First Seen</div>
+                        <div class="font-bold text-slate-700 mt-1">{{ agent.first_seen | string if agent.first_seen else '-' }}</div>
+                    </div>
+                    <div class="p-3 bg-slate-50 rounded-xl border border-slate-100">
+                        <div class="text-[10px] font-black text-slate-400 uppercase">Last Enrollment</div>
+                        <div class="font-bold text-slate-700 mt-1">{{ agent.last_enrollment_at | string if agent.last_enrollment_at else '-' }}</div>
+                    </div>
+                </div>
+                {% if agent.identity_warning %}
+                <div class="mt-4 p-3 bg-rose-50 border border-rose-100 text-rose-700 rounded-xl text-xs font-bold">{{ agent.identity_warning }}</div>
+                {% endif %}
+                <div class="flex justify-end gap-2 mt-5">
+                    <button onclick="viewHost('{{ agent.id }}')" class="px-4 py-2 bg-white text-slate-600 border border-slate-200 rounded-xl text-xs font-black uppercase hover:bg-slate-50">Review</button>
+                    <button onclick="setHostApprovalQuick('{{ agent.id }}', 'Rejected')" class="px-4 py-2 bg-rose-50 text-rose-600 border border-rose-100 rounded-xl text-xs font-black uppercase hover:bg-rose-100">Reject</button>
+                    <button onclick="setHostApprovalQuick('{{ agent.id }}', 'Approved')" class="px-4 py-2 bg-emerald-600 text-white rounded-xl text-xs font-black uppercase hover:bg-emerald-700">Approve</button>
+                </div>
+            </div>
+            {% endfor %}
+        </div>
+    </div>
+    {% endif %}
+
+    <div class="bg-white p-5 rounded-[2.5rem] border border-slate-200 shadow-sm flex flex-col md:flex-row justify-between items-center gap-4">
+        <div class="flex flex-col sm:flex-row gap-4 w-full md:w-auto">
+            <div class="flex gap-2 bg-slate-100 p-1.5 rounded-xl border border-slate-200/60 shadow-inner overflow-x-auto">
+                <button onclick="filterHosts('all', this)" class="host-filter-btn px-6 py-2 rounded-lg text-xs font-black uppercase bg-white text-indigo-600 shadow-sm transition-all whitespace-nowrap">All Nodes</button>
+                <button onclick="filterHosts('pending', this)" class="host-filter-btn px-6 py-2 rounded-lg text-xs font-black uppercase text-slate-500 hover:text-amber-600 transition-all whitespace-nowrap">Pending</button>
+                <button onclick="filterHosts('online', this)" class="host-filter-btn px-6 py-2 rounded-lg text-xs font-black uppercase text-slate-500 hover:text-emerald-600 transition-all whitespace-nowrap">Online</button>
+                <button onclick="filterHosts('offline', this)" class="host-filter-btn px-6 py-2 rounded-lg text-xs font-black uppercase text-slate-500 hover:text-slate-800 transition-all whitespace-nowrap">Offline</button>
+            </div>
+            <select id="hostGroupFilter" onchange="applyHostFilters()" class="bg-slate-50 border border-slate-200 text-slate-600 text-xs font-black uppercase rounded-xl px-4 py-2 outline-none cursor-pointer w-full sm:w-auto">
+                <option value="all">All Groups</option>
+                <option value="ungrouped">Ungrouped</option>
+                {% for g in groups %}
+                <option value="{{ g.name }}">{{ g.name }}</option>
+                {% endfor %}
+            </select>
+        </div>
+        <div class="relative w-full md:w-96">
+            <input type="text" id="hostSearch" placeholder="Search by name or IP..." class="w-full pl-12 pr-4 py-3 bg-slate-50 border border-slate-200 rounded-2xl text-sm font-medium focus:bg-white focus:ring-4 focus:ring-indigo-500/10 transition-all outline-none">
+            <svg class="w-5 h-5 absolute left-4 top-3 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" stroke-width="3"/></svg>
+        </div>
+    </div>
+
+    <div class="bg-white rounded-[2.5rem] border border-slate-200 shadow-sm overflow-hidden overflow-x-auto">
+        <table class="w-full text-left min-w-[900px]" id="agentsTable">
+            <thead class="bg-slate-50/50 border-b border-slate-100 text-[10px] font-black text-slate-400 uppercase tracking-widest">
+                <tr>
+                    <th class="px-10 py-6">Hostname</th>
+                    <th class="px-10 py-6">OS Type</th>
+                    <th class="px-10 py-6">Approval</th>
+                    <th class="px-10 py-6 text-center">Connectivity</th>
+                    <th class="px-10 py-6">Groups</th>
+                </tr>
+            </thead>
+            <tbody class="divide-y divide-slate-50">
+                {% for agent in agents %}
+                <tr class="host-row hover:bg-slate-50/80 cursor-pointer transition-all" data-status="{{ 'online' if agent.is_online else 'offline' }}" data-approval="{{ agent.approval_status or 'Approved' }}" data-groups="{% for g in agent.groups %}{{ g.name }}{% if not loop.last %},{% endif %}{% endfor %}" onclick="viewHost('{{ agent.id }}')">
+                    <td class="px-10 py-5 font-black text-slate-700 text-lg">
+                        <div class="flex items-center gap-3">
+                            {% if agent.os_type == "Windows" %}
+                            <svg class="w-5 h-5 text-blue-500" fill="currentColor" viewBox="0 0 24 24"><path d="M0 3.449L9.75 2.1v9.418H0m10.949-9.602L24 0v11.4H10.949M0 12.6h9.75v9.451L0 20.67m10.949-8.07H24V24l-13.051-1.754"/></svg>
+                            {% elif agent.os_type == "macOS" %}
+                            <svg class="w-5 h-5 text-slate-800" fill="currentColor" viewBox="0 0 24 24"><path d="M12 20.8c-1.3 0-3.3-.9-5.1-.9-2.2 0-4.1 1.2-5.1 3.1-1.1 1.9-2.8 6.7-1.1 9.7 1.3 2.1 3.1 4.5 5.5 4.6 2.3.1 3.2-1.3 5.9-1.3s3.4 1.4 5.9 1.3c2.5-.1 4-2.2 5.3-4.3 1.5-2.2 2.1-4.4 2.1-4.5-.1-.1-4.2-1.6-4.3-4.8-.1-2.7 2.2-4 2.3-4.1-1.3-1.9-3.2-2.1-4-2.2-1.8-.2-3.8 1.1-5.1 1.1s-3-1.2-4.8-1.1zM15.4 6.7c1-1.3 1.8-3 1.6-4.7-1.5.1-3.3 1-4.4 2.3-.9 1.1-1.8 2.9-1.6 4.6 1.7.1 3.4-.9 4.4-2.2z"/></svg>
+                            {% elif agent.os_type == "Linux" %}
+                            <svg class="w-5 h-5 text-amber-500" fill="currentColor" viewBox="0 0 24 24"><path d="M21.1 14.8c-.8 0-1.4.6-1.4 1.4 0 .8.6 1.4 1.4 1.4.8 0 1.4-.6 1.4-1.4 0-.8-.6-1.4-1.4-1.4zm-18.2 0c-.8 0-1.4.6-1.4 1.4 0 .8.6 1.4 1.4 1.4.8 0 1.4-.6 1.4-1.4 0-.8-.6-1.4-1.4-1.4zm10.7-3.6c-1.1-1-2.6-1.5-4-1.4h-.2c-1.4-.1-2.9.4-4 1.4-1.9 1.8-2.6 4.7-2.6 8.3 0 2.2.8 4.2 2.3 5.7 1.2 1.2 2.7 1.8 4.3 1.8s3.1-.6 4.3-1.8c1.5-1.5 2.3-3.5 2.3-5.7.1-3.6-.6-6.5-2.4-8.3zm-5.4 11c-.5 0-.9-.4-.9-.9s.4-.9.9-.9.9.4.9.9-.4.9-.9.9zm3.5 0c-.5 0-.9-.4-.9-.9s.4-.9.9-.9.9.4.9.9-.4.9-.9.9z"/></svg>
+                            {% else %}
+                            <svg class="w-5 h-5 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9.75 17L9 20l-1 1h8l-1-1-.75-3M3 13h18M5 17h14a2 2 0 002-2V5a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z"></path></svg>
+                            {% endif %}
+                            {{ agent.hostname }}
+                        </div>
+                    </td>
+                    <td class="px-10 py-5">
+                        <div class="text-[10px] font-black uppercase tracking-widest text-slate-400 mb-1">{{ agent.os_type }}</div>
+                        <div class="text-sm font-bold text-slate-600 bg-slate-50 px-2 py-0.5 rounded w-fit border border-slate-100">{{ agent.ip_address }}</div>
+                    </td>
+                    <td class="px-10 py-5">
+                        {% set approval = agent.approval_status or 'Approved' %}
+                        <span class="inline-flex items-center px-3 py-1.5 rounded-xl text-[10px] font-black uppercase border {{ 'bg-emerald-50 text-emerald-600 border-emerald-100' if approval == 'Approved' else ('bg-amber-50 text-amber-600 border-amber-100' if approval == 'Pending' else 'bg-rose-50 text-rose-600 border-rose-100') }}">{{ approval }}</span>
+                    </td>
+                    <td class="px-10 py-5 text-center">
+                        <span class="inline-flex items-center gap-2 px-3 py-1.5 rounded-xl text-[10px] font-black uppercase {{ 'bg-emerald-50 text-emerald-600 border border-emerald-100' if agent.is_online else 'bg-slate-100 text-slate-500' }}" title="Last seen: {{ agent.last_seen_str }}">
+                            <span class="w-2 h-2 rounded-full {{ 'bg-emerald-500 animate-pulse' if agent.is_online else 'bg-slate-400' }}"></span>
+                            {{ 'Live' if agent.is_online else 'Passive' }}
+                        </span>
+                    </td>
+                    <td class="px-10 py-5 flex flex-wrap gap-2">
+                        {% for g in agent.groups %}
+                        <span class="px-3 py-1 bg-indigo-50 text-indigo-600 rounded-lg text-[10px] font-bold border border-indigo-100 uppercase shadow-sm">{{ g.name }}</span>
+                        {% else %}
+                        <span class="text-slate-300 italic text-xs font-bold">Ungrouped</span>
+                        {% endfor %}
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</section>

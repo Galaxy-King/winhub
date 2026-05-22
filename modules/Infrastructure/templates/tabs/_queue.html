@@ -1,0 +1,58 @@
+<!-- VIEW: QUEUE -->
+<section id="view-queue" class="hidden animate-in fade-in duration-300 space-y-6">
+    <div class="flex flex-col md:flex-row justify-between items-center bg-white p-5 rounded-[2.5rem] border border-slate-200 shadow-sm gap-4">
+        <div class="relative w-full md:w-96">
+            <input type="text" id="queueSearch" onkeyup="renderQueue()" placeholder="Search Job Title, Target, Status..." class="w-full pl-12 pr-4 py-3 bg-slate-50 border border-slate-200 rounded-2xl text-sm font-medium focus:bg-white focus:ring-4 focus:ring-indigo-500/10 transition-all outline-none">
+            <svg class="w-5 h-5 absolute left-4 top-3 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" stroke-width="3"/></svg>
+        </div>
+        
+        <div class="flex flex-wrap items-center gap-6 w-full md:w-auto justify-between md:justify-end">
+            <div class="flex gap-8 pr-0 md:pr-8 md:border-r border-slate-200">
+                <div class="text-center"><p class="text-[10px] font-black text-slate-400 uppercase tracking-widest">Total</p><p id="statQTotal" class="text-xl font-black text-slate-800 leading-none mt-1">0</p></div>
+                <div class="text-center"><p class="text-[10px] font-black text-slate-400 uppercase tracking-widest">Pending</p><p id="statQPending" class="text-xl font-black text-amber-500 leading-none mt-1">0</p></div>
+            </div>
+            
+            {% if permissions.cleanup_tasks %}
+            <div class="relative group z-10">
+                <button class="w-full md:w-auto px-6 py-3 bg-rose-50 text-rose-600 rounded-2xl text-xs font-black uppercase tracking-wider hover:bg-rose-100 transition-all flex items-center justify-center gap-2 border border-rose-100 shadow-sm">
+                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"/></svg> Clean History
+                </button>
+                <div class="absolute right-0 mt-3 w-56 bg-white border border-slate-200 rounded-2xl shadow-xl opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all overflow-hidden">
+                    <button onclick="cleanupTasks(7)" class="w-full text-left px-5 py-4 text-sm font-bold text-slate-700 hover:bg-slate-50 border-b border-slate-100 transition-colors">Older than 7 days</button>
+                    <button onclick="cleanupTasks(30)" class="w-full text-left px-5 py-4 text-sm font-bold text-slate-700 hover:bg-slate-50 border-b border-slate-100 transition-colors">Older than 1 month</button>
+                    <button onclick="cleanupTasks(60)" class="w-full text-left px-5 py-4 text-sm font-bold text-rose-600 hover:bg-rose-50 transition-colors">Older than 2 months</button>
+                </div>
+            </div>
+            {% endif %}
+        </div>
+    </div>
+
+    <!-- FILTERS -->
+    <div class="flex flex-col md:flex-row justify-between items-center bg-white p-3 rounded-[2rem] border border-slate-200 shadow-sm gap-4">
+        <div class="flex bg-slate-50 p-1.5 rounded-xl border border-slate-100 w-full md:w-auto overflow-x-auto no-scrollbar">
+            <button onclick="setQueueTypeFilter('ALL', this)" class="q-type-btn px-6 py-2 text-xs font-black uppercase rounded-lg bg-white text-indigo-600 shadow-sm transition-all whitespace-nowrap">All Tasks</button>
+            <button onclick="setQueueTypeFilter('Manual', this)" class="q-type-btn px-6 py-2 text-xs font-black uppercase rounded-lg text-slate-500 hover:text-slate-800 transition-all whitespace-nowrap">Manual</button>
+            <button onclick="setQueueTypeFilter('Auto', this)" class="q-type-btn px-6 py-2 text-xs font-black uppercase rounded-lg text-slate-500 hover:text-slate-800 transition-all whitespace-nowrap">Auto (Scheduler)</button>
+            <button onclick="setQueueTypeFilter('Auto-Fix', this)" class="q-type-btn px-6 py-2 text-xs font-black uppercase rounded-lg text-slate-500 hover:text-slate-800 transition-all whitespace-nowrap">Auto-Fix (Trigger)</button>
+        </div>
+        
+        <select id="qFilterUser" onchange="renderQueue()" class="bg-slate-50 border border-slate-200 text-slate-600 text-xs font-black uppercase rounded-xl px-4 py-2.5 outline-none cursor-pointer w-full md:w-auto">
+            <option value="">All Users</option>
+        </select>
+    </div>
+
+    <div class="bg-white rounded-[3rem] border border-slate-200 shadow-sm overflow-hidden overflow-x-auto">
+        <table class="w-full text-left min-w-[900px]">
+            <thead class="bg-slate-50/50 border-b border-slate-100 text-[10px] font-black text-slate-400 uppercase tracking-widest">
+                <tr>
+                    <th class="px-10 py-6">Job</th>
+                    <th class="px-10 py-6">Target</th>
+                    <th class="px-10 py-6 text-center">Status</th>
+                    <th class="px-10 py-6 text-right">Started At</th>
+                    {% if permissions.cleanup_tasks %}<th class="px-10 py-6 w-16"></th>{% endif %}
+                </tr>
+            </thead>
+            <tbody id="queueBody" class="divide-y divide-slate-50"></tbody>
+        </table>
+    </div>
+</section>

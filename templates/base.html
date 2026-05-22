@@ -1,0 +1,312 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    {% if csrf_token %}<meta name="csrf-token" content="{{ csrf_token }}">{% endif %}
+    <title>{% block title %}WinHUB{% endblock %}</title>
+    <script>
+        tailwind.config = {
+            theme: {
+                extend: {
+                    colors: {
+                        primary: '#0f3d8a',
+                        'primary-dark': '#092b63',
+                        sidebar: '#07152e',
+                    }
+                }
+            }
+        }
+    </script>
+    
+    <script src="https://cdn.tailwindcss.com"></script>
+    
+    <!-- ДОДАНО: Клієнтська бібліотека Socket.IO для WebSockets -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.7.4/socket.io.js"></script>
+    
+    <!-- ДОДАНО: Сучасний шрифт Inter для всього проекту -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;700;900&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --wh-blue-950: #07152e;
+            --wh-blue-900: #092b63;
+            --wh-blue-800: #0f3d8a;
+            --wh-blue-700: #1554b7;
+            --wh-blue-600: #1f6feb;
+            --wh-blue-100: #dbeafe;
+            --wh-blue-50: #eff6ff;
+            --wh-ink: #102033;
+            --wh-muted: #64748b;
+            --wh-line: #cbd8ea;
+            --wh-line-strong: #9fb4d0;
+            --wh-surface: #ffffff;
+            --wh-surface-soft: #f7faff;
+            --wh-page: #eef4ff;
+            --wh-shadow: 0 18px 45px rgba(15, 61, 138, 0.10);
+            --wh-shadow-soft: 0 10px 26px rgba(15, 61, 138, 0.08);
+        }
+
+        body { 
+            font-family: 'Inter', sans-serif; 
+            -webkit-font-smoothing: antialiased; 
+            -moz-osx-font-smoothing: grayscale;
+            background:
+                radial-gradient(circle at top left, rgba(31, 111, 235, 0.08), transparent 32rem),
+                linear-gradient(135deg, #eef4ff 0%, #f8fbff 42%, #edf3fb 100%);
+            color: var(--wh-ink);
+        }
+        
+        /* Глобальні скролбари проекту */
+        .custom-scrollbar::-webkit-scrollbar { width: 8px; height: 8px; }
+        .custom-scrollbar::-webkit-scrollbar-track { background: transparent; }
+        .custom-scrollbar::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 10px; border: 2px solid transparent; background-clip: content-box; }
+        .custom-scrollbar::-webkit-scrollbar-thumb:hover { background: #94a3b8; border: 2px solid transparent; background-clip: content-box; }
+        
+        ::-webkit-scrollbar { width: 8px; height: 8px; }
+        ::-webkit-scrollbar-track { background: transparent; }
+        ::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 10px; border: 2px solid transparent; background-clip: content-box; }
+        ::-webkit-scrollbar-thumb:hover { background: #94a3b8; border: 2px solid transparent; background-clip: content-box; }
+        .no-scrollbar::-webkit-scrollbar { display: none; }
+
+        /* Стилі для згорнутого сайдбара */
+        #mainSidebar { transition: width 0.3s cubic-bezier(0.4, 0, 0.2, 1); }
+        #mainSidebar.collapsed { width: 5.5rem; } 
+        #mainSidebar.collapsed .sidebar-text { display: none; }
+        #mainSidebar.collapsed .sidebar-link { justify-content: center; padding-left: 0; padding-right: 0; }
+        #mainSidebar.collapsed .sidebar-group-title { opacity: 0; }
+        #sidebarToggleIcon { transition: transform 0.3s ease; }
+        #mainSidebar.collapsed #sidebarToggleIcon { transform: rotate(180deg); }
+
+        /* WinHUB visual system: deep blue, crisp surfaces, stronger separation. */
+        .bg-indigo-600,
+        .hover\:bg-indigo-600:hover {
+            background-color: var(--wh-blue-800) !important;
+        }
+        .bg-indigo-700,
+        .hover\:bg-indigo-700:hover {
+            background-color: var(--wh-blue-900) !important;
+        }
+        .bg-indigo-50,
+        .hover\:bg-indigo-50:hover,
+        .focus\:bg-indigo-50:focus {
+            background-color: var(--wh-blue-50) !important;
+        }
+        .bg-indigo-100 {
+            background-color: var(--wh-blue-100) !important;
+        }
+        .text-indigo-400,
+        .group-hover\:text-indigo-400:hover,
+        .group:hover .group-hover\:text-indigo-400 {
+            color: #6ea8ff !important;
+        }
+        .text-indigo-500,
+        .text-indigo-600,
+        .text-indigo-700,
+        .hover\:text-indigo-600:hover,
+        .hover\:text-indigo-700:hover,
+        .group-hover\:text-indigo-600:hover,
+        .group:hover .group-hover\:text-indigo-600 {
+            color: var(--wh-blue-800) !important;
+        }
+        .border-indigo-100,
+        .border-indigo-200,
+        .border-indigo-300,
+        .focus\:border-indigo-500:focus,
+        .hover\:border-indigo-300:hover,
+        .hover\:border-indigo-400:hover {
+            border-color: #9fbdf2 !important;
+        }
+        .ring-indigo-500\/10,
+        .focus\:ring-indigo-500\/10:focus {
+            --tw-ring-color: rgba(15, 61, 138, 0.14) !important;
+        }
+        .focus\:ring-indigo-500:focus,
+        .focus\:ring-indigo-500\/20:focus {
+            --tw-ring-color: rgba(15, 61, 138, 0.24) !important;
+        }
+        .shadow-indigo-200,
+        .shadow-indigo-200\/50 {
+            --tw-shadow-color: rgba(15, 61, 138, 0.20) !important;
+            --tw-shadow: 0 16px 32px rgba(15, 61, 138, 0.18) !important;
+            box-shadow: var(--tw-ring-offset-shadow, 0 0 #0000), var(--tw-ring-shadow, 0 0 #0000), var(--tw-shadow) !important;
+        }
+
+        .bg-purple-50 { background-color: #eef6ff !important; }
+        .bg-purple-500 { background-color: #0ea5e9 !important; }
+        .text-purple-600,
+        .text-purple-700 { color: #075985 !important; }
+        .border-purple-100 { border-color: #bae6fd !important; }
+
+        main.bg-slate-100,
+        body > .bg-slate-100,
+        body > .w-full.h-full.bg-slate-100 {
+            background:
+                radial-gradient(circle at 0 0, rgba(31, 111, 235, 0.08), transparent 28rem),
+                linear-gradient(135deg, #eef4ff 0%, #f8fbff 44%, #edf3fb 100%) !important;
+        }
+        #mainSidebar {
+            background:
+                linear-gradient(180deg, #07152e 0%, #09224c 52%, #061126 100%) !important;
+            border-color: rgba(147, 178, 219, 0.22) !important;
+            box-shadow: 14px 0 34px rgba(7, 21, 46, 0.22) !important;
+        }
+        #mainSidebar .bg-primary,
+        #mainSidebar .bg-indigo-600 {
+            background: linear-gradient(135deg, var(--wh-blue-700), var(--wh-blue-900)) !important;
+            box-shadow: 0 12px 24px rgba(31, 111, 235, 0.24) !important;
+        }
+        #mainSidebar a:not(.bg-primary):hover {
+            background-color: rgba(59, 130, 246, 0.12) !important;
+        }
+
+        main header,
+        main > div > div > header,
+        .bg-white.rounded-\[2\.5rem\],
+        .bg-white.rounded-\[3rem\],
+        .bg-white.rounded-3xl,
+        .bg-white.rounded-2xl {
+            background: rgba(255, 255, 255, 0.96) !important;
+            border-color: var(--wh-line) !important;
+            box-shadow: var(--wh-shadow-soft) !important;
+        }
+        main header {
+            box-shadow: var(--wh-shadow) !important;
+        }
+        .bg-slate-50,
+        .bg-slate-50\/50,
+        .bg-slate-50\/80 {
+            background-color: var(--wh-surface-soft) !important;
+        }
+        .border-slate-100,
+        .border-slate-200,
+        .border-slate-200\/50,
+        .border-slate-200\/60 {
+            border-color: var(--wh-line) !important;
+        }
+        .divide-slate-100 > :not([hidden]) ~ :not([hidden]) {
+            border-color: #dbe5f3 !important;
+        }
+        table thead,
+        .bg-slate-50\/50.border-b {
+            background: linear-gradient(180deg, #f8fbff, #eef5ff) !important;
+            border-color: var(--wh-line) !important;
+        }
+        tbody tr:hover,
+        .hover\:bg-slate-50:hover,
+        .hover\:bg-slate-50\/80:hover {
+            background-color: #edf5ff !important;
+        }
+        input,
+        textarea,
+        select {
+            border-color: var(--wh-line) !important;
+        }
+        input:focus,
+        textarea:focus,
+        select:focus {
+            border-color: var(--wh-blue-700) !important;
+            box-shadow: 0 0 0 4px rgba(15, 61, 138, 0.12) !important;
+        }
+        button,
+        a {
+            letter-spacing: 0 !important;
+        }
+        .rounded-\[3rem\],
+        .rounded-\[2\.5rem\] {
+            border-radius: 0.5rem !important;
+        }
+        .rounded-3xl,
+        .rounded-2xl {
+            border-radius: 0.5rem !important;
+        }
+    </style>
+    {% block extra_head %}{% endblock %}
+</head>
+<body class="bg-slate-100 text-slate-800 h-screen w-full flex overflow-hidden">
+    
+    {% block content %}{% endblock %}
+
+    <script>
+        (function() {
+            const originalFetch = window.fetch.bind(window);
+            const safeMethods = new Set(['GET', 'HEAD', 'OPTIONS', 'TRACE']);
+            const idleTimeoutMs = {{ (session_idle_timeout_seconds or 0) * 1000 }};
+            let idleTimer = null;
+            let lastClientActivity = Date.now();
+            let lastPingAt = 0;
+
+            function resetIdleTimer() {
+                if (!idleTimeoutMs) return;
+                lastClientActivity = Date.now();
+                clearTimeout(idleTimer);
+                idleTimer = setTimeout(() => {
+                    window.location.href = '/logout?reason=idle';
+                }, idleTimeoutMs + 1000);
+            }
+
+            async function pingIfRecentlyActive() {
+                if (!idleTimeoutMs || !document.querySelector('meta[name="csrf-token"]')) return;
+                const now = Date.now();
+                if (document.hidden || now - lastClientActivity > 65000 || now - lastPingAt < 60000) return;
+                lastPingAt = now;
+                try {
+                    await window.fetch('/api/session/ping', {method: 'POST'});
+                } catch (_) {}
+            }
+
+            window.fetch = async function(input, init = {}) {
+                const requestUrl = typeof input === 'string' ? input : input.url;
+                const url = new URL(requestUrl, window.location.origin);
+                const sameOrigin = url.origin === window.location.origin;
+                const method = (init.method || (typeof input !== 'string' ? input.method : 'GET') || 'GET').toUpperCase();
+                const headers = new Headers(init.headers || (typeof input !== 'string' ? input.headers : undefined));
+                const token = document.querySelector('meta[name="csrf-token"]')?.content;
+
+                if (sameOrigin && token && !safeMethods.has(method) && !headers.has('X-CSRF-Token')) {
+                    headers.set('X-CSRF-Token', token);
+                }
+                if (sameOrigin && !headers.has('X-Requested-With')) {
+                    headers.set('X-Requested-With', 'XMLHttpRequest');
+                }
+
+                const response = await originalFetch(input, {...init, headers});
+                if (sameOrigin && (response.status === 440 || response.status === 401)) {
+                    window.location.href = '/login';
+                }
+                return response;
+            };
+
+            if (document.querySelector('meta[name="csrf-token"]')) {
+                ['click', 'keydown', 'mousemove', 'scroll', 'touchstart'].forEach(eventName => {
+                    window.addEventListener(eventName, resetIdleTimer, {passive: true});
+                });
+                setInterval(pingIfRecentlyActive, 30000);
+                resetIdleTimer();
+            }
+        })();
+
+        // Логіка згортання сайдбара
+        function toggleSidebar() {
+            const sidebar = document.getElementById('mainSidebar');
+            sidebar.classList.toggle('collapsed');
+            localStorage.setItem('winhub_sidebar_state', sidebar.classList.contains('collapsed') ? 'collapsed' : 'expanded');
+        }
+
+        document.addEventListener('DOMContentLoaded', () => {
+            const sidebar = document.getElementById('mainSidebar');
+            if (sidebar) {
+                const savedState = localStorage.getItem('winhub_sidebar_state');
+                if (savedState === 'collapsed') {
+                    sidebar.classList.add('collapsed');
+                }
+                
+                if (window.innerWidth < 768) {
+                    sidebar.classList.add('collapsed');
+                }
+            }
+        });
+    </script>
+</body>
+</html>

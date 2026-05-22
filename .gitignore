@@ -1,0 +1,32 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+venv/
+.venv/
+
+# Runtime data and secrets
+.env
+data/
+certs/
+dist/
+*.log
+*.dump
+*.bak
+*.sqlite
+*.db
+
+# Windows agent build output
+WinHUBAgent/bin/
+WinHUBAgent/obj/
+WinHUBAgent/publish/
+
+# Local/editor noise
+.idea/
+.vscode/
+*.swp
+Thumbs.db
+Desktop.ini

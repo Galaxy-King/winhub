@@ -1,0 +1,70 @@
+{% extends "base.html" %}
+
+{% block title %}Dashboard - WinHUB{% endblock %}
+
+{% block content %}
+
+{% include "sidebar.html" %}
+
+<main class="flex-1 flex flex-col min-w-0 bg-slate-100 relative z-10">
+    <div class="flex-1 overflow-y-auto custom-scrollbar">
+        <div class="max-w-[1600px] mx-auto w-full p-6 md:p-10 flex flex-col gap-8">
+            
+            <header class="bg-white rounded-[2.5rem] shadow-sm border border-slate-200 p-6 flex flex-col lg:flex-row items-center justify-between gap-6 shrink-0 transition-all">
+                <div class="flex items-center gap-5 shrink-0">
+                    <div class="w-14 h-14 bg-indigo-600 rounded-2xl flex items-center justify-center text-white shadow-lg shadow-indigo-200">
+                        <svg class="w-8 h-8" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M4 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2V6zm10 0a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2V6zM4 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2v-2zm10 0a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2v-2z"></path></svg>
+                    </div>
+                    <div>
+                        <h2 class="text-2xl font-black text-slate-800 tracking-tight">System Dashboard</h2>
+                        <p class="text-[11px] font-bold text-slate-400 uppercase tracking-widest mt-1">Modules & Status</p>
+                    </div>
+                </div>
+                
+                <div class="flex items-center gap-4 bg-slate-50 p-2 rounded-2xl border border-slate-200/60 overflow-x-auto shadow-inner">
+                    {% if is_admin %}
+                    <span class="px-4 py-2 text-[10px] font-black uppercase tracking-widest bg-emerald-100 text-emerald-700 rounded-xl border border-emerald-200 shadow-sm shrink-0">
+                        Administrator
+                    </span>
+                    {% endif %}
+                    <div class="w-px h-6 bg-slate-300 mx-1 shrink-0"></div>
+                    <div class="flex items-center gap-3 px-2">
+                        <div class="w-8 h-8 rounded-full bg-indigo-100 text-indigo-700 flex items-center justify-center font-black shadow-sm shrink-0">{{ username[0]|upper if username else 'U' }}</div>
+                        <span class="text-xs font-black text-slate-700 uppercase tracking-wider pr-2 whitespace-nowrap">{{ username }}</span>
+                    </div>
+                </div>
+            </header>
+
+            <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-8">
+                {% if system_modules and system_modules|length > 0 %}
+                {% for mod in system_modules %}
+                <a href="{{ mod.url }}" class="group bg-white p-8 rounded-[2.5rem] border border-slate-200 shadow-sm hover:border-indigo-300 hover:shadow-lg transition-all flex flex-col h-full relative overflow-hidden">
+                    <div class="absolute top-0 right-0 w-24 h-24 bg-gradient-to-bl from-indigo-50 to-transparent rounded-bl-[4rem] opacity-0 group-hover:opacity-100 transition-opacity"></div>
+                    
+                    <div class="w-16 h-16 bg-slate-50 rounded-2xl border border-slate-100 flex items-center justify-center text-indigo-600 mb-6 group-hover:bg-indigo-600 group-hover:text-white transition-all shadow-sm">
+                        <div class="w-8 h-8">
+                            {{ mod.icon | safe }}
+                        </div>
+                    </div>
+                    <h4 class="text-lg font-black text-slate-800 tracking-tight mb-2">{{ mod.name }}</h4>
+                    <span class="text-[10px] font-black text-indigo-600 uppercase tracking-widest opacity-0 group-hover:opacity-100 transition-opacity flex items-center gap-2 mt-auto pt-4">
+                        Open Module 
+                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M14 5l7 7m0 0l-7 7m7-7H3"></path></svg>
+                    </span>
+                </a>
+                {% endfor %}
+                {% else %}
+                <div class="col-span-full text-center py-24 bg-white border-2 border-dashed border-slate-200 rounded-[3rem] shadow-sm">
+                    <div class="w-20 h-20 bg-slate-50 rounded-full flex items-center justify-center mx-auto mb-4 border border-slate-100 text-slate-300 shadow-inner">
+                        <svg class="w-10 h-10" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M20 13V6a2 2 0 00-2-2H6a2 2 0 00-2 2v7m16 0v5a2 2 0 01-2 2H6a2 2 0 01-2-2v-5m16 0h-2.586a1 1 0 00-.707.293l-2.414 2.414a1 1 0 01-.707.293h-3.172a1 1 0 01-.707-.293l-2.414-2.414A1 1 0 006.586 13H4"></path></svg>
+                    </div>
+                    <h3 class="text-lg font-black text-slate-700 tracking-tight mb-1">No Modules Installed</h3>
+                    <p class="text-[10px] font-bold uppercase tracking-widest text-slate-400">Please install modules into the 'modules' folder.</p>
+                </div>
+                {% endif %}
+            </div>
+
+        </div>
+    </div>
+</main>
+{% endblock %}

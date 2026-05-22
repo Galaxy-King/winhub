@@ -1,0 +1,10 @@
+/var/log/winhub/*.log {
+    daily
+    rotate 14
+    missingok
+    notifempty
+    compress
+    delaycompress
+    copytruncate
+    create 0640 winhub winhub
+}

@@ -1,0 +1,275 @@
+{% extends "base.html" %}
+
+{% block title %}Audit & History - WinHUB{% endblock %}
+
+{% block content %}
+{% include "sidebar.html" %}
+
+<main class="flex-1 flex flex-col min-w-0 bg-slate-100 relative z-10">
+    <div class="flex-1 overflow-y-auto custom-scrollbar">
+        <div class="max-w-[1600px] mx-auto w-full p-6 md:p-10 flex flex-col gap-8">
+            
+            <header class="bg-white rounded-[2.5rem] shadow-sm border border-slate-200 p-6 flex flex-col lg:flex-row items-center justify-between gap-6 shrink-0 transition-all">
+                <div class="flex items-center gap-5 shrink-0">
+                    <div class="w-14 h-14 bg-indigo-600 rounded-2xl flex items-center justify-center text-white shadow-lg shadow-indigo-200">
+                        <svg class="w-8 h-8" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>
+                    </div>
+                    <div>
+                        <h2 class="text-2xl font-black text-slate-800 tracking-tight">Task History & Audit</h2>
+                        <p class="text-[11px] font-bold text-slate-400 uppercase tracking-widest mt-1">Actions & Security Logs</p>
+                    </div>
+                </div>
+                
+                <div class="flex items-center gap-4 bg-slate-50 p-2 rounded-2xl border border-slate-200/60 overflow-x-auto shadow-inner w-full lg:w-auto">
+                    {% if is_admin %}
+                    <span class="px-4 py-2 text-[10px] font-black uppercase tracking-widest bg-emerald-100 text-emerald-700 rounded-xl border border-emerald-200 shadow-sm shrink-0">
+                        Administrator
+                    </span>
+                    {% endif %}
+                    <div class="w-px h-6 bg-slate-300 mx-1 shrink-0"></div>
+                    <div class="flex items-center gap-3 px-2 shrink-0">
+                        <div class="w-8 h-8 rounded-full bg-indigo-100 text-indigo-700 flex items-center justify-center font-black shadow-sm">{{ username[0]|upper if username else 'U' }}</div>
+                        <span class="text-xs font-black text-slate-700 uppercase tracking-wider pr-2">{{ username }}</span>
+                    </div>
+                </div>
+                
+                <div class="shrink-0 flex gap-3 w-full lg:w-auto">
+                    {% if permissions.manage_history %}
+                    <button onclick="runCleanup()" id="cleanupBtn" class="flex-1 lg:flex-none px-6 py-3 bg-white border border-slate-200 text-rose-500 rounded-2xl text-xs font-black uppercase hover:bg-rose-50 shadow-sm transition-all flex justify-center items-center gap-2">
+                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"></path></svg>
+                        Clean {{ retention }}d
+                    </button>
+                    <button onclick="deleteSelected()" id="delSelBtn" class="flex-1 lg:flex-none px-6 py-3 bg-slate-800 border border-slate-700 text-white rounded-2xl text-xs font-black uppercase hover:bg-slate-900 shadow-sm transition-all hidden justify-center items-center gap-2">
+                        Delete Selected
+                    </button>
+                    {% endif %}
+                </div>
+            </header>
+
+            <div class="flex flex-col md:flex-row gap-4">
+                <input type="text" id="searchInput" placeholder="Search by user, action, target..." class="flex-1 px-6 py-4 bg-white border border-slate-200 rounded-2xl text-sm font-bold shadow-sm focus:ring-4 focus:ring-indigo-500/10 outline-none transition-all">
+                <select id="typeFilter" class="px-6 py-4 bg-white border border-slate-200 rounded-2xl text-sm font-bold shadow-sm focus:ring-4 focus:ring-indigo-500/10 outline-none transition-all cursor-pointer">
+                    <option value="all">All Event Types</option>
+                    <option value="audit">System Audit Logs</option>
+                    <option value="task">Agent Task Logs</option>
+                    <option value="registration">Agent Registrations</option>
+                    <option value="module">Module Events</option>
+                </select>
+                <select id="statusFilter" class="px-6 py-4 bg-white border border-slate-200 rounded-2xl text-sm font-bold shadow-sm focus:ring-4 focus:ring-indigo-500/10 outline-none transition-all cursor-pointer">
+                    <option value="all">All Statuses</option>
+                    <option value="Success">Success</option>
+                    <option value="Error">Error</option>
+                    <option value="Warning">Warning / Pending</option>
+                </select>
+            </div>
+
+            <div class="bg-white rounded-[3rem] border border-slate-200 shadow-sm overflow-hidden overflow-x-auto flex-1">
+                <table class="w-full text-left min-w-[900px]">
+                    <thead class="bg-slate-50/50 border-b border-slate-100 text-[10px] font-black text-slate-400 uppercase tracking-widest sticky top-0">
+                        <tr>
+                            {% if permissions.manage_history %}<th class="px-6 py-6 w-12 text-center"><input type="checkbox" id="selectAll" class="w-4 h-4 text-indigo-600 rounded border-slate-300 focus:ring-indigo-500 cursor-pointer"></th>{% endif %}
+                            <th class="px-6 py-6 w-48">Timestamp</th>
+                            <th class="px-6 py-6 w-48">User / Initiator</th>
+                            <th class="px-6 py-6 w-32">Type</th>
+                            <th class="px-6 py-6">Action & Details</th>
+                            <th class="px-6 py-6 w-32 text-center">Status</th>
+                        </tr>
+                    </thead>
+                    <tbody id="historyBody" class="divide-y divide-slate-100 text-sm">
+                        <tr><td colspan="6" class="p-20 text-center text-slate-400 font-bold uppercase tracking-widest text-xs">Loading logs...</td></tr>
+                    </tbody>
+                </table>
+            </div>
+
+            <div class="flex justify-between items-center py-4 px-2">
+                <span id="pageInfo" class="text-[10px] font-black uppercase tracking-widest text-slate-400">Page 1 of 1</span>
+                <div class="flex gap-2">
+                    <button onclick="changePage(-1)" id="btnPrev" class="px-6 py-3 bg-white border border-slate-200 text-slate-600 rounded-xl text-[10px] font-black uppercase shadow-sm hover:bg-slate-50 transition-all disabled:opacity-50">Previous</button>
+                    <button onclick="changePage(1)" id="btnNext" class="px-6 py-3 bg-white border border-slate-200 text-slate-600 rounded-xl text-[10px] font-black uppercase shadow-sm hover:bg-slate-50 transition-all disabled:opacity-50">Next</button>
+                </div>
+            </div>
+
+        </div>
+    </div>
+</main>
+
+<div id="logModal" class="fixed inset-0 z-50 hidden bg-slate-900/60 backdrop-blur-md flex justify-center items-center p-4 animate-in fade-in">
+    <div class="bg-white rounded-[3rem] p-10 w-full max-w-3xl shadow-2xl relative flex flex-col max-h-[85vh]">
+        <button onclick="closeLogModal()" class="absolute top-6 right-6 text-slate-400 hover:text-slate-600 bg-slate-50 hover:bg-slate-100 p-2 rounded-xl transition-colors shrink-0"><svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M6 18L18 6M6 6l12 12"></path></svg></button>
+        <h3 class="text-2xl font-black text-slate-800 mb-2 uppercase tracking-tight shrink-0">Detailed Log</h3>
+        <p class="text-[10px] text-slate-400 font-bold uppercase tracking-widest mb-6 shrink-0" id="logModalSub">Information</p>
+        
+        <div class="bg-[#0f172a] rounded-2xl border border-slate-800 shadow-inner flex-1 overflow-y-auto custom-scrollbar p-6">
+            <pre id="logContent" class="text-emerald-400 font-mono text-xs whitespace-pre-wrap word-break-all"></pre>
+        </div>
+    </div>
+</div>
+
+<script>
+    let allData = []; let filteredData = [];
+    let currentPage = 1; const perPage = 100;
+    const canManageHistory = {{ 'true' if permissions.manage_history else 'false' }};
+
+    async function loadHistory() {
+        const tbody = document.getElementById('historyBody');
+        try {
+            const res = await fetch('/api/history/tasks');
+            const data = await res.json();
+            if(data.success) {
+                allData = data.history;
+                applyFilters();
+            } else tbody.innerHTML = `<tr><td colspan="6" class="p-10 text-center text-rose-500 font-bold">${data.message}</td></tr>`;
+        } catch(e) { tbody.innerHTML = `<tr><td colspan="6" class="p-10 text-center text-rose-500 font-bold">Network Error.</td></tr>`; }
+    }
+
+    function applyFilters() {
+        const term = document.getElementById('searchInput').value.toLowerCase();
+        const typeF = document.getElementById('typeFilter').value;
+        const statF = document.getElementById('statusFilter').value;
+        
+        filteredData = allData.filter(i => {
+            const matchTerm = (i.user || '').toLowerCase().includes(term) || (i.action || '').toLowerCase().includes(term) || (i.details || '').toLowerCase().includes(term);
+            const matchType = typeF === 'all' || i.type === typeF;
+            let matchStat = statF === 'all' || i.status === statF;
+            if(statF === 'Warning' && i.status === 'Pending') matchStat = true;
+            return matchTerm && matchType && matchStat;
+        });
+        
+        currentPage = 1;
+        renderTable();
+    }
+
+    function renderTable() {
+        const tbody = document.getElementById('historyBody');
+        const start = (currentPage - 1) * perPage;
+        const end = start + perPage;
+        const pageData = filteredData.slice(start, end);
+        const totalPages = Math.ceil(filteredData.length / perPage) || 1;
+        
+        document.getElementById('pageInfo').innerText = `Page ${currentPage} of ${totalPages} (Total: ${filteredData.length})`;
+        document.getElementById('btnPrev').disabled = currentPage === 1;
+        document.getElementById('btnNext').disabled = currentPage === totalPages;
+
+        if (pageData.length === 0) {
+            tbody.innerHTML = `<tr><td colspan="6" class="p-16 text-center text-slate-400 font-bold italic">No records match criteria.</td></tr>`;
+            return;
+        }
+
+        tbody.innerHTML = pageData.map(i => {
+            let sCls = 'bg-slate-100 text-slate-600 border-slate-200';
+            if(i.status === 'Success') sCls = 'bg-emerald-100 text-emerald-700 border-emerald-200';
+            else if(i.status === 'Error') sCls = 'bg-rose-100 text-rose-700 border-rose-200';
+            else if(i.status === 'Warning' || i.status === 'Pending') sCls = 'bg-amber-100 text-amber-700 border-amber-200';
+
+            let tCls = 'bg-slate-100 text-slate-500 border-slate-200';
+            if(i.type === 'audit') tCls = 'bg-purple-100 text-purple-700 border-purple-200';
+            else if(i.type === 'task') tCls = 'bg-sky-100 text-sky-700 border-sky-200';
+            else if(i.type === 'registration') tCls = 'bg-indigo-100 text-indigo-700 border-indigo-200';
+            else if(i.type === 'module') tCls = 'bg-cyan-100 text-cyan-700 border-cyan-200';
+
+            const checkbox = canManageHistory ? `<td class="px-6 py-4 text-center" onclick="event.stopPropagation()"><input type="checkbox" value="${i.id}" class="row-cb w-4 h-4 text-indigo-600 rounded border-slate-300 focus:ring-indigo-500 cursor-pointer" onchange="toggleDelBtn()"></td>` : '';
+
+            let actionClick = '';
+            if (i.type === 'task') actionClick = `onclick="viewLog('${i.id}')" class="hover:bg-slate-50/80 cursor-pointer transition-colors"`;
+            else actionClick = `class="hover:bg-slate-50/80 transition-colors"`;
+
+            return `
+            <tr ${actionClick}>
+                ${checkbox}
+                <td class="px-6 py-5 text-xs font-bold text-slate-500">${i.date}</td>
+                <td class="px-6 py-5 font-black text-slate-700">${i.user}</td>
+                <td class="px-6 py-5"><span class="px-3 py-1.5 rounded-lg text-[9px] font-black uppercase tracking-widest border shadow-sm ${tCls}">${i.type}</span></td>
+                <td class="px-6 py-5">
+                    <div class="font-bold text-slate-800 text-sm mb-1">${i.action}</div>
+                    <div class="text-xs text-slate-400 truncate max-w-md">${i.details}</div>
+                </td>
+                <td class="px-6 py-5 text-center"><span class="px-3 py-1.5 rounded-lg text-[9px] font-black uppercase tracking-widest border shadow-sm ${sCls}">${i.status}</span></td>
+            </tr>`;
+        }).join('');
+    }
+
+    document.getElementById('searchInput').addEventListener('input', applyFilters);
+    document.getElementById('typeFilter').addEventListener('change', applyFilters);
+    document.getElementById('statusFilter').addEventListener('change', applyFilters);
+
+    function changePage(dir) {
+        const total = Math.ceil(filteredData.length / perPage);
+        if(currentPage + dir > 0 && currentPage + dir <= total) {
+            currentPage += dir;
+            renderTable();
+        }
+    }
+
+    function toggleDelBtn() {
+        const anyChecked = document.querySelectorAll('.row-cb:checked').length > 0;
+        const btn = document.getElementById('delSelBtn');
+        if(btn) btn.style.display = anyChecked ? 'flex' : 'none';
+        
+        const allCb = document.getElementById('selectAll');
+        if(allCb) {
+            const allChecked = document.querySelectorAll('.row-cb').length === document.querySelectorAll('.row-cb:checked').length;
+            allCb.checked = allChecked && document.querySelectorAll('.row-cb').length > 0;
+        }
+    }
+
+    if(document.getElementById('selectAll')) {
+        document.getElementById('selectAll').addEventListener('change', function() {
+            document.querySelectorAll('.row-cb').forEach(cb => cb.checked = this.checked);
+            toggleDelBtn();
+        });
+    }
+
+    async function deleteSelected() {
+        const ids = Array.from(document.querySelectorAll('.row-cb:checked')).map(cb => cb.value);
+        if(!confirm(`Delete ${ids.length} records?`)) return;
+        const btn = document.getElementById('delSelBtn');
+        btn.disabled = true; btn.innerText = "Deleting...";
+        try {
+            await fetch('/api/history/delete_selected', { method: 'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({task_ids: ids}) });
+            loadHistory();
+            document.getElementById('selectAll').checked = false;
+            toggleDelBtn();
+        } catch(e) { alert("Error deleting records"); }
+        finally { btn.disabled = false; btn.innerText = "Delete Selected"; }
+    }
+
+    async function viewLog(taskId) {
+        document.getElementById('logContent').innerText = "Loading log from server...";
+        document.getElementById('logModal').classList.remove('hidden');
+        try {
+            const res = await fetch('/api/history/log/' + taskId);
+            const data = await res.json();
+            if(data.success) {
+                document.getElementById('logContent').innerText = data.log || 'No output.';
+            } else {
+                document.getElementById('logContent').innerText = `Error: ${data.message}`;
+                document.getElementById('logContent').classList.replace('text-emerald-400', 'text-rose-400');
+            }
+        } catch (e) {
+            document.getElementById('logContent').innerText = "Network Error.";
+        }
+    }
+
+    function closeLogModal() {
+        document.getElementById('logModal').classList.add('hidden');
+        document.getElementById('logContent').classList.replace('text-rose-400', 'text-emerald-400');
+    }
+
+    async function runCleanup() {
+        if (!confirm("This will permanently delete all logs older than {{ retention }} days. Continue?")) return;
+        const btn = document.getElementById('cleanupBtn');
+        const oldHtml = btn.innerHTML;
+        btn.disabled = true; btn.innerText = "Cleaning...";
+        
+        try {
+            const res = await fetch('/api/history/cleanup', {method: 'POST'});
+            const data = await res.json();
+            alert(data.message);
+            loadHistory();
+        } catch(e) { alert("Error running cleanup."); }
+        finally { btn.disabled = false; btn.innerHTML = oldHtml; }
+    }
+
+    window.onload = loadHistory;
+</script>
+{% endblock %}

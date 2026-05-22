@@ -1,0 +1,31 @@
+<Project Sdk="Microsoft.NET.Sdk.Worker">
+  <PropertyGroup>
+    <TargetFramework>net8.0-windows</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <DefaultItemExcludes>$(DefaultItemExcludes);publish\**</DefaultItemExcludes>
+    <!-- ВМИКАЄМО КОМПІЛЯЦІЮ В МАШИННИЙ КОД -->
+    <PublishAot>true</PublishAot>
+    <InvariantGlobalization>false</InvariantGlobalization>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.Extensions.Hosting.WindowsServices" Version="8.0.0" />
+    <PackageReference Include="System.Management" Version="8.0.0" />
+    <PackageReference Include="System.Security.Cryptography.ProtectedData" Version="8.0.0" />
+    <PackageReference Include="System.Diagnostics.PerformanceCounter" Version="8.0.0" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Content Update="appsettings.Development.json" CopyToOutputDirectory="Never" CopyToPublishDirectory="Never" />
+    <AgentDeployFile Include="winhub_agent.conf.example" />
+    <AgentDeployFile Include="winhub_agent.bootstrap.conf.example" />
+    <AgentDeployFile Include="install-service.ps1" />
+    <AgentDeployFile Include="uninstall-service.ps1" />
+    <AgentDeployFile Include="README.md" />
+  </ItemGroup>
+
+  <Target Name="CopyAgentDeployFiles" AfterTargets="Publish">
+    <Copy SourceFiles="@(AgentDeployFile)" DestinationFolder="$(PublishDir)" SkipUnchangedFiles="true" />
+  </Target>
+</Project>

@@ -1,0 +1,71 @@
+<!-- VIEW: TASK SCHEDULER -->
+<section id="view-scheduler" class="hidden animate-in fade-in duration-300 space-y-6">
+    <div class="flex justify-between items-center bg-white p-5 rounded-[2.5rem] border border-slate-200 shadow-sm">
+        <div class="px-4">
+            <h2 class="text-xl font-black text-slate-800 tracking-tight">Automation Scheduler</h2>
+            <p class="text-[10px] font-bold text-slate-400 uppercase tracking-widest mt-1">Execute jobs automatically (Kyiv Time)</p>
+        </div>
+        <button onclick="openScheduleModal()" class="px-8 py-3 bg-indigo-600 text-white rounded-2xl text-xs font-black uppercase hover:bg-indigo-700 transition-all flex items-center gap-2 shadow-sm">
+            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M12 4v16m8-8H4"/></svg> 
+            New Schedule
+        </button>
+    </div>
+
+    <div class="flex flex-col gap-4">
+        {% for cat, stasks in scheduled_tasks|groupby('category') %}
+        <div class="bg-white rounded-[2rem] border border-slate-200 shadow-sm overflow-hidden group/acc">
+            <button onclick="toggleCategory('sch_cat_{{ loop.index }}', this)" class="w-full flex items-center justify-between p-5 bg-slate-50/50 hover:bg-slate-50 transition-colors outline-none">
+                <h4 class="font-black text-slate-700 uppercase tracking-widest text-sm flex items-center gap-3">
+                    <svg class="w-5 h-5 text-indigo-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z"></path></svg>
+                    {{ cat }}
+                    <span class="bg-white border border-slate-200 text-slate-500 px-2 py-0.5 rounded-lg text-xs">{{ stasks|length }} Jobs</span>
+                </h4>
+                <svg class="w-5 h-5 text-slate-400 transition-transform duration-300 cat-chevron" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M19 9l-7 7-7-7"></path></svg>
+            </button>
+            <div id="sch_cat_{{ loop.index }}" class="hidden transition-all duration-300">
+                <div class="overflow-x-auto">
+                    <table class="w-full text-left min-w-[800px]">
+                        <thead class="bg-slate-50 border-y border-slate-100 text-[10px] font-black text-slate-400 uppercase tracking-widest">
+                            <tr>
+                                <th class="px-8 py-4">Job Name</th>
+                                <th class="px-8 py-4">Script</th>
+                                <th class="px-8 py-4">Target</th>
+                                <th class="px-8 py-4">Schedule</th>
+                                <th class="px-8 py-4">Last Run</th>
+                                <th class="px-8 py-4 text-right">Actions</th>
+                            </tr>
+                        </thead>
+                        <tbody class="divide-y divide-slate-50">
+                            {% for st in stasks %}
+                            <tr class="hover:bg-slate-50/80 transition-colors {{ 'opacity-60 grayscale' if not st.is_active }}">
+                                <td class="px-8 py-4 font-black text-slate-800">
+                                    {{ st.name }}
+                                    {% if not st.is_active %}<span class="ml-2 px-2 py-0.5 bg-slate-200 text-slate-500 text-[9px] rounded uppercase">Disabled</span>{% endif %}
+                                </td>
+                                <td class="px-8 py-4 text-xs font-bold text-slate-500">{{ st.template_name }}</td>
+                                <td class="px-8 py-4 text-xs font-bold text-slate-600">{{ st.target_name }}</td>
+                                <td class="px-8 py-4">
+                                    <span class="font-mono text-xs text-indigo-600 bg-indigo-50 px-2 py-1 rounded border border-indigo-100">
+                                        {% if st.cron.startswith('DATE:') %}Once: {{ st.cron.replace('DATE:', '') }}{% else %}{{ st.cron }}{% endif %}
+                                    </span>
+                                </td>
+                                <td class="px-8 py-4 text-xs font-bold text-slate-400">{{ st.last_run }}</td>
+                                <td class="px-8 py-4 text-right flex justify-end gap-2">
+                                    <button onclick="editSchedule('{{ st.id }}', '{{ st.name }}', '{{ st.category }}', '{{ st.cron }}', '{{ st.target_type }}', '{{ st.is_active }}')" class="px-4 py-2 bg-white text-slate-600 hover:text-indigo-600 rounded-xl text-xs font-black uppercase transition-colors border border-slate-200 shadow-sm">Edit</button>
+                                    <button onclick="deleteSchedule('{{ st.id }}')" class="p-2 bg-white text-slate-400 hover:text-rose-600 rounded-xl transition-colors border border-slate-200 shadow-sm"><svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"></path></svg></button>
+                                </td>
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+        {% else %}
+        <div class="py-20 text-center">
+            <p class="text-slate-400 font-bold uppercase tracking-widest text-sm mb-2">No Scheduled Tasks</p>
+            <p class="text-slate-400 text-xs">Create your first automated job by clicking 'New Schedule'.</p>
+        </div>
+        {% endfor %}
+    </div>
+</section>

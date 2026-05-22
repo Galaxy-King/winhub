@@ -1,0 +1,175 @@
+{% extends "base.html" %}
+
+{% block title %}Infrastructure - WinHUB{% endblock %}
+
+{% block extra_head %}
+<!-- Підключаємо сучасний шрифт Inter для чіткості інтерфейсу -->
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;700;900&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/codemirror.min.css">
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/theme/material-darker.min.css">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/codemirror.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/addon/edit/matchbrackets.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/mode/powershell/powershell.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/mode/shell/shell.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/mode/xml/xml.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/mode/javascript/javascript.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/mode/css/css.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/mode/htmlmixed/htmlmixed.min.js"></script>
+<style>
+    .CodeMirror {
+        height: 450px;
+        border: 1px solid #1e3a5f;
+        border-radius: 0.5rem;
+        font-family: Consolas, "Cascadia Code", "Fira Code", monospace;
+        font-size: 13px;
+        line-height: 1.6;
+        box-shadow: 0 18px 45px rgba(7, 21, 46, 0.22);
+    }
+    .CodeMirror-gutters {
+        border-right: 1px solid #1e3a5f;
+    }
+    #infraNavScroller {
+        scrollbar-width: none;
+        -ms-overflow-style: none;
+    }
+    #infraNavScroller::-webkit-scrollbar {
+        display: none;
+    }
+</style>
+{% endblock %}
+
+{% block content %}
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+
+    {% include "sidebar.html" %}
+
+    <main class="flex-1 flex flex-col min-w-0 bg-slate-100 relative z-10" style="font-family: 'Inter', sans-serif;">
+        <div class="flex-1 overflow-y-auto custom-scrollbar">
+            <div class="max-w-[1600px] mx-auto w-full p-6 md:p-10 flex flex-col gap-8">
+                
+                <!-- HEADER ISLAND -->
+                <header class="bg-white rounded-[2.5rem] shadow-sm border border-slate-200 p-6 flex flex-col lg:flex-row items-center justify-between gap-6 shrink-0 transition-all">
+                    <div class="flex items-center gap-5 shrink-0">
+                        <div class="w-14 h-14 bg-indigo-600 rounded-2xl flex items-center justify-center text-white shadow-lg shadow-indigo-200">
+                            <svg class="w-8 h-8" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H7a2 2 0 01-2-2v-6a2 2 0 012-2m5-3v8m0-8a2 2 0 100 4 2 2 0 000-4z"/></svg>
+                        </div>
+                        <div>
+                            <h2 class="text-2xl font-black text-slate-800 tracking-tight">Infrastructure</h2>
+                            <p class="text-[11px] font-bold text-slate-400 uppercase tracking-widest mt-1">Nodes & Deployment Center</p>
+                        </div>
+                    </div>
+                    
+                    <div class="relative w-full lg:w-auto min-w-0">
+                        <button id="infraNavLeft" type="button" onclick="scrollInfraNav(-1)" aria-label="Scroll tabs left" class="absolute left-1 top-1/2 -translate-y-1/2 z-10 w-8 h-8 rounded-xl bg-white/95 border border-slate-200 text-slate-500 hover:text-indigo-600 hover:border-indigo-200 shadow-sm flex items-center justify-center transition-all">
+                            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M15 19l-7-7 7-7"></path></svg>
+                        </button>
+                        <div id="infraNavScroller" class="flex items-center gap-4 bg-slate-50 p-2 px-11 rounded-2xl border border-slate-200/60 overflow-x-auto w-full lg:w-auto shadow-inner scroll-smooth">
+                            {% if permissions.view_hosts %}
+                            <button id="nav-hosts" onclick="switchView('hosts')" class="active px-6 py-2.5 rounded-xl font-black text-xs uppercase tracking-wider transition-all whitespace-nowrap bg-white text-indigo-600 shadow-sm border border-slate-200/50">Nodes</button>
+                            {% endif %}
+                            {% if permissions.view_groups %}
+                            <button id="nav-groups" onclick="switchView('groups')" class="text-slate-500 hover:text-slate-700 px-6 py-2.5 rounded-xl font-black text-xs uppercase tracking-wider transition-all whitespace-nowrap">Groups</button>
+                            {% endif %}
+                            {% if permissions.view_queue %}
+                            <button id="nav-queue" onclick="switchView('queue')" class="text-slate-500 hover:text-slate-700 px-6 py-2.5 rounded-xl font-black text-xs uppercase tracking-wider transition-all whitespace-nowrap">Queue</button>
+                            {% endif %}
+                            {% if permissions.view_reports %}
+                            <button id="nav-reports" onclick="switchView('reports')" class="text-slate-500 hover:text-slate-700 px-6 py-2.5 rounded-xl font-black text-xs uppercase tracking-wider transition-all whitespace-nowrap">Reports</button>
+                            {% endif %}
+                            
+                            {% if permissions.manage_scheduler or permissions.manage_triggers %}
+                            <div class="w-px h-6 bg-slate-300 mx-1 shrink-0"></div>
+                            {% endif %}
+                            {% if permissions.manage_scheduler %}
+                            <button id="nav-scheduler" onclick="switchView('scheduler')" class="text-slate-500 hover:text-slate-700 px-6 py-2.5 rounded-xl font-black text-xs uppercase tracking-wider transition-all whitespace-nowrap">Scheduler</button>
+                            {% endif %}
+                            {% if permissions.manage_triggers %}
+                            <button id="nav-triggers" onclick="switchView('triggers')" class="text-slate-500 hover:text-slate-700 px-6 py-2.5 rounded-xl font-black text-xs uppercase tracking-wider transition-all whitespace-nowrap">Triggers</button>
+                            {% endif %}
+                        </div>
+                        <button id="infraNavRight" type="button" onclick="scrollInfraNav(1)" aria-label="Scroll tabs right" class="absolute right-1 top-1/2 -translate-y-1/2 z-10 w-8 h-8 rounded-xl bg-white/95 border border-slate-200 text-slate-500 hover:text-indigo-600 hover:border-indigo-200 shadow-sm flex items-center justify-center transition-all">
+                            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M9 5l7 7-7 7"></path></svg>
+                        </button>
+                    </div>
+                    
+                    <div class="shrink-0 flex gap-3 w-full lg:w-auto">
+                        {% if permissions.manage_smtp %}
+                        <button onclick="openSmtpManager()" class="flex-1 lg:flex-none px-5 py-3 bg-white border border-slate-200 text-slate-600 rounded-2xl text-[10px] font-black uppercase hover:bg-slate-50 shadow-sm transition-all" title="SMTP Settings">
+                            <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z"></path></svg>
+                        </button>
+                        {% endif %}
+                        {% if permissions.run_tasks or permissions.manage_templates %}
+                        <button id="nav-deploy" onclick="switchView('deploy')" class="flex-1 lg:flex-none px-8 py-3 bg-slate-800 text-white rounded-2xl text-xs font-black uppercase hover:bg-slate-900 shadow-lg shadow-slate-200 transition-all">
+                            Workspace
+                        </button>
+                        {% endif %}
+                    </div>
+                </header>
+
+                <!-- DYNAMIC VIEWS -->
+                <div class="relative">
+                    {% if permissions.view_hosts %}
+                        {% include "tabs/_hosts.html" %}
+                    {% endif %}
+                    {% if permissions.view_groups %}
+                        {% include "tabs/_groups.html" %}
+                    {% endif %}
+                    {% if permissions.run_tasks or permissions.manage_templates %}
+                        {% include "tabs/_deploy.html" %}
+                    {% endif %}
+                    {% if permissions.view_queue %}
+                        {% include "tabs/_queue.html" %}
+                    {% endif %}
+                    {% if permissions.view_reports %}
+                        {% include "tabs/_reports.html" %}
+                    {% endif %}
+
+                    {% if permissions.manage_scheduler %}
+                        {% include "tabs/_scheduler.html" %}
+                    {% endif %}
+                    {% if permissions.manage_triggers %}
+                        {% include "tabs/_triggers.html" %}
+                    {% endif %}
+                </div>
+            </div>
+        </div>
+    </main>
+
+    <!-- ПІДКЛЮЧЕННЯ ВСІХ МОДАЛОК З ОДНОГО ФАЙЛУ -->
+    {% include "modals/_modals.html" %}
+
+<style>
+    /* Кастомні скролбари */
+    .custom-scrollbar::-webkit-scrollbar { width: 8px; }
+    .custom-scrollbar::-webkit-scrollbar-track { background: transparent; }
+    .custom-scrollbar::-webkit-scrollbar-thumb { background: #e2e8f0; border-radius: 10px; }
+    .custom-scrollbar::-webkit-scrollbar-thumb:hover { background: #cbd5e1; }
+    
+    /* Активний стан картки шаблону у Workspace */
+    .template-card.active { 
+        border-color: #4f46e5 !important; 
+        background-color: #f5f3ff !important; 
+        box-shadow: 0 10px 15px -3px rgba(79, 70, 229, 0.1);
+        transform: translateX(4px);
+    }
+    .template-card.active h4 {
+        color: #4f46e5 !important;
+    }
+    
+    /* Навігація */
+    #nav-hosts.active, #nav-groups.active, #nav-queue.active, #nav-deploy.active, #nav-scheduler.active, #nav-triggers.active, #nav-reports.active {
+        background-color: white;
+        color: #4f46e5;
+        box-shadow: 0 1px 2px 0 rgba(0, 0, 0, 0.05);
+        border-color: rgba(226, 232, 240, 0.8);
+    }
+</style>
+
+<script>
+    window.WinhubHosts = {{ available_hosts | tojson }};
+    window.WinhubPermissions = {{ permissions | tojson }};
+</script>
+<script src="{{ url_for('static', filename='js/infrastructure.js') }}"></script>
+{% endblock %}

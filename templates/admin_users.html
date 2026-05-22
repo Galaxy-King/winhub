@@ -1,0 +1,911 @@
+{% extends "base.html" %}
+
+{% block title %}Admin Control - WinHUB{% endblock %}
+
+{% block content %}
+{% include "sidebar.html" %}
+
+<main class="flex-1 flex flex-col min-w-0 bg-slate-100 relative z-10">
+    <div class="flex-1 overflow-y-auto custom-scrollbar">
+        <div class="max-w-[1600px] mx-auto w-full p-6 md:p-10 flex flex-col gap-8">
+            
+            <header class="bg-white rounded-[2.5rem] shadow-sm border border-slate-200 p-6 flex flex-col lg:flex-row items-center justify-between gap-6 shrink-0 transition-all">
+                <div class="flex items-center gap-5 shrink-0">
+                    <div class="w-14 h-14 bg-indigo-600 rounded-2xl flex items-center justify-center text-white shadow-lg shadow-indigo-200">
+                        <svg class="w-8 h-8" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M12 4.354a4 4 0 110 5.292M15 21H3v-1a6 6 0 0112 0v1zm0 0h6v-1a6 6 0 00-9-5.197M13 7a4 4 0 11-8 0 4 4 0 018 0z"></path></svg>
+                    </div>
+                    <div>
+                        <h2 class="text-2xl font-black text-slate-800 tracking-tight">Admin Control Center</h2>
+                        <p class="text-[11px] font-bold text-slate-400 uppercase tracking-widest mt-1">Users & Access API</p>
+                    </div>
+                </div>
+                
+                <div class="flex items-center gap-4 bg-slate-50 p-2 rounded-2xl border border-slate-200/60 overflow-x-auto shadow-inner w-full lg:w-auto">
+                    <button onclick="switchTab('users')" id="tabUsers" class="active px-6 py-2.5 rounded-xl font-black text-xs uppercase tracking-wider transition-all whitespace-nowrap bg-white text-indigo-600 shadow-sm border border-slate-200/50">Users</button>
+                    <button onclick="switchTab('api')" id="tabApi" class="text-slate-500 hover:text-slate-700 px-6 py-2.5 rounded-xl font-black text-xs uppercase tracking-wider transition-all whitespace-nowrap">API Keys</button>
+                    <button onclick="switchTab('audit')" id="tabAudit" class="text-slate-500 hover:text-slate-700 px-6 py-2.5 rounded-xl font-black text-xs uppercase tracking-wider transition-all whitespace-nowrap">Audit Logs</button>
+                    <button onclick="switchTab('system')" id="tabSystem" class="text-slate-500 hover:text-slate-700 px-6 py-2.5 rounded-xl font-black text-xs uppercase tracking-wider transition-all whitespace-nowrap">System Logs</button>
+                    
+                    <div class="w-px h-6 bg-slate-300 mx-1 shrink-0"></div>
+                    <div class="flex items-center gap-3 px-2 shrink-0">
+                        <div class="w-8 h-8 rounded-full bg-indigo-100 text-indigo-700 flex items-center justify-center font-black shadow-sm">{{ username[0]|upper if username else 'U' }}</div>
+                        <span class="text-xs font-black text-slate-700 uppercase tracking-wider pr-2">{{ username }}</span>
+                    </div>
+                </div>
+                
+                <div class="shrink-0 flex gap-3 w-full lg:w-auto">
+                    <button id="btnApiHelp" onclick="openApiHelpModal()" class="hidden flex-1 lg:flex-none px-6 py-3 bg-white text-slate-600 rounded-2xl text-xs font-black uppercase hover:text-indigo-700 border border-slate-200 shadow-sm transition-all justify-center items-center gap-2">
+                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M8.228 9.228a4 4 0 117.071 2.557c-.776.746-1.299 1.151-1.299 2.215M12 18h.01"></path></svg>
+                        API Help
+                    </button>
+                    <button id="btnCreateMain" onclick="openCreateUserModal()" class="flex-1 lg:flex-none px-8 py-3 bg-indigo-600 text-white rounded-2xl text-xs font-black uppercase hover:bg-indigo-700 shadow-lg shadow-indigo-200 transition-all flex justify-center items-center gap-2">
+                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M12 4v16m8-8H4"></path></svg>
+                        New User
+                    </button>
+                </div>
+            </header>
+
+            <!-- USERS TAB -->
+            <div id="viewUsers" class="bg-white rounded-[3rem] border border-slate-200 shadow-sm overflow-hidden overflow-x-auto animate-in fade-in duration-300">
+                <table class="w-full text-left min-w-[900px]">
+                    <thead class="bg-slate-50/50 border-b border-slate-100 text-[10px] font-black text-slate-400 uppercase tracking-widest">
+                        <tr>
+                            <th class="px-10 py-6">User</th>
+                            <th class="px-10 py-6">Role / Status</th>
+                            <th class="px-10 py-6">Access Modules</th>
+                            <th class="px-10 py-6">Host Groups</th>
+                            <th class="px-10 py-6 text-right">Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody id="usersList" class="divide-y divide-slate-100 text-sm">
+                        <tr><td colspan="5" class="p-16 text-center text-slate-400 font-bold">Loading users...</td></tr>
+                    </tbody>
+                </table>
+            </div>
+
+            <!-- API TAB -->
+            <div id="viewApi" class="hidden bg-white rounded-[3rem] border border-slate-200 shadow-sm overflow-hidden overflow-x-auto animate-in fade-in duration-300">
+                <table class="w-full text-left min-w-[900px]">
+                    <thead class="bg-slate-50/50 border-b border-slate-100 text-[10px] font-black text-slate-400 uppercase tracking-widest">
+                        <tr>
+                            <th class="px-10 py-6">Key Name</th>
+                            <th class="px-10 py-6">Prefix</th>
+                            <th class="px-10 py-6">Created By</th>
+                            <th class="px-10 py-6">Permissions</th>
+                            <th class="px-10 py-6">Scope / Expiry</th>
+                            <th class="px-10 py-6 text-right">Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody id="apiList" class="divide-y divide-slate-100 text-sm">
+                        <tr><td colspan="6" class="p-16 text-center text-slate-400 font-bold">Loading API keys...</td></tr>
+                    </tbody>
+                </table>
+            </div>
+
+            <!-- AUDIT LOGS TAB -->
+            <div id="viewAudit" class="hidden bg-white rounded-[3rem] border border-slate-200 shadow-sm overflow-hidden animate-in fade-in duration-300">
+                <div class="p-6 border-b border-slate-100 bg-slate-50/50 grid grid-cols-1 md:grid-cols-6 gap-3">
+                    <input id="auditSearch" type="text" placeholder="Search action, target, request id..." class="md:col-span-2 p-3 bg-white border border-slate-200 rounded-2xl text-xs font-bold outline-none focus:ring-4 focus:ring-indigo-500/10">
+                    <input id="auditActor" type="text" placeholder="Actor..." class="p-3 bg-white border border-slate-200 rounded-2xl text-xs font-bold outline-none focus:ring-4 focus:ring-indigo-500/10">
+                    <select id="auditModule" class="p-3 bg-white border border-slate-200 rounded-2xl text-xs font-bold outline-none"><option value="">All modules</option></select>
+                    <select id="auditStatus" class="p-3 bg-white border border-slate-200 rounded-2xl text-xs font-bold outline-none"><option value="">All statuses</option></select>
+                    <div class="flex gap-2">
+                        <button onclick="fetchAuditLogs()" class="flex-1 px-4 py-3 bg-indigo-600 text-white rounded-2xl text-[10px] font-black uppercase shadow-sm">Filter</button>
+                        <button onclick="exportAuditLogs()" class="px-4 py-3 bg-white border border-slate-200 text-slate-600 rounded-2xl text-[10px] font-black uppercase shadow-sm">CSV</button>
+                    </div>
+                </div>
+                <div class="overflow-x-auto">
+                    <table class="w-full text-left min-w-[1200px]">
+                        <thead class="bg-slate-50/50 border-b border-slate-100 text-[10px] font-black text-slate-400 uppercase tracking-widest">
+                            <tr>
+                                <th class="px-8 py-5">Time</th>
+                                <th class="px-8 py-5">Actor</th>
+                                <th class="px-8 py-5">Module / Action</th>
+                                <th class="px-8 py-5">Target</th>
+                                <th class="px-8 py-5">Status</th>
+                                <th class="px-8 py-5">IP / Request</th>
+                                <th class="px-8 py-5">Details</th>
+                            </tr>
+                        </thead>
+                        <tbody id="auditList" class="divide-y divide-slate-100 text-sm">
+                            <tr><td colspan="7" class="p-16 text-center text-slate-400 font-bold">Loading audit logs...</td></tr>
+                        </tbody>
+                    </table>
+                </div>
+                <div class="p-5 flex items-center justify-between border-t border-slate-100">
+                    <button onclick="changeAuditPage(-1)" class="px-4 py-2 bg-slate-100 text-slate-600 rounded-xl text-xs font-black uppercase">Prev</button>
+                    <span id="auditPageLabel" class="text-xs font-black text-slate-400 uppercase tracking-widest">Page 1</span>
+                    <button onclick="changeAuditPage(1)" class="px-4 py-2 bg-slate-100 text-slate-600 rounded-xl text-xs font-black uppercase">Next</button>
+                </div>
+            </div>
+
+            <!-- SYSTEM LOGS TAB -->
+            <div id="viewSystem" class="hidden bg-white rounded-[3rem] border border-slate-200 shadow-sm overflow-hidden animate-in fade-in duration-300">
+                <div class="p-6 border-b border-slate-100 bg-slate-50/50 flex flex-col lg:flex-row gap-3">
+                    <select id="systemLogFile" class="p-3 bg-white border border-slate-200 rounded-2xl text-xs font-bold outline-none min-w-64"></select>
+                    <select id="systemLogLevel" class="p-3 bg-white border border-slate-200 rounded-2xl text-xs font-bold outline-none">
+                        <option value="">All levels</option>
+                        <option value="ERROR">ERROR</option>
+                        <option value="WARNING">WARNING</option>
+                        <option value="INFO">INFO</option>
+                        <option value="CRITICAL">CRITICAL</option>
+                    </select>
+                    <select id="systemLogLines" class="p-3 bg-white border border-slate-200 rounded-2xl text-xs font-bold outline-none">
+                        <option value="100">Last 100</option>
+                        <option value="200" selected>Last 200</option>
+                        <option value="500">Last 500</option>
+                        <option value="1000">Last 1000</option>
+                    </select>
+                    <button onclick="fetchSystemLogs()" class="px-6 py-3 bg-indigo-600 text-white rounded-2xl text-[10px] font-black uppercase shadow-sm">Refresh</button>
+                </div>
+                <pre id="systemLogOutput" class="m-6 p-5 bg-slate-950 text-emerald-200 rounded-3xl text-xs overflow-x-auto min-h-[420px] whitespace-pre-wrap">Loading system logs...</pre>
+            </div>
+
+        </div>
+    </div>
+</main>
+
+<!-- Modals Configuration matching sleek style -->
+<div id="editModal" class="fixed inset-0 z-50 hidden bg-slate-900/60 backdrop-blur-md flex justify-center items-center p-4 animate-in fade-in">
+    <div class="bg-white rounded-[3rem] p-10 w-full max-w-5xl shadow-2xl relative max-h-[90vh] overflow-y-auto custom-scrollbar">
+        <button onclick="toggleModal('edit', false)" class="absolute top-6 right-6 text-slate-400 hover:text-slate-600 bg-slate-50 hover:bg-slate-100 p-2 rounded-xl transition-colors"><svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M6 18L18 6M6 6l12 12"></path></svg></button>
+        <h3 class="text-2xl font-black text-slate-800 mb-2 uppercase tracking-tight">Edit Access</h3>
+        <p class="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-6" id="editUsernameLabel">User Name</p>
+        
+        <input type="hidden" id="editUserId">
+        <div class="grid grid-cols-1 md:grid-cols-3 gap-8">
+            <div class="space-y-4">
+                <h4 class="text-[10px] font-black text-indigo-600 uppercase tracking-widest">Allowed Modules</h4>
+                <div id="modulesContainer" class="space-y-2 max-h-60 overflow-y-auto custom-scrollbar pr-2"></div>
+            </div>
+            <div class="space-y-4">
+                <h4 class="text-[10px] font-black text-indigo-600 uppercase tracking-widest">Allowed Host Groups</h4>
+                <div id="groupsContainer" class="space-y-2 max-h-60 overflow-y-auto custom-scrollbar pr-2"></div>
+            </div>
+            <div class="space-y-4">
+                <h4 class="text-[10px] font-black text-indigo-600 uppercase tracking-widest">Template Scope</h4>
+                <p class="text-xs text-slate-500 font-bold">Empty means all approved templates allowed by module permission.</p>
+                <div id="templateScopeContainer" class="space-y-2 max-h-60 overflow-y-auto custom-scrollbar pr-2"></div>
+            </div>
+        </div>
+        
+        <div class="mt-8 flex justify-end gap-4">
+            <button onclick="toggleModal('edit', false)" class="px-6 py-4 text-slate-500 font-black uppercase text-xs hover:bg-slate-50 rounded-2xl transition-colors">Cancel</button>
+            <button onclick="saveUserAccess()" class="px-8 py-4 bg-indigo-600 hover:bg-indigo-700 text-white rounded-2xl text-xs font-black uppercase shadow-lg transition-all">Save Changes</button>
+        </div>
+    </div>
+</div>
+
+<div id="createModal" class="fixed inset-0 z-50 hidden bg-slate-900/60 backdrop-blur-md flex justify-center items-center p-4 animate-in fade-in">
+    <div class="bg-white rounded-[3rem] p-10 w-full max-w-3xl shadow-2xl relative max-h-[90vh] overflow-y-auto custom-scrollbar">
+        <button onclick="resetAndCloseModal()" class="absolute top-6 right-6 text-slate-400 hover:text-slate-600 bg-slate-50 hover:bg-slate-100 p-2 rounded-xl transition-colors"><svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M6 18L18 6M6 6l12 12"></path></svg></button>
+        
+        <div id="creationFormArea">
+            <h3 class="text-2xl font-black text-slate-800 mb-2 uppercase tracking-tight" id="modalTitleMain">New User</h3>
+            <p class="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-6">Create account</p>
+            
+            <form id="createUserForm" class="space-y-5">
+                <div>
+                    <label class="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2 ml-2">Username</label>
+                    <input type="text" id="newUsername" required class="w-full p-4 bg-slate-50 border border-slate-200 rounded-2xl text-sm font-bold focus:bg-white focus:ring-4 focus:ring-indigo-500/10 outline-none transition-all">
+                </div>
+                <div>
+                    <label class="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2 ml-2">Email</label>
+                    <input type="email" id="newEmail" required class="w-full p-4 bg-slate-50 border border-slate-200 rounded-2xl text-sm font-bold focus:bg-white focus:ring-4 focus:ring-indigo-500/10 outline-none transition-all">
+                </div>
+                <div id="roleToggleArea">
+                    <label class="flex items-center gap-3 cursor-pointer p-4 border border-slate-200 rounded-2xl hover:bg-slate-50 transition-colors">
+                        <input type="checkbox" id="isAdmin" class="w-5 h-5 text-indigo-600 rounded border-slate-300 focus:ring-indigo-500">
+                        <span class="text-sm font-black text-slate-700">Administrator Privileges</span>
+                    </label>
+                </div>
+                <div id="apiPermissionsArea" class="hidden space-y-3">
+                    <div class="flex items-start justify-between gap-4">
+                        <div>
+                            <h4 class="text-[10px] font-black text-indigo-600 uppercase tracking-widest">API Key Access</h4>
+                            <p class="text-xs text-slate-500 font-bold mt-1">Select exactly what this key may call. Empty permissions means no module access.</p>
+                        </div>
+                        <button type="button" onclick="selectAllApiPermissions()" class="px-3 py-2 bg-slate-100 hover:bg-slate-200 text-slate-600 rounded-xl text-[10px] font-black uppercase transition-colors">Select All</button>
+                    </div>
+                    <div id="apiPermissionsContainer" class="grid grid-cols-1 md:grid-cols-2 gap-3 max-h-72 overflow-y-auto custom-scrollbar pr-2"></div>
+                    <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        <div>
+                            <h4 class="text-[10px] font-black text-indigo-600 uppercase tracking-widest mb-2">Host Group Scope</h4>
+                            <p class="text-xs text-slate-500 font-bold mb-3">The key can only target hosts from selected groups. Empty scope means no host access.</p>
+                            <div id="apiGroupScopeContainer" class="space-y-2 max-h-44 overflow-y-auto custom-scrollbar pr-2"></div>
+                        </div>
+                        <div>
+                            <h4 class="text-[10px] font-black text-indigo-600 uppercase tracking-widest mb-2">Template Scope</h4>
+                            <p class="text-xs text-slate-500 font-bold mb-3">Optional. Limit this key to specific templates or categories.</p>
+                            <div id="apiTemplateScopeContainer" class="space-y-2 max-h-44 overflow-y-auto custom-scrollbar pr-2"></div>
+                        </div>
+                        <div>
+                            <h4 class="text-[10px] font-black text-indigo-600 uppercase tracking-widest mb-2">Expiration</h4>
+                            <select id="apiExpiryDays" class="w-full p-4 bg-slate-50 border border-slate-200 rounded-2xl text-sm font-bold focus:bg-white focus:ring-4 focus:ring-indigo-500/10 outline-none transition-all">
+                                <option value="30">30 days</option>
+                                <option value="7">7 days</option>
+                                <option value="90">90 days</option>
+                                <option value="365">1 year</option>
+                                <option value="">Never expires</option>
+                            </select>
+                        </div>
+                    </div>
+                </div>
+                <button type="submit" id="btnCreate" class="w-full py-4 bg-indigo-600 hover:bg-indigo-700 text-white rounded-2xl text-xs font-black uppercase shadow-lg shadow-indigo-200 transition-all mt-4">Create Account</button>
+            </form>
+        </div>
+
+        <div id="creationResultArea" class="hidden text-center">
+            <div class="w-20 h-20 bg-emerald-100 text-emerald-600 rounded-full flex items-center justify-center mx-auto mb-6 shadow-inner border border-emerald-200">
+                <svg class="w-10 h-10" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="3" d="M5 13l4 4L19 7"></path></svg>
+            </div>
+            <h3 class="text-xl font-black text-slate-800 mb-2 uppercase tracking-tight">Success!</h3>
+            <p class="text-xs text-slate-500 mb-6 font-bold">Please securely save these credentials.</p>
+            
+            <div class="bg-slate-50 p-6 rounded-3xl border border-slate-200 text-left space-y-4 shadow-inner mb-6">
+                <div><span class="text-[10px] font-black text-slate-400 uppercase tracking-widest block mb-1">Username</span><span id="resUser" class="font-mono font-bold text-sm text-slate-800"></span></div>
+                <div><span class="text-[10px] font-black text-slate-400 uppercase tracking-widest block mb-1">Password</span><span id="resPass" class="font-mono font-bold text-sm text-emerald-600 bg-emerald-50 px-2 py-1 rounded border border-emerald-100"></span></div>
+                <div><span class="text-[10px] font-black text-slate-400 uppercase tracking-widest block mb-1">2FA Secret (TOTP)</span><span id="resTotp" class="font-mono font-bold text-xs text-indigo-600 break-all"></span></div>
+            </div>
+            <button onclick="resetAndCloseModal()" class="w-full py-4 bg-slate-800 hover:bg-slate-900 text-white rounded-2xl text-xs font-black uppercase shadow-lg transition-all">Done</button>
+        </div>
+    </div>
+</div>
+
+<div id="apiHelpModal" class="fixed inset-0 z-50 hidden bg-slate-900/60 backdrop-blur-md flex justify-center items-center p-4 animate-in fade-in">
+    <div class="bg-white rounded-[3rem] p-10 w-full max-w-3xl shadow-2xl relative max-h-[90vh] overflow-y-auto custom-scrollbar">
+        <button onclick="toggleModal('apiHelp', false)" class="absolute top-6 right-6 text-slate-400 hover:text-slate-600 bg-slate-50 hover:bg-slate-100 p-2 rounded-xl transition-colors"><svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M6 18L18 6M6 6l12 12"></path></svg></button>
+        <h3 class="text-2xl font-black text-slate-800 mb-2 uppercase tracking-tight">API Key Usage</h3>
+        <p class="text-sm text-slate-500 font-bold mb-6">Create a key, assign module permissions, then send the key with every API request.</p>
+        <div class="grid grid-cols-1 md:grid-cols-3 gap-3 mb-6">
+            <div class="p-4 bg-slate-50 border border-slate-200 rounded-2xl">
+                <div class="text-[10px] font-black text-indigo-600 uppercase tracking-widest mb-2">1. Create</div>
+                <p class="text-xs font-bold text-slate-600">Use New API Key and save the generated secret immediately. WinHUB shows it only once.</p>
+            </div>
+            <div class="p-4 bg-slate-50 border border-slate-200 rounded-2xl">
+                <div class="text-[10px] font-black text-indigo-600 uppercase tracking-widest mb-2">2. Grant</div>
+                <p class="text-xs font-bold text-slate-600">Tick only the module actions and host groups the integration needs. Empty host scope means no host access.</p>
+            </div>
+            <div class="p-4 bg-slate-50 border border-slate-200 rounded-2xl">
+                <div class="text-[10px] font-black text-indigo-600 uppercase tracking-widest mb-2">3. Call</div>
+                <p class="text-xs font-bold text-slate-600">Send the key in Authorization Bearer or X-API-Key. Expired keys return 401; missing permissions return 403.</p>
+            </div>
+        </div>
+        <div class="space-y-4">
+            <div>
+                <label class="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2">Bearer header</label>
+                <pre class="bg-slate-950 text-emerald-300 rounded-2xl p-4 text-xs overflow-x-auto"><code>curl -H "Authorization: Bearer wh_your_generated_key" https://your-winhub/api/infrastructure/tasks/all</code></pre>
+            </div>
+            <div>
+                <label class="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2">Alternative header</label>
+                <pre class="bg-slate-950 text-emerald-300 rounded-2xl p-4 text-xs overflow-x-auto"><code>curl -H "X-API-Key: wh_your_generated_key" https://your-winhub/api/newsletter/config</code></pre>
+            </div>
+            <div>
+                <label class="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2">Run approved Infrastructure template</label>
+                <pre class="bg-slate-950 text-emerald-300 rounded-2xl p-4 text-xs overflow-x-auto"><code>curl -X POST https://your-winhub/api/infrastructure/templates/TEMPLATE_ID/run \
+  -H "Authorization: Bearer wh_your_generated_key" \
+  -H "Content-Type: application/json" \
+  -d "{\"target_type\":\"host\",\"target_id\":\"HOST_ID\",\"variables\":{\"admin_username\":\"localadmin\"}}"</code></pre>
+            </div>
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div>
+                    <label class="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2">Discover templates and targets</label>
+                    <pre class="bg-slate-950 text-emerald-300 rounded-2xl p-4 text-xs overflow-x-auto"><code>GET /api/infrastructure/templates
+GET /api/infrastructure/hosts
+GET /api/infrastructure/groups</code></pre>
+                </div>
+                <div>
+                    <label class="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2">Required permissions</label>
+                    <pre class="bg-slate-950 text-emerald-300 rounded-2xl p-4 text-xs overflow-x-auto"><code>Infrastructure:run_tasks
+Infrastructure:view_hosts
+Infrastructure:view_groups
+Infrastructure:send_reports</code></pre>
+                </div>
+            </div>
+            <div>
+                <label class="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2">Variables accepted by templates</label>
+                <pre class="bg-slate-950 text-emerald-300 rounded-2xl p-4 text-xs overflow-x-auto"><code>{% raw %}# Template code:
+$TargetUser = "{{admin_username}}"
+$StaticPassword = "{{secret:local_admin_password}}"
+
+# API JSON:
+"variables": {
+  "admin_username": "localadmin",
+  "ticket_id": "INC-1001"
+}
+
+# Secrets are created in Infrastructure -> Template Secrets.
+# API clients do not send secret values.{% endraw %}</code></pre>
+            </div>
+            <div>
+                <label class="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2">Targets and report email</label>
+                <pre class="bg-slate-950 text-emerald-300 rounded-2xl p-4 text-xs overflow-x-auto"><code>{
+  "target_type": "hosts",
+  "target_ids": ["HOST_ID_OR_HOSTNAME_1", "HOST_ID_OR_HOSTNAME_2"],
+  "variables": { "admin_username": "localadmin" },
+  "auto_email_toggle": true,
+  "auto_email_sender": "terminals@syneforge.com",
+  "auto_email_recipients": "one@company.com,two@company.com",
+  "auto_email_use_gpg": true
+}
+
+{
+  "target_type": "group",
+  "target_id": "GROUP_ID",
+  "variables": { "admin_username": "localadmin" }
+}</code></pre>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div id="apiAccessModal" class="fixed inset-0 z-50 hidden bg-slate-900/60 backdrop-blur-md flex justify-center items-center p-4 animate-in fade-in">
+    <div class="bg-white rounded-[3rem] p-10 w-full max-w-3xl shadow-2xl relative max-h-[90vh] overflow-y-auto custom-scrollbar">
+        <button onclick="toggleModal('apiAccess', false)" class="absolute top-6 right-6 text-slate-400 hover:text-slate-600 bg-slate-50 hover:bg-slate-100 p-2 rounded-xl transition-colors"><svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M6 18L18 6M6 6l12 12"></path></svg></button>
+        <input type="hidden" id="editApiKeyId">
+        <h3 class="text-2xl font-black text-slate-800 mb-2 uppercase tracking-tight">API Key Access</h3>
+        <p class="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-6" id="editApiKeyLabel">Key</p>
+        <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+            <div>
+                <h4 class="text-[10px] font-black text-indigo-600 uppercase tracking-widest mb-3">Permissions</h4>
+                <div id="editApiPermissionsContainer" class="grid grid-cols-1 gap-3 max-h-[55vh] overflow-y-auto custom-scrollbar pr-2"></div>
+            </div>
+            <div class="space-y-5">
+                <div>
+                    <h4 class="text-[10px] font-black text-indigo-600 uppercase tracking-widest mb-3">Host Group Scope</h4>
+                    <p class="text-xs text-slate-500 font-bold mb-3">Empty scope means this key cannot target any host, even if its owner is admin.</p>
+                    <div id="editApiGroupScopeContainer" class="space-y-2 max-h-64 overflow-y-auto custom-scrollbar pr-2"></div>
+                </div>
+                <div>
+                    <h4 class="text-[10px] font-black text-indigo-600 uppercase tracking-widest mb-3">Template Scope</h4>
+                    <p class="text-xs text-slate-500 font-bold mb-3">Empty scope means all approved templates allowed by permissions.</p>
+                    <div id="editApiTemplateScopeContainer" class="space-y-2 max-h-64 overflow-y-auto custom-scrollbar pr-2"></div>
+                </div>
+                <div>
+                    <h4 class="text-[10px] font-black text-indigo-600 uppercase tracking-widest mb-3">Expiration</h4>
+                    <select id="editApiExpiryDays" class="w-full p-4 bg-slate-50 border border-slate-200 rounded-2xl text-sm font-bold focus:bg-white focus:ring-4 focus:ring-indigo-500/10 outline-none transition-all">
+                        <option value="__keep">Keep current expiration</option>
+                        <option value="">Never expires</option>
+                        <option value="7">Extend 7 days from now</option>
+                        <option value="30">Extend 30 days from now</option>
+                        <option value="90">Extend 90 days from now</option>
+                        <option value="365">Extend 1 year from now</option>
+                    </select>
+                </div>
+            </div>
+        </div>
+        <div class="mt-8 flex justify-end gap-4">
+            <button onclick="toggleModal('apiAccess', false)" class="px-6 py-4 text-slate-500 font-black uppercase text-xs hover:bg-slate-50 rounded-2xl transition-colors">Cancel</button>
+            <button onclick="saveApiAccess()" class="px-8 py-4 bg-indigo-600 hover:bg-indigo-700 text-white rounded-2xl text-xs font-black uppercase shadow-lg transition-all">Save Access</button>
+        </div>
+    </div>
+</div>
+
+<script>
+    let sysModules = [];
+    let sysGroups = [];
+    let sysTemplateScopes = {categories: [], templates: []};
+    let currentTab = 'users';
+    let auditPage = 1;
+    let auditPages = 1;
+
+    function moduleAccessCount(user) {
+        const allowed = user.allowed_modules || [];
+        return new Set(allowed.map(x => String(x).split(':')[0])).size;
+    }
+
+    function hasModuleGrant(user, moduleId) {
+        const allowed = user.allowed_modules || [];
+        return allowed.includes(moduleId) || allowed.some(x => String(x).startsWith(moduleId + ':'));
+    }
+
+    function permissionSummary(tokens) {
+        const permissions = tokens || [];
+        if (!permissions.length) return 'No access';
+        return `${permissions.length} permission${permissions.length === 1 ? '' : 's'}`;
+    }
+
+    function scopeSummary(groups) {
+        const scope = groups || [];
+        if (!scope.length) return 'No host scope';
+        return `${scope.length} group${scope.length === 1 ? '' : 's'}`;
+    }
+
+    function renderApiPermissionPicker(selected = [], containerId = 'apiPermissionsContainer') {
+        const selectedSet = new Set(selected);
+        const container = document.getElementById(containerId);
+        container.innerHTML = sysModules.map(m => `
+            <div class="p-4 bg-slate-50 border border-slate-200 rounded-2xl">
+                <div class="font-black text-slate-800 text-sm mb-3">${m.name}</div>
+                ${(m.permissions || []).length ? `
+                    <div class="space-y-2">
+                        ${m.permissions.map(p => {
+                            const token = `${m.id}:${p.id}`;
+                            return `
+                                <label class="flex items-center gap-2 cursor-pointer">
+                                    <input type="checkbox" value="${token}" class="api-perm-cb w-3.5 h-3.5 text-indigo-600 rounded border-slate-300 focus:ring-indigo-500" ${selectedSet.has(token) ? 'checked' : ''}>
+                                    <span class="text-xs font-bold text-slate-600">${p.name}</span>
+                                </label>
+                            `;
+                        }).join('')}
+                    </div>
+                ` : `
+                    <label class="flex items-center gap-2 cursor-pointer">
+                        <input type="checkbox" value="${m.id}" class="api-perm-cb w-3.5 h-3.5 text-indigo-600 rounded border-slate-300 focus:ring-indigo-500" ${selectedSet.has(m.id) ? 'checked' : ''}>
+                        <span class="text-xs font-bold text-slate-600">Module access</span>
+                    </label>
+                `}
+            </div>
+        `).join('');
+    }
+
+    function selectAllApiPermissions() {
+        document.querySelectorAll('.api-perm-cb').forEach(cb => cb.checked = true);
+    }
+
+    function renderApiGroupScope(selected = [], containerId = 'apiGroupScopeContainer') {
+        const selectedSet = new Set(selected || []);
+        const container = document.getElementById(containerId);
+        container.innerHTML = sysGroups.map(g => `
+            <label class="flex items-center gap-3 p-3 bg-slate-50 border border-slate-200 hover:bg-slate-100 rounded-xl cursor-pointer transition-colors">
+                <input type="checkbox" value="${g.id}" class="api-group-scope-cb w-4 h-4 text-indigo-600 rounded border-slate-300 focus:ring-indigo-500" ${selectedSet.has(g.id) ? 'checked' : ''}>
+                <span class="text-sm font-bold text-slate-700">${g.name}</span>
+            </label>
+        `).join('') || '<div class="text-xs font-bold text-slate-400 p-4 bg-slate-50 rounded-xl">No groups available.</div>';
+    }
+
+    function renderTemplateScopePicker(selected = [], containerId = 'templateScopeContainer', checkboxClass = 'template-scope-cb') {
+        const selectedSet = new Set(selected || []);
+        const container = document.getElementById(containerId);
+        if (!container) return;
+        const categories = (sysTemplateScopes.categories || []).map(s => `
+            <label class="flex items-start gap-3 p-3 bg-blue-50 border border-blue-100 hover:bg-blue-100 rounded-xl cursor-pointer transition-colors">
+                <input type="checkbox" value="${s.token}" class="${checkboxClass} w-4 h-4 text-indigo-600 rounded border-slate-300 focus:ring-indigo-500 mt-0.5" ${selectedSet.has(s.token) ? 'checked' : ''}>
+                <span class="text-sm font-bold text-slate-700">${s.name}</span>
+            </label>
+        `).join('');
+        const templates = (sysTemplateScopes.templates || []).map(s => `
+            <label class="flex items-start gap-3 p-3 bg-slate-50 border border-slate-200 hover:bg-slate-100 rounded-xl cursor-pointer transition-colors">
+                <input type="checkbox" value="${s.token}" class="${checkboxClass} w-4 h-4 text-indigo-600 rounded border-slate-300 focus:ring-indigo-500 mt-0.5" ${selectedSet.has(s.token) ? 'checked' : ''}>
+                <span>
+                    <span class="block text-sm font-bold text-slate-700">${s.name}</span>
+                    <span class="block text-[10px] font-black uppercase tracking-widest ${s.is_approved ? 'text-emerald-500' : 'text-amber-500'}">${s.category} / ${s.is_approved ? 'Approved' : 'Draft'}</span>
+                </span>
+            </label>
+        `).join('');
+        container.innerHTML = (categories + templates) || '<div class="text-xs font-bold text-slate-400 p-4 bg-slate-50 rounded-xl">No templates available.</div>';
+    }
+
+    function switchTab(tab) {
+        currentTab = tab;
+        ['users', 'api', 'audit', 'system'].forEach(t => {
+            document.getElementById('view' + t.charAt(0).toUpperCase() + t.slice(1)).classList.add('hidden');
+            const btn = document.getElementById('tab' + t.charAt(0).toUpperCase() + t.slice(1));
+            btn.className = "text-slate-500 hover:text-slate-700 px-6 py-2.5 rounded-xl font-black text-xs uppercase tracking-wider transition-all whitespace-nowrap";
+        });
+        document.getElementById('view' + tab.charAt(0).toUpperCase() + tab.slice(1)).classList.remove('hidden');
+        const activeBtn = document.getElementById('tab' + tab.charAt(0).toUpperCase() + tab.slice(1));
+        activeBtn.className = "active px-6 py-2.5 rounded-xl font-black text-xs uppercase tracking-wider transition-all whitespace-nowrap bg-white text-indigo-600 shadow-sm border border-slate-200/50";
+        
+        const btnCreateMain = document.getElementById('btnCreateMain');
+        const btnApiHelp = document.getElementById('btnApiHelp');
+        if(tab === 'users') {
+            btnApiHelp.classList.add('hidden');
+            btnApiHelp.classList.remove('flex');
+            btnCreateMain.classList.remove('hidden');
+            btnCreateMain.classList.add('flex');
+            btnCreateMain.onclick = openCreateUserModal;
+            btnCreateMain.innerHTML = '<svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M12 4v16m8-8H4"></path></svg> New User';
+            fetchUsers();
+        } else if(tab === 'api') {
+            btnApiHelp.classList.remove('hidden');
+            btnApiHelp.classList.add('flex');
+            btnCreateMain.classList.remove('hidden');
+            btnCreateMain.classList.add('flex');
+            btnCreateMain.onclick = openCreateApiModal;
+            btnCreateMain.innerHTML = '<svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M15 7a2 2 0 012 2m4 0a6 6 0 01-7.743 5.743L11 17H9v2H7v2H4a1 1 0 01-1-1v-2.586a1 1 0 01.293-.707l5.964-5.964A6 6 0 1121 9z"></path></svg> New API Key';
+            fetchApiKeys();
+        } else {
+            btnApiHelp.classList.add('hidden');
+            btnApiHelp.classList.remove('flex');
+            btnCreateMain.classList.add('hidden');
+            btnCreateMain.classList.remove('flex');
+            if(tab === 'audit') fetchAuditLogs();
+            if(tab === 'system') fetchSystemLogs();
+        }
+    }
+
+    function statusBadge(status) {
+        const s = status || 'Unknown';
+        const color = s === 'Success' ? 'bg-emerald-100 text-emerald-700' : (s === 'Denied' || s === 'Error' ? 'bg-rose-100 text-rose-700' : 'bg-amber-100 text-amber-700');
+        return `<span class="px-3 py-1.5 rounded-xl text-[10px] font-black uppercase tracking-widest ${color}">${escapeHtml(s)}</span>`;
+    }
+
+    function escapeHtml(value) {
+        return String(value ?? '').replace(/[&<>"']/g, ch => ({
+            '&': '&amp;',
+            '<': '&lt;',
+            '>': '&gt;',
+            '"': '&quot;',
+            "'": '&#39;'
+        }[ch]));
+    }
+
+    function compactDetails(details) {
+        if(!details) return '';
+        try {
+            const parsed = JSON.parse(details);
+            return JSON.stringify(parsed, null, 2);
+        } catch(e) {
+            return details;
+        }
+    }
+
+    async function fetchAuditLogs() {
+        const tbody = document.getElementById('auditList');
+        const params = new URLSearchParams({
+            page: auditPage,
+            per_page: 50,
+            q: document.getElementById('auditSearch')?.value || '',
+            actor: document.getElementById('auditActor')?.value || '',
+            module: document.getElementById('auditModule')?.value || '',
+            status: document.getElementById('auditStatus')?.value || ''
+        });
+        try {
+            const res = await fetch('/api/admin/audit-logs?' + params.toString());
+            const data = await res.json();
+            if(!data.success) throw new Error(data.message || 'Failed');
+            auditPages = data.pages || 1;
+            document.getElementById('auditPageLabel').innerText = `Page ${data.current_page || 1} / ${auditPages}`;
+            const moduleSelect = document.getElementById('auditModule');
+            if(moduleSelect && moduleSelect.options.length <= 1) {
+                moduleSelect.innerHTML = '<option value="">All modules</option>' + (data.modules || []).map(m => `<option value="${m}">${m}</option>`).join('');
+            }
+            const statusSelect = document.getElementById('auditStatus');
+            if(statusSelect && statusSelect.options.length <= 1) {
+                statusSelect.innerHTML = '<option value="">All statuses</option>' + (data.statuses || []).map(s => `<option value="${s}">${s}</option>`).join('');
+            }
+            tbody.innerHTML = (data.logs || []).map(row => `
+                <tr class="hover:bg-slate-50/80 transition-colors align-top">
+                    <td class="px-8 py-5 text-xs font-bold text-slate-500 whitespace-nowrap">${row.timestamp ? new Date(row.timestamp).toLocaleString() : ''}</td>
+                    <td class="px-8 py-5">
+                        <div class="font-black text-slate-800 text-sm">${escapeHtml(row.actor_name || row.user || 'System')}</div>
+                        <div class="text-[10px] font-black text-slate-400 uppercase tracking-widest">${escapeHtml(row.actor_type || 'user')}</div>
+                    </td>
+                    <td class="px-8 py-5">
+                        <div class="text-[10px] font-black text-indigo-600 uppercase tracking-widest">${escapeHtml(row.module || 'General')}</div>
+                        <div class="font-bold text-slate-700">${escapeHtml(row.action || '')}</div>
+                    </td>
+                    <td class="px-8 py-5 text-xs font-bold text-slate-500">${escapeHtml(row.target_type || '')}<br><span class="font-mono">${escapeHtml(row.target_id || '')}</span></td>
+                    <td class="px-8 py-5">${statusBadge(row.status)}</td>
+                    <td class="px-8 py-5 text-xs font-mono text-slate-500">${escapeHtml(row.ip_address || '')}<br>${escapeHtml(row.request_id || '')}</td>
+                    <td class="px-8 py-5"><pre class="max-w-md whitespace-pre-wrap text-xs text-slate-500 font-mono">${escapeHtml(compactDetails(row.details))}</pre></td>
+                </tr>
+            `).join('') || '<tr><td colspan="7" class="p-16 text-center text-slate-400 font-bold">No audit events.</td></tr>';
+        } catch(e) {
+            tbody.innerHTML = '<tr><td colspan="7" class="p-16 text-center text-rose-500 font-bold">Failed to load audit logs.</td></tr>';
+        }
+    }
+
+    function changeAuditPage(delta) {
+        auditPage = Math.min(Math.max(1, auditPage + delta), auditPages || 1);
+        fetchAuditLogs();
+    }
+
+    function exportAuditLogs() {
+        const params = new URLSearchParams({
+            q: document.getElementById('auditSearch')?.value || '',
+            actor: document.getElementById('auditActor')?.value || '',
+            module: document.getElementById('auditModule')?.value || '',
+            status: document.getElementById('auditStatus')?.value || ''
+        });
+        window.location.href = '/api/admin/audit-logs/export?' + params.toString();
+    }
+
+    async function fetchSystemLogs() {
+        const output = document.getElementById('systemLogOutput');
+        const params = new URLSearchParams({
+            file: document.getElementById('systemLogFile')?.value || 'production',
+            level: document.getElementById('systemLogLevel')?.value || '',
+            lines: document.getElementById('systemLogLines')?.value || '200'
+        });
+        try {
+            const res = await fetch('/api/admin/system-logs?' + params.toString());
+            const data = await res.json();
+            if(!data.success) throw new Error(data.message || 'Failed');
+            const fileSelect = document.getElementById('systemLogFile');
+            const currentValue = fileSelect.value || data.selected;
+            fileSelect.innerHTML = (data.files || []).map(f => `<option value="${f.id}" ${f.id === currentValue ? 'selected' : ''}>${f.name}${f.exists ? '' : ' (missing)'}</option>`).join('');
+            output.textContent = (data.lines || []).join('\n') || 'No log lines found.';
+        } catch(e) {
+            output.textContent = 'Failed to load system logs.';
+        }
+    }
+
+    async function fetchData() {
+        try {
+            const [mRes, gRes] = await Promise.all([fetch('/api/admin/modules'), fetch('/api/admin/groups')]);
+            const mData = await mRes.json(); const gData = await gRes.json();
+            if(mData.success) sysModules = mData.modules;
+            if(mData.success) sysTemplateScopes = mData.template_scopes || {categories: [], templates: []};
+            if(gData.success) sysGroups = gData.groups;
+        } catch (e) { console.error("Failed loading sys data"); }
+    }
+
+    async function fetchUsers() {
+        const tbody = document.getElementById('usersList');
+        try {
+            const res = await fetch('/api/admin/users');
+            const data = await res.json();
+            if(data.success) {
+                tbody.innerHTML = data.users.map(u => `
+                    <tr class="hover:bg-slate-50/80 transition-colors">
+                        <td class="px-10 py-5">
+                            <div class="font-black text-slate-800 text-lg">${u.username}</div>
+                            <div class="text-[10px] text-slate-400 font-bold tracking-widest mt-1">${u.email}</div>
+                        </td>
+                        <td class="px-10 py-5">
+                            <span class="px-3 py-1.5 rounded-xl text-[10px] font-black uppercase tracking-widest ${u.is_admin ? 'bg-indigo-100 text-indigo-700' : 'bg-slate-100 text-slate-600'}">${u.is_admin ? 'Admin' : 'User'}</span>
+                            <span class="px-3 py-1.5 rounded-xl text-[10px] font-black uppercase tracking-widest ml-2 ${u.is_active ? 'bg-emerald-100 text-emerald-700' : 'bg-rose-100 text-rose-700'}">${u.is_active ? 'Active' : 'Locked'}</span>
+                        </td>
+                        <td class="px-10 py-5">
+                            <span class="bg-slate-100 text-slate-600 px-3 py-1 rounded-lg text-xs font-bold border border-slate-200">${u.is_admin ? 'ALL' : moduleAccessCount(u)}</span>
+                        </td>
+                        <td class="px-10 py-5">
+                            <span class="bg-slate-100 text-slate-600 px-3 py-1 rounded-lg text-xs font-bold border border-slate-200">${u.is_admin ? 'ALL' : u.allowed_groups.length}</span>
+                        </td>
+                        <td class="px-10 py-5 text-right flex justify-end gap-2">
+                            ${!u.is_admin ? `<button onclick='openEditModal(${JSON.stringify(u)})' class="px-4 py-2 bg-white text-slate-600 hover:text-indigo-600 rounded-xl text-xs font-black uppercase transition-colors border border-slate-200 shadow-sm">Access</button>` : ''}
+                            <button onclick="resetCredentials(${u.id})" class="px-4 py-2 bg-white text-slate-600 hover:text-amber-600 rounded-xl text-xs font-black uppercase transition-colors border border-slate-200 shadow-sm">Reset</button>
+                            <button onclick="toggleUser(${u.id})" class="px-4 py-2 bg-white text-slate-600 hover:text-indigo-600 rounded-xl text-xs font-black uppercase transition-colors border border-slate-200 shadow-sm">${u.is_active ? 'Lock' : 'Unlock'}</button>
+                            ${u.username !== 'admin' ? `<button onclick="deleteUser(${u.id})" class="p-2 bg-white text-slate-400 hover:text-rose-600 rounded-xl transition-colors border border-slate-200 shadow-sm"><svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"></path></svg></button>` : ''}
+                        </td>
+                    </tr>
+                `).join('');
+            }
+        } catch (e) { tbody.innerHTML = `<tr><td colspan="5" class="p-10 text-center text-rose-500">Error loading.</td></tr>`; }
+    }
+
+    async function fetchApiKeys() {
+        const tbody = document.getElementById('apiList');
+        try {
+            const res = await fetch('/api/admin/apikeys');
+            const data = await res.json();
+            if(data.success) {
+                tbody.innerHTML = data.keys.map(k => `
+                    <tr class="hover:bg-slate-50/80 transition-colors">
+                        <td class="px-10 py-5 font-black text-slate-800">${k.name}</td>
+                        <td class="px-10 py-5 font-mono text-indigo-600 font-bold bg-indigo-50 px-2 rounded border border-indigo-100">${k.prefix}*****</td>
+                        <td class="px-10 py-5 text-slate-500 font-bold">${k.user}</td>
+                        <td class="px-10 py-5"><span class="bg-slate-100 text-slate-600 px-3 py-1 rounded-lg text-xs font-bold border border-slate-200">${permissionSummary(k.permissions)}</span></td>
+                        <td class="px-10 py-5">
+                            <div class="flex flex-col gap-1">
+                                <span class="bg-slate-100 text-slate-600 px-3 py-1 rounded-lg text-xs font-bold border border-slate-200 w-fit">${scopeSummary(k.group_scope)}</span>
+                                <span class="text-[10px] font-bold text-slate-400 uppercase tracking-widest">${k.expires}</span>
+                            </div>
+                        </td>
+                        <td class="px-10 py-5 text-right flex justify-end gap-2">
+                            <button onclick='openApiAccessModal(${JSON.stringify(k)})' class="px-4 py-2 bg-white text-slate-600 hover:text-indigo-600 rounded-xl text-xs font-black uppercase transition-colors border border-slate-200 shadow-sm">Access</button>
+                            <button onclick="deleteApiKey(${k.id})" class="p-2 bg-white text-slate-400 hover:text-rose-600 rounded-xl transition-colors border border-slate-200 shadow-sm"><svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"></path></svg></button>
+                        </td>
+                    </tr>
+                `).join('') || '<tr><td colspan="6" class="p-16 text-center text-slate-400 font-bold">No API keys.</td></tr>';
+            }
+        } catch (e) {}
+    }
+
+    function toggleModal(id, show) { document.getElementById(id + 'Modal').classList.toggle('hidden', !show); }
+    function openCreateUserModal() { 
+        document.getElementById('modalTitleMain').innerText = 'New User';
+        document.getElementById('btnCreate').innerText = 'Create Account';
+        document.getElementById('roleToggleArea').classList.remove('hidden');
+        document.getElementById('apiPermissionsArea').classList.add('hidden');
+        document.getElementById('newEmail').parentElement.classList.remove('hidden');
+        document.getElementById('newEmail').required = true;
+        toggleModal('create', true); 
+    }
+    function openCreateApiModal() { 
+        document.getElementById('modalTitleMain').innerText = 'New API Key';
+        document.getElementById('btnCreate').innerText = 'Create API Key';
+        document.getElementById('roleToggleArea').classList.add('hidden');
+        document.getElementById('apiPermissionsArea').classList.remove('hidden');
+        document.getElementById('newEmail').parentElement.classList.add('hidden'); // сховати імейл
+        document.getElementById('newEmail').required = false;
+        renderApiPermissionPicker([]);
+        renderApiGroupScope([]);
+        renderTemplateScopePicker([], 'apiTemplateScopeContainer', 'api-template-scope-cb');
+        document.getElementById('apiExpiryDays').value = '30';
+        toggleModal('create', true); 
+    }
+
+    function openApiHelpModal() {
+        toggleModal('apiHelp', true);
+    }
+
+    function openApiAccessModal(key) {
+        document.getElementById('editApiKeyId').value = key.id;
+        document.getElementById('editApiKeyLabel').innerText = `${key.name} / ${key.prefix}*****`;
+        renderApiPermissionPicker(key.permissions || [], 'editApiPermissionsContainer');
+        renderApiGroupScope(key.group_scope || [], 'editApiGroupScopeContainer');
+        renderTemplateScopePicker(key.permissions || [], 'editApiTemplateScopeContainer', 'api-template-scope-cb');
+        document.getElementById('editApiExpiryDays').value = '__keep';
+        toggleModal('apiAccess', true);
+    }
+
+    async function saveApiAccess() {
+        const id = document.getElementById('editApiKeyId').value;
+        const permissions = [
+            ...Array.from(document.querySelectorAll('#editApiPermissionsContainer .api-perm-cb:checked')).map(cb => cb.value),
+            ...Array.from(document.querySelectorAll('#editApiTemplateScopeContainer .api-template-scope-cb:checked')).map(cb => cb.value)
+        ];
+        const groupScope = Array.from(document.querySelectorAll('#editApiGroupScopeContainer .api-group-scope-cb:checked')).map(cb => cb.value);
+        const days = document.getElementById('editApiExpiryDays').value;
+        try {
+            const res = await fetch(`/api/admin/apikeys/${id}/permissions`, {
+                method: 'PUT',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({ permissions, group_scope: groupScope, days })
+            });
+            const data = await res.json();
+            if (!data.success) return alert(data.message || 'Save failed');
+            toggleModal('apiAccess', false);
+            fetchApiKeys();
+        } catch (e) {
+            alert('Network Error');
+        }
+    }
+
+    function openEditModal(user) {
+        document.getElementById('editUserId').value = user.id;
+        document.getElementById('editUsernameLabel').innerText = user.username;
+        
+        const mCont = document.getElementById('modulesContainer');
+        mCont.innerHTML = sysModules.map(m => `
+            <div class="p-3 bg-slate-50 border border-slate-200 rounded-xl">
+                <label class="flex items-center gap-3 cursor-pointer">
+                    <input type="checkbox" value="${m.id}" class="mod-cb w-4 h-4 text-indigo-600 rounded border-slate-300 focus:ring-indigo-500" ${hasModuleGrant(user, m.id) ? 'checked' : ''} onchange="toggleModulePermissions('${m.id}', this.checked)">
+                    <span class="text-sm font-black text-slate-700">${m.name}</span>
+                </label>
+                ${(m.permissions || []).length ? `
+                    <div id="permBlock_${m.id}" class="mt-3 ml-7 space-y-2 ${hasModuleGrant(user, m.id) ? '' : 'hidden'}">
+                        ${m.permissions.map(p => {
+                            const token = `${m.id}:${p.id}`;
+                            return `
+                                <label class="flex items-center gap-2 cursor-pointer">
+                                    <input type="checkbox" value="${token}" class="perm-cb perm-${m.id} w-3.5 h-3.5 text-indigo-600 rounded border-slate-300 focus:ring-indigo-500" ${user.allowed_modules.includes(token) ? 'checked' : ''}>
+                                    <span class="text-xs font-bold text-slate-500">${p.name}</span>
+                                </label>
+                            `;
+                        }).join('')}
+                    </div>
+                ` : ''}
+            </div>
+        `).join('');
+
+        const gCont = document.getElementById('groupsContainer');
+        gCont.innerHTML = sysGroups.map(g => `
+            <label class="flex items-center gap-3 p-3 bg-slate-50 border border-slate-200 hover:bg-slate-100 rounded-xl cursor-pointer transition-colors">
+                <input type="checkbox" value="${g.id}" class="grp-cb w-4 h-4 text-indigo-600 rounded border-slate-300 focus:ring-indigo-500" ${user.allowed_groups.includes(g.id) ? 'checked' : ''}>
+                <span class="text-sm font-bold text-slate-700">${g.name}</span>
+            </label>
+        `).join('');
+
+        renderTemplateScopePicker(user.allowed_modules || [], 'templateScopeContainer', 'template-scope-cb');
+
+        toggleModal('edit', true);
+    }
+
+    function toggleModulePermissions(moduleId, enabled) {
+        const block = document.getElementById('permBlock_' + moduleId);
+        if(block) block.classList.toggle('hidden', !enabled);
+        if(!enabled) document.querySelectorAll('.perm-' + moduleId).forEach(cb => cb.checked = false);
+    }
+
+    async function saveUserAccess() {
+        const id = document.getElementById('editUserId').value;
+        const permTokens = Array.from(document.querySelectorAll('.perm-cb:checked')).map(cb => cb.value);
+        const moduleOnly = Array.from(document.querySelectorAll('.mod-cb:checked'))
+            .map(cb => cb.value)
+            .filter(moduleId => {
+                const moduleInfo = sysModules.find(m => m.id === moduleId);
+                return !moduleInfo || !(moduleInfo.permissions || []).length;
+            });
+        const templateScopes = Array.from(document.querySelectorAll('#templateScopeContainer .template-scope-cb:checked')).map(cb => cb.value);
+        const mods = [...moduleOnly, ...permTokens, ...templateScopes];
+        const grps = Array.from(document.querySelectorAll('.grp-cb:checked')).map(cb => cb.value);
+        
+        try {
+            await fetch('/api/admin/users/' + id, {
+                method: 'PUT', headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({ allowed_modules: mods, allowed_groups: grps })
+            });
+            toggleModal('edit', false);
+            fetchUsers();
+        } catch(e) { alert("Save failed"); }
+    }
+
+    async function toggleUser(id) { await fetch(`/api/admin/users/${id}/toggle`, {method: 'POST'}); fetchUsers(); }
+    async function deleteUser(id) { if(confirm('Delete user?')) { await fetch(`/api/admin/users/${id}`, {method: 'DELETE'}); fetchUsers(); } }
+    async function deleteApiKey(id) { if(confirm('Revoke API Key?')) { await fetch(`/api/admin/apikeys/${id}`, {method: 'DELETE'}); fetchApiKeys(); } }
+    
+    async function resetCredentials(id) {
+        if(!confirm("Reset password and 2FA for this user?")) return;
+        const res = await fetch(`/api/admin/users/${id}/reset_credentials`, { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify({send_email: true}) });
+        const data = await res.json();
+        if(data.success) {
+            document.getElementById('creationFormArea').classList.add('hidden');
+            document.getElementById('creationResultArea').classList.remove('hidden');
+            document.getElementById('resUser').innerText = data.credentials.username;
+            document.getElementById('resPass').innerText = data.credentials.password;
+            document.getElementById('resTotp').innerText = data.credentials.totp_secret;
+            toggleModal('create', true);
+        } else alert("Failed to reset");
+    }
+
+    document.getElementById('createUserForm').addEventListener('submit', async (e) => {
+        e.preventDefault();
+        const btn = document.getElementById('btnCreate');
+        btn.disabled = true; btn.innerText = 'Wait...';
+
+        if(currentTab === 'api') {
+            const name = document.getElementById('newUsername').value;
+            const permissions = [
+                ...Array.from(document.querySelectorAll('#apiPermissionsContainer .api-perm-cb:checked')).map(cb => cb.value),
+                ...Array.from(document.querySelectorAll('#apiTemplateScopeContainer .api-template-scope-cb:checked')).map(cb => cb.value)
+            ];
+            const groupScope = Array.from(document.querySelectorAll('#apiGroupScopeContainer .api-group-scope-cb:checked')).map(cb => cb.value);
+            const days = document.getElementById('apiExpiryDays').value;
+            try {
+                const res = await fetch('/api/admin/apikeys', {
+                    method: 'POST', headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({ name: name, permissions: permissions, group_scope: groupScope, days })
+                });
+                const data = await res.json();
+                if (data.success) {
+                    document.getElementById('creationFormArea').classList.add('hidden');
+                    document.getElementById('creationResultArea').classList.remove('hidden');
+                    document.getElementById('resUser').innerText = name + ' (API)';
+                    document.getElementById('resPass').innerText = data.raw_key;
+                    document.getElementById('resTotp').innerText = 'N/A';
+                    document.getElementById('resTotp').previousElementSibling.innerText = 'Store the password key securely!';
+                } else alert(data.message);
+            } finally { btn.disabled = false; btn.innerText = 'Create API Key'; }
+            return;
+        }
+
+        try {
+            const res = await fetch('/api/admin/users', {
+                method: 'POST', headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({
+                    username: document.getElementById('newUsername').value,
+                    email: document.getElementById('newEmail').value,
+                    is_admin: document.getElementById('isAdmin').checked
+                })
+            });
+            const data = await res.json();
+            if (data.success) {
+                document.getElementById('creationFormArea').classList.add('hidden');
+                document.getElementById('creationResultArea').classList.remove('hidden');
+                document.getElementById('resUser').innerText = data.credentials.username;
+                document.getElementById('resPass').innerText = data.credentials.password;
+                document.getElementById('resTotp').innerText = data.credentials.totp_secret;
+            } else alert(data.message);
+        } finally { btn.disabled = false; btn.innerText = 'Create Account'; }
+    });
+
+    function resetAndCloseModal() {
+        toggleModal('create', false);
+        document.getElementById('creationFormArea').classList.remove('hidden');
+        document.getElementById('creationResultArea').classList.add('hidden');
+        document.getElementById('createUserForm').reset();
+        document.getElementById('newEmail').parentElement.classList.remove('hidden');
+        document.getElementById('newEmail').required = true;
+        document.getElementById('apiPermissionsArea').classList.add('hidden');
+        if(document.getElementById('apiExpiryDays')) document.getElementById('apiExpiryDays').value = '30';
+        document.getElementById('resTotp').previousElementSibling.innerText = '2FA Secret (TOTP)';
+        if(currentTab === 'users') fetchUsers(); else fetchApiKeys();
+    }
+
+    window.onload = () => { fetchData(); switchTab('users'); };
+</script>
+{% endblock %}

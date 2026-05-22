@@ -1,0 +1,184 @@
+{% extends "base.html" %}
+
+{% block title %}Login - WinHUB{% endblock %}
+
+{% block content %}
+<div class="w-full h-full flex items-center justify-center bg-slate-100">
+    <div class="bg-white p-10 rounded-[3rem] shadow-2xl border border-slate-200 w-full max-w-md relative overflow-hidden">
+        
+        <div class="text-center mb-8">
+            <h1 class="text-3xl font-black text-slate-800 tracking-tight">Win<span class="text-indigo-600">HUB</span></h1>
+            <p class="text-[10px] font-bold text-slate-400 uppercase tracking-widest mt-2">by IT-SUPPORT</p>
+        </div>
+
+        <form id="loginForm" class="space-y-6">
+            <div>
+                <label for="username" class="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2 ml-2">Username</label>
+                <input type="text" id="username" name="username" required autocomplete="username"
+                    class="w-full p-4 bg-slate-50 border border-slate-200 rounded-2xl text-sm font-bold focus:bg-white focus:ring-4 focus:ring-indigo-500/10 outline-none transition-all">
+            </div>
+
+            <div>
+                <label for="password" class="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2 ml-2">Password</label>
+                <input type="password" id="password" name="password" required autocomplete="current-password"
+                    class="w-full p-4 bg-slate-50 border border-slate-200 rounded-2xl text-sm font-bold focus:bg-white focus:ring-4 focus:ring-indigo-500/10 outline-none transition-all">
+            </div>
+
+            <div>
+                <label for="otp" class="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2 ml-2">Authenticator Code (2FA)</label>
+                <input type="text" id="otp" name="otp" autocomplete="off" placeholder="Optional if not setup"
+                    class="w-full p-4 bg-slate-50 border border-slate-200 rounded-2xl text-sm font-bold focus:bg-white focus:ring-4 focus:ring-indigo-500/10 outline-none transition-all tracking-widest text-center">
+            </div>
+
+            <div id="errorMsg" class="hidden p-4 bg-rose-50 border border-rose-200 text-rose-600 rounded-2xl text-sm font-bold text-center shadow-sm"></div>
+
+            <button type="submit" id="submitBtn" class="w-full py-4 px-4 bg-indigo-600 hover:bg-indigo-700 text-white rounded-2xl text-xs font-black uppercase tracking-widest shadow-lg shadow-indigo-200 transition-all flex justify-center items-center">
+                Secure Login
+            </button>
+        </form>
+
+        <div class="mt-8 text-center border-t border-slate-100 pt-6">
+            <button onclick="toggleForgotModal(true)" class="text-xs font-bold text-slate-400 hover:text-indigo-600 transition-colors uppercase tracking-widest">Forgot Password?</button>
+        </div>
+    </div>
+</div>
+
+<!-- Forgot Password Modal -->
+<div id="forgotModal" class="fixed inset-0 z-50 hidden bg-slate-900/60 backdrop-blur-sm flex justify-center items-center animate-in fade-in">
+    <div class="bg-white rounded-[3rem] p-10 w-full max-w-sm shadow-2xl relative">
+        <button onclick="toggleForgotModal(false)" class="absolute top-6 right-6 text-slate-400 hover:text-slate-600 bg-slate-50 hover:bg-slate-100 p-2 rounded-xl transition-colors">
+            <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M6 18L18 6M6 6l12 12"></path></svg>
+        </button>
+
+        <h3 class="text-xl font-black text-slate-800 mb-2 uppercase tracking-tight text-center mt-2">Recovery</h3>
+        <p class="text-[10px] text-slate-400 font-bold uppercase tracking-widest mb-6 text-center">Via Admin Email</p>
+
+        <div id="forgotError" class="hidden mb-4 p-4 bg-rose-50 border border-rose-200 text-rose-600 rounded-2xl text-sm font-bold text-center"></div>
+
+        <div id="step1" class="space-y-4">
+            <div>
+                <label class="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2 ml-2">Email</label>
+                <input type="email" id="forgotEmail" class="w-full p-4 bg-slate-50 border border-slate-200 rounded-2xl text-sm font-bold focus:bg-white focus:ring-4 focus:ring-indigo-500/10 outline-none transition-all">
+            </div>
+            <button onclick="requestResetCode()" id="reqBtn" class="w-full py-4 bg-slate-800 hover:bg-slate-900 text-white rounded-2xl text-xs font-black uppercase tracking-widest shadow-lg transition-all">Send Code</button>
+        </div>
+
+        <div id="step2" class="hidden space-y-4">
+            <div>
+                <label class="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2 ml-2">6-Digit Code</label>
+                <input type="text" id="resetCode" class="w-full p-4 bg-slate-50 border border-slate-200 rounded-2xl text-sm font-bold focus:bg-white focus:ring-4 focus:ring-indigo-500/10 outline-none transition-all text-center tracking-[0.5em]">
+            </div>
+            <div>
+                <label class="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2 ml-2">New Password</label>
+                <input type="password" id="resetNewPass" class="w-full p-4 bg-slate-50 border border-slate-200 rounded-2xl text-sm font-bold focus:bg-white focus:ring-4 focus:ring-indigo-500/10 outline-none transition-all">
+            </div>
+            <button onclick="submitNewPassword()" id="resetBtn" class="w-full py-4 bg-indigo-600 hover:bg-indigo-700 text-white rounded-2xl text-xs font-black uppercase tracking-widest shadow-lg shadow-indigo-200 transition-all">Update Password</button>
+        </div>
+    </div>
+</div>
+
+<script>
+    const form = document.getElementById('loginForm');
+    const submitBtn = document.getElementById('submitBtn');
+    const errorMsg = document.getElementById('errorMsg');
+
+    form.addEventListener('submit', async (e) => {
+        e.preventDefault();
+        submitBtn.disabled = true;
+        submitBtn.innerHTML = `<svg class="animate-spin h-5 w-5 mr-3 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg> Processing...`;
+        errorMsg.classList.add('hidden');
+
+        const data = {
+            username: form.username.value,
+            password: form.password.value,
+            otp: form.otp.value
+        };
+
+        try {
+            const response = await fetch('/api/auth/login', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(data)
+            });
+            const result = await response.json();
+            if (result.success) {
+                window.location.href = result.redirect;
+            } else {
+                errorMsg.innerText = result.message;
+                errorMsg.classList.remove('hidden');
+                submitBtn.disabled = false;
+                submitBtn.innerText = 'Secure Login';
+            }
+        } catch (error) {
+            errorMsg.innerText = "Network Error.";
+            errorMsg.classList.remove('hidden');
+            submitBtn.disabled = false;
+            submitBtn.innerText = 'Secure Login';
+        }
+    });
+
+    function toggleForgotModal(show) {
+        document.getElementById('forgotModal').classList.toggle('hidden', !show);
+        if(!show) {
+            document.getElementById('step1').classList.remove('hidden');
+            document.getElementById('step2').classList.add('hidden');
+            document.getElementById('forgotError').classList.add('hidden');
+            document.getElementById('forgotEmail').value = '';
+            document.getElementById('resetCode').value = '';
+            document.getElementById('resetNewPass').value = '';
+        }
+    }
+
+    async function requestResetCode() {
+        const email = document.getElementById('forgotEmail').value;
+        if (!email) return alert("Email required.");
+        const btn = document.getElementById('reqBtn');
+        const err = document.getElementById('forgotError');
+        btn.disabled = true; btn.innerText = 'Sending...';
+        err.classList.add('hidden');
+
+        try {
+            const res = await fetch('/api/auth/forgot', {
+                method: 'POST', headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ email })
+            });
+            const data = await res.json();
+            if (data.success) {
+                document.getElementById('step1').classList.add('hidden');
+                document.getElementById('step2').classList.remove('hidden');
+            } else {
+                err.innerText = data.message;
+                err.classList.remove('hidden');
+            }
+        } catch (e) { err.innerText = "Server error."; err.classList.remove('hidden'); }
+        finally { btn.disabled = false; btn.innerText = 'Send Code'; }
+    }
+
+    async function submitNewPassword() {
+        const email = document.getElementById('forgotEmail').value;
+        const code = document.getElementById('resetCode').value;
+        const new_password = document.getElementById('resetNewPass').value;
+        const btn = document.getElementById('resetBtn');
+        const err = document.getElementById('forgotError');
+
+        btn.disabled = true; btn.innerText = 'Updating...';
+        err.classList.add('hidden');
+
+        try {
+            const res = await fetch('/api/auth/reset', {
+                method: 'POST', headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ email, code, new_password })
+            });
+            const data = await res.json();
+            if (data.success) {
+                alert("Password updated! Please log in.");
+                toggleForgotModal(false);
+            } else {
+                err.innerText = data.message;
+                err.classList.remove('hidden');
+            }
+        } catch (e) { err.innerText = "Server error."; err.classList.remove('hidden'); }
+        finally { btn.disabled = false; btn.innerText = 'Update Password'; }
+    }
+</script>
+{% endblock %}
