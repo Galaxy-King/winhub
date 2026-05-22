@@ -15,11 +15,16 @@
                     <button onclick="openCategoryManager()" class="p-3 rounded-xl border border-slate-300 text-slate-500 bg-white hover:bg-slate-100 transition-all shadow-sm" title="Manage Categories">
                         <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 6V4m0 2a2 2 0 100 4m0-4a2 2 0 110 4m-6 8a2 2 0 100-4m0 4a2 2 0 110-4m0 4v2m0-6V4m6 6v10m6-2a2 2 0 100-4m0 4a2 2 0 110-4m0 4v2m0-6V4"/></svg>
                     </button>
-                    <button onclick="openSecretsManager()" class="p-3 rounded-xl border border-slate-300 text-slate-500 bg-white hover:bg-slate-100 transition-all shadow-sm" title="Manage Template Secrets">
-                        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 7a2 2 0 012 2m4 0a6 6 0 01-7.743 5.743L11 17H9v2H7v2H4v-3l7.257-7.257A6 6 0 1121 9z"></path></svg>
-                    </button>
-                </div>
-            </div>
+	                    <button onclick="openSecretsManager()" class="p-3 rounded-xl border border-slate-300 text-slate-500 bg-white hover:bg-slate-100 transition-all shadow-sm" title="Manage Template Secrets">
+	                        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 7a2 2 0 012 2m4 0a6 6 0 01-7.743 5.743L11 17H9v2H7v2H4v-3l7.257-7.257A6 6 0 1121 9z"></path></svg>
+	                    </button>
+	                </div>
+	                <div class="grid grid-cols-2 gap-2 mt-3 {% if not permissions.manage_templates %}hidden{% endif %}">
+	                    <button onclick="exportTemplates()" class="py-2.5 px-2 rounded-xl border border-white/20 text-white bg-white/10 hover:bg-white/20 font-black text-[10px] uppercase transition-all">Export</button>
+	                    <button onclick="document.getElementById('templateImportFile').click()" class="py-2.5 px-2 rounded-xl border border-white/20 text-white bg-white/10 hover:bg-white/20 font-black text-[10px] uppercase transition-all">Import</button>
+	                    <input id="templateImportFile" type="file" accept="application/json,.json" class="hidden" onchange="importTemplates(this)">
+	                </div>
+	            </div>
 
             <div class="flex-1 overflow-y-auto custom-scrollbar space-y-4 px-2">
                 {% for category_name, items in templates|groupby('category') %}
@@ -90,8 +95,12 @@
                     <h2 id="builderTitle" class="text-lg font-black text-slate-800 uppercase tracking-tight">Deployment Builder</h2>
                 </div>
                 
-                <div class="flex items-center gap-3">
-                    <label id="depIsApprovedWrapper" class="flex items-center gap-2 cursor-pointer bg-white px-3 py-2.5 rounded-xl border border-slate-200 hover:bg-slate-100 transition-all shadow-sm {% if not permissions.manage_templates %}hidden{% endif %}">
+	                <div class="flex items-center gap-3">
+	                    <div class="flex bg-slate-100 p-1 rounded-xl border border-slate-200 shadow-inner">
+	                        <button id="workspaceTabBuilder" onclick="switchWorkspaceTab('builder')" class="px-4 py-2 bg-white text-indigo-700 rounded-lg text-[10px] font-black uppercase shadow-sm">Builder</button>
+	                        <button id="workspaceTabGuide" onclick="switchWorkspaceTab('guide')" class="px-4 py-2 text-slate-500 rounded-lg text-[10px] font-black uppercase">Guide</button>
+	                    </div>
+	                    <label id="depIsApprovedWrapper" class="flex items-center gap-2 cursor-pointer bg-white px-3 py-2.5 rounded-xl border border-slate-200 hover:bg-slate-100 transition-all shadow-sm {% if not permissions.manage_templates %}hidden{% endif %}">
                         <input type="checkbox" id="depIsApproved" class="w-4 h-4 text-indigo-600 rounded border-slate-300 focus:ring-indigo-500">
                         <span class="text-[10px] font-black text-slate-500 uppercase">Share with Team</span>
                     </label>
@@ -101,7 +110,7 @@
             </div>
             
             <!-- Builder Body -->
-            <div class="p-8 space-y-8 flex-1 overflow-y-auto custom-scrollbar">
+	            <div id="workspaceBuilderPanel" class="p-8 space-y-8 flex-1 overflow-y-auto custom-scrollbar">
                 
                 <div class="grid grid-cols-1 sm:grid-cols-2 gap-8">
                     <!-- Title Input -->
@@ -271,8 +280,60 @@ $StaticPassword = "{{ "{{secret:local_admin_password}}" }}"
 # Secrets are created in Template Secrets and are not sent by API clients.</code></pre>
                     </div>
                 </div>
-                
-            </div>
-        </div>
+	                
+	            </div>
+	            <div id="workspaceGuidePanel" class="hidden p-8 flex-1 overflow-y-auto custom-scrollbar bg-slate-50/50">
+	                <div class="max-w-5xl mx-auto space-y-6">
+	                    <div class="flex items-center justify-between gap-4">
+	                        <div>
+	                            <h3 class="text-2xl font-black text-slate-800 tracking-tight">Workspace Guide</h3>
+	                            <p class="text-xs font-bold text-slate-500 uppercase tracking-widest mt-1">Template authoring, execution rules, and sharing</p>
+	                        </div>
+	                        <div class="flex bg-white p-1 rounded-xl border border-slate-200 shadow-sm">
+	                            <button id="guideLangEn" onclick="setGuideLanguage('en')" class="px-4 py-2 bg-slate-900 text-white rounded-lg text-[10px] font-black uppercase">EN</button>
+	                            <button id="guideLangUa" onclick="setGuideLanguage('ua')" class="px-4 py-2 text-slate-500 rounded-lg text-[10px] font-black uppercase">UA</button>
+	                        </div>
+	                    </div>
+
+	                    <div id="guideContentEn" class="grid grid-cols-1 lg:grid-cols-2 gap-5">
+	                        <section class="bg-white border border-slate-200 rounded-2xl p-6 shadow-sm">
+	                            <h4 class="text-[11px] font-black text-indigo-700 uppercase tracking-widest mb-3">Template Types</h4>
+	                            <p class="text-sm font-bold text-slate-600 leading-relaxed">Action Script runs PowerShell, Bash, or shell code on selected nodes. Metric Item stores the result as a host metric for dashboards and triggers. Report Template formats aggregated task results and email reports; it is not executed directly on hosts.</p>
+	                        </section>
+	                        <section class="bg-white border border-slate-200 rounded-2xl p-6 shadow-sm">
+	                            <h4 class="text-[11px] font-black text-indigo-700 uppercase tracking-widest mb-3">Variables</h4>
+	                            <p class="text-sm font-bold text-slate-600 leading-relaxed">Use placeholders like <span class="font-mono text-slate-900">{{ "{{admin_username}}" }}</span>. WinHUB detects them and asks for values before execution. API clients pass values in the <span class="font-mono text-slate-900">variables</span> object.</p>
+	                        </section>
+	                        <section class="bg-white border border-slate-200 rounded-2xl p-6 shadow-sm">
+	                            <h4 class="text-[11px] font-black text-indigo-700 uppercase tracking-widest mb-3">Code Rules</h4>
+	                            <p class="text-sm font-bold text-slate-600 leading-relaxed">Write idempotent scripts when possible. Return clear text or JSON. Avoid interactive prompts because agents run unattended. Use UTF-8 output. For Windows commands, prefer PowerShell cmdlets and explicit error handling.</p>
+	                        </section>
+	                        <section class="bg-white border border-slate-200 rounded-2xl p-6 shadow-sm">
+	                            <h4 class="text-[11px] font-black text-indigo-700 uppercase tracking-widest mb-3">Sharing & Migration</h4>
+	                            <p class="text-sm font-bold text-slate-600 leading-relaxed">Enable Share with Team to make a template available to operators with access to target groups. Use Export/Import in the Template Library to move templates between WinHUB servers.</p>
+	                        </section>
+	                    </div>
+
+	                    <div id="guideContentUa" class="hidden grid grid-cols-1 lg:grid-cols-2 gap-5">
+	                        <section class="bg-white border border-slate-200 rounded-2xl p-6 shadow-sm">
+	                            <h4 class="text-[11px] font-black text-indigo-700 uppercase tracking-widest mb-3">Типи шаблонів</h4>
+	                            <p class="text-sm font-bold text-slate-600 leading-relaxed">Action Script запускає PowerShell, Bash або shell-код на вибраних вузлах. Metric Item зберігає результат як метрику хоста для dashboard і trigger-ів. Report Template форматує зведені результати задач і email-звіти; напряму на хостах він не виконується.</p>
+	                        </section>
+	                        <section class="bg-white border border-slate-200 rounded-2xl p-6 shadow-sm">
+	                            <h4 class="text-[11px] font-black text-indigo-700 uppercase tracking-widest mb-3">Змінні</h4>
+	                            <p class="text-sm font-bold text-slate-600 leading-relaxed">Використовуй плейсхолдери на кшталт <span class="font-mono text-slate-900">{{ "{{admin_username}}" }}</span>. WinHUB знайде їх і попросить значення перед запуском. API-клієнти передають значення в об’єкті <span class="font-mono text-slate-900">variables</span>.</p>
+	                        </section>
+	                        <section class="bg-white border border-slate-200 rounded-2xl p-6 shadow-sm">
+	                            <h4 class="text-[11px] font-black text-indigo-700 uppercase tracking-widest mb-3">Правила коду</h4>
+	                            <p class="text-sm font-bold text-slate-600 leading-relaxed">Пиши скрипти так, щоб їх можна було безпечно запускати повторно. Повертай зрозумілий текст або JSON. Не використовуй інтерактивні prompt-и, бо агент працює без участі користувача. Для Windows-команд краще використовувати PowerShell cmdlets і явну обробку помилок.</p>
+	                        </section>
+	                        <section class="bg-white border border-slate-200 rounded-2xl p-6 shadow-sm">
+	                            <h4 class="text-[11px] font-black text-indigo-700 uppercase tracking-widest mb-3">Поширення і міграція</h4>
+	                            <p class="text-sm font-bold text-slate-600 leading-relaxed">Увімкни Share with Team, щоб шаблон бачили оператори з доступом до потрібних груп. Export/Import у Template Library дозволяє переносити шаблони між WinHUB-серверами.</p>
+	                        </section>
+	                    </div>
+	                </div>
+	            </div>
+	        </div>
     </div>
 </section>

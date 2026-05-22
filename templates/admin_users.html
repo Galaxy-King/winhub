@@ -1,6 +1,6 @@
 {% extends "base.html" %}
 
-{% block title %}Admin Control - WinHUB{% endblock %}
+{% block title %}Admin Control Center - WinHUB{% endblock %}
 
 {% block content %}
 {% include "sidebar.html" %}
@@ -20,19 +20,27 @@
                     </div>
                 </div>
                 
-                <div class="flex items-center gap-4 bg-slate-50 p-2 rounded-2xl border border-slate-200/60 overflow-x-auto shadow-inner w-full lg:w-auto">
-                    <button onclick="switchTab('users')" id="tabUsers" class="active px-6 py-2.5 rounded-xl font-black text-xs uppercase tracking-wider transition-all whitespace-nowrap bg-white text-indigo-600 shadow-sm border border-slate-200/50">Users</button>
-                    <button onclick="switchTab('api')" id="tabApi" class="text-slate-500 hover:text-slate-700 px-6 py-2.5 rounded-xl font-black text-xs uppercase tracking-wider transition-all whitespace-nowrap">API Keys</button>
-                    <button onclick="switchTab('audit')" id="tabAudit" class="text-slate-500 hover:text-slate-700 px-6 py-2.5 rounded-xl font-black text-xs uppercase tracking-wider transition-all whitespace-nowrap">Audit Logs</button>
-                    <button onclick="switchTab('system')" id="tabSystem" class="text-slate-500 hover:text-slate-700 px-6 py-2.5 rounded-xl font-black text-xs uppercase tracking-wider transition-all whitespace-nowrap">System Logs</button>
-                    <button onclick="switchTab('gpg')" id="tabGpg" class="text-slate-500 hover:text-slate-700 px-6 py-2.5 rounded-xl font-black text-xs uppercase tracking-wider transition-all whitespace-nowrap">GPG Keys</button>
-                    
-                    <div class="w-px h-6 bg-slate-300 mx-1 shrink-0"></div>
-                    <div class="flex items-center gap-3 px-2 shrink-0">
-                        <div class="w-8 h-8 rounded-full bg-indigo-100 text-indigo-700 flex items-center justify-center font-black shadow-sm">{{ username[0]|upper if username else 'U' }}</div>
-                        <span class="text-xs font-black text-slate-700 uppercase tracking-wider pr-2">{{ username }}</span>
-                    </div>
-                </div>
+	                <div class="relative w-full lg:w-auto min-w-0">
+	                    <button id="adminTabsLeft" type="button" onclick="scrollAdminTabs(-1)" aria-label="Scroll tabs left" class="absolute left-1 top-1/2 -translate-y-1/2 z-10 w-8 h-8 rounded-xl bg-white/95 border border-slate-200 text-slate-500 hover:text-indigo-600 hover:border-indigo-200 shadow-sm flex items-center justify-center transition-all">
+	                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M15 19l-7-7 7-7"></path></svg>
+	                    </button>
+	                    <div id="adminTabsScroller" class="flex items-center gap-4 bg-slate-50 p-2 px-11 rounded-2xl border border-slate-200/60 overflow-x-auto shadow-inner w-full lg:w-auto scroll-smooth no-scrollbar">
+	                        <button onclick="switchTab('users')" id="tabUsers" class="active px-6 py-2.5 rounded-xl font-black text-xs uppercase tracking-wider transition-all whitespace-nowrap bg-white text-indigo-600 shadow-sm border border-slate-200/50">Users</button>
+	                        <button onclick="switchTab('api')" id="tabApi" class="text-slate-500 hover:text-slate-700 px-6 py-2.5 rounded-xl font-black text-xs uppercase tracking-wider transition-all whitespace-nowrap">API Keys</button>
+	                        <button onclick="switchTab('audit')" id="tabAudit" class="text-slate-500 hover:text-slate-700 px-6 py-2.5 rounded-xl font-black text-xs uppercase tracking-wider transition-all whitespace-nowrap">Audit Logs</button>
+	                        <button onclick="switchTab('system')" id="tabSystem" class="text-slate-500 hover:text-slate-700 px-6 py-2.5 rounded-xl font-black text-xs uppercase tracking-wider transition-all whitespace-nowrap">System Logs</button>
+	                        <button onclick="switchTab('gpg')" id="tabGpg" class="text-slate-500 hover:text-slate-700 px-6 py-2.5 rounded-xl font-black text-xs uppercase tracking-wider transition-all whitespace-nowrap">GPG Keys</button>
+	                        
+	                        <div class="w-px h-6 bg-slate-300 mx-1 shrink-0"></div>
+	                        <div class="flex items-center gap-3 px-2 shrink-0">
+	                            <div class="w-8 h-8 rounded-full bg-indigo-100 text-indigo-700 flex items-center justify-center font-black shadow-sm">{{ username[0]|upper if username else 'U' }}</div>
+	                            <span class="text-xs font-black text-slate-700 uppercase tracking-wider pr-2">{{ username }}</span>
+	                        </div>
+	                    </div>
+	                    <button id="adminTabsRight" type="button" onclick="scrollAdminTabs(1)" aria-label="Scroll tabs right" class="absolute right-1 top-1/2 -translate-y-1/2 z-10 w-8 h-8 rounded-xl bg-white/95 border border-slate-200 text-slate-500 hover:text-indigo-600 hover:border-indigo-200 shadow-sm flex items-center justify-center transition-all">
+	                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M9 5l7 7-7 7"></path></svg>
+	                    </button>
+	                </div>
                 
                 <div class="shrink-0 flex gap-3 w-full lg:w-auto">
                     <button id="btnApiHelp" onclick="openApiHelpModal()" class="hidden flex-1 lg:flex-none px-6 py-3 bg-white text-slate-600 rounded-2xl text-xs font-black uppercase hover:text-indigo-700 border border-slate-200 shadow-sm transition-all justify-center items-center gap-2">
@@ -571,8 +579,8 @@ $StaticPassword = "{{secret:local_admin_password}}"
         `).join('') || '<div class="text-xs font-bold text-slate-400 p-4 bg-slate-50 rounded-xl">No groups available.</div>';
     }
 
-    function switchTab(tab) {
-        currentTab = tab;
+	    function switchTab(tab) {
+	        currentTab = tab;
         ['users', 'api', 'audit', 'system', 'gpg'].forEach(t => {
             document.getElementById('view' + t.charAt(0).toUpperCase() + t.slice(1)).classList.add('hidden');
             const btn = document.getElementById('tab' + t.charAt(0).toUpperCase() + t.slice(1));
@@ -608,8 +616,29 @@ $StaticPassword = "{{secret:local_admin_password}}"
             if(tab === 'audit') fetchAuditLogs();
             if(tab === 'system') fetchSystemLogs();
             if(tab === 'gpg') fetchGpgKeys();
-        }
-    }
+	        }
+	    }
+
+	    function scrollAdminTabs(direction) {
+	        const scroller = document.getElementById('adminTabsScroller');
+	        if (!scroller) return;
+	        const step = Math.max(180, Math.floor(scroller.clientWidth * 0.7));
+	        scroller.scrollBy({ left: direction * step, behavior: 'smooth' });
+	        setTimeout(updateAdminTabArrows, 180);
+	    }
+
+	    function updateAdminTabArrows() {
+	        const scroller = document.getElementById('adminTabsScroller');
+	        const left = document.getElementById('adminTabsLeft');
+	        const right = document.getElementById('adminTabsRight');
+	        if (!scroller || !left || !right) return;
+	        const hasOverflow = scroller.scrollWidth > scroller.clientWidth + 4;
+	        left.classList.toggle('hidden', !hasOverflow);
+	        right.classList.toggle('hidden', !hasOverflow);
+	        if (!hasOverflow) return;
+	        left.classList.toggle('opacity-40', scroller.scrollLeft <= 4);
+	        right.classList.toggle('opacity-40', scroller.scrollLeft + scroller.clientWidth >= scroller.scrollWidth - 4);
+	    }
 
     function statusBadge(status) {
         const s = status || 'Unknown';
@@ -1099,6 +1128,12 @@ $StaticPassword = "{{secret:local_admin_password}}"
         if(currentTab === 'users') fetchUsers(); else fetchApiKeys();
     }
 
-    window.onload = () => { fetchData(); switchTab('users'); };
+    window.onload = () => {
+        fetchData();
+        switchTab('users');
+        updateAdminTabArrows();
+        document.getElementById('adminTabsScroller')?.addEventListener('scroll', updateAdminTabArrows);
+        window.addEventListener('resize', updateAdminTabArrows);
+    };
 </script>
 {% endblock %}
