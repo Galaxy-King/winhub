@@ -41,8 +41,8 @@
         </select>
     </div>
 
-    <div class="bg-white rounded-[3rem] border border-slate-200 shadow-sm overflow-hidden overflow-x-auto">
-        <table class="w-full text-left min-w-[900px]">
+	    <div class="bg-white rounded-[3rem] border border-slate-200 shadow-sm overflow-hidden overflow-x-auto p-3">
+	        <table class="w-full text-left min-w-[900px] infra-separated-table">
             <thead class="bg-slate-50/50 border-b border-slate-100 text-[10px] font-black text-slate-400 uppercase tracking-widest">
                 <tr>
                     <th class="px-10 py-6">Job</th>
@@ -52,7 +52,7 @@
                     {% if permissions.cleanup_tasks %}<th class="px-10 py-6 w-16"></th>{% endif %}
                 </tr>
             </thead>
-            <tbody id="queueBody" class="divide-y divide-slate-50"></tbody>
+	            <tbody id="queueBody"></tbody>
         </table>
     </div>
 </section>

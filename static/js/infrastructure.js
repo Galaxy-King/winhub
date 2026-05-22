@@ -43,6 +43,7 @@ const infraStateKeys = {
 };
 let workspaceTab = 'builder';
 let guideLanguage = localStorage.getItem('infra_workspace_guide_lang') || 'en';
+let pendingTemplateImport = [];
 
 function getPayloadValue() {
     if (payloadEditor) return payloadEditor.getValue();
@@ -129,6 +130,42 @@ function setGuideLanguage(lang) {
     if (ua) ua.classList.toggle('hidden', guideLanguage !== 'ua');
     if (enBtn) enBtn.className = guideLanguage === 'en' ? "px-4 py-2 bg-slate-900 text-white rounded-lg text-[10px] font-black uppercase" : "px-4 py-2 text-slate-500 rounded-lg text-[10px] font-black uppercase";
     if (uaBtn) uaBtn.className = guideLanguage === 'ua' ? "px-4 py-2 bg-slate-900 text-white rounded-lg text-[10px] font-black uppercase" : "px-4 py-2 text-slate-500 rounded-lg text-[10px] font-black uppercase";
+}
+
+function escapeHtml(value) {
+    return String(value ?? '').replace(/[&<>"']/g, ch => ({
+        '&': '&amp;',
+        '<': '&lt;',
+        '>': '&gt;',
+        '"': '&quot;',
+        "'": '&#39;'
+    }[ch]));
+}
+
+function filterTemplateLibrary() {
+    const q = (document.getElementById('templateLibrarySearch')?.value || '').trim().toLowerCase();
+    document.querySelectorAll('.template-category-block').forEach(block => {
+        let visibleCount = 0;
+        block.querySelectorAll('.template-card').forEach(card => {
+            const haystack = [
+                card.dataset.name,
+                card.dataset.category,
+                card.dataset.type,
+                card.dataset.action
+            ].join(' ').toLowerCase();
+            const visible = !q || haystack.includes(q);
+            card.classList.toggle('hidden', !visible);
+            if (visible) visibleCount += 1;
+        });
+        block.classList.toggle('hidden', visibleCount === 0 && !!q);
+        const list = block.querySelector('[id^="cat_"]');
+        const chevron = block.querySelector('.cat-chevron');
+        if (q && visibleCount > 0 && list) {
+            list.classList.remove('hidden');
+            list.classList.add('block');
+            if (chevron) chevron.classList.add('rotate-180');
+        }
+    });
 }
 
 // --- ГЛОБАЛЬНІ ФУНКЦІЇ ---
@@ -288,9 +325,9 @@ function renderReports() {
         let dotColor = r.error > 0 ? 'bg-rose-500' : (r.success > 0 ? 'bg-emerald-500' : 'bg-slate-300');
         
         return `
-        <div class="bg-white p-4 rounded-2xl border border-slate-200 shadow-sm hover:shadow-md hover:border-indigo-300 transition-all flex flex-col sm:flex-row items-start sm:items-center justify-between cursor-pointer gap-4" onclick="viewReport('${r.id}')">
+        <div class="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm hover:shadow-lg hover:border-indigo-300 transition-all flex flex-col sm:flex-row items-start sm:items-center justify-between cursor-pointer gap-4" onclick="viewReport('${r.id}')">
             <div class="flex items-center gap-4 w-full sm:w-auto">
-                <div class="w-1.5 h-10 rounded-full ${dotColor} shrink-0"></div>
+                <div class="w-1.5 h-12 rounded-full ${dotColor} shrink-0 shadow-sm"></div>
                 <div class="min-w-0">
                     <h3 class="text-sm font-black text-slate-800 tracking-tight truncate">${r.title}</h3>
                     <div class="flex gap-2 items-center mt-1">
@@ -1224,16 +1261,63 @@ function exportTemplates() {
 async function importTemplates(input) {
     const file = input?.files?.[0];
     if (!file) return;
-    if (!confirm("Import templates from this file? Existing templates with the same ID or name/category/type will be updated.")) {
+    try {
+        const text = await file.text();
+        const parsed = JSON.parse(text);
+        const templates = Array.isArray(parsed) ? parsed : parsed.templates;
+        if (!Array.isArray(templates) || templates.length === 0) {
+            alert('No templates found in this file.');
+            input.value = '';
+            return;
+        }
+        pendingTemplateImport = templates.filter(item => item && item.name);
+        renderTemplateImportModal();
+        openModal('templateImportModal');
+    } catch(e) {
+        alert('Template import file is not valid JSON.');
         input.value = '';
-        return;
     }
-    const form = new FormData();
-    form.append('file', file);
+}
+
+function renderTemplateImportModal() {
+    const body = document.getElementById('templateImportList');
+    const count = document.getElementById('templateImportCount');
+    if (!body) return;
+    if (count) count.innerText = pendingTemplateImport.length;
+    body.innerHTML = pendingTemplateImport.map((tpl, index) => `
+        <label class="flex items-start gap-3 p-4 bg-white border border-slate-200 rounded-2xl shadow-sm hover:border-indigo-200 transition-colors cursor-pointer">
+            <input type="checkbox" class="template-import-cb mt-1 w-4 h-4 text-indigo-600 rounded border-slate-300 focus:ring-indigo-500" value="${index}" checked onchange="updateTemplateImportSelection()">
+            <span class="min-w-0 flex-1">
+                <span class="block font-black text-slate-800 text-sm truncate">${escapeHtml(tpl.name || 'Untitled')}</span>
+                <span class="block text-[10px] font-black text-slate-400 uppercase tracking-widest mt-1">${escapeHtml(tpl.category || 'Imported')} / ${escapeHtml(tpl.type || 'action')} / ${escapeHtml(tpl.action_type || tpl.action || 'run_script')}</span>
+            </span>
+            <span class="px-2 py-1 rounded-lg bg-slate-100 text-slate-500 text-[9px] font-black uppercase">${tpl.is_approved ? 'Shared' : 'Draft'}</span>
+        </label>
+    `).join('');
+    updateTemplateImportSelection();
+}
+
+function updateTemplateImportSelection() {
+    const selected = document.querySelectorAll('.template-import-cb:checked').length;
+    const selectedEl = document.getElementById('templateImportSelectedCount');
+    if (selectedEl) selectedEl.innerText = selected;
+}
+
+function toggleAllTemplateImports(checked) {
+    document.querySelectorAll('.template-import-cb').forEach(cb => { cb.checked = checked; });
+    updateTemplateImportSelection();
+}
+
+async function confirmTemplateImport() {
+    const selected = Array.from(document.querySelectorAll('.template-import-cb:checked'))
+        .map(cb => pendingTemplateImport[Number(cb.value)])
+        .filter(Boolean);
+    if (!selected.length) return alert('Select at least one template to import.');
     try {
         const res = await fetch('/api/infrastructure/templates/import', {
             method: 'POST',
-            body: form
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({templates: selected})
         });
         const data = await res.json();
         if (!res.ok || !data.success) {
@@ -1245,7 +1329,8 @@ async function importTemplates(input) {
     } catch(e) {
         alert('Template import failed.');
     } finally {
-        input.value = '';
+        const input = document.getElementById('templateImportFile');
+        if (input) input.value = '';
     }
 }
 
