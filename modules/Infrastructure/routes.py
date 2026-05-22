@@ -1338,6 +1338,56 @@ def update_host_approval(host_id):
     )
     return jsonify({"success": True})
 
+@infrastructure_bp.route('/api/infrastructure/hosts/approval', methods=['POST'])
+def bulk_update_host_approval():
+    denied = require_permission("manage_hosts")
+    if denied: return denied
+    payload = request.json or {}
+    status = payload.get("status")
+    if status not in ("Pending", "Approved", "Rejected"):
+        return jsonify({"success": False, "message": "Invalid approval status"}), 400
+
+    if payload.get("all_pending"):
+        agents = Endpoint.query.filter(Endpoint.approval_status == "Pending").all()
+    else:
+        host_ids = payload.get("host_ids") or []
+        if not isinstance(host_ids, list) or not host_ids:
+            return jsonify({"success": False, "message": "No hosts selected"}), 400
+        agents = Endpoint.query.filter(Endpoint.id.in_(host_ids)).all()
+
+    if not agents:
+        return jsonify({"success": False, "message": "No matching hosts found"}), 404
+
+    ensure_default_groups_and_assign = None
+    if status == "Approved":
+        from core.agent_gateway import ensure_default_groups_and_assign as assign_defaults
+        ensure_default_groups_and_assign = assign_defaults
+
+    for agent in agents:
+        agent.approval_status = status
+        agent.identity_warning = None if status == "Approved" else agent.identity_warning
+        if status == "Rejected":
+            agent.is_blocked = True
+        elif status == "Approved":
+            agent.is_blocked = False
+            ensure_default_groups_and_assign(agent, getattr(agent, "os_type", "Windows") or "Windows")
+        db.session.add(RegistrationHistory(
+            hw_id=agent.id,
+            hostname=agent.hostname,
+            ip_address=agent.ip_address,
+            event_type=f"Bulk Approval {status}"
+        ))
+
+    db.session.commit()
+    WinHubCore.audit(
+        user_id=session.get("user_id"),
+        module="Infrastructure",
+        action="Bulk Host Approval",
+        details={"status": status, "count": len(agents), "all_pending": bool(payload.get("all_pending"))},
+        status="Success"
+    )
+    return jsonify({"success": True, "count": len(agents)})
+
 @infrastructure_bp.route('/api/infrastructure/group', methods=['POST'])
 def create_group():
     denied = require_permission("manage_groups")
