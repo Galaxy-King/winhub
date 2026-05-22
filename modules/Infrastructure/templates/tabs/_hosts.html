@@ -11,10 +11,24 @@
     {% endif %}
 
     {% if permissions.manage_hosts %}
-    <div id="nodesPendingPanel" class="hidden bg-white rounded-[2rem] border border-slate-200 shadow-sm overflow-hidden overflow-x-auto">
-        <table class="w-full text-left min-w-[920px]">
+    <div id="nodesPendingPanel" class="hidden bg-white rounded-[2rem] border border-slate-200 shadow-sm overflow-hidden">
+        <div class="px-5 py-4 bg-amber-50/50 border-b border-amber-100 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+            <div>
+                <p class="text-xs font-black text-amber-800 uppercase tracking-widest">Pending Approval Center</p>
+                <p class="text-[11px] font-bold text-amber-700/70 mt-1"><span id="pendingApprovalSelectedCount">0</span> selected</p>
+            </div>
+            <div class="flex flex-wrap gap-2">
+                <button onclick="approveSelectedPending()" class="px-4 py-2 bg-white text-emerald-700 border border-emerald-100 rounded-xl text-[10px] font-black uppercase hover:bg-emerald-50">Approve Selected</button>
+                <button onclick="approveAllPending()" class="px-4 py-2 bg-emerald-600 text-white rounded-xl text-[10px] font-black uppercase hover:bg-emerald-700">Approve All Pending</button>
+            </div>
+        </div>
+        <div class="overflow-x-auto">
+        <table class="w-full text-left min-w-[960px]">
             <thead class="bg-amber-50/70 border-b border-amber-100 text-[10px] font-black text-amber-700 uppercase tracking-widest">
                 <tr>
+                    <th class="px-5 py-4 w-12">
+                        <input type="checkbox" onchange="toggleAllPendingApprovals(this)" class="w-4 h-4 rounded border-amber-200 text-emerald-600 focus:ring-emerald-500">
+                    </th>
                     <th class="px-6 py-4">Hostname</th>
                     <th class="px-6 py-4">IP / OS</th>
                     <th class="px-6 py-4">Agent</th>
@@ -25,6 +39,9 @@
             <tbody class="divide-y divide-slate-50">
                 {% for agent in pending_agents %}
                 <tr class="hover:bg-slate-50 transition-colors">
+                    <td class="px-5 py-4">
+                        <input type="checkbox" value="{{ agent.id }}" onchange="updatePendingApprovalCount()" class="pending-approval-cb w-4 h-4 rounded border-slate-300 text-emerald-600 focus:ring-emerald-500">
+                    </td>
                     <td class="px-6 py-4">
                         <button onclick="viewHost('{{ agent.id }}')" class="text-left font-black text-slate-800 hover:text-indigo-600">{{ agent.hostname or agent.id }}</button>
                         {% if agent.identity_warning %}<div class="text-[10px] text-rose-600 font-bold mt-1">{{ agent.identity_warning }}</div>{% endif %}
@@ -47,10 +64,11 @@
                     </td>
                 </tr>
                 {% else %}
-                <tr><td colspan="5" class="px-6 py-10 text-center text-slate-400 text-sm font-bold">No pending agents.</td></tr>
+                <tr><td colspan="6" class="px-6 py-10 text-center text-slate-400 text-sm font-bold">No pending agents.</td></tr>
                 {% endfor %}
             </tbody>
         </table>
+        </div>
     </div>
     {% endif %}
 

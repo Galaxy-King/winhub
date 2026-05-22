@@ -1210,6 +1210,53 @@ function switchNodeTab(tab) {
     });
     const active = tab === 'pending' ? pendingBtn : approvedBtn;
     if (active) active.className = "node-tab-btn px-5 py-2.5 rounded-xl text-xs font-black uppercase bg-slate-900 text-white shadow-sm";
+    if (tab === 'pending') updatePendingApprovalCount();
+}
+
+function pendingApprovalSelection() {
+    return Array.from(document.querySelectorAll('.pending-approval-cb:checked')).map(cb => cb.value);
+}
+
+function updatePendingApprovalCount() {
+    const selected = pendingApprovalSelection().length;
+    const counter = document.getElementById('pendingApprovalSelectedCount');
+    if (counter) counter.innerText = selected;
+}
+
+function toggleAllPendingApprovals(source) {
+    document.querySelectorAll('.pending-approval-cb').forEach(cb => {
+        cb.checked = source.checked;
+    });
+    updatePendingApprovalCount();
+}
+
+async function approveSelectedPending() {
+    const hostIds = pendingApprovalSelection();
+    if (!hostIds.length) {
+        alert('Select at least one pending agent.');
+        return;
+    }
+    if (!confirm(`Approve ${hostIds.length} selected pending agent(s)?`)) return;
+    await bulkApprovePending({host_ids: hostIds});
+}
+
+async function approveAllPending() {
+    if (!confirm('Approve all pending agents?')) return;
+    await bulkApprovePending({all_pending: true});
+}
+
+async function bulkApprovePending(payload) {
+    const res = await fetch('/api/infrastructure/hosts/approval', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({...payload, status: 'Approved'})
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok || !data.success) {
+        alert('Approval failed: ' + (data.message || res.statusText));
+        return;
+    }
+    location.reload();
 }
 
 async function loadHostMetrics() {
