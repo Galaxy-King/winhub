@@ -12,7 +12,7 @@ from datetime import datetime, timedelta, timezone
 from email.mime.text import MIMEText
 from email.utils import parseaddr
 from zoneinfo import ZoneInfo
-from flask import Blueprint, request, jsonify, render_template, session, redirect, url_for, current_app
+from flask import Blueprint, request, jsonify, render_template, session, redirect, url_for, current_app, Response
 from sqlalchemy import func
 
 from core.database import db, User, Endpoint, EndpointGroup, AgentTask, TaskTemplate, TelemetryHistory, ScheduledTask, EndpointMetric, TriggerRule, AggregatedJob, ApiKey, RegistrationHistory
@@ -890,6 +890,107 @@ def list_templates():
             "created_at": to_kyiv_time(t.created_at),
         } for t in templates]
     })
+
+
+@infrastructure_bp.route('/api/infrastructure/templates/export', methods=['GET'])
+def export_templates():
+    denied = require_permission("manage_templates")
+    if denied: return denied
+
+    templates = TaskTemplate.query.order_by(TaskTemplate.category, TaskTemplate.name).all()
+    payload = {
+        "format": "winhub-template-library",
+        "version": 1,
+        "exported_at": datetime.utcnow().isoformat() + "Z",
+        "templates": [{
+            "id": t.id,
+            "name": t.name,
+            "category": t.category,
+            "action_type": t.action_type,
+            "type": getattr(t, "type", "action"),
+            "payload": load_template_payload(t),
+            "is_approved": bool(t.is_approved),
+            "created_by": t.created_by,
+            "created_at": t.created_at.isoformat() + "Z" if t.created_at else None,
+        } for t in templates]
+    }
+    body = json.dumps(payload, ensure_ascii=False, indent=2)
+    filename = f"winhub_templates_{datetime.utcnow().strftime('%Y%m%d_%H%M%S')}.json"
+    return Response(
+        body,
+        mimetype="application/json",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'}
+    )
+
+
+@infrastructure_bp.route('/api/infrastructure/templates/import', methods=['POST'])
+def import_templates():
+    denied = require_permission("manage_templates")
+    if denied: return denied
+
+    try:
+        if request.files.get("file"):
+            raw = request.files["file"].read().decode("utf-8-sig")
+            data = json.loads(raw)
+        else:
+            data = request.get_json(force=True)
+
+        templates = data.get("templates") if isinstance(data, dict) else data
+        if not isinstance(templates, list):
+            return jsonify({"success": False, "message": "Import file must contain a templates list"}), 400
+
+        imported = 0
+        updated = 0
+        for item in templates:
+            if not isinstance(item, dict):
+                continue
+            name = str(item.get("name") or "").strip()
+            if not name:
+                continue
+            category = str(item.get("category") or "Imported").strip() or "Imported"
+            t_type = str(item.get("type") or "action").strip() or "action"
+            action_type = str(item.get("action_type") or item.get("action") or "run_script").strip() or "run_script"
+            incoming_payload = item.get("payload") or {}
+            if isinstance(incoming_payload, str):
+                try:
+                    incoming_payload = json.loads(incoming_payload)
+                except Exception:
+                    incoming_payload = {"script": incoming_payload}
+            payload_raw = json.dumps(incoming_payload, ensure_ascii=False)
+            is_approved = bool(item.get("is_approved", False))
+
+            template_id = str(item.get("id") or "").strip()
+            template = TaskTemplate.query.get(template_id) if template_id else None
+            if not template:
+                template = TaskTemplate.query.filter_by(name=name, category=category, type=t_type).first()
+
+            if template:
+                template.name = name
+                template.category = category
+                template.action_type = action_type
+                template.type = t_type
+                template.payload = payload_raw
+                template.is_approved = is_approved
+                updated += 1
+            else:
+                db.session.add(TaskTemplate(
+                    id=template_id or str(uuid.uuid4()),
+                    name=name,
+                    category=category,
+                    action_type=action_type,
+                    type=t_type,
+                    payload=payload_raw,
+                    is_approved=is_approved,
+                    created_by=session.get('username')
+                ))
+                imported += 1
+
+        db.session.commit()
+        return jsonify({"success": True, "imported": imported, "updated": updated})
+    except Exception as e:
+        db.session.rollback()
+        logging.getLogger("winhub").exception("Template import failed")
+        return jsonify({"success": False, "message": f"Template import failed: {e}"}), 400
 
 
 @infrastructure_bp.route('/api/infrastructure/templates', methods=['POST'])

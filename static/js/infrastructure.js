@@ -41,6 +41,8 @@ const infraStateKeys = {
     categories: 'infra_open_categories',
     template: 'infra_selected_template'
 };
+let workspaceTab = 'builder';
+let guideLanguage = localStorage.getItem('infra_workspace_guide_lang') || 'en';
 
 function getPayloadValue() {
     if (payloadEditor) return payloadEditor.getValue();
@@ -101,6 +103,32 @@ function initPayloadEditor() {
         syncPayloadTextarea();
         updateVariablesUI();
     });
+}
+
+function switchWorkspaceTab(tab) {
+    workspaceTab = tab || 'builder';
+    const builder = document.getElementById('workspaceBuilderPanel');
+    const guide = document.getElementById('workspaceGuidePanel');
+    const builderBtn = document.getElementById('workspaceTabBuilder');
+    const guideBtn = document.getElementById('workspaceTabGuide');
+    if (builder) builder.classList.toggle('hidden', workspaceTab !== 'builder');
+    if (guide) guide.classList.toggle('hidden', workspaceTab !== 'guide');
+    if (builderBtn) builderBtn.className = workspaceTab === 'builder' ? "px-4 py-2 bg-white text-indigo-700 rounded-lg text-[10px] font-black uppercase shadow-sm" : "px-4 py-2 text-slate-500 rounded-lg text-[10px] font-black uppercase";
+    if (guideBtn) guideBtn.className = workspaceTab === 'guide' ? "px-4 py-2 bg-white text-indigo-700 rounded-lg text-[10px] font-black uppercase shadow-sm" : "px-4 py-2 text-slate-500 rounded-lg text-[10px] font-black uppercase";
+    if (workspaceTab === 'builder') refreshPayloadEditor();
+}
+
+function setGuideLanguage(lang) {
+    guideLanguage = lang === 'ua' ? 'ua' : 'en';
+    localStorage.setItem('infra_workspace_guide_lang', guideLanguage);
+    const en = document.getElementById('guideContentEn');
+    const ua = document.getElementById('guideContentUa');
+    const enBtn = document.getElementById('guideLangEn');
+    const uaBtn = document.getElementById('guideLangUa');
+    if (en) en.classList.toggle('hidden', guideLanguage !== 'en');
+    if (ua) ua.classList.toggle('hidden', guideLanguage !== 'ua');
+    if (enBtn) enBtn.className = guideLanguage === 'en' ? "px-4 py-2 bg-slate-900 text-white rounded-lg text-[10px] font-black uppercase" : "px-4 py-2 text-slate-500 rounded-lg text-[10px] font-black uppercase";
+    if (uaBtn) uaBtn.className = guideLanguage === 'ua' ? "px-4 py-2 bg-slate-900 text-white rounded-lg text-[10px] font-black uppercase" : "px-4 py-2 text-slate-500 rounded-lg text-[10px] font-black uppercase";
 }
 
 // --- ГЛОБАЛЬНІ ФУНКЦІЇ ---
@@ -739,6 +767,7 @@ document.addEventListener('DOMContentLoaded', () => {
         
         initPayloadEditor();
         restoreWorkspaceState();
+        setGuideLanguage(guideLanguage);
         const payloadEl = document.getElementById('depPayload');
         if(payloadEl) payloadEl.addEventListener('input', updateVariablesUI);
         
@@ -1186,6 +1215,38 @@ async function saveAsTemplate() {
         if(res.ok) window.location.reload();
         else alert("Failed to save.");
     } catch(e) { alert("Error connecting to server."); }
+}
+
+function exportTemplates() {
+    window.location.href = '/api/infrastructure/templates/export';
+}
+
+async function importTemplates(input) {
+    const file = input?.files?.[0];
+    if (!file) return;
+    if (!confirm("Import templates from this file? Existing templates with the same ID or name/category/type will be updated.")) {
+        input.value = '';
+        return;
+    }
+    const form = new FormData();
+    form.append('file', file);
+    try {
+        const res = await fetch('/api/infrastructure/templates/import', {
+            method: 'POST',
+            body: form
+        });
+        const data = await res.json();
+        if (!res.ok || !data.success) {
+            alert(data.message || 'Template import failed.');
+            return;
+        }
+        alert(`Import complete. Added: ${data.imported || 0}, updated: ${data.updated || 0}.`);
+        window.location.reload();
+    } catch(e) {
+        alert('Template import failed.');
+    } finally {
+        input.value = '';
+    }
 }
 
 async function deleteTemplate(id) {

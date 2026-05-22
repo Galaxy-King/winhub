@@ -60,9 +60,9 @@
 
             <!-- Керування Користувачами -->
             {% if is_admin %}
-            <a href="/admin/users" class="flex items-center px-3 py-2.5 rounded-lg transition-colors {% if request.path == '/admin/users' %}bg-primary text-white shadow-md{% else %}hover:bg-slate-800 hover:text-white text-slate-300 group{% endif %} sidebar-link" title="Users Management">
+            <a href="/admin/users" class="flex items-center px-3 py-2.5 rounded-lg transition-colors {% if request.path == '/admin/users' %}bg-primary text-white shadow-md{% else %}hover:bg-slate-800 hover:text-white text-slate-300 group{% endif %} sidebar-link" title="Admin Control Center">
                 <svg class="w-5 h-5 shrink-0 {% if request.path != '/admin/users' %}text-slate-400 group-hover:text-emerald-400 transition-colors{% endif %}" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4.354a4 4 0 110 5.292M15 21H3v-1a6 6 0 0112 0v1zm0 0h6v-1a6 6 0 00-9-5.197M13 7a4 4 0 11-8 0 4 4 0 018 0z"></path></svg>
-                <span class="ml-3 sidebar-text whitespace-nowrap">Users Management</span>
+                <span class="ml-3 sidebar-text whitespace-nowrap">Admin Control Center</span>
             </a>
             {% endif %}
         </div>
