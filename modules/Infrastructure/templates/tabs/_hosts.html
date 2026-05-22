@@ -99,7 +99,7 @@
             <thead class="bg-slate-50/50 border-b border-slate-100 text-[10px] font-black text-slate-400 uppercase tracking-widest">
                 <tr>
                     <th class="px-10 py-6">Hostname</th>
-                    <th class="px-10 py-6">OS Type</th>
+	                    <th class="px-10 py-6">OS / Connection IP</th>
                     <th class="px-10 py-6">Agent</th>
                     <th class="px-10 py-6">Approval</th>
                     <th class="px-10 py-6 text-center">Connectivity</th>
@@ -124,8 +124,8 @@
                         </div>
                     </td>
                     <td class="px-10 py-5">
-                        <div class="text-[10px] font-black uppercase tracking-widest text-slate-400 mb-1">{{ agent.os_type }}</div>
-                        <div class="text-sm font-bold text-slate-600 bg-slate-50 px-2 py-0.5 rounded w-fit border border-slate-100">{{ agent.ip_address }}</div>
+	                        <div class="text-[10px] font-black uppercase tracking-widest text-slate-400 mb-1">{{ agent.os_type }}</div>
+	                        <div class="text-sm font-bold text-slate-600 bg-slate-50 px-2 py-0.5 rounded w-fit border border-slate-100" title="Current connection IP seen by WinHUB">{{ agent.ip_address or '-' }}</div>
                     </td>
                     <td class="px-10 py-5">
                         <div class="text-xs font-black text-slate-700">{{ agent.agent_version or 'Unknown' }}</div>
