@@ -40,10 +40,10 @@
     <div class="flex-1 p-6 overflow-hidden flex flex-col xl:flex-row gap-6">
         
         <!-- Left Column: Form & Lists -->
-        <div class="w-full xl:w-[600px] flex flex-col gap-6 shrink-0 overflow-y-auto">
+        <div class="w-full xl:w-[680px] flex flex-col gap-6 shrink-0 overflow-y-auto">
             
             <!-- Campaign Setup Card -->
-            <article class="bg-white rounded-xl shadow-sm border border-slate-200 p-6 flex flex-col shrink-0">
+            <article class="bg-white rounded-xl shadow-sm border border-slate-200 p-6 flex flex-col shrink-0 wh-soft-panel">
                 <h3 class="text-md font-bold text-slate-800 mb-4 flex items-center gap-2">
                     <svg class="w-5 h-5 text-primary" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z"></path></svg>
                     Campaign Setup
@@ -82,7 +82,7 @@
 
                     <div class="mb-6">
                         <label class="block text-sm font-bold text-slate-700 mb-2">Email Body*</label>
-                        <textarea id="nlBody" required rows="5" class="w-full px-4 py-2 border border-slate-300 rounded-lg outline-none focus:ring-2 focus:ring-primary font-mono text-sm resize-none" placeholder="Write your message here..."></textarea>
+                        <textarea id="nlBody" required rows="10" class="w-full min-h-[260px] px-4 py-3 border border-slate-300 rounded-lg outline-none focus:ring-2 focus:ring-primary font-mono text-sm resize-y" placeholder="Write your message here..."></textarea>
                     </div>
 
                     <button type="submit" id="btnSend" class="w-full bg-primary hover:bg-primary-dark text-white font-bold py-3 rounded-lg shadow-sm transition-all flex justify-center items-center gap-2">
@@ -121,7 +121,7 @@
         </div>
 
         <!-- Right Column: Live Terminal -->
-        <article class="flex-1 flex flex-col bg-slate-900 rounded-xl shadow-lg border border-slate-800 overflow-hidden min-h-[500px]">
+        <article class="flex-1 xl:flex-[0.85] flex flex-col bg-slate-900 rounded-xl shadow-lg border border-slate-800 overflow-hidden min-h-[360px]">
             <div class="h-10 bg-slate-800 border-b border-slate-700 flex items-center px-4 justify-between shrink-0">
                 <div class="flex items-center gap-2">
                     <div class="w-3 h-3 rounded-full bg-rose-500"></div>
@@ -237,6 +237,7 @@
     let moduleData = { senders: [], lists: {} };
     let currentEditListUsers = [];
     let originalEditListName = null;
+    const newsletterStateKey = 'winhub_newsletter_draft';
 
     window.onload = () => { loadConfig(); };
 
@@ -270,8 +271,57 @@
             const res = await fetch('/api/newsletter/config');
             moduleData = await res.json();
             renderUI();
+            restoreNewsletterDraft();
+            bindNewsletterDraftPersistence();
             {% if permissions.manage_smtp %} renderSmtpModalList(); {% endif %}
         } catch (e) { console.error("Config load error", e); }
+    }
+
+    function getNewsletterDraft() {
+        return {
+            sender: document.getElementById('nlSender')?.value || '',
+            subject: document.getElementById('nlSubject')?.value || '',
+            body: document.getElementById('nlBody')?.value || '',
+            use_gpg: document.getElementById('nlUseGpg')?.checked !== false,
+            lists: Array.from(document.querySelectorAll('.nl-list-cb:checked')).map(cb => cb.value)
+        };
+    }
+
+    function saveNewsletterDraft() {
+        localStorage.setItem(newsletterStateKey, JSON.stringify(getNewsletterDraft()));
+    }
+
+    function restoreNewsletterDraft() {
+        let draft = null;
+        try {
+            draft = JSON.parse(localStorage.getItem(newsletterStateKey) || 'null');
+        } catch(e) {
+            draft = null;
+        }
+        if (!draft) return;
+        if (draft.sender && document.getElementById('nlSender')) document.getElementById('nlSender').value = draft.sender;
+        if (document.getElementById('nlSubject')) document.getElementById('nlSubject').value = draft.subject || '';
+        if (document.getElementById('nlBody')) document.getElementById('nlBody').value = draft.body || '';
+        if (document.getElementById('nlUseGpg')) document.getElementById('nlUseGpg').checked = draft.use_gpg !== false;
+        const selectedLists = new Set(draft.lists || []);
+        document.querySelectorAll('.nl-list-cb').forEach(cb => { cb.checked = selectedLists.has(cb.value); });
+    }
+
+    function bindNewsletterDraftPersistence() {
+        ['nlSender', 'nlSubject', 'nlBody', 'nlUseGpg'].forEach(id => {
+            const el = document.getElementById(id);
+            if (el && !el.dataset.draftBound) {
+                el.addEventListener('input', saveNewsletterDraft);
+                el.addEventListener('change', saveNewsletterDraft);
+                el.dataset.draftBound = '1';
+            }
+        });
+        document.querySelectorAll('.nl-list-cb').forEach(cb => {
+            if (!cb.dataset.draftBound) {
+                cb.addEventListener('change', saveNewsletterDraft);
+                cb.dataset.draftBound = '1';
+            }
+        });
     }
 
     function renderUI() {
@@ -358,6 +408,7 @@
                 document.getElementById('nlSubject').value = '';
                 document.getElementById('nlBody').value = '';
                 document.querySelectorAll('.nl-list-cb').forEach(cb => cb.checked = false);
+                localStorage.removeItem(newsletterStateKey);
             }, 1000);
         }
     }
