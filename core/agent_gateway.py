@@ -215,7 +215,11 @@ def agent_poll():
         
     now = datetime.utcnow()
     needs_commit = False
-    
+    agent_version = str(data.get('agent_version') or '').strip()[:50]
+    if agent_version and agent_version != (agent.agent_version or ""):
+        agent.agent_version = agent_version
+        needs_commit = True
+	    
     if not agent.last_seen or (now - agent.last_seen).total_seconds() > 60:
         agent.last_seen = now
         agent.ip_address = request.remote_addr
@@ -328,6 +332,10 @@ def agent_telemetry():
     if not agent or agent.is_blocked or agent.auth_token != data.get('auth_token'): 
         return jsonify({"status": "error"}), 403
         
+    agent_version = str(data.get('agent_version') or '').strip()[:50]
+    if agent_version:
+        agent.agent_version = agent_version
+
     telemetry = TelemetryHistory(
         endpoint_id=agent.id,
         cpu_usage=data.get('cpu', 0.0),
