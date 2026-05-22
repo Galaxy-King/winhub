@@ -399,7 +399,15 @@ def handle_security_and_auth():
         now_ts = time.time()
         login_at = float(session.get('login_at') or now_ts)
         last_activity = float(session.get('last_activity') or now_ts)
-        if now_ts - login_at > Config.SESSION_ABSOLUTE_TIMEOUT_SECONDS or now_ts - last_activity > Config.SESSION_IDLE_TIMEOUT_SECONDS:
+        absolute_expired = (
+            Config.SESSION_ABSOLUTE_TIMEOUT_SECONDS > 0
+            and now_ts - login_at > Config.SESSION_ABSOLUTE_TIMEOUT_SECONDS
+        )
+        idle_expired = (
+            Config.SESSION_IDLE_TIMEOUT_SECONDS > 0
+            and now_ts - last_activity > Config.SESSION_IDLE_TIMEOUT_SECONDS
+        )
+        if absolute_expired or idle_expired:
             username = session.get("username", "Unknown")
             session.clear()
             if request.path.startswith('/api/'):
@@ -521,7 +529,8 @@ def create_app():
     static_dir = os.path.join(Config.BASE_DIR, 'static')
     global_app = Flask(__name__, template_folder=template_dir, static_folder=static_dir)
     global_app.config.from_object(Config)
-    global_app.permanent_session_lifetime = timedelta(seconds=Config.SESSION_ABSOLUTE_TIMEOUT_SECONDS)
+    session_lifetime = Config.SESSION_ABSOLUTE_TIMEOUT_SECONDS or max(Config.SESSION_IDLE_TIMEOUT_SECONDS, 86400)
+    global_app.permanent_session_lifetime = timedelta(seconds=session_lifetime)
 
     validate_rate_limit_storage()
 

@@ -153,6 +153,17 @@
         <p class="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-6" id="editUsernameLabel">User Name</p>
         
         <input type="hidden" id="editUserId">
+        <div class="mb-6">
+            <h4 class="text-[10px] font-black text-indigo-600 uppercase tracking-widest mb-2">User Type</h4>
+            <select id="editRolePreset" onchange="applyRolePresetToAccess(this.value)" class="w-full p-4 bg-slate-50 border border-slate-200 rounded-2xl text-sm font-bold focus:bg-white focus:ring-4 focus:ring-indigo-500/10 outline-none transition-all">
+                <option value="custom">Custom permissions</option>
+                <option value="viewer">Viewer</option>
+                <option value="operator">Operator</option>
+                <option value="template_engineer">Template Engineer</option>
+                <option value="group_manager">Group Manager</option>
+                <option value="infrastructure_admin">Infrastructure Admin</option>
+            </select>
+        </div>
         <div class="grid grid-cols-1 md:grid-cols-3 gap-8">
             <div class="space-y-4">
                 <h4 class="text-[10px] font-black text-indigo-600 uppercase tracking-widest">Allowed Modules</h4>
@@ -189,6 +200,15 @@
                     <input type="email" id="newEmail" required class="w-full p-4 bg-slate-50 border border-slate-200 rounded-2xl text-sm font-bold focus:bg-white focus:ring-4 focus:ring-indigo-500/10 outline-none transition-all">
                 </div>
                 <div id="roleToggleArea">
+                    <label class="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2 ml-2">User Type</label>
+                    <select id="newRolePreset" onchange="applyCreateRolePreset()" class="w-full p-4 bg-slate-50 border border-slate-200 rounded-2xl text-sm font-bold focus:bg-white focus:ring-4 focus:ring-indigo-500/10 outline-none transition-all mb-3">
+                        <option value="viewer">Viewer</option>
+                        <option value="operator" selected>Operator</option>
+                        <option value="template_engineer">Template Engineer</option>
+                        <option value="group_manager">Group Manager</option>
+                        <option value="infrastructure_admin">Infrastructure Admin</option>
+                        <option value="system_admin">System Admin</option>
+                    </select>
                     <label class="flex items-center gap-3 cursor-pointer p-4 border border-slate-200 rounded-2xl hover:bg-slate-50 transition-colors">
                         <input type="checkbox" id="isAdmin" class="w-5 h-5 text-indigo-600 rounded border-slate-300 focus:ring-indigo-500">
                         <span class="text-sm font-black text-slate-700">Administrator Privileges</span>
@@ -373,9 +393,82 @@ $StaticPassword = "{{secret:local_admin_password}}"
     let auditPage = 1;
     let auditPages = 1;
 
+    const rolePresets = {
+        viewer: {
+            label: 'Viewer',
+            admin: false,
+            modules: [
+                'Infrastructure:view_hosts', 'Infrastructure:view_groups', 'Infrastructure:view_queue', 'Infrastructure:view_reports',
+                'HistoryAudit:view_history'
+            ]
+        },
+        operator: {
+            label: 'Operator',
+            admin: false,
+            modules: [
+                'Infrastructure:view_hosts', 'Infrastructure:view_groups', 'Infrastructure:view_queue', 'Infrastructure:view_reports',
+                'Infrastructure:run_tasks'
+            ]
+        },
+        template_engineer: {
+            label: 'Template Engineer',
+            admin: false,
+            modules: [
+                'Infrastructure:view_hosts', 'Infrastructure:view_groups', 'Infrastructure:view_queue', 'Infrastructure:view_reports',
+                'Infrastructure:run_tasks', 'Infrastructure:manage_templates'
+            ]
+        },
+        group_manager: {
+            label: 'Group Manager',
+            admin: false,
+            modules: [
+                'Infrastructure:view_hosts', 'Infrastructure:view_groups', 'Infrastructure:view_queue', 'Infrastructure:view_reports',
+                'Infrastructure:run_tasks', 'Infrastructure:manage_groups'
+            ]
+        },
+        infrastructure_admin: {
+            label: 'Infrastructure Admin',
+            admin: false,
+            modules: [
+                'Infrastructure:view_hosts', 'Infrastructure:view_groups', 'Infrastructure:view_queue', 'Infrastructure:view_reports',
+                'Infrastructure:view_sensitive_reports', 'Infrastructure:manage_reports', 'Infrastructure:run_tasks',
+                'Infrastructure:send_reports', 'Infrastructure:manage_templates', 'Infrastructure:manage_smtp',
+                'Infrastructure:manage_scheduler', 'Infrastructure:manage_triggers', 'Infrastructure:manage_hosts',
+                'Infrastructure:manage_groups', 'Infrastructure:cleanup_tasks',
+                'HistoryAudit:view_history'
+            ]
+        },
+        system_admin: {
+            label: 'System Admin',
+            admin: true,
+            modules: []
+        }
+    };
+
     function moduleAccessCount(user) {
         const allowed = user.allowed_modules || [];
         return new Set(allowed.map(x => String(x).split(':')[0])).size;
+    }
+
+    function sortedTokens(tokens) {
+        return [...new Set(tokens || [])].sort();
+    }
+
+    function tokensMatch(a, b) {
+        return JSON.stringify(sortedTokens(a)) === JSON.stringify(sortedTokens(b));
+    }
+
+    function userTypeLabel(user) {
+        if (user.is_admin) return rolePresets.system_admin.label;
+        const allowed = user.allowed_modules || [];
+        for (const key of ['infrastructure_admin', 'group_manager', 'template_engineer', 'operator', 'viewer']) {
+            if (tokensMatch(allowed, rolePresets[key].modules)) return rolePresets[key].label;
+        }
+        return allowed.length ? 'Custom' : 'No Access';
+    }
+
+    function rolePresetModules(role) {
+        return rolePresets[role]?.modules || [];
     }
 
     function hasModuleGrant(user, moduleId) {
@@ -606,7 +699,7 @@ $StaticPassword = "{{secret:local_admin_password}}"
                             <div class="text-[10px] text-slate-400 font-bold tracking-widest mt-1">${u.email}</div>
                         </td>
                         <td class="px-10 py-5">
-                            <span class="px-3 py-1.5 rounded-xl text-[10px] font-black uppercase tracking-widest ${u.is_admin ? 'bg-indigo-100 text-indigo-700' : 'bg-slate-100 text-slate-600'}">${u.is_admin ? 'Admin' : 'User'}</span>
+                            <span class="px-3 py-1.5 rounded-xl text-[10px] font-black uppercase tracking-widest ${u.is_admin ? 'bg-indigo-100 text-indigo-700' : 'bg-slate-100 text-slate-600'}">${userTypeLabel(u)}</span>
                             <span class="px-3 py-1.5 rounded-xl text-[10px] font-black uppercase tracking-widest ml-2 ${u.is_active ? 'bg-emerald-100 text-emerald-700' : 'bg-rose-100 text-rose-700'}">${u.is_active ? 'Active' : 'Locked'}</span>
                         </td>
                         <td class="px-10 py-5">
@@ -663,6 +756,8 @@ $StaticPassword = "{{secret:local_admin_password}}"
         document.getElementById('apiPermissionsArea').classList.add('hidden');
         document.getElementById('newEmail').parentElement.classList.remove('hidden');
         document.getElementById('newEmail').required = true;
+        document.getElementById('newRolePreset').value = 'operator';
+        applyCreateRolePreset();
         toggleModal('create', true); 
     }
     function openCreateApiModal() { 
@@ -691,6 +786,13 @@ $StaticPassword = "{{secret:local_admin_password}}"
         toggleModal('apiAccess', true);
     }
 
+    function applyCreateRolePreset() {
+        const role = document.getElementById('newRolePreset')?.value || 'operator';
+        const preset = rolePresets[role] || rolePresets.operator;
+        const adminBox = document.getElementById('isAdmin');
+        if (adminBox) adminBox.checked = !!preset.admin;
+    }
+
     async function saveApiAccess() {
         const id = document.getElementById('editApiKeyId').value;
         const permissions = Array.from(document.querySelectorAll('#editApiPermissionsContainer .api-perm-cb:checked')).map(cb => cb.value);
@@ -714,6 +816,7 @@ $StaticPassword = "{{secret:local_admin_password}}"
     function openEditModal(user) {
         document.getElementById('editUserId').value = user.id;
         document.getElementById('editUsernameLabel').innerText = user.username;
+        document.getElementById('editRolePreset').value = Object.entries(rolePresets).find(([key, preset]) => !preset.admin && tokensMatch(user.allowed_modules || [], preset.modules))?.[0] || 'custom';
         
         const mCont = document.getElementById('modulesContainer');
         mCont.innerHTML = sysModules.map(m => `
@@ -747,6 +850,24 @@ $StaticPassword = "{{secret:local_admin_password}}"
         `).join('');
 
         toggleModal('edit', true);
+    }
+
+    function applyRolePresetToAccess(role) {
+        if (!role || role === 'custom') return;
+        const selected = new Set(rolePresetModules(role));
+        document.querySelectorAll('.mod-cb').forEach(cb => {
+            const moduleInfo = sysModules.find(m => m.id === cb.value);
+            const hasPermissionCatalog = moduleInfo && (moduleInfo.permissions || []).length;
+            cb.checked = !hasPermissionCatalog && selected.has(cb.value);
+            toggleModulePermissions(cb.value, cb.checked || selectedHasModulePermissions(selected, cb.value));
+        });
+        document.querySelectorAll('.perm-cb').forEach(cb => {
+            cb.checked = selected.has(cb.value);
+        });
+    }
+
+    function selectedHasModulePermissions(selected, moduleId) {
+        return Array.from(selected).some(token => String(token).startsWith(moduleId + ':'));
     }
 
     function toggleModulePermissions(moduleId, enabled) {
@@ -829,7 +950,8 @@ $StaticPassword = "{{secret:local_admin_password}}"
                 body: JSON.stringify({
                     username: document.getElementById('newUsername').value,
                     email: document.getElementById('newEmail').value,
-                    is_admin: document.getElementById('isAdmin').checked
+                    is_admin: document.getElementById('isAdmin').checked,
+                    allowed_modules: rolePresetModules(document.getElementById('newRolePreset').value)
                 })
             });
             const data = await res.json();
@@ -852,6 +974,7 @@ $StaticPassword = "{{secret:local_admin_password}}"
         document.getElementById('newEmail').required = true;
         document.getElementById('apiPermissionsArea').classList.add('hidden');
         if(document.getElementById('apiExpiryDays')) document.getElementById('apiExpiryDays').value = '30';
+        if(document.getElementById('newRolePreset')) document.getElementById('newRolePreset').value = 'operator';
         document.getElementById('resTotp').previousElementSibling.innerText = '2FA Secret (TOTP)';
         if(currentTab === 'users') fetchUsers(); else fetchApiKeys();
     }
