@@ -17,12 +17,45 @@ $backupRoot = Join-Path $dataDir "backups"
 $stamp = Get-Date -Format "yyyyMMdd_HHmmss"
 $backupDir = Join-Path $backupRoot $stamp
 $tempDir = Join-Path $env:TEMP "WinHUBAgentUpdate_$stamp"
+$stageDir = Join-Path $env:TEMP "WinHUBAgentStage_$stamp"
 $rollbackDir = Join-Path $backupDir "WinHUBAgent"
 
 New-Item -ItemType Directory -Path $backupDir -Force | Out-Null
 New-Item -ItemType Directory -Path $tempDir -Force | Out-Null
+New-Item -ItemType Directory -Path $stageDir -Force | Out-Null
 
 try {
+    Write-Host "[WinHUBAgent] Extracting package"
+    Expand-Archive -LiteralPath $PackagePath -DestinationPath $tempDir -Force
+
+    $packageRoot = $tempDir
+    if (-not (Test-Path -LiteralPath (Join-Path $packageRoot "WinHUBAgent.exe"))) {
+        $candidateRoots = Get-ChildItem -LiteralPath $tempDir -Directory -Recurse -Force |
+            Where-Object { Test-Path -LiteralPath (Join-Path $_.FullName "WinHUBAgent.exe") } |
+            Sort-Object { $_.FullName.Length }
+        if ($candidateRoots -and $candidateRoots.Count -gt 0) {
+            $packageRoot = $candidateRoots[0].FullName
+        }
+    }
+    if (-not (Test-Path -LiteralPath (Join-Path $packageRoot "WinHUBAgent.exe"))) {
+        throw "Package does not contain WinHUBAgent.exe in a supported layout."
+    }
+    foreach ($runtimeConfigName in @("winhub_agent.conf", "winhub_agent.bootstrap.conf")) {
+        $packageRuntimeConfig = Join-Path $packageRoot $runtimeConfigName
+        if (Test-Path -LiteralPath $packageRuntimeConfig) {
+            Remove-Item -LiteralPath $packageRuntimeConfig -Force
+        }
+    }
+    Write-Host "[WinHUBAgent] Package root: $packageRoot"
+
+    Copy-Item -Path (Join-Path $packageRoot "*") -Destination $stageDir -Recurse -Force
+    if (-not (Test-Path -LiteralPath (Join-Path $stageDir "WinHUBAgent.exe"))) {
+        throw "Staged package is invalid: WinHUBAgent.exe is missing."
+    }
+    if (-not (Test-Path -LiteralPath (Join-Path $stageDir "update-service.ps1"))) {
+        throw "Staged package is invalid: update-service.ps1 is missing."
+    }
+
     Write-Host "[WinHUBAgent] Backing up current install to $backupDir"
     if (Test-Path -LiteralPath $InstallDir) {
         Copy-Item -LiteralPath $InstallDir -Destination $rollbackDir -Recurse -Force
@@ -35,9 +68,6 @@ try {
         $existing.WaitForStatus("Stopped", [TimeSpan]::FromSeconds(30))
     }
 
-    Write-Host "[WinHUBAgent] Extracting package"
-    Expand-Archive -LiteralPath $PackagePath -DestinationPath $tempDir -Force
-
     $runtimeConfig = Join-Path $InstallDir "winhub_agent.conf"
     $savedRuntimeConfig = Join-Path $backupDir "winhub_agent.conf"
     if (Test-Path -LiteralPath $runtimeConfig) {
@@ -49,7 +79,11 @@ try {
         Where-Object { $_.Name -notin @("winhub_agent.conf", "winhub_agent.bootstrap.conf") } |
         Remove-Item -Recurse -Force
 
-    Copy-Item -Path (Join-Path $tempDir "*") -Destination $InstallDir -Recurse -Force
+    Copy-Item -Path (Join-Path $stageDir "*") -Destination $InstallDir -Recurse -Force
+
+    if (-not (Test-Path -LiteralPath (Join-Path $InstallDir "WinHUBAgent.exe"))) {
+        throw "Updated install is invalid: WinHUBAgent.exe is missing."
+    }
 
     if ((Test-Path -LiteralPath $savedRuntimeConfig) -and -not (Test-Path -LiteralPath $runtimeConfig)) {
         Copy-Item -LiteralPath $savedRuntimeConfig -Destination $runtimeConfig -Force
@@ -91,4 +125,5 @@ try {
     throw
 } finally {
     Remove-Item -LiteralPath $tempDir -Recurse -Force -ErrorAction SilentlyContinue
+    Remove-Item -LiteralPath $stageDir -Recurse -Force -ErrorAction SilentlyContinue
 }

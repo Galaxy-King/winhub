@@ -22,8 +22,8 @@ namespace WinHUBAgent
 {
     // --- МОДЕЛІ ДАНИХ ---
     public record EnrollPayload(string global_token, string hw_id, string hostname, string os_version, string os_type, string agent_version, NetworkInterfaceInfo[] network_interfaces, HostInventoryInfo host_info);
-    public record PollPayload(string hw_id, string auth_token);
-    public record TelemetryPayload(string hw_id, string auth_token, double cpu, double ram, double disk_c);
+    public record PollPayload(string hw_id, string auth_token, string agent_version);
+    public record TelemetryPayload(string hw_id, string auth_token, string agent_version, double cpu, double ram, double disk_c);
     public record ResultPayload(string hw_id, string auth_token, string task_id, string status, string log);
     public record NetworkInterfaceInfo(string name, string description, string type, string status, string mac, string[] ipv4, string[] ipv6, string[] gateways, string[] dns_servers, bool dhcp_enabled, long speed_mbps);
     public record VolumeInfo(string name, string label, string format, string type, long total_gb, long free_gb, bool ready);
@@ -52,7 +52,7 @@ namespace WinHUBAgent
 
     public static class AgentBuildInfo
     {
-        public const string Version = "1.2.2";
+        public const string Version = "1.2.5";
     }
 
     [JsonSerializable(typeof(EnrollPayload))]
@@ -296,7 +296,7 @@ namespace WinHUBAgent
                 var drive = DriveInfo.GetDrives().FirstOrDefault(d => d.Name.StartsWith("C", StringComparison.OrdinalIgnoreCase) && d.IsReady);
                 if (drive != null) diskCFree = (float)Math.Round(drive.AvailableFreeSpace / (1024.0 * 1024.0 * 1024.0), 2);
 
-                var payload = new TelemetryPayload(HardwareId, AuthToken, Math.Round(cpuUsage, 2), ramUsage, diskCFree);
+                var payload = new TelemetryPayload(HardwareId, AuthToken, AgentBuildInfo.Version, Math.Round(cpuUsage, 2), ramUsage, diskCFree);
                 string jsonString = JsonSerializer.Serialize(payload, AppJsonSerializerContext.Default.TelemetryPayload);
                 var content = new StringContent(jsonString, Encoding.UTF8, "application/json");
                 
@@ -358,7 +358,7 @@ namespace WinHUBAgent
         {
             try
             {
-                var payload = new PollPayload(HardwareId, AuthToken);
+                var payload = new PollPayload(HardwareId, AuthToken, AgentBuildInfo.Version);
                 string jsonString = JsonSerializer.Serialize(payload, AppJsonSerializerContext.Default.PollPayload);
                 var content = new StringContent(jsonString, Encoding.UTF8, "application/json");
                 

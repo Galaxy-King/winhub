@@ -33,6 +33,12 @@ if ($Aot) {
 dotnet @publishArgs
 
 Get-ChildItem -LiteralPath $publishDir -Filter "*.pdb" -Force | Remove-Item -Force
+foreach ($runtimeConfigName in @("winhub_agent.conf", "winhub_agent.bootstrap.conf")) {
+    $runtimeConfigPath = Join-Path $publishDir $runtimeConfigName
+    if (Test-Path -LiteralPath $runtimeConfigPath) {
+        Remove-Item -LiteralPath $runtimeConfigPath -Force
+    }
+}
 
 if (Test-Path -LiteralPath $zipPath) {
     Remove-Item -LiteralPath $zipPath -Force

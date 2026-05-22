@@ -1,0 +1,9 @@
+﻿{
+    "version":  "1.2.3",
+    "created_at_utc":  "2026-05-22T14:00:57.8477425Z",
+    "agent_package":  "WinHUBAgent-v1.2.3-win-x64.zip",
+    "agent_package_sha256":  "F49823E4F66670728055F83669273C41EC7DC8D7700C3AFF139901D8B5EA7033",
+    "publish_mode":  "self-contained-single-file",
+    "aot":  false,
+    "pdb_included":  false
+}
