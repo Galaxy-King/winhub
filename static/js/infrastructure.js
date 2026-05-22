@@ -1175,7 +1175,7 @@ async function submitDeployment() {
 
 // --- HOST MODAL TABS ---
 function switchHostTab(tab) {
-    ['info', 'items', 'telemetry'].forEach(t => {
+    ['info', 'items', 'history', 'telemetry'].forEach(t => {
         const content = document.getElementById('htab_' + t);
         const btn = document.getElementById('htabBtn_' + t);
         if(content) content.classList.add('hidden');
@@ -1195,6 +1195,21 @@ function switchHostTab(tab) {
 
     if(tab === 'items' && currentViewedHostId) loadHostMetrics();
     if(tab === 'telemetry' && currentViewedHostId) loadTelemetry(currentViewedHostId, 1);
+}
+
+function switchNodeTab(tab) {
+    const approved = document.getElementById('nodesApprovedPanel');
+    const pending = document.getElementById('nodesPendingPanel');
+    const approvedBtn = document.getElementById('nodeTab-approved');
+    const pendingBtn = document.getElementById('nodeTab-pending');
+    if (approved) approved.classList.toggle('hidden', tab !== 'approved');
+    if (pending) pending.classList.toggle('hidden', tab !== 'pending');
+    [approvedBtn, pendingBtn].forEach(btn => {
+        if (!btn) return;
+        btn.className = "node-tab-btn px-5 py-2.5 rounded-xl text-xs font-black uppercase text-slate-500 hover:text-amber-700";
+    });
+    const active = tab === 'pending' ? pendingBtn : approvedBtn;
+    if (active) active.className = "node-tab-btn px-5 py-2.5 rounded-xl text-xs font-black uppercase bg-slate-900 text-white shadow-sm";
 }
 
 async function loadHostMetrics() {

@@ -283,6 +283,8 @@ def current_template_scopes():
         allowed = api_permissions
     else:
         allowed = parse_allowed_modules(getattr(current_user(), "allowed_modules", None))
+    if "Infrastructure" in allowed:
+        return None
     scopes = [
         item for item in allowed
         if isinstance(item, str) and (item.startswith("template:") or item.startswith("template_category:"))
@@ -294,6 +296,8 @@ def can_use_template(template):
         return True
     if not template:
         return False
+    if getattr(template, "created_by", None) == session.get("username") and can("manage_templates"):
+        return True
     scopes = current_template_scopes()
     if not scopes:
         return True
@@ -533,7 +537,9 @@ def index():
         scheduled_raw = ScheduledTask.query.order_by(ScheduledTask.category, ScheduledTask.name).all()
         triggers_raw = TriggerRule.query.order_by(TriggerRule.name).all()
     else:
-        templates_raw = TaskTemplate.query.filter_by(is_approved=True).order_by(TaskTemplate.category, TaskTemplate.name).all()
+        templates_raw = TaskTemplate.query.filter(
+            (TaskTemplate.is_approved == True) | (TaskTemplate.created_by == session.get("username"))
+        ).order_by(TaskTemplate.category, TaskTemplate.name).all()
         templates_raw = [t for t in templates_raw if can_use_template(t)]
         scheduled_raw = []
         triggers_raw = []
@@ -884,7 +890,9 @@ def list_templates():
     if not session.get("is_admin"):
         templates = [
             t for t in templates
-            if t.is_approved and getattr(t, "type", "action") != "report" and can_use_template(t)
+            if (t.is_approved or (getattr(t, "created_by", None) == session.get("username") and can("manage_templates")))
+            and getattr(t, "type", "action") != "report"
+            and can_use_template(t)
         ]
 
     return jsonify({
@@ -951,7 +959,8 @@ def create_task():
 
     # ТЕПЕР ДЛЯ ВСІХ КОРИСТУВАЧІВ (І АДМІНІВ І ЗВИЧАЙНИХ) МИ ПРИЙМАЄМО СКРИПТ З ФРОНТЕНДУ
     if not is_admin:
-        if not template or not template.is_approved or getattr(template, 'type', 'action') == 'report' or not can_use_template(template):
+        own_runnable = bool(template and getattr(template, "created_by", None) == session.get("username") and can("manage_templates"))
+        if not template or (not template.is_approved and not own_runnable) or getattr(template, 'type', 'action') == 'report' or not can_use_template(template):
             return jsonify({"success": False, "message": "Template denied or not found"}), 403
         action_type = template.action_type or 'run_script'
         payload_dict = load_template_payload(template)
@@ -976,7 +985,8 @@ def create_task():
     elif action == 'run_template':
         # Залишаємо як фолбек, якщо раптом фронтенд відішле це
         t = template
-        if not t or (not is_admin and (not t.is_approved or not can_use_template(t))): 
+        own_runnable = bool(t and getattr(t, "created_by", None) == session.get("username") and can("manage_templates"))
+        if not t or (not is_admin and ((not t.is_approved and not own_runnable) or not can_use_template(t))): 
             return jsonify({"success": False, "message": "Template denied or not found"}), 403
         action_type = t.action_type or 'run_script'
         payload_dict = load_template_payload(t)
@@ -1054,7 +1064,8 @@ def run_template_api(template_id):
 
     data = request.json or {}
     template = TaskTemplate.query.get(template_id)
-    if not template or not template.is_approved or getattr(template, "type", "action") == "report":
+    own_runnable = bool(template and getattr(template, "created_by", None) == session.get("username") and can("manage_templates"))
+    if not template or (not template.is_approved and not own_runnable) or getattr(template, "type", "action") == "report":
         return jsonify({"success": False, "message": "Approved action template not found"}), 404
     if not can_use_template(template):
         return jsonify({"success": False, "message": "Template denied"}), 403
