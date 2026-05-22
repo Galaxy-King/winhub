@@ -85,6 +85,7 @@ class Config:
     AGENT_TASK_HMAC_SECRET = clean_env_value(os.environ.get('AGENT_TASK_HMAC_SECRET')) or SECRET_KEY
     AGENT_MAX_RESULT_LOG_BYTES = int(os.environ.get('AGENT_MAX_RESULT_LOG_BYTES', 262144))
     AGENT_TASK_TIMEOUT_SECONDS = int(os.environ.get('AGENT_TASK_TIMEOUT_SECONDS', 1800))
+    LATEST_AGENT_VERSION = clean_env_value(os.environ.get('LATEST_AGENT_VERSION')) or ''
     PRODUCTION_MODE = (clean_env_value(os.environ.get('WINHUB_ENV')) or '').lower() in ('prod', 'production')
     SESSION_IDLE_TIMEOUT_SECONDS = int(os.environ.get('SESSION_IDLE_TIMEOUT_SECONDS', 900))
     SESSION_ABSOLUTE_TIMEOUT_SECONDS = int(os.environ.get('SESSION_ABSOLUTE_TIMEOUT_SECONDS', 28800))

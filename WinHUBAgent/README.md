@@ -42,7 +42,7 @@ Do not deploy `WinHUBAgent.pdb` to production endpoints. Keep it on the build se
 Package a release build:
 
 ```powershell
-Compress-Archive -Path .\publish\* -DestinationPath .\WinHUBAgent-v0.1.0-win-x64.zip -Force
+.\create-agent-release.ps1 -Version 1.2.0
 ```
 
 ## Agent configs
@@ -185,6 +185,31 @@ It preserves `winhub_agent.conf` and does not delete DPAPI secrets from:
 ```text
 C:\ProgramData\WinHUB\agent.secrets
 ```
+
+## Remote self-update task
+
+Approved agents can update themselves when WinHUB dispatches an `agent_update` task.
+
+WinHUB seeds an `Agent Self Update` template in the Infrastructure module. Approve it only for users who are allowed to update endpoint software.
+
+Task payload:
+
+```json
+{
+  "package_url": "https://SERVER_IP/downloads/WinHUBAgent-v0.1.0-win-x64.zip",
+  "sha256": "PACKAGE_SHA256_WITHOUT_COLONS"
+}
+```
+
+`package_url` may be absolute or relative to `ServerUrl`. `sha256` is strongly recommended; if provided, the agent refuses to launch the updater when the package hash does not match.
+
+The agent downloads the package to:
+
+```text
+C:\ProgramData\WinHUB\updates
+```
+
+Then it launches `update-service.ps1` as a detached PowerShell process, reports that the update was launched, and the updater restarts the Windows service.
 
 ## Enrollment flow
 

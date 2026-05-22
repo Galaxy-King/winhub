@@ -144,8 +144,12 @@ def report_body_for_current_user(report_body):
 
 def apply_template_variables(payload, variables):
     payload_dict = dict(payload or {})
-    script = str(payload_dict.get("script", ""))
-    if not script:
+    string_fields = {
+        key: str(value)
+        for key, value in payload_dict.items()
+        if isinstance(value, str) and not str(key).startswith("__")
+    }
+    if not string_fields:
         return payload_dict, []
 
     secrets_store = load_template_secrets()
@@ -160,10 +164,16 @@ def apply_template_variables(payload, variables):
         except Exception:
             raise ValueError(f"Cannot decrypt template secret: {secret_name}")
 
-    script = SECRET_PATTERN.sub(replace_secret, script)
+    rendered_fields = {
+        key: SECRET_PATTERN.sub(replace_secret, value)
+        for key, value in string_fields.items()
+    }
 
     provided = variables or {}
-    unresolved = sorted(set(VARIABLE_PATTERN.findall(script)) - set(provided.keys()))
+    required_variables = set()
+    for value in rendered_fields.values():
+        required_variables.update(VARIABLE_PATTERN.findall(value))
+    unresolved = sorted(required_variables - set(provided.keys()))
     for key, value in provided.items():
         if not re.match(r"^[A-Za-z_][A-Za-z0-9_]*$", str(key)):
             raise ValueError(f"Invalid variable name: {key}")
@@ -174,9 +184,10 @@ def apply_template_variables(payload, variables):
             raise ValueError(f"Variable '{key}' is too long")
         if any(ch in value for ch in ("\x00", "\r")):
             raise ValueError(f"Variable '{key}' contains unsupported control characters")
-        script = re.sub(r"{{\s*" + re.escape(str(key)) + r"\s*}}", value, script)
+        for field_name, field_value in rendered_fields.items():
+            rendered_fields[field_name] = re.sub(r"{{\s*" + re.escape(str(key)) + r"\s*}}", value, field_value)
 
-    payload_dict["script"] = script
+    payload_dict.update(rendered_fields)
     return payload_dict, unresolved
 
 
@@ -498,6 +509,7 @@ def index():
     for a in agents: 
         a.is_online = (a.last_seen and a.last_seen >= online_threshold)
         a.last_seen_str = to_kyiv_time(a.last_seen)
+        a.agent_outdated = bool(Config.LATEST_AGENT_VERSION and (a.agent_version or "") != Config.LATEST_AGENT_VERSION)
 
     available_hosts = [{
         "id": a.id,
@@ -506,6 +518,8 @@ def index():
         "os_type": getattr(a, 'os_type', 'Windows'),
         "is_blocked": bool(a.is_blocked),
         "approval_status": getattr(a, 'approval_status', 'Approved'),
+        "agent_version": getattr(a, 'agent_version', '') or '',
+        "agent_outdated": bool(Config.LATEST_AGENT_VERSION and (getattr(a, 'agent_version', '') or '') != Config.LATEST_AGENT_VERSION),
     } for a in agents]
     pending_agents = [
         a for a in agents
@@ -580,10 +594,28 @@ def list_hosts():
             "last_seen": to_kyiv_time(host.last_seen),
             "is_online": bool(host.last_seen and host.last_seen >= online_threshold),
             "is_blocked": bool(host.is_blocked),
-            "approval_status": getattr(host, "approval_status", "Approved"),
-            "agent_version": getattr(host, "agent_version", None),
-            "groups": [{"id": group.id, "name": group.name} for group in host.groups],
-        } for host in hosts]
+	            "approval_status": getattr(host, "approval_status", "Approved"),
+	            "agent_version": getattr(host, "agent_version", None),
+	            "agent_outdated": bool(Config.LATEST_AGENT_VERSION and (getattr(host, "agent_version", "") or "") != Config.LATEST_AGENT_VERSION),
+	            "groups": [{"id": group.id, "name": group.name} for group in host.groups],
+	        } for host in hosts]
+	    })
+
+
+@infrastructure_bp.route('/api/infrastructure/releases/current', methods=['GET'])
+def current_release_info():
+    denied = require_permission("view_hosts")
+    if denied:
+        return denied
+    version_file = os.path.join(Config.BASE_DIR, "VERSION")
+    try:
+        server_version = open(version_file, "r", encoding="utf-8").read().strip()
+    except OSError:
+        server_version = "unknown"
+    return jsonify({
+        "success": True,
+        "server_version": server_version,
+        "latest_agent_version": Config.LATEST_AGENT_VERSION,
     })
 
 
@@ -957,6 +989,14 @@ def create_task():
         action_type = 'reboot'
         payload_dict = {"command": "restart"}
 
+    elif action == 'agent_update':
+        if not is_admin and not template:
+            return jsonify({"success": False, "message": "Template denied or not found"}), 403
+        action_type = 'agent_update'
+        payload_dict = load_template_payload(template) if template else dict(data.get('payload', {}))
+        if not payload_dict.get('package_url'):
+            return jsonify({"success": False, "message": "Agent update requires package_url"}), 400
+
     # Метадані для звітності та автовідправки
     if data.get('report_template_id'): 
         payload_dict['__report_template_id'] = data.get('report_template_id')
@@ -982,6 +1022,11 @@ def create_task():
                 "message": "Missing template variables",
                 "missing_variables": unresolved
             }), 400
+
+    if action_type == 'agent_update':
+        sha256_value = str(payload_dict.get('sha256') or '').strip()
+        if sha256_value and not re.match(r"^[A-Fa-f0-9:\-\s]{64,95}$", sha256_value):
+            return jsonify({"success": False, "message": "Invalid package SHA256 format"}), 400
 
     # Розбір цілей
     agent_ids = []

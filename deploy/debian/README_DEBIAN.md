@@ -10,11 +10,11 @@ Recommended target:
 
 ## 1. Copy project
 
-Copy the project to the Debian server, for example:
+Clone the Git repository to the Debian server:
 
 ```bash
 sudo mkdir -p /opt/winhub
-sudo rsync -a ./ /opt/winhub/
+sudo git clone git@github.com:Galaxy-King/winhub.git /opt/winhub
 cd /opt/winhub
 ```
 
@@ -166,6 +166,24 @@ Manual backup:
 
 ```bash
 sudo /opt/winhub/deploy/debian/backup_winhub.sh
+```
+
+Rollback to the latest backup:
+
+```bash
+sudo /opt/winhub/deploy/debian/rollback_winhub.sh
+```
+
+Rollback to a specific backup:
+
+```bash
+sudo /opt/winhub/deploy/debian/rollback_winhub.sh /var/lib/winhub/backups/20260522_120000
+```
+
+Restore a backup on a clean server:
+
+```bash
+sudo /opt/winhub/deploy/debian/restore_winhub.sh /var/lib/winhub/backups/20260522_120000
 ```
 
 ## 8. Database migrations

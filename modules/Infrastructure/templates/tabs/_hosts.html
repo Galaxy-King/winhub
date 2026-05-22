@@ -74,11 +74,12 @@
     </div>
 
     <div class="bg-white rounded-[2.5rem] border border-slate-200 shadow-sm overflow-hidden overflow-x-auto">
-        <table class="w-full text-left min-w-[900px]" id="agentsTable">
+        <table class="w-full text-left min-w-[1020px]" id="agentsTable">
             <thead class="bg-slate-50/50 border-b border-slate-100 text-[10px] font-black text-slate-400 uppercase tracking-widest">
                 <tr>
                     <th class="px-10 py-6">Hostname</th>
                     <th class="px-10 py-6">OS Type</th>
+                    <th class="px-10 py-6">Agent</th>
                     <th class="px-10 py-6">Approval</th>
                     <th class="px-10 py-6 text-center">Connectivity</th>
                     <th class="px-10 py-6">Groups</th>
@@ -104,6 +105,14 @@
                     <td class="px-10 py-5">
                         <div class="text-[10px] font-black uppercase tracking-widest text-slate-400 mb-1">{{ agent.os_type }}</div>
                         <div class="text-sm font-bold text-slate-600 bg-slate-50 px-2 py-0.5 rounded w-fit border border-slate-100">{{ agent.ip_address }}</div>
+                    </td>
+                    <td class="px-10 py-5">
+                        <div class="text-xs font-black text-slate-700">{{ agent.agent_version or 'Unknown' }}</div>
+                        {% if agent.agent_outdated %}
+                        <span class="inline-flex mt-1 px-2 py-0.5 rounded-lg bg-amber-50 text-amber-700 border border-amber-100 text-[9px] font-black uppercase">Outdated</span>
+                        {% else %}
+                        <span class="inline-flex mt-1 px-2 py-0.5 rounded-lg bg-emerald-50 text-emerald-700 border border-emerald-100 text-[9px] font-black uppercase">Current</span>
+                        {% endif %}
                     </td>
                     <td class="px-10 py-5">
                         {% set approval = agent.approval_status or 'Approved' %}

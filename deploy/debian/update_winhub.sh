@@ -9,6 +9,7 @@ MIGRATE_SCRIPT="${APP_DIR}/deploy/debian/migrate_winhub.sh"
 RELEASE_REF="${1:-}"
 RELEASE_ARCHIVE=""
 export APP_DIR ENV_FILE
+UPDATE_LOG_DIR="${UPDATE_LOG_DIR:-/var/log/winhub/updates}"
 
 if [[ "${EUID}" -ne 0 ]]; then
   echo "Run as root: sudo bash deploy/debian/update_winhub.sh [git-ref]"
@@ -27,6 +28,9 @@ fi
 cd "${APP_DIR}"
 
 echo "[WinHUB] Starting update in ${APP_DIR}"
+mkdir -p "${UPDATE_LOG_DIR}"
+STARTED_AT="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+FROM_VERSION="$(test -f "${APP_DIR}/VERSION" && tr -d '[:space:]' < "${APP_DIR}/VERSION" || echo unknown)"
 
 if [[ -x "${BACKUP_SCRIPT}" ]]; then
   "${BACKUP_SCRIPT}"
@@ -99,5 +103,18 @@ if [[ -x "${HEALTHCHECK_SCRIPT}" ]]; then
 else
   bash "${HEALTHCHECK_SCRIPT}"
 fi
+
+TO_VERSION="$(test -f "${APP_DIR}/VERSION" && tr -d '[:space:]' < "${APP_DIR}/VERSION" || echo unknown)"
+cat > "${UPDATE_LOG_DIR}/$(date -u +%Y%m%d_%H%M%S)_update.json" <<EOF
+{
+  "started_at": "${STARTED_AT}",
+  "finished_at": "$(date -u +%Y-%m-%dT%H:%M:%SZ)",
+  "from_version": "${FROM_VERSION}",
+  "to_version": "${TO_VERSION}",
+  "release_ref": "${RELEASE_REF:-default}",
+  "status": "success"
+}
+EOF
+chown -R winhub:winhub "${UPDATE_LOG_DIR}" || true
 
 echo "[WinHUB] Update complete"

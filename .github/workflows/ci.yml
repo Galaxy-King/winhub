@@ -1,0 +1,38 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  backend:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install Python dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+      - name: Python compile check
+        run: python -m compileall core modules server_debian.py server_prod.py migrations
+      - name: Bash syntax check
+        run: bash -n deploy/create_release.sh deploy/debian/*.sh
+
+  agent:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "8.0.x"
+      - name: Build Windows agent
+        run: dotnet build WinHUBAgent\WinHUBAgent.csproj -c Release
+      - name: PowerShell parser check
+        shell: pwsh
+        run: |
+          [scriptblock]::Create((Get-Content -Raw WinHUBAgent\install-service.ps1)) | Out-Null
+          [scriptblock]::Create((Get-Content -Raw WinHUBAgent\uninstall-service.ps1)) | Out-Null
+          [scriptblock]::Create((Get-Content -Raw WinHUBAgent\update-service.ps1)) | Out-Null

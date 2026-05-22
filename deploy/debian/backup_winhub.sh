@@ -6,6 +6,7 @@ ENV_FILE="${ENV_FILE:-/etc/winhub/winhub.env}"
 BACKUP_ROOT="${BACKUP_ROOT:-/var/lib/winhub/backups}"
 STAMP="$(date -u +%Y%m%d_%H%M%S)"
 OUT_DIR="${BACKUP_ROOT}/${STAMP}"
+VERSION_FILE="${APP_DIR}/VERSION"
 
 if [[ "${EUID}" -ne 0 ]]; then
   echo "Run as root: sudo bash deploy/debian/backup_winhub.sh"
@@ -40,6 +41,19 @@ POSTGRES_PASSWORD_VALUE="$(env_value POSTGRES_PASSWORD)"
 
 echo "[WinHUB] Creating backup in ${OUT_DIR}"
 
+rsync -a \
+  --delete \
+  --exclude venv \
+  --exclude data \
+  --exclude certs \
+  --exclude '*.log' \
+  --exclude '__pycache__' \
+  --exclude '*.pyc' \
+  "${APP_DIR}/" "${OUT_DIR}/app/"
+
+tar -C "${OUT_DIR}" -czf "${OUT_DIR}/app.tar.gz" app
+rm -rf "${OUT_DIR}/app"
+
 if [[ -n "${POSTGRES_DB_VALUE}" && -n "${POSTGRES_USER_VALUE}" ]]; then
   export PGPASSWORD="${POSTGRES_PASSWORD_VALUE}"
   pg_dump \
@@ -67,6 +81,18 @@ fi
 if command -v sha256sum >/dev/null 2>&1; then
   find "${OUT_DIR}" -type f -print0 | sort -z | xargs -0 sha256sum > "${OUT_DIR}/SHA256SUMS"
 fi
+
+cat > "${OUT_DIR}/backup.json" <<EOF
+{
+  "created_at_utc": "${STAMP}",
+  "app_dir": "${APP_DIR}",
+  "version": "$(test -f "${VERSION_FILE}" && tr -d '[:space:]' < "${VERSION_FILE}" || echo unknown)",
+  "has_postgres_dump": $(test -f "${OUT_DIR}/winhub_postgres.dump" && echo true || echo false),
+  "has_app_archive": true
+}
+EOF
+
+ln -sfn "${OUT_DIR}" "${BACKUP_ROOT}/latest"
 
 chown -R winhub:winhub "${OUT_DIR}" || true
 chmod -R go-rwx "${OUT_DIR}"

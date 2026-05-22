@@ -38,7 +38,7 @@
                         <div id="cat_{{ loop.index }}" class="mt-2 space-y-2 hidden">
                             {% for t in items %}
                             <div class="template-card group relative p-4 rounded-xl border border-slate-200 bg-white hover:shadow-md hover:border-indigo-300 cursor-pointer transition-all overflow-hidden" 
-                                 data-id="{{ t.id }}" data-name="{{ t.name }}" data-category="{{ t.category }}" data-type="{{ t.type }}" data-approved="{{ 'true' if t.is_approved else 'false' }}" data-payload="{{ t.payload | forceescape }}"
+                                 data-id="{{ t.id }}" data-name="{{ t.name }}" data-category="{{ t.category }}" data-type="{{ t.type }}" data-action="{{ t.action_type }}" data-approved="{{ 'true' if t.is_approved else 'false' }}" data-payload="{{ t.payload | forceescape }}"
                                  onclick="loadTemplate(this)">
                                 
                                 <!-- Кольорова смужка зліва для індикації типу -->
@@ -55,6 +55,8 @@
                                         <span class="text-[9px] font-black uppercase px-2 py-0.5 rounded bg-sky-50 text-sky-600 border border-sky-100">Report</span>
                                     {% elif t.type == 'metric' %}
                                         <span class="text-[9px] font-black uppercase px-2 py-0.5 rounded bg-purple-50 text-purple-600 border border-purple-100">Metric</span>
+                                    {% elif t.action_type == 'agent_update' %}
+                                        <span class="text-[9px] font-black uppercase px-2 py-0.5 rounded bg-amber-50 text-amber-700 border border-amber-100">Agent Update</span>
                                     {% else %}
                                         <span class="text-[9px] font-black uppercase px-2 py-0.5 rounded bg-slate-100 text-slate-500 border border-slate-200">Action</span>
                                     {% endif %}

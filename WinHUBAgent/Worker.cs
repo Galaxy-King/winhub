@@ -86,6 +86,7 @@ namespace WinHUBAgent
         private readonly string DataDirectory = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData), "WinHUB");
         private readonly string TokenFilePath;
         private readonly string SecretsFilePath;
+        private readonly string UpdatesDirectory;
         private string HardwareId = string.Empty;
         private string AuthToken = string.Empty;
         private string FriendlyOsName = string.Empty;
@@ -128,6 +129,7 @@ namespace WinHUBAgent
             _logger = logger;
             TokenFilePath = Path.Combine(DataDirectory, "agent.token");
             SecretsFilePath = Path.Combine(DataDirectory, "agent.secrets");
+            UpdatesDirectory = Path.Combine(DataDirectory, "updates");
             
             var handler = new HttpClientHandler
             {
@@ -282,7 +284,7 @@ namespace WinHUBAgent
                 float ramUsage = 0;
                 
                 MEMORYSTATUSEX memStatus = new MEMORYSTATUSEX();
-                memStatus.dwLength = (uint)Marshal.SizeOf(typeof(MEMORYSTATUSEX));
+                memStatus.dwLength = (uint)Marshal.SizeOf<MEMORYSTATUSEX>();
                 if (GlobalMemoryStatusEx(ref memStatus))
                 {
                     ulong total = memStatus.ullTotalPhys;
@@ -406,6 +408,13 @@ namespace WinHUBAgent
                         return;
                     }
 
+                    if (action == "agent_update")
+                    {
+                        (executionStatus, logOutput) = await StageAndLaunchAgentUpdateAsync(taskId, result.RootElement.GetProperty("payload"), stoppingToken);
+                        await ReportResultAsync(taskId, executionStatus, logOutput, stoppingToken);
+                        return;
+                    }
+	
                     (executionStatus, logOutput) = await ExecutePowerShellAsync(script, timeoutSeconds, stoppingToken);
                     await ReportResultAsync(taskId, executionStatus, logOutput, stoppingToken);
                 }
@@ -414,6 +423,100 @@ namespace WinHUBAgent
             {
                 _logger.LogError($"Polling failed: {ex.Message}");
             }
+        }
+
+        private async Task<(string Status, string Log)> StageAndLaunchAgentUpdateAsync(string taskId, JsonElement payload, CancellationToken stoppingToken)
+        {
+            try
+            {
+                string packageUrl = GetPayloadString(payload, "package_url");
+                string expectedSha256 = NormalizeThumbprint(GetPayloadString(payload, "sha256"));
+                if (string.IsNullOrWhiteSpace(packageUrl))
+                {
+                    return ("Error", "agent_update requires payload.package_url.");
+                }
+
+                Uri downloadUri = BuildUpdatePackageUri(packageUrl);
+                Directory.CreateDirectory(UpdatesDirectory);
+                string packagePath = Path.Combine(UpdatesDirectory, $"WinHUBAgent_{taskId}.zip");
+
+                using (var response = await _httpClient.GetAsync(downloadUri, HttpCompletionOption.ResponseHeadersRead, stoppingToken))
+                {
+                    response.EnsureSuccessStatusCode();
+                    await using var source = await response.Content.ReadAsStreamAsync(stoppingToken);
+                    await using var destination = File.Create(packagePath);
+                    await source.CopyToAsync(destination, stoppingToken);
+                }
+
+                if (!string.IsNullOrWhiteSpace(expectedSha256))
+                {
+                    string actualSha256 = ComputeFileSha256(packagePath);
+                    if (!CryptographicOperations.FixedTimeEquals(Encoding.ASCII.GetBytes(actualSha256), Encoding.ASCII.GetBytes(expectedSha256)))
+                    {
+                        try { File.Delete(packagePath); } catch { }
+                        return ("Error", $"Downloaded package SHA256 mismatch. Expected {expectedSha256}, got {actualSha256}.");
+                    }
+                }
+
+                string updateScript = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "update-service.ps1");
+                if (!File.Exists(updateScript))
+                {
+                    return ("Error", $"update-service.ps1 was not found in {AppDomain.CurrentDomain.BaseDirectory}.");
+                }
+
+                string launcherPath = Path.Combine(UpdatesDirectory, $"launch_update_{taskId}.ps1");
+                string launcher = string.Join(Environment.NewLine, new[]
+                {
+                    "$ErrorActionPreference = 'Stop'",
+                    "Start-Sleep -Seconds 3",
+                    $"& '{EscapePowerShellSingleQuoted(updateScript)}' -PackagePath '{EscapePowerShellSingleQuoted(packagePath)}'",
+                });
+                await File.WriteAllTextAsync(launcherPath, launcher, new UTF8Encoding(false), stoppingToken);
+
+                var psi = new ProcessStartInfo
+                {
+                    FileName = "powershell.exe",
+                    Arguments = $"-ExecutionPolicy Bypass -NoProfile -NonInteractive -File \"{launcherPath}\"",
+                    UseShellExecute = false,
+                    CreateNoWindow = true,
+                    WorkingDirectory = AppDomain.CurrentDomain.BaseDirectory,
+                };
+
+                Process.Start(psi);
+                return ("Success", $"Agent update package staged at {packagePath}. Detached updater launched. The service will restart if the package is valid.");
+            }
+            catch (Exception ex)
+            {
+                return ("Error", $"Agent update failed before launch: {ex.Message}");
+            }
+        }
+
+        private Uri BuildUpdatePackageUri(string packageUrl)
+        {
+            if (Uri.TryCreate(packageUrl, UriKind.Absolute, out var absolute))
+            {
+                return absolute;
+            }
+            return new Uri(new Uri(_config.ServerUrl.TrimEnd('/') + "/"), packageUrl.TrimStart('/'));
+        }
+
+        private static string GetPayloadString(JsonElement payload, string name)
+        {
+            return payload.ValueKind == JsonValueKind.Object && payload.TryGetProperty(name, out var value)
+                ? value.GetString() ?? ""
+                : "";
+        }
+
+        private static string ComputeFileSha256(string path)
+        {
+            using var stream = File.OpenRead(path);
+            using var sha = SHA256.Create();
+            return Convert.ToHexString(sha.ComputeHash(stream)).ToUpperInvariant();
+        }
+
+        private static string EscapePowerShellSingleQuoted(string value)
+        {
+            return value.Replace("'", "''");
         }
 
         private void SaveConfig()
@@ -902,7 +1005,7 @@ namespace WinHUBAgent
             try
             {
                 MEMORYSTATUSEX memStatus = new MEMORYSTATUSEX();
-                memStatus.dwLength = (uint)Marshal.SizeOf(typeof(MEMORYSTATUSEX));
+                memStatus.dwLength = (uint)Marshal.SizeOf<MEMORYSTATUSEX>();
                 if (GlobalMemoryStatusEx(ref memStatus))
                 {
                     totalMemoryMb = memStatus.ullTotalPhys / 1024 / 1024;

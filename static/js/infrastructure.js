@@ -782,7 +782,7 @@ function renderMultiHostList(query) {
     try { selectedIds = JSON.parse(currentSelectedStr); } catch(e){}
 
     const filtered = availableHostsData.filter(h => {
-        const text = `${h.name || ''} ${h.ip || ''} ${h.os_type || ''}`.toLowerCase();
+        const text = `${h.name || ''} ${h.ip || ''} ${h.os_type || ''} ${h.agent_version || ''}`.toLowerCase();
         return text.includes(q);
     });
     
@@ -791,13 +791,14 @@ function renderMultiHostList(query) {
         const blockedBadge = h.is_blocked ? '<span class="ml-2 px-2 py-0.5 rounded bg-rose-50 text-rose-600 border border-rose-100 text-[9px] font-black uppercase">Blocked</span>' : '';
         const approval = h.approval_status || 'Approved';
         const approvalBadge = approval !== 'Approved' ? `<span class="ml-2 px-2 py-0.5 rounded bg-amber-50 text-amber-600 border border-amber-100 text-[9px] font-black uppercase">${approval}</span>` : '';
+        const versionBadge = h.agent_outdated ? '<span class="ml-2 px-2 py-0.5 rounded bg-amber-50 text-amber-700 border border-amber-100 text-[9px] font-black uppercase">Outdated</span>' : '';
         const disabled = approval !== 'Approved' || h.is_blocked ? 'disabled' : '';
         return `
         <label class="flex items-center gap-4 p-4 border-b border-slate-100 hover:bg-slate-50 cursor-pointer transition-colors group ${disabled ? 'opacity-60' : ''}">
             <input type="checkbox" value="${h.id}" ${isChecked} ${disabled} class="multi-host-cb w-5 h-5 text-indigo-600 rounded border-slate-300 focus:ring-indigo-500" onchange="updateMultiHostCount()">
             <span class="min-w-0">
-                <span class="font-black text-slate-700 text-sm group-hover:text-indigo-600 transition-colors">${h.name}${blockedBadge}${approvalBadge}</span>
-                <span class="block text-[10px] text-slate-400 font-bold mt-1">${h.ip || 'No IP'} / ${h.os_type || 'Unknown OS'}</span>
+                <span class="font-black text-slate-700 text-sm group-hover:text-indigo-600 transition-colors">${h.name}${blockedBadge}${approvalBadge}${versionBadge}</span>
+                <span class="block text-[10px] text-slate-400 font-bold mt-1">${h.ip || 'No IP'} / ${h.os_type || 'Unknown OS'} / Agent ${h.agent_version || 'unknown'}</span>
             </span>
         </label>`;
     }).join('') || '<div class="p-10 text-center text-slate-400 font-bold">No endpoints match search</div>';
@@ -921,7 +922,7 @@ function loadTemplate(el) {
     } catch(e) { setPayloadValue(el.dataset.payload); }
 
     const actEl = document.getElementById('depAction');
-    if(actEl) actEl.value = 'run_script';
+    if(actEl) actEl.value = el.dataset.action || 'run_script';
 
     if (isAdmin) {
         editingTemplateId = el.dataset.id;
@@ -1075,6 +1076,26 @@ function toggleDeployTarget() {
     if(groupSel) groupSel.classList.toggle('hidden', isHost);
 }
 
+function buildTemplatePayloadForSave() {
+    const action = document.getElementById('depAction')?.value || 'run_script';
+    if (action === 'agent_update') {
+        try {
+            return JSON.parse(getPayloadValue() || '{}');
+        } catch(e) {
+            alert('Agent update template payload must be valid JSON.');
+            throw e;
+        }
+    }
+    return {
+        script: getPayloadValue(),
+        __report_template_id: document.getElementById('depReportTemplate')?.value || '',
+        __auto_email_toggle: document.getElementById('depAutoEmailToggle')?.checked || false,
+        __auto_email_sender: document.getElementById('depAutoEmailSender')?.value || '',
+        __auto_email_recipients: document.getElementById('depAutoEmailRecipients')?.value || '',
+        __auto_email_use_gpg: document.getElementById('depAutoEmailUseGpg')?.checked !== false
+    };
+}
+
 async function saveAsTemplate() {
     const name = document.getElementById('depTitle').value;
     const category = document.getElementById('depCategory').value || 'General';
@@ -1088,16 +1109,9 @@ async function saveAsTemplate() {
         id: editingTemplateId, 
         name, 
         category, 
-        action: 'run_script', 
+        action: document.getElementById('depAction')?.value || 'run_script', 
         type: tType,
-        payload: {
-            script: getPayloadValue(),
-            __report_template_id: document.getElementById('depReportTemplate')?.value || '',
-            __auto_email_toggle: document.getElementById('depAutoEmailToggle')?.checked || false,
-            __auto_email_sender: document.getElementById('depAutoEmailSender')?.value || '',
-            __auto_email_recipients: document.getElementById('depAutoEmailRecipients')?.value || '',
-            __auto_email_use_gpg: document.getElementById('depAutoEmailUseGpg')?.checked !== false
-        }, 
+        payload: buildTemplatePayloadForSave(), 
         is_approved: document.getElementById('depIsApproved')?.checked || false
     };
     

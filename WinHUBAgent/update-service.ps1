@@ -17,6 +17,7 @@ $backupRoot = Join-Path $dataDir "backups"
 $stamp = Get-Date -Format "yyyyMMdd_HHmmss"
 $backupDir = Join-Path $backupRoot $stamp
 $tempDir = Join-Path $env:TEMP "WinHUBAgentUpdate_$stamp"
+$rollbackDir = Join-Path $backupDir "WinHUBAgent"
 
 New-Item -ItemType Directory -Path $backupDir -Force | Out-Null
 New-Item -ItemType Directory -Path $tempDir -Force | Out-Null
@@ -24,7 +25,7 @@ New-Item -ItemType Directory -Path $tempDir -Force | Out-Null
 try {
     Write-Host "[WinHUBAgent] Backing up current install to $backupDir"
     if (Test-Path -LiteralPath $InstallDir) {
-        Copy-Item -LiteralPath $InstallDir -Destination (Join-Path $backupDir "WinHUBAgent") -Recurse -Force
+        Copy-Item -LiteralPath $InstallDir -Destination $rollbackDir -Recurse -Force
     }
 
     $existing = Get-Service -Name $ServiceName -ErrorAction SilentlyContinue
@@ -72,6 +73,21 @@ try {
     Write-Host "[WinHUBAgent] Update complete."
 } catch {
     Write-Error "[WinHUBAgent] Update failed: $_"
+    try {
+        if (Test-Path -LiteralPath $rollbackDir) {
+            Write-Host "[WinHUBAgent] Attempting rollback from $rollbackDir"
+            Stop-Service -Name $ServiceName -Force -ErrorAction SilentlyContinue
+            New-Item -ItemType Directory -Path $InstallDir -Force | Out-Null
+            Get-ChildItem -LiteralPath $InstallDir -Force |
+                Where-Object { $_.Name -notin @("winhub_agent.conf", "winhub_agent.bootstrap.conf") } |
+                Remove-Item -Recurse -Force
+            Copy-Item -Path (Join-Path $rollbackDir "*") -Destination $InstallDir -Recurse -Force
+            Start-Service -Name $ServiceName
+            Write-Host "[WinHUBAgent] Rollback complete."
+        }
+    } catch {
+        Write-Error "[WinHUBAgent] Rollback failed: $_"
+    }
     throw
 } finally {
     Remove-Item -LiteralPath $tempDir -Recurse -Force -ErrorAction SilentlyContinue
