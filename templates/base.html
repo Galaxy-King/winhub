@@ -244,6 +244,7 @@
                 idleTimer = setTimeout(() => {
                     window.location.href = '/logout?reason=idle';
                 }, idleTimeoutMs + 1000);
+                pingIfRecentlyActive();
             }
 
             async function pingIfRecentlyActive() {

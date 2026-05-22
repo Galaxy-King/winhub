@@ -329,7 +329,8 @@ def create_user():
     new_user = User(
         username=username, email=email, is_admin=bool(data.get('is_admin')),
         password_hash=sec_manager.hash_password(raw_password),
-        totp_secret=sec_manager.encrypt_data(raw_totp), allowed_modules="[]"
+        totp_secret=sec_manager.encrypt_data(raw_totp),
+        allowed_modules=json.dumps(sanitize_allowed_modules(data.get('allowed_modules', [])))
     )
     db.session.add(new_user); db.session.commit()
     WinHubCore.audit(
