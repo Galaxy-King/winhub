@@ -61,7 +61,12 @@ function setEditorMode(mode) {
 }
 
 function refreshPayloadEditor() {
-    if (payloadEditor) setTimeout(() => payloadEditor.refresh(), 40);
+    if (payloadEditor) {
+        setTimeout(() => {
+            payloadEditor.refresh();
+            payloadEditor.setOption('lineNumbers', true);
+        }, 40);
+    }
 }
 
 function initPayloadEditor() {
@@ -748,6 +753,7 @@ function switchView(view, save=true) {
     }
     if(view === 'queue') loadQueue();
     if(view === 'reports') loadReports();
+    if(view === 'deploy') refreshPayloadEditor();
 }
 
 // --- MULTI-HOST SELECTION LOGIC ---

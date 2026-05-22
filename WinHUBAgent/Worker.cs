@@ -52,7 +52,7 @@ namespace WinHUBAgent
 
     public static class AgentBuildInfo
     {
-        public const string Version = "1.2.1";
+        public const string Version = "1.2.2";
     }
 
     [JsonSerializable(typeof(EnrollPayload))]
@@ -605,7 +605,7 @@ namespace WinHUBAgent
 
             try
             {
-                await File.WriteAllTextAsync(tempScriptFile, scriptContent, new UTF8Encoding(true), stoppingToken);
+                await File.WriteAllTextAsync(tempScriptFile, BuildPowerShellScript(scriptContent), new UTF8Encoding(true), stoppingToken);
 
                 var psi = new ProcessStartInfo
                 {
@@ -663,6 +663,27 @@ namespace WinHUBAgent
             }
 
             return (taskStatus, TrimResultLog(outputLog));
+        }
+
+        private static string BuildPowerShellScript(string scriptContent)
+        {
+            string encodingPreamble = @"
+try {
+    $script:WinHUBUtf8Encoding = [System.Text.UTF8Encoding]::new($false)
+    [Console]::InputEncoding = $script:WinHUBUtf8Encoding
+    [Console]::OutputEncoding = $script:WinHUBUtf8Encoding
+    $OutputEncoding = $script:WinHUBUtf8Encoding
+    $PSDefaultParameterValues['Out-File:Encoding'] = 'utf8'
+    $PSDefaultParameterValues['Set-Content:Encoding'] = 'utf8'
+    $PSDefaultParameterValues['Add-Content:Encoding'] = 'utf8'
+} catch {
+    try {
+        [Console]::OutputEncoding = [System.Text.Encoding]::UTF8
+        $OutputEncoding = [System.Text.Encoding]::UTF8
+    } catch {}
+}
+";
+            return encodingPreamble + Environment.NewLine + scriptContent;
         }
 
         private async Task ReportResultAsync(string taskId, string status, string log, CancellationToken stoppingToken)

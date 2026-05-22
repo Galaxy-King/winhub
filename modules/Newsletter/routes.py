@@ -22,6 +22,7 @@ from core import socketio
 from core.sdk import WinHubCore
 from core.config import Config
 from core.permissions import has_module_access, has_permission, user_permissions
+from core.gpg import gpg_env
 
 log = logging.getLogger("winhub.newsletter")
 
@@ -296,7 +297,7 @@ def send_newsletter():
 def check_gpg_key_exists(gpg_path, email):
     cmd = [gpg_path, "--batch", "--list-keys", email]
     try:
-        proc = subprocess.run(cmd, capture_output=True, text=True, timeout=5, **hidden_subprocess_kwargs())
+        proc = subprocess.run(cmd, capture_output=True, text=True, timeout=5, env=gpg_env(), **hidden_subprocess_kwargs())
         return proc.returncode == 0
     except Exception:
         return False
@@ -305,7 +306,7 @@ def validate_gpg(gpg_path):
     if not gpg_path or not os.path.exists(gpg_path):
         return False, f"GPG executable not found at '{gpg_path}'"
     try:
-        proc = subprocess.run([gpg_path, "--version"], capture_output=True, text=True, timeout=5, **hidden_subprocess_kwargs())
+        proc = subprocess.run([gpg_path, "--version"], capture_output=True, text=True, timeout=5, env=gpg_env(), **hidden_subprocess_kwargs())
         if proc.returncode != 0:
             return False, proc.stderr.strip() or "GPG version check failed"
         return True, "GPG is available"
@@ -343,7 +344,7 @@ def fetch_gpg_key(gpg_path, keyserver, email):
         # Спокійно імпортуємо локально в GPG
         try:
             cmd_import = [gpg_path, "--batch", "--yes", "--import", tmp_path]
-            proc = subprocess.run(cmd_import, capture_output=True, text=True, timeout=10, **hidden_subprocess_kwargs())
+            proc = subprocess.run(cmd_import, capture_output=True, text=True, timeout=10, env=gpg_env(), **hidden_subprocess_kwargs())
         except FileNotFoundError:
             os.remove(tmp_path)
             return False, f"GPG executable not found at '{gpg_path}'"
@@ -375,7 +376,7 @@ def encrypt_with_gpg(gpg_path, recipient_email, body):
                "--encrypt", "--armor", "-r", recipient_email,
                "-o", tmp_out, tmp_in]
         
-        proc = subprocess.run(cmd, capture_output=True, text=True, timeout=15, stdin=subprocess.DEVNULL, **hidden_subprocess_kwargs())
+        proc = subprocess.run(cmd, capture_output=True, text=True, timeout=15, stdin=subprocess.DEVNULL, env=gpg_env(), **hidden_subprocess_kwargs())
                               
         if proc.returncode != 0:
             err_msg = proc.stderr.strip() if proc.stderr else "Unknown GPG Error"

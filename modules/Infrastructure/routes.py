@@ -20,6 +20,7 @@ from core.admin import send_notification_email
 from core.security import sec_manager
 from core.config import Config
 from core.permissions import has_module_access, has_permission, user_permissions
+from core.gpg import gpg_env
 
 infrastructure_bp = Blueprint('infrastructure', __name__, template_folder='templates')
 kyiv_tz = ZoneInfo("Europe/Kyiv")
@@ -334,7 +335,7 @@ def encrypt_report_body(body, recipient, sender_email):
             "--encrypt", "--armor", "-r", recipient,
             "-o", tmp_out, tmp_in
         ]
-        result = subprocess.run(cmd, capture_output=True, text=True, timeout=30, **hidden_subprocess_kwargs())
+        result = subprocess.run(cmd, capture_output=True, text=True, timeout=30, env=gpg_env(), **hidden_subprocess_kwargs())
         if result.returncode != 0 or not os.path.exists(tmp_out):
             error_text = (result.stderr or result.stdout or "GPG encryption failed").strip()
             return False, body, error_text
