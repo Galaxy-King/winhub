@@ -19,7 +19,7 @@ from core.sdk import WinHubCore
 from core.admin import send_notification_email
 from core.security import sec_manager
 from core.config import Config
-from core.permissions import has_module_access, has_permission, user_permissions, parse_allowed_modules, request_api_permissions
+from core.permissions import has_module_access, has_permission, user_permissions
 
 infrastructure_bp = Blueprint('infrastructure', __name__, template_folder='templates')
 kyiv_tz = ZoneInfo("Europe/Kyiv")
@@ -275,22 +275,6 @@ def current_user():
 def can(permission_id):
     return has_permission(current_user(), "Infrastructure", permission_id)
 
-def current_template_scopes():
-    if session.get("is_admin"):
-        return None
-    api_permissions = request_api_permissions()
-    if api_permissions is not None:
-        allowed = api_permissions
-    else:
-        allowed = parse_allowed_modules(getattr(current_user(), "allowed_modules", None))
-    if "Infrastructure" in allowed:
-        return None
-    scopes = [
-        item for item in allowed
-        if isinstance(item, str) and (item.startswith("template:") or item.startswith("template_category:"))
-    ]
-    return scopes
-
 def can_use_template(template):
     if session.get("is_admin"):
         return True
@@ -298,11 +282,7 @@ def can_use_template(template):
         return False
     if getattr(template, "created_by", None) == session.get("username") and can("manage_templates"):
         return True
-    scopes = current_template_scopes()
-    if not scopes:
-        return True
-    category = (getattr(template, "category", "") or "").strip()
-    return f"template:{template.id}" in scopes or (category and f"template_category:{category}" in scopes)
+    return True
 
 def require_permission(permission_id):
     if not can(permission_id):
