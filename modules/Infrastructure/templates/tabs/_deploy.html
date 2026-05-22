@@ -25,10 +25,16 @@
 	                    <input id="templateImportFile" type="file" accept="application/json,.json" class="hidden" onchange="importTemplates(this)">
 	                </div>
 	            </div>
+	            <div class="px-2 pb-3">
+	                <div class="relative">
+	                    <input id="templateLibrarySearch" oninput="filterTemplateLibrary()" type="text" placeholder="Search templates..." class="w-full pl-10 pr-3 py-3 bg-white border border-slate-200 rounded-2xl text-xs font-bold outline-none focus:ring-4 focus:ring-indigo-500/10">
+	                    <svg class="w-4 h-4 absolute left-3.5 top-3.5 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" stroke-width="2.5"/></svg>
+	                </div>
+	            </div>
 
             <div class="flex-1 overflow-y-auto custom-scrollbar space-y-4 px-2">
                 {% for category_name, items in templates|groupby('category') %}
-                    <div class="mb-4">
+	                    <div class="mb-4 template-category-block">
                         <!-- Category Header -->
                         <button onclick="toggleCategory('cat_{{ loop.index }}', this)" class="w-full flex items-center justify-between p-2 hover:bg-slate-200/50 rounded-xl transition-colors group outline-none">
                             <h4 class="font-bold text-slate-600 uppercase tracking-wider text-[10px] flex items-center gap-2">
@@ -42,8 +48,8 @@
                         <!-- Category Items -->
                         <div id="cat_{{ loop.index }}" class="mt-2 space-y-2 hidden">
                             {% for t in items %}
-                            <div class="template-card group relative p-4 rounded-xl border border-slate-200 bg-white hover:shadow-md hover:border-indigo-300 cursor-pointer transition-all overflow-hidden" 
-                                 data-id="{{ t.id }}" data-name="{{ t.name }}" data-category="{{ t.category }}" data-type="{{ t.type }}" data-action="{{ t.action_type }}" data-approved="{{ 'true' if t.is_approved else 'false' }}" data-payload="{{ t.payload | forceescape }}"
+	                            <div class="template-card group relative p-4 rounded-xl border border-slate-200 bg-white hover:shadow-md hover:border-indigo-300 cursor-pointer transition-all overflow-hidden" 
+	                                 data-id="{{ t.id }}" data-name="{{ t.name }}" data-category="{{ t.category }}" data-type="{{ t.type }}" data-action="{{ t.action_type }}" data-approved="{{ 'true' if t.is_approved else 'false' }}" data-payload="{{ t.payload | forceescape }}"
                                  onclick="loadTemplate(this)">
                                 
                                 <!-- Кольорова смужка зліва для індикації типу -->

@@ -23,7 +23,7 @@
             </div>
         </div>
         <div class="overflow-x-auto">
-        <table class="w-full text-left min-w-[960px]">
+	        <table class="w-full text-left min-w-[960px] infra-separated-table px-2">
             <thead class="bg-amber-50/70 border-b border-amber-100 text-[10px] font-black text-amber-700 uppercase tracking-widest">
                 <tr>
                     <th class="px-5 py-4 w-12">
@@ -36,7 +36,7 @@
                     <th class="px-6 py-4 text-right">Actions</th>
                 </tr>
             </thead>
-            <tbody class="divide-y divide-slate-50">
+	            <tbody>
                 {% for agent in pending_agents %}
                 <tr class="hover:bg-slate-50 transition-colors">
                     <td class="px-5 py-4">
@@ -94,8 +94,8 @@
         </div>
     </div>
 
-    <div class="bg-white rounded-[2.5rem] border border-slate-200 shadow-sm overflow-hidden overflow-x-auto">
-        <table class="w-full text-left min-w-[1020px]" id="agentsTable">
+	    <div class="bg-white rounded-[2.5rem] border border-slate-200 shadow-sm overflow-hidden overflow-x-auto p-3">
+	        <table class="w-full text-left min-w-[1020px] infra-separated-table" id="agentsTable">
             <thead class="bg-slate-50/50 border-b border-slate-100 text-[10px] font-black text-slate-400 uppercase tracking-widest">
                 <tr>
                     <th class="px-10 py-6">Hostname</th>
@@ -106,7 +106,7 @@
                     <th class="px-10 py-6">Groups</th>
                 </tr>
             </thead>
-            <tbody class="divide-y divide-slate-50">
+	            <tbody>
                 {% for agent in agents if (agent.approval_status or 'Approved') == 'Approved' %}
                 <tr class="host-row hover:bg-slate-50/80 cursor-pointer transition-all" data-status="{{ 'online' if agent.is_online else 'offline' }}" data-approval="{{ agent.approval_status or 'Approved' }}" data-groups="{% for g in agent.groups %}{{ g.name }}{% if not loop.last %},{% endif %}{% endfor %}" onclick="viewHost('{{ agent.id }}')">
                     <td class="px-10 py-5 font-black text-slate-700 text-lg">
