@@ -1016,8 +1016,11 @@ def create_task():
 
     if action_type == 'agent_update':
         sha256_value = str(payload_dict.get('sha256') or '').strip()
-        if sha256_value and not re.match(r"^[A-Fa-f0-9:\-\s]{64,95}$", sha256_value):
-            return jsonify({"success": False, "message": "Invalid package SHA256 format"}), 400
+        if sha256_value:
+            normalized_sha256 = re.sub(r"[^A-Fa-f0-9]", "", sha256_value).upper()
+            if len(normalized_sha256) != 64:
+                return jsonify({"success": False, "message": "Invalid package SHA256 format"}), 400
+            payload_dict['sha256'] = normalized_sha256
 
     # Розбір цілей
     agent_ids = []
