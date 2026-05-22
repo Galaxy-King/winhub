@@ -162,11 +162,6 @@
                 <h4 class="text-[10px] font-black text-indigo-600 uppercase tracking-widest">Allowed Host Groups</h4>
                 <div id="groupsContainer" class="space-y-2 max-h-60 overflow-y-auto custom-scrollbar pr-2"></div>
             </div>
-            <div class="space-y-4">
-                <h4 class="text-[10px] font-black text-indigo-600 uppercase tracking-widest">Template Scope</h4>
-                <p class="text-xs text-slate-500 font-bold">Empty means all approved templates allowed by module permission.</p>
-                <div id="templateScopeContainer" class="space-y-2 max-h-60 overflow-y-auto custom-scrollbar pr-2"></div>
-            </div>
         </div>
         
         <div class="mt-8 flex justify-end gap-4">
@@ -213,11 +208,6 @@
                             <h4 class="text-[10px] font-black text-indigo-600 uppercase tracking-widest mb-2">Host Group Scope</h4>
                             <p class="text-xs text-slate-500 font-bold mb-3">The key can only target hosts from selected groups. Empty scope means no host access.</p>
                             <div id="apiGroupScopeContainer" class="space-y-2 max-h-44 overflow-y-auto custom-scrollbar pr-2"></div>
-                        </div>
-                        <div>
-                            <h4 class="text-[10px] font-black text-indigo-600 uppercase tracking-widest mb-2">Template Scope</h4>
-                            <p class="text-xs text-slate-500 font-bold mb-3">Optional. Limit this key to specific templates or categories.</p>
-                            <div id="apiTemplateScopeContainer" class="space-y-2 max-h-44 overflow-y-auto custom-scrollbar pr-2"></div>
                         </div>
                         <div>
                             <h4 class="text-[10px] font-black text-indigo-600 uppercase tracking-widest mb-2">Expiration</h4>
@@ -357,11 +347,6 @@ $StaticPassword = "{{secret:local_admin_password}}"
                     <div id="editApiGroupScopeContainer" class="space-y-2 max-h-64 overflow-y-auto custom-scrollbar pr-2"></div>
                 </div>
                 <div>
-                    <h4 class="text-[10px] font-black text-indigo-600 uppercase tracking-widest mb-3">Template Scope</h4>
-                    <p class="text-xs text-slate-500 font-bold mb-3">Empty scope means all approved templates allowed by permissions.</p>
-                    <div id="editApiTemplateScopeContainer" class="space-y-2 max-h-64 overflow-y-auto custom-scrollbar pr-2"></div>
-                </div>
-                <div>
                     <h4 class="text-[10px] font-black text-indigo-600 uppercase tracking-widest mb-3">Expiration</h4>
                     <select id="editApiExpiryDays" class="w-full p-4 bg-slate-50 border border-slate-200 rounded-2xl text-sm font-bold focus:bg-white focus:ring-4 focus:ring-indigo-500/10 outline-none transition-all">
                         <option value="__keep">Keep current expiration</option>
@@ -384,7 +369,6 @@ $StaticPassword = "{{secret:local_admin_password}}"
 <script>
     let sysModules = [];
     let sysGroups = [];
-    let sysTemplateScopes = {categories: [], templates: []};
     let currentTab = 'users';
     let auditPage = 1;
     let auditPages = 1;
@@ -452,28 +436,6 @@ $StaticPassword = "{{secret:local_admin_password}}"
                 <span class="text-sm font-bold text-slate-700">${g.name}</span>
             </label>
         `).join('') || '<div class="text-xs font-bold text-slate-400 p-4 bg-slate-50 rounded-xl">No groups available.</div>';
-    }
-
-    function renderTemplateScopePicker(selected = [], containerId = 'templateScopeContainer', checkboxClass = 'template-scope-cb') {
-        const selectedSet = new Set(selected || []);
-        const container = document.getElementById(containerId);
-        if (!container) return;
-        const categories = (sysTemplateScopes.categories || []).map(s => `
-            <label class="flex items-start gap-3 p-3 bg-blue-50 border border-blue-100 hover:bg-blue-100 rounded-xl cursor-pointer transition-colors">
-                <input type="checkbox" value="${s.token}" class="${checkboxClass} w-4 h-4 text-indigo-600 rounded border-slate-300 focus:ring-indigo-500 mt-0.5" ${selectedSet.has(s.token) ? 'checked' : ''}>
-                <span class="text-sm font-bold text-slate-700">${s.name}</span>
-            </label>
-        `).join('');
-        const templates = (sysTemplateScopes.templates || []).map(s => `
-            <label class="flex items-start gap-3 p-3 bg-slate-50 border border-slate-200 hover:bg-slate-100 rounded-xl cursor-pointer transition-colors">
-                <input type="checkbox" value="${s.token}" class="${checkboxClass} w-4 h-4 text-indigo-600 rounded border-slate-300 focus:ring-indigo-500 mt-0.5" ${selectedSet.has(s.token) ? 'checked' : ''}>
-                <span>
-                    <span class="block text-sm font-bold text-slate-700">${s.name}</span>
-                    <span class="block text-[10px] font-black uppercase tracking-widest ${s.is_approved ? 'text-emerald-500' : 'text-amber-500'}">${s.category} / ${s.is_approved ? 'Approved' : 'Draft'}</span>
-                </span>
-            </label>
-        `).join('');
-        container.innerHTML = (categories + templates) || '<div class="text-xs font-bold text-slate-400 p-4 bg-slate-50 rounded-xl">No templates available.</div>';
     }
 
     function switchTab(tab) {
@@ -627,7 +589,6 @@ $StaticPassword = "{{secret:local_admin_password}}"
             const [mRes, gRes] = await Promise.all([fetch('/api/admin/modules'), fetch('/api/admin/groups')]);
             const mData = await mRes.json(); const gData = await gRes.json();
             if(mData.success) sysModules = mData.modules;
-            if(mData.success) sysTemplateScopes = mData.template_scopes || {categories: [], templates: []};
             if(gData.success) sysGroups = gData.groups;
         } catch (e) { console.error("Failed loading sys data"); }
     }
@@ -713,7 +674,6 @@ $StaticPassword = "{{secret:local_admin_password}}"
         document.getElementById('newEmail').required = false;
         renderApiPermissionPicker([]);
         renderApiGroupScope([]);
-        renderTemplateScopePicker([], 'apiTemplateScopeContainer', 'api-template-scope-cb');
         document.getElementById('apiExpiryDays').value = '30';
         toggleModal('create', true); 
     }
@@ -727,17 +687,13 @@ $StaticPassword = "{{secret:local_admin_password}}"
         document.getElementById('editApiKeyLabel').innerText = `${key.name} / ${key.prefix}*****`;
         renderApiPermissionPicker(key.permissions || [], 'editApiPermissionsContainer');
         renderApiGroupScope(key.group_scope || [], 'editApiGroupScopeContainer');
-        renderTemplateScopePicker(key.permissions || [], 'editApiTemplateScopeContainer', 'api-template-scope-cb');
         document.getElementById('editApiExpiryDays').value = '__keep';
         toggleModal('apiAccess', true);
     }
 
     async function saveApiAccess() {
         const id = document.getElementById('editApiKeyId').value;
-        const permissions = [
-            ...Array.from(document.querySelectorAll('#editApiPermissionsContainer .api-perm-cb:checked')).map(cb => cb.value),
-            ...Array.from(document.querySelectorAll('#editApiTemplateScopeContainer .api-template-scope-cb:checked')).map(cb => cb.value)
-        ];
+        const permissions = Array.from(document.querySelectorAll('#editApiPermissionsContainer .api-perm-cb:checked')).map(cb => cb.value);
         const groupScope = Array.from(document.querySelectorAll('#editApiGroupScopeContainer .api-group-scope-cb:checked')).map(cb => cb.value);
         const days = document.getElementById('editApiExpiryDays').value;
         try {
@@ -790,8 +746,6 @@ $StaticPassword = "{{secret:local_admin_password}}"
             </label>
         `).join('');
 
-        renderTemplateScopePicker(user.allowed_modules || [], 'templateScopeContainer', 'template-scope-cb');
-
         toggleModal('edit', true);
     }
 
@@ -810,8 +764,7 @@ $StaticPassword = "{{secret:local_admin_password}}"
                 const moduleInfo = sysModules.find(m => m.id === moduleId);
                 return !moduleInfo || !(moduleInfo.permissions || []).length;
             });
-        const templateScopes = Array.from(document.querySelectorAll('#templateScopeContainer .template-scope-cb:checked')).map(cb => cb.value);
-        const mods = [...moduleOnly, ...permTokens, ...templateScopes];
+        const mods = [...moduleOnly, ...permTokens];
         const grps = Array.from(document.querySelectorAll('.grp-cb:checked')).map(cb => cb.value);
         
         try {
@@ -849,10 +802,7 @@ $StaticPassword = "{{secret:local_admin_password}}"
 
         if(currentTab === 'api') {
             const name = document.getElementById('newUsername').value;
-            const permissions = [
-                ...Array.from(document.querySelectorAll('#apiPermissionsContainer .api-perm-cb:checked')).map(cb => cb.value),
-                ...Array.from(document.querySelectorAll('#apiTemplateScopeContainer .api-template-scope-cb:checked')).map(cb => cb.value)
-            ];
+            const permissions = Array.from(document.querySelectorAll('#apiPermissionsContainer .api-perm-cb:checked')).map(cb => cb.value);
             const groupScope = Array.from(document.querySelectorAll('#apiGroupScopeContainer .api-group-scope-cb:checked')).map(cb => cb.value);
             const days = document.getElementById('apiExpiryDays').value;
             try {

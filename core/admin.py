@@ -14,7 +14,7 @@ import io
 from datetime import datetime, timedelta
 from email.mime.text import MIMEText
 from flask import Blueprint, request, jsonify, session, render_template, redirect, url_for, Response
-from core.database import db, User, EndpointGroup, ApiKey, TaskTemplate, AuditLog
+from core.database import db, User, EndpointGroup, ApiKey, AuditLog
 from core.security import sec_manager
 from core.config import Config
 from core.module_registry import get_module_registry
@@ -45,21 +45,11 @@ def sanitize_allowed_modules(raw_items):
         for module_id, permissions in MODULE_PERMISSION_CATALOG.items()
         for permission in permissions
     }
-    valid_template_tokens = set()
-    try:
-        for template in TaskTemplate.query.all():
-            valid_template_tokens.add(f"template:{template.id}")
-            category = (template.category or "").strip()
-            if category:
-                valid_template_tokens.add(f"template_category:{category}")
-    except Exception:
-        valid_template_tokens = set()
-
     cleaned = []
     for item in raw_items:
         if not isinstance(item, str):
             continue
-        if item in valid_modules or item in valid_tokens or item in valid_template_tokens:
+        if item in valid_modules or item in valid_tokens:
             if item not in cleaned:
                 cleaned.append(item)
     return cleaned
@@ -292,22 +282,7 @@ def get_modules():
                         "error_message": None,
                         "permissions": MODULE_PERMISSION_CATALOG.get(item, []),
                     })
-    templates = TaskTemplate.query.order_by(TaskTemplate.category, TaskTemplate.name).all()
-    categories = []
-    category_seen = set()
-    template_scopes = []
-    for template in templates:
-        category = (template.category or "").strip()
-        if category and category not in category_seen:
-            categories.append({"token": f"template_category:{category}", "name": f"Category: {category}"})
-            category_seen.add(category)
-        template_scopes.append({
-            "token": f"template:{template.id}",
-            "name": template.name,
-            "category": category or "General",
-            "is_approved": bool(template.is_approved),
-        })
-    return jsonify({"success": True, "modules": modules, "template_scopes": {"categories": categories, "templates": template_scopes}})
+    return jsonify({"success": True, "modules": modules})
 
 @admin_bp.route('/api/admin/groups', methods=['GET'])
 def get_host_groups():

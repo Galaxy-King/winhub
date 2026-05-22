@@ -50,7 +50,7 @@
 
                                 <h4 class="font-black text-slate-800 text-xs truncate mb-2 ml-2 transition-colors">{{ t.name }}</h4>
                                 
-                                <div class="flex items-center gap-1.5 ml-2">
+                                <div class="flex items-center gap-1.5 ml-2 flex-wrap">
                                     {% if t.type == 'report' %}
                                         <span class="text-[9px] font-black uppercase px-2 py-0.5 rounded bg-sky-50 text-sky-600 border border-sky-100">Report</span>
                                     {% elif t.type == 'metric' %}
@@ -59,6 +59,11 @@
                                         <span class="text-[9px] font-black uppercase px-2 py-0.5 rounded bg-amber-50 text-amber-700 border border-amber-100">Agent Update</span>
                                     {% else %}
                                         <span class="text-[9px] font-black uppercase px-2 py-0.5 rounded bg-slate-100 text-slate-500 border border-slate-200">Action</span>
+                                    {% endif %}
+                                    {% if t.is_approved %}
+                                        <span class="text-[9px] font-black uppercase px-2 py-0.5 rounded bg-emerald-50 text-emerald-700 border border-emerald-100">Shared</span>
+                                    {% else %}
+                                        <span class="text-[9px] font-black uppercase px-2 py-0.5 rounded bg-amber-50 text-amber-700 border border-amber-100">Private Draft</span>
                                     {% endif %}
                                 </div>
 
