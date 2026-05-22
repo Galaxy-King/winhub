@@ -1394,11 +1394,25 @@ def manage_group(group_id):
             return jsonify({"success": False}), 403
         allowed_host_ids = {h.id for h in WinHubCore.get_allowed_hosts(session.get('user_id'))}
         members_source = [a for a in group.endpoints if a.id in allowed_host_ids]
-        non_members = []
+        group_endpoint_ids = {a.id for a in group.endpoints}
+        if can("manage_groups"):
+            non_member_query = Endpoint.query.filter(
+                db.or_(Endpoint.approval_status == "Approved", Endpoint.approval_status.is_(None)),
+                ~Endpoint.id.in_(group_endpoint_ids)
+            ).order_by(Endpoint.hostname, Endpoint.id)
+            non_members = [{"id": a.id, "hostname": a.hostname or a.id} for a in non_member_query.all()]
+        else:
+            non_members = []
     else:
         group_endpoint_ids = [a.id for a in group.endpoints]
         members_source = group.endpoints
-        non_members = [{"id": a.id, "hostname": a.hostname} for a in Endpoint.query.all() if a.id not in group_endpoint_ids]
+        non_members = [
+            {"id": a.id, "hostname": a.hostname or a.id}
+            for a in Endpoint.query.filter(
+                db.or_(Endpoint.approval_status == "Approved", Endpoint.approval_status.is_(None))
+            ).order_by(Endpoint.hostname, Endpoint.id).all()
+            if a.id not in group_endpoint_ids
+        ]
 
     members = [{"id": a.id, "hostname": a.hostname, "ip": a.ip_address, "os_type": getattr(a, 'os_type', 'Windows')} for a in members_source]
     return jsonify({"success": True, "data": {"id": group.id, "name": group.name, "description": group.description, "members": members, "non_members": non_members}})
@@ -1409,9 +1423,24 @@ def update_group_members(group_id):
     if denied: return denied
     group = EndpointGroup.query.get(group_id)
     agent = Endpoint.query.get(request.json.get('agent_id'))
+    if not group or not agent:
+        return jsonify({"success": False, "message": "Group or host not found"}), 404
+    if not session.get('is_admin'):
+        allowed_group_ids = {g.id for g in WinHubCore.get_allowed_groups(session.get('user_id'))}
+        if group.id not in allowed_group_ids:
+            return jsonify({"success": False, "message": "Group denied"}), 403
+        if (getattr(agent, "approval_status", "Approved") or "Approved") != "Approved":
+            return jsonify({"success": False, "message": "Only approved hosts can be added to groups"}), 403
     if request.json.get('action') == 'add' and agent not in group.endpoints: group.endpoints.append(agent)
     elif request.json.get('action') == 'remove' and agent in group.endpoints: group.endpoints.remove(agent)
     db.session.commit()
+    WinHubCore.audit(
+        user_id=session.get("user_id"),
+        module="Infrastructure",
+        action="Group Membership",
+        details={"group_id": group.id, "group": group.name, "host_id": agent.id, "hostname": agent.hostname, "action": request.json.get('action')},
+        status="Success"
+    )
     return jsonify({"success": True})
 
 @infrastructure_bp.route('/api/infrastructure/group/<group_id>/block', methods=['POST'])
