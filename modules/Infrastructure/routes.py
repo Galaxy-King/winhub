@@ -923,8 +923,22 @@ def delete_template(tid):
     denied = require_permission("manage_templates")
     if denied: return denied
     t = TaskTemplate.query.get(tid)
-    if t: db.session.delete(t); db.session.commit()
-    return jsonify({"success": True})
+    if not t:
+        return jsonify({"success": False, "message": "Template not found"}), 404
+
+    try:
+        ScheduledTask.query.filter_by(template_id=tid).delete(synchronize_session=False)
+        TriggerRule.query.filter_by(action_template_id=tid).update(
+            {"action_template_id": None},
+            synchronize_session=False
+        )
+        db.session.delete(t)
+        db.session.commit()
+        return jsonify({"success": True})
+    except Exception:
+        db.session.rollback()
+        logging.getLogger("winhub").exception("Template delete failed")
+        return jsonify({"success": False, "message": "Template delete failed"}), 500
 
 @infrastructure_bp.route('/api/infrastructure/tasks/create', methods=['POST'])
 def create_task():
