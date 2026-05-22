@@ -13,6 +13,7 @@ from email.mime.text import MIMEText
 from email.utils import parseaddr
 from zoneinfo import ZoneInfo
 from flask import Blueprint, request, jsonify, render_template, session, redirect, url_for, current_app
+from sqlalchemy import func
 
 from core.database import db, User, Endpoint, EndpointGroup, AgentTask, TaskTemplate, TelemetryHistory, ScheduledTask, EndpointMetric, TriggerRule, AggregatedJob, ApiKey, RegistrationHistory
 from core.sdk import WinHubCore
@@ -1194,7 +1195,25 @@ def get_tasks():
     allowed_hosts = [h.id for h in WinHubCore.get_allowed_hosts(user_id)]
     if not allowed_hosts: return jsonify({"success": True, "jobs": []})
 
-    tasks = db.session.query(AgentTask, Endpoint.hostname).join(Endpoint).filter(AgentTask.endpoint_id.in_(allowed_hosts)).order_by(AgentTask.created_at.desc()).limit(200).all()
+    last_created_at = func.max(AgentTask.created_at).label("last_created_at")
+    recent_jobs = db.session.query(
+        AgentTask.job_id,
+        last_created_at
+    ).filter(
+        AgentTask.endpoint_id.in_(allowed_hosts),
+        AgentTask.job_id.isnot(None)
+    ).group_by(
+        AgentTask.job_id
+    ).order_by(last_created_at.desc()).limit(25).all()
+
+    job_ids = [job_id for job_id, _ in recent_jobs if job_id]
+    if not job_ids:
+        return jsonify({"success": True, "jobs": []})
+
+    tasks = db.session.query(AgentTask, Endpoint.hostname).join(Endpoint).filter(
+        AgentTask.endpoint_id.in_(allowed_hosts),
+        AgentTask.job_id.in_(job_ids)
+    ).order_by(AgentTask.created_at.desc()).all()
     
     jobs = {}
     for t, hostname in tasks:
@@ -1211,7 +1230,10 @@ def get_tasks():
         else: jobs[jid]["running"] += 1
 
     result = []
-    for jid, data in jobs.items():
+    for jid in job_ids:
+        data = jobs.get(jid)
+        if not data:
+            continue
         data["target_summary"] = data["tasks"][0]["hostname"] if data["total"] == 1 else f"Group Deployment ({data['total']} hosts)"
         if data["error"] > 0: data["status"] = "Error"
         elif data["pending"] > 0 or data["running"] > 0: data["status"] = "Pending"

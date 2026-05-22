@@ -127,24 +127,30 @@ class WinHubCore:
 
         payload_json = json.dumps(payload)
         job_id = str(uuid.uuid4())
-        
-        valid_count = 0
-        for hid in target_ids:
-            host = Endpoint.query.get(hid)
-            if host and getattr(host, "approval_status", "Approved") == "Approved" and WinHubCore.can_manage_host(user_id, hid):
-                task = AgentTask(
-                    job_id=job_id,
-                    endpoint_id=hid,
-                    title=title,
-                    module_source=module_name,
-                    action_type=action,
-                    payload=payload_json,
-                    created_by=user.username
-                )
-                db.session.add(task)
-                valid_count += 1
-                
-        if valid_count > 0:
+
+        requested_ids = list(dict.fromkeys(str(hid) for hid in target_ids if hid))
+        allowed_ids = {
+            host.id
+            for host in WinHubCore.get_allowed_hosts(user_id)
+            if getattr(host, "approval_status", "Approved") == "Approved"
+        }
+
+        tasks = [
+            AgentTask(
+                job_id=job_id,
+                endpoint_id=hid,
+                title=title,
+                module_source=module_name,
+                action_type=action,
+                payload=payload_json,
+                created_by=user.username
+            )
+            for hid in requested_ids
+            if hid in allowed_ids
+        ]
+
+        if tasks:
+            db.session.add_all(tasks)
             db.session.commit()
             return job_id
         else:
