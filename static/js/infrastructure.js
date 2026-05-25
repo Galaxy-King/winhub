@@ -1415,10 +1415,17 @@ function toggleFleetSelectionAll(checkbox) {
     });
 }
 
-function togglePackageRegistry() {
+window.togglePackageRegistry = function togglePackageRegistry() {
     const card = document.getElementById('packageRegistryCard');
-    if (card) card.classList.toggle('hidden');
-}
+    const button = document.getElementById('packageRegistryToggleBtn');
+    if (!card) return;
+    const opening = card.classList.contains('hidden');
+    card.classList.toggle('hidden', !opening);
+    if (button) button.innerText = opening ? 'Hide Package Registry' : 'Package Registry';
+    if (opening) {
+        requestAnimationFrame(() => card.scrollIntoView({ behavior: 'smooth', block: 'start' }));
+    }
+};
 
 function renderFleetCenter() {
     const body = document.getElementById('fleetHostsBody');
