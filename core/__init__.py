@@ -184,25 +184,12 @@ def seed_default_os_groups():
             added = True
     if added: db.session.commit()
 
-def seed_default_agent_update_template():
+def remove_default_agent_update_template():
     name = "Agent Self Update"
     existing = TaskTemplate.query.filter_by(name=name, action_type="agent_update").first()
-    if existing:
-        return
-    payload = {
-        "package_url": "{{package_url}}",
-        "sha256": "{{sha256}}"
-    }
-    db.session.add(TaskTemplate(
-        name=name,
-        category="Maintenance",
-        action_type="agent_update",
-        type="action",
-        payload=json.dumps(payload),
-        is_approved=False,
-        created_by="System"
-    ))
-    db.session.commit()
+    if existing and getattr(existing, "created_by", None) == "System":
+        db.session.delete(existing)
+        db.session.commit()
 
 def ensure_endpoint_schema():
     inspector = inspect(db.engine)
@@ -586,7 +573,7 @@ def create_app():
         ensure_endpoint_schema()
         ensure_audit_schema()
         seed_default_os_groups()
-        seed_default_agent_update_template()
+        remove_default_agent_update_template()
         
         if not User.query.first():
             raw_password = ''.join(secrets.choice(string.ascii_letters + string.digits) for _ in range(16))
