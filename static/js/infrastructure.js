@@ -78,6 +78,22 @@ function refreshPayloadEditor() {
     }
 }
 
+function closeInfraMenus() {
+    document.querySelectorAll('.infra-dropdown').forEach(menu => menu.classList.add('hidden'));
+}
+
+function toggleInfraMenu(id) {
+    const menu = document.getElementById(id);
+    if (!menu) return;
+    const wasHidden = menu.classList.contains('hidden');
+    closeInfraMenus();
+    menu.classList.toggle('hidden', !wasHidden);
+}
+
+document.addEventListener('click', (event) => {
+    if (!event.target.closest('.infra-nav-menu')) closeInfraMenus();
+});
+
 function initPayloadEditor() {
     const textarea = document.getElementById('depPayload');
     if (!textarea || payloadEditor || typeof CodeMirror === 'undefined') return;
@@ -835,7 +851,7 @@ function switchView(view, save=true) {
         const el = document.getElementById('view-' + v);
         const nav = document.getElementById('nav-' + v);
         if (el) el.classList.add('hidden');
-        if (nav && nav.id !== 'nav-deploy') {
+        if (nav) {
             nav.classList.remove('active', 'bg-white', 'text-indigo-600', 'shadow-sm', 'border-slate-200/50');
             nav.classList.add('text-slate-500', 'border-transparent');
         }
@@ -845,8 +861,8 @@ function switchView(view, save=true) {
     if (!target) return;
     const navBtn = document.getElementById('nav-' + (view === 'group-detail' ? 'groups' : view));
     target.classList.remove('hidden');
-    if (navBtn && navBtn.id !== 'nav-deploy') {
-        navBtn.classList.add('active', 'bg-white', 'text-indigo-600', 'shadow-sm', 'border-slate-200/50'); 
+    if (navBtn) {
+        navBtn.classList.add('active', 'bg-white', 'text-indigo-600', 'shadow-sm', 'border-slate-200/50');
         navBtn.classList.remove('text-slate-500', 'border-transparent');
     }
     if(view === 'fleet') loadFleetCenter();
@@ -1374,7 +1390,7 @@ async function loadFleetCenter() {
         fleetCenterData = data;
         renderFleetCenter();
     } catch(e) {
-        body.innerHTML = '<tr><td colspan="5" class="p-12 text-center text-rose-400 font-black">Failed to load fleet data.</td></tr>';
+        body.innerHTML = '<tr><td colspan="7" class="p-12 text-center text-rose-400 font-black">Failed to load fleet data.</td></tr>';
     }
 }
 
@@ -1384,12 +1400,30 @@ function renderFleetCenter() {
     const packageSelect = document.getElementById('fleetPackageSelect');
     if (!body) return;
 
-    body.innerHTML = (fleetCenterData.hosts || []).map(host => {
+    const search = (document.getElementById('fleetSearch')?.value || '').trim().toLowerCase();
+    const statusFilter = document.getElementById('fleetStatusFilter')?.value || 'all';
+    const groupFilter = document.getElementById('fleetGroupFilter')?.value || 'all';
+    const hosts = (fleetCenterData.hosts || []).filter(host => {
+        const health = host.health || {};
+        const groupText = (host.groups || []).map(group => group.name).join(' ');
+        const haystack = [host.hostname, host.ip, host.os, host.agent_version, groupText, health.status, ...(health.reasons || [])].join(' ').toLowerCase();
+        const matchSearch = !search || haystack.includes(search);
+        const matchGroup = groupFilter === 'all' || (host.groups || []).some(group => String(group.id) === String(groupFilter));
+        let matchStatus = true;
+        if (statusFilter === 'outdated') matchStatus = !!health.outdated;
+        else if (statusFilter === 'current') matchStatus = !health.outdated;
+        else if (statusFilter === 'offline') matchStatus = !health.online;
+        else if (statusFilter === 'warning') matchStatus = ['Warning', 'Critical'].includes(health.status);
+        return matchSearch && matchGroup && matchStatus;
+    });
+
+    body.innerHTML = hosts.map(host => {
         const health = host.health || {};
         const healthClass = health.status === 'Healthy'
             ? 'bg-emerald-50 text-emerald-700 border-emerald-100'
             : (health.status === 'Warning' ? 'bg-amber-50 text-amber-700 border-amber-100' : 'bg-rose-50 text-rose-700 border-rose-100');
         const versionClass = health.outdated ? 'bg-amber-50 text-amber-700 border-amber-100' : 'bg-slate-100 text-slate-600 border-slate-200';
+        const groups = (host.groups || []).map(group => `<span class="px-2 py-1 rounded-lg bg-slate-100 text-slate-500 border border-slate-200 text-[9px] font-black uppercase">${escapeHtml(group.name)}</span>`).join('');
         return `<tr>
             <td class="px-6 py-4">
                 <div class="font-black text-slate-800">${escapeHtml(host.hostname)}</div>
@@ -1400,10 +1434,14 @@ function renderFleetCenter() {
                 <span class="px-3 py-1 rounded-xl border text-[10px] font-black uppercase ${healthClass}">${health.score || 0}% ${escapeHtml(health.status || 'Unknown')}</span>
                 <div class="text-[10px] font-bold text-slate-400 mt-1">${(health.reasons || []).map(escapeHtml).join(', ') || 'ok'}</div>
             </td>
+            <td class="px-6 py-4"><div class="flex flex-wrap gap-1.5">${groups || '<span class="text-xs font-bold text-slate-300">No group</span>'}</div></td>
             <td class="px-6 py-4 font-bold text-slate-500">${escapeHtml(host.ip || '-')}</td>
             <td class="px-6 py-4 text-right text-xs font-bold text-slate-400">${escapeHtml(host.last_seen || '-')}</td>
+            <td class="px-6 py-4 text-right">
+                <button onclick="runFleetUpdate('${escapeHtml(host.id)}')" class="px-3 py-2 rounded-xl bg-white border border-slate-200 text-[10px] font-black uppercase text-slate-500 hover:text-indigo-600 hover:bg-indigo-50 transition-all">Update</button>
+            </td>
         </tr>`;
-    }).join('') || '<tr><td colspan="5" class="p-12 text-center text-slate-300 font-black">No fleet hosts available.</td></tr>';
+    }).join('') || '<tr><td colspan="7" class="p-12 text-center text-slate-300 font-black">No fleet hosts match filters.</td></tr>';
 
     if (packagesBox) {
         packagesBox.innerHTML = (fleetCenterData.packages || []).map(pkg => `
@@ -1473,15 +1511,16 @@ async function uploadAgentPackage(event) {
     xhr.send(formData);
 }
 
-async function runFleetUpdate() {
+async function runFleetUpdate(hostId=null) {
     const packageId = document.getElementById('fleetPackageSelect')?.value;
     if (!packageId) return alert('Upload or select an agent package first.');
-    if (!confirm('Start agent rollout with the selected package?')) return;
+    if (!confirm(hostId ? 'Update this single agent with the selected package?' : 'Start agent rollout with the selected package?')) return;
     const payload = {
         package_id: packageId,
-        target_mode: document.getElementById('fleetTargetMode')?.value || 'outdated',
+        target_mode: hostId ? 'selected' : (document.getElementById('fleetTargetMode')?.value || 'outdated'),
+        target_ids: hostId ? [hostId] : [],
         group_id: document.getElementById('fleetGroupSelect')?.value || '',
-        wave_size: Number(document.getElementById('fleetWaveSize')?.value || 50),
+        wave_size: hostId ? 1 : Number(document.getElementById('fleetWaveSize')?.value || 50),
         wave_delay_seconds: Number(document.getElementById('fleetWaveDelay')?.value || 0)
     };
     const res = await fetch('/api/infrastructure/fleet/update', {

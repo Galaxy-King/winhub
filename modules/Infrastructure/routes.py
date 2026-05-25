@@ -632,6 +632,11 @@ def index():
         templates_raw = [t for t in templates_raw if can_use_template(t)]
         scheduled_raw = []
         triggers_raw = []
+
+    templates_raw = [
+        t for t in templates_raw
+        if not (t.name == "Agent Self Update" and t.action_type == "agent_update" and t.created_by == "System")
+    ]
             
     templates = [{
         "id": t.id, "name": t.name, "category": getattr(t, 'category', 'General'), 
@@ -1259,6 +1264,7 @@ def fleet_center():
             "os": endpoint.os_version or getattr(endpoint, "os_type", "Windows"),
             "agent_version": getattr(endpoint, "agent_version", "") or "",
             "last_seen": to_kyiv_time_short(endpoint.last_seen),
+            "groups": [{"id": group.id, "name": group.name} for group in endpoint.groups],
             "health": health,
         })
 
