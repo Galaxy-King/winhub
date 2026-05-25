@@ -13,7 +13,7 @@
     </div>
     {% if permissions.manage_hosts %}
     <div class="wh-soft-panel bg-white p-2 rounded-2xl border border-slate-200 shadow-sm flex gap-2 w-fit">
-        <button onclick="switchNodeTab('approved')" id="nodeTab-approved" class="node-tab-btn px-5 py-2.5 rounded-xl text-xs font-black uppercase bg-slate-900 text-white shadow-sm">Approved Nodes</button>
+        <button onclick="switchNodeTab('approved')" id="nodeTab-approved" class="node-tab-btn px-5 py-2.5 rounded-xl text-xs font-black uppercase bg-slate-900 text-white shadow-sm">Nodes</button>
         <button onclick="switchNodeTab('pending')" id="nodeTab-pending" class="node-tab-btn px-5 py-2.5 rounded-xl text-xs font-black uppercase text-slate-500 hover:text-amber-700">
             Pending Approval
             {% if pending_agents %}<span class="ml-2 bg-amber-100 text-amber-700 px-2 py-0.5 rounded-lg">{{ pending_agents|length }}</span>{% endif %}
@@ -22,7 +22,6 @@
             Rejected Hosts
             {% if rejected_agents %}<span class="ml-2 bg-rose-100 text-rose-700 px-2 py-0.5 rounded-lg">{{ rejected_agents|length }}</span>{% endif %}
         </button>
-        <button onclick="switchNodeTab('updates')" id="nodeTab-updates" class="node-tab-btn px-5 py-2.5 rounded-xl text-xs font-black uppercase text-slate-500 hover:text-indigo-700">Agent Updates</button>
     </div>
     {% endif %}
 
@@ -142,7 +141,8 @@
     {% endif %}
 
     <div id="nodesApprovedPanel" class="space-y-6">
-    <div class="wh-soft-panel bg-white p-5 rounded-[2.5rem] border border-slate-200 shadow-sm flex flex-col md:flex-row justify-between items-center gap-4">
+    {% include "tabs/_fleet.html" %}
+    <div class="hidden wh-soft-panel bg-white p-5 rounded-[2.5rem] border border-slate-200 shadow-sm flex flex-col md:flex-row justify-between items-center gap-4">
         <div class="flex flex-col sm:flex-row gap-4 w-full md:w-auto">
             <div class="flex gap-2 bg-slate-100 p-1.5 rounded-xl border border-slate-200/60 shadow-inner overflow-x-auto">
                 <button onclick="filterHosts('all', this)" class="host-filter-btn px-6 py-2 rounded-lg text-xs font-black uppercase bg-white text-indigo-600 shadow-sm transition-all whitespace-nowrap">All Nodes</button>
@@ -163,7 +163,7 @@
         </div>
     </div>
 
-	    <div class="wh-soft-panel bg-white rounded-[2.5rem] border border-slate-200 shadow-sm overflow-hidden overflow-x-auto p-3">
+	    <div class="hidden wh-soft-panel bg-white rounded-[2.5rem] border border-slate-200 shadow-sm overflow-hidden overflow-x-auto p-3">
 	        <table class="w-full text-left min-w-[1020px] infra-separated-table" id="agentsTable">
             <thead class="bg-slate-50/50 border-b border-slate-100 text-[10px] font-black text-slate-400 uppercase tracking-widest">
                 <tr>
@@ -229,6 +229,4 @@
         </table>
     </div>
     </div>
-
-    {% include "tabs/_fleet.html" %}
 </section>
