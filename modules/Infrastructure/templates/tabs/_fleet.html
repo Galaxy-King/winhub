@@ -33,13 +33,19 @@
                     <h3 class="text-sm font-black text-slate-800 uppercase">Package Registry</h3>
                     <p class="text-xs font-bold text-slate-400 mt-1">Upload signed/tested agent ZIP packages.</p>
                 </div>
-                {% if permissions.manage_templates %}
+                {% if is_admin %}
                 <form id="agentPackageForm" class="space-y-3" onsubmit="uploadAgentPackage(event)">
                     <input id="agentPackageVersion" name="version" placeholder="Version, e.g. 1.2.6" class="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl text-xs font-bold outline-none focus:ring-4 focus:ring-indigo-500/10">
                     <textarea id="agentPackageNotes" name="notes" placeholder="Release notes..." class="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl text-xs font-bold outline-none focus:ring-4 focus:ring-indigo-500/10 min-h-[84px]"></textarea>
                     <input id="agentPackageFile" name="file" type="file" accept=".zip" class="w-full text-xs font-bold text-slate-500">
+                    <div id="agentPackageProgressWrap" class="hidden h-3 bg-slate-100 rounded-full overflow-hidden border border-slate-200">
+                        <div id="agentPackageProgressBar" class="h-full bg-indigo-600 rounded-full transition-all" style="width: 0%"></div>
+                    </div>
+                    <div id="agentPackageProgressText" class="hidden text-[10px] font-black text-slate-400 uppercase tracking-widest">0%</div>
                     <button class="w-full py-3 rounded-xl bg-slate-900 text-white text-[10px] font-black uppercase hover:bg-slate-800 transition-all">Upload Package</button>
                 </form>
+                {% else %}
+                <div class="p-4 rounded-2xl bg-slate-50 border border-slate-200 text-xs font-bold text-slate-500">Package upload is available only for superadmins.</div>
                 {% endif %}
                 <div id="agentPackageList" class="space-y-2 max-h-[260px] overflow-y-auto custom-scrollbar pr-1">
                     <div class="p-4 rounded-xl bg-slate-50 text-xs font-bold text-slate-400">No packages loaded.</div>

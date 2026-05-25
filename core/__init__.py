@@ -14,6 +14,7 @@ from flask_socketio import SocketIO
 from flask_limiter import Limiter
 from flask_limiter.util import get_remote_address
 from sqlalchemy import inspect, text
+from werkzeug.exceptions import RequestEntityTooLarge
 
 from apscheduler.schedulers.background import BackgroundScheduler
 from apscheduler.triggers.cron import CronTrigger
@@ -533,6 +534,13 @@ def create_app():
     global_app.permanent_session_lifetime = timedelta(seconds=session_lifetime)
 
     validate_rate_limit_storage()
+
+    @global_app.errorhandler(RequestEntityTooLarge)
+    def handle_request_too_large(error):
+        return jsonify({
+            "success": False,
+            "message": f"Upload is too large. Current server limit is {Config.AGENT_PACKAGE_MAX_UPLOAD_MB} MB."
+        }), 413
 
     db.init_app(global_app)
     socketio.init_app(global_app)

@@ -1431,20 +1431,43 @@ async function uploadAgentPackage(event) {
     const form = document.getElementById('agentPackageForm');
     if (!form) return;
     const formData = new FormData(form);
-    try {
-        const res = await fetch('/api/infrastructure/agent-packages', { method: 'POST', body: formData });
-        const text = await res.text();
+    const progressWrap = document.getElementById('agentPackageProgressWrap');
+    const progressBar = document.getElementById('agentPackageProgressBar');
+    const progressText = document.getElementById('agentPackageProgressText');
+    if (progressWrap) progressWrap.classList.remove('hidden');
+    if (progressText) progressText.classList.remove('hidden');
+    if (progressBar) progressBar.style.width = '0%';
+    if (progressText) progressText.innerText = '0%';
+
+    const xhr = new XMLHttpRequest();
+    xhr.open('POST', '/api/infrastructure/agent-packages');
+    xhr.upload.onprogress = (event) => {
+        if (!event.lengthComputable) return;
+        const pct = Math.max(0, Math.min(100, Math.round((event.loaded / event.total) * 100)));
+        if (progressBar) progressBar.style.width = pct + '%';
+        if (progressText) progressText.innerText = pct + '%';
+    };
+    xhr.onload = async () => {
         let data = {};
-        try { data = text ? JSON.parse(text) : {}; } catch(e) { data = { message: text }; }
-        if (!res.ok || !data.success) {
-            const sizeHint = res.status === 413 ? ' File is too large for current server/nginx upload limit.' : '';
-            return alert((data.message || `Package upload failed with HTTP ${res.status}.`) + sizeHint);
+        try { data = xhr.responseText ? JSON.parse(xhr.responseText) : {}; } catch(e) { data = { message: xhr.responseText }; }
+        if (xhr.status < 200 || xhr.status >= 300 || !data.success) {
+            const sizeHint = xhr.status === 413 ? ' File is too large for current server/nginx upload limit.' : '';
+            alert((data.message || `Package upload failed with HTTP ${xhr.status}.`) + sizeHint);
+            return;
         }
+        if (progressBar) progressBar.style.width = '100%';
+        if (progressText) progressText.innerText = '100%';
         form.reset();
         await loadFleetCenter();
-    } catch(e) {
-        alert('Package upload failed: ' + (e.message || e));
-    }
+    };
+    xhr.onerror = () => alert('Package upload failed: network error.');
+    xhr.onloadend = () => {
+        setTimeout(() => {
+            if (progressWrap) progressWrap.classList.add('hidden');
+            if (progressText) progressText.classList.add('hidden');
+        }, 1200);
+    };
+    xhr.send(formData);
 }
 
 async function runFleetUpdate() {
