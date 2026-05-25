@@ -1380,6 +1380,7 @@ async function deleteTemplate(id) {
 
 let fleetCenterData = { hosts: [], packages: [] };
 let fleetSelectedHostIds = new Set();
+let fleetSortState = { key: 'hostname', direction: 'asc' };
 
 async function loadFleetCenter() {
     const body = document.getElementById('fleetHostsBody');
@@ -1422,9 +1423,38 @@ window.togglePackageRegistry = function togglePackageRegistry() {
     const opening = card.classList.contains('hidden');
     card.classList.toggle('hidden', !opening);
     if (button) button.innerText = opening ? 'Hide Package Registry' : 'Package Registry';
-    if (opening) {
-        requestAnimationFrame(() => card.scrollIntoView({ behavior: 'smooth', block: 'start' }));
+    document.body.classList.toggle('overflow-hidden', opening);
+};
+
+window.closePackageRegistry = function closePackageRegistry() {
+    const card = document.getElementById('packageRegistryCard');
+    const button = document.getElementById('packageRegistryToggleBtn');
+    if (card) card.classList.add('hidden');
+    if (button) button.innerText = 'Package Registry';
+    document.body.classList.remove('overflow-hidden');
+};
+
+function ipSortValue(value) {
+    const parts = String(value || '').split('.').map(part => Number(part));
+    if (parts.length !== 4 || parts.some(part => Number.isNaN(part))) return 0;
+    return (((parts[0] * 256) + parts[1]) * 256 + parts[2]) * 256 + parts[3];
+}
+
+function fleetSortValue(host, key) {
+    if (key === 'ip') return ipSortValue(host.ip);
+    if (key === 'health') return Number(host.health?.score || 0);
+    if (key === 'last_seen') return Date.parse(host.last_seen || '') || 0;
+    return String(host[key] || '').toLowerCase();
+}
+
+window.setFleetSort = function setFleetSort(key) {
+    if (fleetSortState.key === key) {
+        fleetSortState.direction = fleetSortState.direction === 'asc' ? 'desc' : 'asc';
+    } else {
+        fleetSortState = { key, direction: 'desc' };
+        if (key === 'hostname') fleetSortState.direction = 'asc';
     }
+    renderFleetCenter();
 };
 
 function renderFleetCenter() {
@@ -1448,6 +1478,13 @@ function renderFleetCenter() {
         else if (statusFilter === 'offline') matchStatus = !health.online;
         else if (statusFilter === 'warning') matchStatus = ['Warning', 'Critical'].includes(health.status);
         return matchSearch && matchGroup && matchStatus;
+    }).sort((a, b) => {
+        const av = fleetSortValue(a, fleetSortState.key);
+        const bv = fleetSortValue(b, fleetSortState.key);
+        const result = typeof av === 'number' && typeof bv === 'number'
+            ? av - bv
+            : String(av).localeCompare(String(bv), undefined, { numeric: true, sensitivity: 'base' });
+        return fleetSortState.direction === 'asc' ? result : -result;
     });
 
     body.innerHTML = hosts.map(host => {
