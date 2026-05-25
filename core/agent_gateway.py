@@ -82,6 +82,24 @@ def agent_identity_fingerprint(hw_id, hostname, os_type, network_interfaces):
     return hashlib.sha256(source.encode("utf-8")).hexdigest()
 
 
+def find_approved_duplicate_endpoint(hw_id, hostname, source_ip, fingerprint):
+    approved = Endpoint.query.filter(
+        Endpoint.id != hw_id,
+        Endpoint.approval_status == "Approved"
+    ).all()
+    for endpoint in approved:
+        reasons = []
+        if hostname and endpoint.hostname and hostname == endpoint.hostname:
+            reasons.append("hostname")
+        if source_ip and endpoint.ip_address and source_ip == endpoint.ip_address:
+            reasons.append("connection_ip")
+        if fingerprint and getattr(endpoint, "identity_fingerprint", None) == fingerprint:
+            reasons.append("identity")
+        if "identity" in reasons or ("hostname" in reasons and "connection_ip" in reasons):
+            return endpoint, reasons
+    return None, []
+
+
 def trim_result_log(value):
     text = str(value or "")
     max_bytes = max(4096, int(getattr(Config, "AGENT_MAX_RESULT_LOG_BYTES", 262144)))
@@ -169,6 +187,7 @@ def enroll_agent():
     
     if not hw_id: return jsonify({"error": "Missing Hardware ID"}), 400
     fingerprint = agent_identity_fingerprint(hw_id, hostname, os_type, network_interfaces)
+    duplicate_endpoint, duplicate_reasons = find_approved_duplicate_endpoint(hw_id, hostname, source_ip, fingerprint)
     
     agent = Endpoint.query.get(hw_id)
     if agent and agent.is_blocked: 
@@ -181,7 +200,7 @@ def enroll_agent():
     if not agent:
         agent = Endpoint(id=hw_id, hostname=hostname, auth_token=raw_token, 
                          os_version=data.get('os_version'), os_type=os_type, ip_address=source_ip)
-        agent.approval_status = "Pending"
+        agent.approval_status = "Rejected" if duplicate_endpoint else "Pending"
         agent.first_seen = datetime.utcnow()
         agent.last_enrollment_at = datetime.utcnow()
         agent.last_enrollment_ip = source_ip
@@ -190,8 +209,19 @@ def enroll_agent():
         agent.agent_version = agent_version
         agent.network_info = network_info
         agent.host_info = host_info
+        if duplicate_endpoint:
+            agent.identity_warning = (
+                "Possible duplicate of approved endpoint "
+                f"{duplicate_endpoint.hostname or duplicate_endpoint.id} "
+                f"({duplicate_endpoint.id}); matched: {', '.join(duplicate_reasons)}"
+            )
         db.session.add(agent)
-        db.session.add(RegistrationHistory(hw_id=hw_id, hostname=hostname, ip_address=source_ip, event_type="Pending Approval"))
+        db.session.add(RegistrationHistory(
+            hw_id=hw_id,
+            hostname=hostname,
+            ip_address=source_ip,
+            event_type="Rejected Duplicate" if duplicate_endpoint else "Pending Approval"
+        ))
     else:
         previous_fingerprint = getattr(agent, "identity_fingerprint", None)
         agent.hostname = hostname
@@ -210,6 +240,13 @@ def enroll_agent():
             agent.identity_fingerprint = fingerprint
         elif previous_fingerprint != fingerprint:
             agent.identity_warning = "Enrollment identity changed. Review hostname, IP and network interfaces before approval."
+        if duplicate_endpoint and getattr(agent, "approval_status", "Pending") != "Approved":
+            agent.approval_status = "Rejected"
+            agent.identity_warning = (
+                "Possible duplicate of approved endpoint "
+                f"{duplicate_endpoint.hostname or duplicate_endpoint.id} "
+                f"({duplicate_endpoint.id}); matched: {', '.join(duplicate_reasons)}"
+            )
         if not getattr(agent, "approval_status", None):
             agent.approval_status = "Approved"
         db.session.add(RegistrationHistory(hw_id=hw_id, hostname=hostname, ip_address=source_ip, event_type="Re-enrolled"))
