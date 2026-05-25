@@ -1433,12 +1433,17 @@ async function uploadAgentPackage(event) {
     const formData = new FormData(form);
     try {
         const res = await fetch('/api/infrastructure/agent-packages', { method: 'POST', body: formData });
-        const data = await res.json();
-        if (!res.ok || !data.success) return alert(data.message || 'Package upload failed.');
+        const text = await res.text();
+        let data = {};
+        try { data = text ? JSON.parse(text) : {}; } catch(e) { data = { message: text }; }
+        if (!res.ok || !data.success) {
+            const sizeHint = res.status === 413 ? ' File is too large for current server/nginx upload limit.' : '';
+            return alert((data.message || `Package upload failed with HTTP ${res.status}.`) + sizeHint);
+        }
         form.reset();
         await loadFleetCenter();
     } catch(e) {
-        alert('Package upload failed.');
+        alert('Package upload failed: ' + (e.message || e));
     }
 }
 

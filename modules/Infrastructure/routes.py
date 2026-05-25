@@ -1153,48 +1153,53 @@ def agent_packages():
 
     denied = require_permission("manage_templates")
     if denied: return denied
-    upload = request.files.get("file")
-    version = str(request.form.get("version") or "").strip()
-    if not upload or not upload.filename:
-        return jsonify({"success": False, "message": "Package file is required"}), 400
-    if not version:
-        return jsonify({"success": False, "message": "Version is required"}), 400
+    try:
+        upload = request.files.get("file")
+        version = str(request.form.get("version") or "").strip()
+        if not upload or not upload.filename:
+            return jsonify({"success": False, "message": "Package file is required"}), 400
+        if not version:
+            return jsonify({"success": False, "message": "Version is required"}), 400
 
-    os.makedirs(AGENT_PACKAGES_DIR, exist_ok=True)
-    package_id = str(uuid.uuid4())
-    base_name = secure_filename(upload.filename) or f"WinHUBAgent-{version}.zip"
-    filename = f"{package_id}_{base_name}"
-    path = os.path.join(AGENT_PACKAGES_DIR, filename)
+        os.makedirs(AGENT_PACKAGES_DIR, exist_ok=True)
+        package_id = str(uuid.uuid4())
+        base_name = secure_filename(upload.filename) or f"WinHUBAgent-{version}.zip"
+        filename = f"{package_id}_{base_name}"
+        path = os.path.join(AGENT_PACKAGES_DIR, filename)
 
-    sha256 = hashlib.sha256()
-    size = 0
-    with open(path, "wb") as f:
-        while True:
-            chunk = upload.stream.read(1024 * 1024)
-            if not chunk:
-                break
-            sha256.update(chunk)
-            size += len(chunk)
-            f.write(chunk)
+        sha256 = hashlib.sha256()
+        size = 0
+        with open(path, "wb") as f:
+            while True:
+                chunk = upload.stream.read(1024 * 1024)
+                if not chunk:
+                    break
+                sha256.update(chunk)
+                size += len(chunk)
+                f.write(chunk)
 
-    packages = load_agent_packages()
-    record = {
-        "id": package_id,
-        "version": version,
-        "original_filename": base_name,
-        "filename": filename,
-        "sha256": sha256.hexdigest(),
-        "size": size,
-        "notes": str(request.form.get("notes") or "").strip(),
-        "uploaded_by": session.get("username"),
-        "uploaded_at": datetime.utcnow().isoformat() + "Z",
-    }
-    packages.insert(0, record)
-    save_agent_packages(packages[:50])
-    record["download_url"] = agent_package_public_url(package_id)
-    write_infra_audit("Agent Package Upload", "agent_package", package_id, {"version": version, "sha256": record["sha256"], "size": size})
-    db.session.commit()
-    return jsonify({"success": True, "package": record})
+        packages = load_agent_packages()
+        record = {
+            "id": package_id,
+            "version": version,
+            "original_filename": base_name,
+            "filename": filename,
+            "sha256": sha256.hexdigest(),
+            "size": size,
+            "notes": str(request.form.get("notes") or "").strip(),
+            "uploaded_by": session.get("username"),
+            "uploaded_at": datetime.utcnow().isoformat() + "Z",
+        }
+        packages.insert(0, record)
+        save_agent_packages(packages[:50])
+        record["download_url"] = agent_package_public_url(package_id)
+        write_infra_audit("Agent Package Upload", "agent_package", package_id, {"version": version, "sha256": record["sha256"], "size": size})
+        db.session.commit()
+        return jsonify({"success": True, "package": record})
+    except Exception as e:
+        db.session.rollback()
+        logging.getLogger("winhub").exception("Agent package upload failed")
+        return jsonify({"success": False, "message": f"Package upload failed: {e}"}), 500
 
 
 def create_agent_update_wave(host_ids, package, created_by, wave_index, wave_total):
