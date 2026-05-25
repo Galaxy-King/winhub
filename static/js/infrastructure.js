@@ -801,7 +801,7 @@ document.addEventListener('DOMContentLoaded', () => {
         
         const hostSearchEl = document.getElementById('hostSearch');
         if(hostSearchEl) hostSearchEl.addEventListener('input', applyHostFilters);
-        
+
         initPayloadEditor();
         restoreWorkspaceState();
         setGuideLanguage(guideLanguage);
@@ -831,7 +831,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
 function switchView(view, save=true) {
     if(save) localStorage.setItem(infraStateKeys.view, view);
-    ['hosts', 'groups', 'group-detail', 'queue', 'deploy', 'scheduler', 'triggers', 'reports'].forEach(v => {
+    ['hosts', 'fleet', 'groups', 'group-detail', 'queue', 'deploy', 'scheduler', 'triggers', 'reports'].forEach(v => {
         const el = document.getElementById('view-' + v);
         const nav = document.getElementById('nav-' + v);
         if (el) el.classList.add('hidden');
@@ -849,6 +849,7 @@ function switchView(view, save=true) {
         navBtn.classList.add('active', 'bg-white', 'text-indigo-600', 'shadow-sm', 'border-slate-200/50'); 
         navBtn.classList.remove('text-slate-500', 'border-transparent');
     }
+    if(view === 'fleet') loadFleetCenter();
     if(view === 'queue') loadQueue();
     if(view === 'reports') loadReports();
     if(view === 'deploy') refreshPayloadEditor();
@@ -1258,6 +1259,10 @@ function exportTemplates() {
     window.location.href = '/api/infrastructure/templates/export';
 }
 
+function exportTemplate(id) {
+    window.location.href = '/api/infrastructure/templates/' + encodeURIComponent(id) + '/export';
+}
+
 async function importTemplates(input) {
     const file = input?.files?.[0];
     if (!file) return;
@@ -1355,6 +1360,108 @@ async function deleteTemplate(id) {
     } catch(e) {
         alert("Error deleting template.");
     }
+}
+
+let fleetCenterData = { hosts: [], packages: [] };
+
+async function loadFleetCenter() {
+    const body = document.getElementById('fleetHostsBody');
+    if (!body) return;
+    try {
+        const res = await fetch('/api/infrastructure/fleet');
+        const data = await res.json();
+        if (!res.ok || !data.success) throw new Error(data.message || 'Fleet load failed');
+        fleetCenterData = data;
+        renderFleetCenter();
+    } catch(e) {
+        body.innerHTML = '<tr><td colspan="5" class="p-12 text-center text-rose-400 font-black">Failed to load fleet data.</td></tr>';
+    }
+}
+
+function renderFleetCenter() {
+    const body = document.getElementById('fleetHostsBody');
+    const packagesBox = document.getElementById('agentPackageList');
+    const packageSelect = document.getElementById('fleetPackageSelect');
+    if (!body) return;
+
+    body.innerHTML = (fleetCenterData.hosts || []).map(host => {
+        const health = host.health || {};
+        const healthClass = health.status === 'Healthy'
+            ? 'bg-emerald-50 text-emerald-700 border-emerald-100'
+            : (health.status === 'Warning' ? 'bg-amber-50 text-amber-700 border-amber-100' : 'bg-rose-50 text-rose-700 border-rose-100');
+        const versionClass = health.outdated ? 'bg-amber-50 text-amber-700 border-amber-100' : 'bg-slate-100 text-slate-600 border-slate-200';
+        return `<tr>
+            <td class="px-6 py-4">
+                <div class="font-black text-slate-800">${escapeHtml(host.hostname)}</div>
+                <div class="text-[10px] font-bold text-slate-400 uppercase mt-1">${escapeHtml(host.os || 'Windows')}</div>
+            </td>
+            <td class="px-6 py-4"><span class="px-3 py-1 rounded-xl border text-[10px] font-black uppercase ${versionClass}">${escapeHtml(host.agent_version || 'unknown')}</span></td>
+            <td class="px-6 py-4">
+                <span class="px-3 py-1 rounded-xl border text-[10px] font-black uppercase ${healthClass}">${health.score || 0}% ${escapeHtml(health.status || 'Unknown')}</span>
+                <div class="text-[10px] font-bold text-slate-400 mt-1">${(health.reasons || []).map(escapeHtml).join(', ') || 'ok'}</div>
+            </td>
+            <td class="px-6 py-4 font-bold text-slate-500">${escapeHtml(host.ip || '-')}</td>
+            <td class="px-6 py-4 text-right text-xs font-bold text-slate-400">${escapeHtml(host.last_seen || '-')}</td>
+        </tr>`;
+    }).join('') || '<tr><td colspan="5" class="p-12 text-center text-slate-300 font-black">No fleet hosts available.</td></tr>';
+
+    if (packagesBox) {
+        packagesBox.innerHTML = (fleetCenterData.packages || []).map(pkg => `
+            <div class="p-4 rounded-2xl border border-slate-200 bg-slate-50">
+                <div class="flex items-center justify-between gap-3">
+                    <div class="min-w-0">
+                        <div class="font-black text-slate-800 text-sm truncate">${escapeHtml(pkg.version)}</div>
+                        <div class="text-[10px] font-bold text-slate-400 uppercase mt-1">${Math.round((pkg.size || 0) / 1024 / 1024 * 10) / 10} MB</div>
+                    </div>
+                    <button onclick="navigator.clipboard.writeText('${escapeHtml(pkg.sha256)}')" class="px-3 py-1.5 rounded-xl bg-white border border-slate-200 text-[9px] font-black uppercase text-slate-500 hover:text-indigo-600">SHA</button>
+                </div>
+                <div class="mt-2 text-[10px] font-mono text-slate-500 break-all">${escapeHtml(pkg.sha256 || '')}</div>
+            </div>
+        `).join('') || '<div class="p-4 rounded-xl bg-slate-50 text-xs font-bold text-slate-400">No packages uploaded yet.</div>';
+    }
+    if (packageSelect) {
+        packageSelect.innerHTML = (fleetCenterData.packages || []).map(pkg =>
+            `<option value="${escapeHtml(pkg.id)}">${escapeHtml(pkg.version)} (${escapeHtml(pkg.original_filename || 'package')})</option>`
+        ).join('') || '<option value="">No packages available</option>';
+    }
+}
+
+async function uploadAgentPackage(event) {
+    event.preventDefault();
+    const form = document.getElementById('agentPackageForm');
+    if (!form) return;
+    const formData = new FormData(form);
+    try {
+        const res = await fetch('/api/infrastructure/agent-packages', { method: 'POST', body: formData });
+        const data = await res.json();
+        if (!res.ok || !data.success) return alert(data.message || 'Package upload failed.');
+        form.reset();
+        await loadFleetCenter();
+    } catch(e) {
+        alert('Package upload failed.');
+    }
+}
+
+async function runFleetUpdate() {
+    const packageId = document.getElementById('fleetPackageSelect')?.value;
+    if (!packageId) return alert('Upload or select an agent package first.');
+    if (!confirm('Start agent rollout with the selected package?')) return;
+    const payload = {
+        package_id: packageId,
+        target_mode: document.getElementById('fleetTargetMode')?.value || 'outdated',
+        group_id: document.getElementById('fleetGroupSelect')?.value || '',
+        wave_size: Number(document.getElementById('fleetWaveSize')?.value || 50),
+        wave_delay_seconds: Number(document.getElementById('fleetWaveDelay')?.value || 0)
+    };
+    const res = await fetch('/api/infrastructure/fleet/update', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify(payload)
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok || !data.success) return alert(data.message || 'Fleet update failed.');
+    alert(`Rollout queued for ${data.targets} hosts in ${data.waves} wave(s).`);
+    switchView('queue');
 }
 
 async function submitDeployment() {
@@ -1645,11 +1752,18 @@ function renderQueue() {
     tbody.innerHTML = filtered.map(j => {
         const statusStr = j.status || 'Pending';
         let cls = statusStr === 'Pending' ? 'bg-amber-100 text-amber-700' : (statusStr === 'Success' ? 'bg-emerald-100 text-emerald-700' : 'bg-rose-100 text-rose-700');
+        if (statusStr === 'Cancelled') cls = 'bg-slate-100 text-slate-500';
         if (j.error > 0 && j.success > 0) cls = 'bg-orange-100 text-orange-700';
-        
+
         let actionBtn = '';
-        if(infraPermissions.cleanup_tasks) {
-            actionBtn = `<td class="px-10 py-4 text-right"><button onclick="event.stopPropagation(); deleteJob('${j.job_id}')" class="p-3 bg-white border border-slate-200 text-slate-400 hover:text-rose-500 hover:bg-rose-50 rounded-2xl transition-colors shadow-sm"><svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" stroke-width="2.5"/></svg></button></td>`;
+        if(infraPermissions.cleanup_tasks || infraPermissions.run_tasks) {
+            actionBtn = `<td class="px-10 py-4 text-right">
+                <div class="flex justify-end gap-2">
+                    ${infraPermissions.run_tasks && j.error > 0 ? `<button onclick="event.stopPropagation(); retryFailedJob('${j.job_id}')" class="p-3 bg-white border border-slate-200 text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 rounded-2xl transition-colors shadow-sm" title="Retry failed hosts"><svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path d="M4 4v6h6M20 20v-6h-6M5 19A9 9 0 0119 5l1 1M19 5A9 9 0 005 19l-1-1" stroke-width="2.3" stroke-linecap="round" stroke-linejoin="round"/></svg></button>` : ''}
+                    ${infraPermissions.run_tasks && j.pending > 0 ? `<button onclick="event.stopPropagation(); cancelPendingJob('${j.job_id}')" class="p-3 bg-white border border-slate-200 text-slate-400 hover:text-amber-600 hover:bg-amber-50 rounded-2xl transition-colors shadow-sm" title="Cancel pending hosts"><svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path d="M10 10l4 4m0-4l-4 4M12 22a10 10 0 100-20 10 10 0 000 20z" stroke-width="2.3" stroke-linecap="round" stroke-linejoin="round"/></svg></button>` : ''}
+                    ${infraPermissions.cleanup_tasks ? `<button onclick="event.stopPropagation(); deleteJob('${j.job_id}')" class="p-3 bg-white border border-slate-200 text-slate-400 hover:text-rose-500 hover:bg-rose-50 rounded-2xl transition-colors shadow-sm" title="Delete job"><svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" stroke-width="2.5"/></svg></button>` : ''}
+                </div>
+            </td>`;
         }
         
         return `<tr class="hover:bg-slate-50/80 cursor-pointer transition-colors" onclick="viewJobDetails('${j.job_id}')">
@@ -2110,6 +2224,22 @@ async function setHostApproval(status) {
 }
 async function submitCreateGroup() { await fetch('/api/infrastructure/group', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({name: document.getElementById('cgName').value, description: document.getElementById('cgDesc').value}) }); location.reload(); }
 async function deleteJob(id) { if(confirm("Permanently delete this job and all its logs?")) { await fetch('/api/infrastructure/job/' + id, { method: 'DELETE' }); loadQueue(); } }
+
+async function retryFailedJob(id) {
+    if(!confirm("Retry failed hosts from this job?")) return;
+    const res = await fetch('/api/infrastructure/job/' + encodeURIComponent(id) + '/retry-failed', { method: 'POST' });
+    const data = await res.json().catch(() => ({}));
+    if(!res.ok || !data.success) return alert(data.message || 'Retry failed.');
+    loadQueue();
+}
+
+async function cancelPendingJob(id) {
+    if(!confirm("Cancel all hosts that are still pending in this job?")) return;
+    const res = await fetch('/api/infrastructure/job/' + encodeURIComponent(id) + '/cancel-pending', { method: 'POST' });
+    const data = await res.json().catch(() => ({}));
+    if(!res.ok || !data.success) return alert(data.message || 'Cancel failed.');
+    loadQueue();
+}
 
 async function openGroupFullView(id) {
     currentViewedGroupId = id;
