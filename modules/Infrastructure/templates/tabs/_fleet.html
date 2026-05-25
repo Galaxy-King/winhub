@@ -35,12 +35,12 @@
                             <th class="px-6 py-4 w-12">
                                 <input type="checkbox" onchange="toggleFleetSelectionAll(this)" class="w-4 h-4 rounded border-slate-300 text-indigo-600 focus:ring-indigo-500">
                             </th>
-                            <th class="px-6 py-4">Node</th>
-                            <th class="px-6 py-4">Agent</th>
-                            <th class="px-6 py-4">Health</th>
+                            <th class="px-6 py-4"><button onclick="setFleetSort('hostname')" class="fleet-sort-btn hover:text-indigo-600 transition-colors" data-sort="hostname">Node</button></th>
+                            <th class="px-6 py-4"><button onclick="setFleetSort('agent_version')" class="fleet-sort-btn hover:text-indigo-600 transition-colors" data-sort="agent_version">Agent</button></th>
+                            <th class="px-6 py-4"><button onclick="setFleetSort('health')" class="fleet-sort-btn hover:text-indigo-600 transition-colors" data-sort="health">Health</button></th>
                             <th class="px-6 py-4">Groups</th>
-                            <th class="px-6 py-4">Connection IP</th>
-                            <th class="px-6 py-4 text-right">Last Seen</th>
+                            <th class="px-6 py-4"><button onclick="setFleetSort('ip')" class="fleet-sort-btn hover:text-indigo-600 transition-colors" data-sort="ip">Connection IP</button></th>
+                            <th class="px-6 py-4 text-right"><button onclick="setFleetSort('last_seen')" class="fleet-sort-btn hover:text-indigo-600 transition-colors" data-sort="last_seen">Last Seen</button></th>
                             <th class="px-6 py-4 text-right">Action</th>
                         </tr>
                     </thead>
@@ -50,10 +50,16 @@
                 </table>
             </div>
         </div>
-        <div id="packageRegistryCard" class="hidden bg-white rounded-[2rem] border border-slate-200 shadow-sm p-6 space-y-4">
-                <div>
-                    <h3 class="text-sm font-black text-slate-800 uppercase">Package Registry</h3>
-                    <p class="text-xs font-bold text-slate-400 mt-1">Upload signed/tested agent ZIP packages.</p>
+        <div id="packageRegistryCard" class="hidden fixed inset-0 z-50 bg-slate-950/45 backdrop-blur-sm p-4 md:p-8 overflow-y-auto">
+            <div class="max-w-3xl mx-auto bg-white rounded-[2rem] border border-slate-200 shadow-2xl p-6 space-y-4">
+                <div class="flex items-start justify-between gap-4">
+                    <div>
+                        <h3 class="text-sm font-black text-slate-800 uppercase">Package Registry</h3>
+                        <p class="text-xs font-bold text-slate-400 mt-1">Upload signed/tested agent ZIP packages.</p>
+                    </div>
+                    <button onclick="closePackageRegistry()" class="p-2 rounded-xl bg-slate-50 border border-slate-200 text-slate-500 hover:text-rose-600 hover:bg-rose-50 transition-all" aria-label="Close Package Registry">
+                        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18" stroke-width="2.5" stroke-linecap="round"/></svg>
+                    </button>
                 </div>
                 {% if is_admin %}
                 <form id="agentPackageForm" class="space-y-3" onsubmit="uploadAgentPackage(event)">
@@ -73,6 +79,7 @@
                     <div class="p-4 rounded-xl bg-slate-50 text-xs font-bold text-slate-400">No packages loaded.</div>
                 </div>
             </div>
+        </div>
 
         <div class="grid grid-cols-1 xl:grid-cols-3 gap-6">
             <div class="xl:col-span-2 bg-white rounded-[2rem] border border-slate-200 shadow-sm p-6 space-y-4">
