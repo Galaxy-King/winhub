@@ -847,7 +847,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
 function switchView(view, save=true) {
     if(save) localStorage.setItem(infraStateKeys.view, view);
-    ['hosts', 'fleet', 'groups', 'group-detail', 'queue', 'deploy', 'scheduler', 'triggers', 'reports'].forEach(v => {
+    ['hosts', 'groups', 'group-detail', 'queue', 'deploy', 'scheduler', 'triggers', 'reports'].forEach(v => {
         const el = document.getElementById('view-' + v);
         const nav = document.getElementById('nav-' + v);
         if (el) el.classList.add('hidden');
@@ -865,7 +865,6 @@ function switchView(view, save=true) {
         navBtn.classList.add('active', 'bg-white', 'text-indigo-600', 'shadow-sm', 'border-slate-200/50');
         navBtn.classList.remove('text-slate-500', 'border-transparent');
     }
-    if(view === 'fleet') loadFleetCenter();
     if(view === 'queue') loadQueue();
     if(view === 'reports') loadReports();
     if(view === 'deploy') refreshPayloadEditor();
@@ -1640,19 +1639,29 @@ function switchHostTab(tab) {
 }
 
 function switchNodeTab(tab) {
-    const approved = document.getElementById('nodesApprovedPanel');
-    const pending = document.getElementById('nodesPendingPanel');
-    const approvedBtn = document.getElementById('nodeTab-approved');
-    const pendingBtn = document.getElementById('nodeTab-pending');
-    if (approved) approved.classList.toggle('hidden', tab !== 'approved');
-    if (pending) pending.classList.toggle('hidden', tab !== 'pending');
-    [approvedBtn, pendingBtn].forEach(btn => {
+    const panels = {
+        approved: document.getElementById('nodesApprovedPanel'),
+        pending: document.getElementById('nodesPendingPanel'),
+        rejected: document.getElementById('nodesRejectedPanel'),
+        updates: document.getElementById('nodesUpdatesPanel')
+    };
+    const buttons = {
+        approved: document.getElementById('nodeTab-approved'),
+        pending: document.getElementById('nodeTab-pending'),
+        rejected: document.getElementById('nodeTab-rejected'),
+        updates: document.getElementById('nodeTab-updates')
+    };
+    Object.entries(panels).forEach(([key, panel]) => {
+        if (panel) panel.classList.toggle('hidden', tab !== key);
+    });
+    Object.values(buttons).forEach(btn => {
         if (!btn) return;
         btn.className = "node-tab-btn px-5 py-2.5 rounded-xl text-xs font-black uppercase text-slate-500 hover:text-amber-700";
     });
-    const active = tab === 'pending' ? pendingBtn : approvedBtn;
+    const active = buttons[tab] || buttons.approved;
     if (active) active.className = "node-tab-btn px-5 py-2.5 rounded-xl text-xs font-black uppercase bg-slate-900 text-white shadow-sm";
     if (tab === 'pending') updatePendingApprovalCount();
+    if (tab === 'updates') loadFleetCenter();
 }
 
 function pendingApprovalSelection() {
@@ -2311,6 +2320,16 @@ async function setHostApprovalQuick(hostId, status) {
         headers: {'Content-Type': 'application/json'},
         body: JSON.stringify({status})
     });
+    location.reload();
+}
+async function deleteHostQuick(hostId) {
+    if (!confirm('Delete this rejected host permanently?')) return;
+    const res = await fetch('/api/infrastructure/host/' + hostId, { method: 'DELETE' });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok || data.success === false) {
+        alert(data.message || 'Failed to delete host.');
+        return;
+    }
     location.reload();
 }
 async function setHostApproval(status) {
