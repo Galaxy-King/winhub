@@ -1,0 +1,104 @@
+<!-- VIEW: SOFTWARE REGISTRY -->
+<section id="view-software" class="hidden space-y-6 animate-in fade-in duration-300">
+    <div class="wh-blue-panel p-6 rounded-[2rem] border border-slate-200 shadow-sm flex flex-col md:flex-row md:items-center justify-between gap-4">
+        <div>
+            <h3 class="text-lg font-black uppercase tracking-tight">Software Registry</h3>
+            <p class="text-xs font-bold mt-1">Packages, install recipes, detection rules and dispatch to nodes.</p>
+        </div>
+        <button onclick="loadSoftwareRegistry()" class="px-4 py-2.5 rounded-xl bg-white/15 hover:bg-white/25 text-white text-[10px] font-black uppercase border border-white/20 transition-all">Refresh</button>
+    </div>
+
+    <div class="grid grid-cols-1 xl:grid-cols-3 gap-6">
+        <div class="xl:col-span-2 bg-white rounded-[2rem] border border-slate-200 shadow-sm overflow-hidden">
+            <div class="p-5 border-b border-slate-200 bg-slate-50/70 flex flex-col md:flex-row md:items-center justify-between gap-3">
+                <div>
+                    <h4 class="text-sm font-black text-slate-800 uppercase">Package Library</h4>
+                    <p class="text-xs font-bold text-slate-400 mt-1">Search uploaded installers and recipes.</p>
+                </div>
+                <input id="softwareSearch" oninput="renderSoftwareRegistry()" placeholder="Search software, vendor, version..." class="w-full md:w-80 p-3 bg-white border border-slate-200 rounded-xl text-xs font-bold outline-none focus:ring-4 focus:ring-indigo-500/10">
+            </div>
+            <div id="softwarePackageList" class="p-4 grid grid-cols-1 lg:grid-cols-2 gap-3 min-h-[260px]">
+                <div class="p-6 rounded-2xl bg-slate-50 text-xs font-bold text-slate-400">Loading software registry...</div>
+            </div>
+        </div>
+
+        <div class="space-y-6">
+            {% if is_admin %}
+            <form id="softwarePackageForm" class="bg-white rounded-[2rem] border border-slate-200 shadow-sm p-6 space-y-3" onsubmit="uploadSoftwarePackage(event)">
+                <div>
+                    <h4 class="text-sm font-black text-slate-800 uppercase">Add Package</h4>
+                    <p class="text-xs font-bold text-slate-400 mt-1">Upload file or register external URL.</p>
+                </div>
+                <input name="name" placeholder="Name, e.g. 7-Zip" class="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl text-xs font-bold outline-none focus:ring-4 focus:ring-indigo-500/10">
+                <div class="grid grid-cols-2 gap-3">
+                    <input name="version" placeholder="Version" class="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl text-xs font-bold outline-none focus:ring-4 focus:ring-indigo-500/10">
+                    <input name="vendor" placeholder="Vendor" class="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl text-xs font-bold outline-none focus:ring-4 focus:ring-indigo-500/10">
+                </div>
+                <div class="grid grid-cols-2 gap-3">
+                    <select name="package_type" class="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl text-xs font-bold outline-none focus:ring-4 focus:ring-indigo-500/10">
+                        <option value="exe">EXE</option>
+                        <option value="msi">MSI</option>
+                        <option value="zip">ZIP</option>
+                        <option value="ps1">PS1</option>
+                        <option value="bat">BAT</option>
+                        <option value="custom">Custom</option>
+                    </select>
+                    <select name="architecture" class="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl text-xs font-bold outline-none focus:ring-4 focus:ring-indigo-500/10">
+                        <option value="any">Any arch</option>
+                        <option value="x64">x64</option>
+                        <option value="x86">x86</option>
+                        <option value="arm64">ARM64</option>
+                    </select>
+                </div>
+                <input name="external_url" placeholder="External URL instead of upload" class="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl text-xs font-bold outline-none focus:ring-4 focus:ring-indigo-500/10">
+                <input name="sha256" placeholder="SHA256 for external URL" class="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl text-xs font-mono font-bold outline-none focus:ring-4 focus:ring-indigo-500/10">
+                <input name="file" type="file" class="w-full text-xs font-bold text-slate-500">
+                <textarea name="install_command" placeholder='Install command, e.g. msiexec /i "{file}" /qn /norestart' class="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl text-xs font-mono font-bold outline-none focus:ring-4 focus:ring-indigo-500/10 min-h-[96px]"></textarea>
+                <div class="grid grid-cols-2 gap-3">
+                    <select name="detection_type" class="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl text-xs font-bold outline-none focus:ring-4 focus:ring-indigo-500/10">
+                        <option value="none">No detection</option>
+                        <option value="file_exists">File exists</option>
+                        <option value="folder_exists">Folder exists</option>
+                        <option value="registry_key_exists">Registry key exists</option>
+                        <option value="command">Command returns 0</option>
+                    </select>
+                    <input name="expected_exit_codes" value="0,3010" placeholder="Exit codes" class="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl text-xs font-bold outline-none focus:ring-4 focus:ring-indigo-500/10">
+                </div>
+                <textarea name="detection_value" placeholder="Detection value/path/command" class="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl text-xs font-mono font-bold outline-none focus:ring-4 focus:ring-indigo-500/10 min-h-[72px]"></textarea>
+                <textarea name="uninstall_command" placeholder="Optional uninstall command" class="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl text-xs font-mono font-bold outline-none focus:ring-4 focus:ring-indigo-500/10 min-h-[72px]"></textarea>
+                <textarea name="notes" placeholder="Notes..." class="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl text-xs font-bold outline-none focus:ring-4 focus:ring-indigo-500/10 min-h-[72px]"></textarea>
+                <div id="softwarePackageProgressWrap" class="hidden h-3 bg-slate-100 rounded-full overflow-hidden border border-slate-200">
+                    <div id="softwarePackageProgressBar" class="h-full bg-indigo-600 rounded-full transition-all" style="width: 0%"></div>
+                </div>
+                <div id="softwarePackageProgressText" class="hidden text-[10px] font-black text-slate-400 uppercase tracking-widest">0%</div>
+                <button class="w-full py-3 rounded-xl bg-slate-900 text-white text-[10px] font-black uppercase hover:bg-slate-800 transition-all">Save Package</button>
+            </form>
+            {% else %}
+            <div class="bg-white rounded-[2rem] border border-slate-200 shadow-sm p-6 text-xs font-bold text-slate-500">Software package upload is available only for superadmins.</div>
+            {% endif %}
+
+            <div class="bg-white rounded-[2rem] border border-slate-200 shadow-sm p-6 space-y-3">
+                <div>
+                    <h4 class="text-sm font-black text-slate-800 uppercase">Install Software</h4>
+                    <p class="text-xs font-bold text-slate-400 mt-1">Select package and target nodes.</p>
+                </div>
+                <select id="softwareInstallPackageSelect" class="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl text-xs font-bold outline-none focus:ring-4 focus:ring-indigo-500/10"></select>
+                <select id="softwareInstallTargetMode" onchange="renderSoftwareTargets()" class="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl text-xs font-bold outline-none focus:ring-4 focus:ring-indigo-500/10">
+                    <option value="selected">Checked nodes</option>
+                    <option value="group">Selected group</option>
+                </select>
+                <select id="softwareInstallGroupSelect" class="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl text-xs font-bold outline-none focus:ring-4 focus:ring-indigo-500/10">
+                    {% for g in groups %}
+                    <option value="{{ g.id }}">{{ g.name }}</option>
+                    {% endfor %}
+                </select>
+                <input id="softwareTargetSearch" oninput="renderSoftwareTargets()" placeholder="Search target nodes..." class="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl text-xs font-bold outline-none focus:ring-4 focus:ring-indigo-500/10">
+                <div class="p-3 bg-indigo-50 border border-indigo-100 rounded-xl text-[10px] font-black text-indigo-700 uppercase tracking-widest">
+                    <span id="softwareSelectedCount">0</span> checked nodes
+                </div>
+                <div id="softwareTargetsList" class="max-h-[260px] overflow-y-auto custom-scrollbar space-y-2 pr-1"></div>
+                <button onclick="runSoftwareInstall()" class="w-full py-3 rounded-xl bg-indigo-600 text-white text-[10px] font-black uppercase hover:bg-indigo-700 shadow-lg shadow-indigo-200 transition-all">Install Selected Package</button>
+            </div>
+        </div>
+    </div>
+</section>

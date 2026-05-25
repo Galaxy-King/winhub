@@ -123,6 +123,9 @@
                                 {% if permissions.run_tasks or permissions.manage_templates %}
                                 <button id="nav-deploy" onclick="switchView('deploy'); closeInfraMenus();" class="w-full text-left text-slate-500 hover:text-slate-700 px-4 py-3 rounded-xl font-black text-xs uppercase tracking-wider transition-all">Workspace</button>
                                 {% endif %}
+                                {% if permissions.run_tasks %}
+                                <button id="nav-software" onclick="switchView('software'); closeInfraMenus();" class="w-full text-left text-slate-500 hover:text-slate-700 px-4 py-3 rounded-xl font-black text-xs uppercase tracking-wider transition-all">Software Registry</button>
+                                {% endif %}
                                 {% if permissions.view_queue %}
                                 <button id="nav-queue" onclick="switchView('queue'); closeInfraMenus();" class="w-full text-left text-slate-500 hover:text-slate-700 px-4 py-3 rounded-xl font-black text-xs uppercase tracking-wider transition-all">Queue</button>
                                 {% endif %}
@@ -181,6 +184,9 @@
                     {% endif %}
                     {% if permissions.run_tasks or permissions.manage_templates %}
                         {% include "tabs/_deploy.html" %}
+                    {% endif %}
+                    {% if permissions.run_tasks %}
+                        {% include "tabs/_software.html" %}
                     {% endif %}
                     {% if permissions.view_queue %}
                         {% include "tabs/_queue.html" %}
@@ -261,7 +267,7 @@
 	    }
     
     /* Навігація */
-    #nav-hosts.active, #nav-groups.active, #nav-queue.active, #nav-deploy.active, #nav-scheduler.active, #nav-triggers.active, #nav-reports.active {
+    #nav-hosts.active, #nav-groups.active, #nav-queue.active, #nav-deploy.active, #nav-software.active, #nav-scheduler.active, #nav-triggers.active, #nav-reports.active {
         background: linear-gradient(135deg, #1554b7, #07152e) !important;
         color: white !important;
         box-shadow: 0 12px 24px rgba(15, 61, 138, 0.18);
