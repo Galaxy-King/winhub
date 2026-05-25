@@ -1484,6 +1484,13 @@ try {{
     if ([string]::IsNullOrWhiteSpace($FileName)) {{ $FileName = "package.bin" }}
     $PackageFile = Join-Path $WorkDir $FileName
     Write-Host "[WinHUB] Downloading $PackageUrl"
+    try {{
+        [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
+        if (-not [string]::IsNullOrWhiteSpace($ExpectedSha256)) {{
+            [System.Net.ServicePointManager]::ServerCertificateValidationCallback = {{ $true }}
+            Write-Host "[WinHUB] TLS certificate validation relaxed for this package download; SHA256 verification remains enforced."
+        }}
+    }} catch {{ }}
     Invoke-WebRequest -Uri $PackageUrl -OutFile $PackageFile -UseBasicParsing
 
     if (-not [string]::IsNullOrWhiteSpace($ExpectedSha256)) {{
