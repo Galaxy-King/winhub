@@ -868,6 +868,7 @@ function switchView(view, save=true) {
     if(view === 'queue') loadQueue();
     if(view === 'reports') loadReports();
     if(view === 'deploy') refreshPayloadEditor();
+    if(view === 'hosts') loadFleetCenter();
 }
 
 // --- MULTI-HOST SELECTION LOGIC ---
@@ -1451,7 +1452,7 @@ function renderFleetCenter() {
                 <input type="checkbox" value="${escapeHtml(host.id)}" ${checked} onchange="toggleFleetHostSelection('${escapeHtml(host.id)}', this.checked)" class="fleet-host-cb w-4 h-4 rounded border-slate-300 text-indigo-600 focus:ring-indigo-500">
             </td>
             <td class="px-6 py-4">
-                <div class="font-black text-slate-800">${escapeHtml(host.hostname)}</div>
+                <button onclick="viewHost('${escapeHtml(host.id)}')" class="font-black text-slate-800 hover:text-indigo-600 text-left">${escapeHtml(host.hostname)}</button>
                 <div class="text-[10px] font-bold text-slate-400 uppercase mt-1">${escapeHtml(host.os || 'Windows')}</div>
             </td>
             <td class="px-6 py-4"><span class="px-3 py-1 rounded-xl border text-[10px] font-black uppercase ${versionClass}">${escapeHtml(host.agent_version || 'unknown')}</span></td>
@@ -1643,13 +1644,11 @@ function switchNodeTab(tab) {
         approved: document.getElementById('nodesApprovedPanel'),
         pending: document.getElementById('nodesPendingPanel'),
         rejected: document.getElementById('nodesRejectedPanel'),
-        updates: document.getElementById('nodesUpdatesPanel')
     };
     const buttons = {
         approved: document.getElementById('nodeTab-approved'),
         pending: document.getElementById('nodeTab-pending'),
         rejected: document.getElementById('nodeTab-rejected'),
-        updates: document.getElementById('nodeTab-updates')
     };
     Object.entries(panels).forEach(([key, panel]) => {
         if (panel) panel.classList.toggle('hidden', tab !== key);
@@ -1661,7 +1660,7 @@ function switchNodeTab(tab) {
     const active = buttons[tab] || buttons.approved;
     if (active) active.className = "node-tab-btn px-5 py-2.5 rounded-xl text-xs font-black uppercase bg-slate-900 text-white shadow-sm";
     if (tab === 'pending') updatePendingApprovalCount();
-    if (tab === 'updates') loadFleetCenter();
+    if (tab === 'approved') loadFleetCenter();
 }
 
 function pendingApprovalSelection() {
