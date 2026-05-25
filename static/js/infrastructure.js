@@ -1379,6 +1379,7 @@ async function deleteTemplate(id) {
 }
 
 let fleetCenterData = { hosts: [], packages: [] };
+let fleetSelectedHostIds = new Set();
 
 async function loadFleetCenter() {
     const body = document.getElementById('fleetHostsBody');
@@ -1388,10 +1389,30 @@ async function loadFleetCenter() {
         const data = await res.json();
         if (!res.ok || !data.success) throw new Error(data.message || 'Fleet load failed');
         fleetCenterData = data;
+        const liveHostIds = new Set((fleetCenterData.hosts || []).map(host => host.id));
+        fleetSelectedHostIds = new Set(Array.from(fleetSelectedHostIds).filter(id => liveHostIds.has(id)));
         renderFleetCenter();
     } catch(e) {
-        body.innerHTML = '<tr><td colspan="7" class="p-12 text-center text-rose-400 font-black">Failed to load fleet data.</td></tr>';
+        body.innerHTML = '<tr><td colspan="8" class="p-12 text-center text-rose-400 font-black">Failed to load fleet data.</td></tr>';
     }
+}
+
+function updateFleetSelectedCount() {
+    const countEl = document.getElementById('fleetSelectedCount');
+    if (countEl) countEl.innerText = fleetSelectedHostIds.size;
+}
+
+function toggleFleetHostSelection(id, checked) {
+    if (checked) fleetSelectedHostIds.add(id);
+    else fleetSelectedHostIds.delete(id);
+    updateFleetSelectedCount();
+}
+
+function toggleFleetSelectionAll(checkbox) {
+    document.querySelectorAll('.fleet-host-cb').forEach(cb => {
+        cb.checked = checkbox.checked;
+        toggleFleetHostSelection(cb.value, cb.checked);
+    });
 }
 
 function renderFleetCenter() {
@@ -1424,15 +1445,20 @@ function renderFleetCenter() {
             : (health.status === 'Warning' ? 'bg-amber-50 text-amber-700 border-amber-100' : 'bg-rose-50 text-rose-700 border-rose-100');
         const versionClass = health.outdated ? 'bg-amber-50 text-amber-700 border-amber-100' : 'bg-slate-100 text-slate-600 border-slate-200';
         const groups = (host.groups || []).map(group => `<span class="px-2 py-1 rounded-lg bg-slate-100 text-slate-500 border border-slate-200 text-[9px] font-black uppercase">${escapeHtml(group.name)}</span>`).join('');
+        const healthReasons = (health.reasons || []).map(escapeHtml).join(', ') || 'online, current version, approved, unblocked';
+        const checked = fleetSelectedHostIds.has(host.id) ? 'checked' : '';
         return `<tr>
+            <td class="px-6 py-4">
+                <input type="checkbox" value="${escapeHtml(host.id)}" ${checked} onchange="toggleFleetHostSelection('${escapeHtml(host.id)}', this.checked)" class="fleet-host-cb w-4 h-4 rounded border-slate-300 text-indigo-600 focus:ring-indigo-500">
+            </td>
             <td class="px-6 py-4">
                 <div class="font-black text-slate-800">${escapeHtml(host.hostname)}</div>
                 <div class="text-[10px] font-bold text-slate-400 uppercase mt-1">${escapeHtml(host.os || 'Windows')}</div>
             </td>
             <td class="px-6 py-4"><span class="px-3 py-1 rounded-xl border text-[10px] font-black uppercase ${versionClass}">${escapeHtml(host.agent_version || 'unknown')}</span></td>
             <td class="px-6 py-4">
-                <span class="px-3 py-1 rounded-xl border text-[10px] font-black uppercase ${healthClass}">${health.score || 0}% ${escapeHtml(health.status || 'Unknown')}</span>
-                <div class="text-[10px] font-bold text-slate-400 mt-1">${(health.reasons || []).map(escapeHtml).join(', ') || 'ok'}</div>
+                <span title="${healthReasons}" class="px-3 py-1 rounded-xl border text-[10px] font-black uppercase ${healthClass}">${health.score || 0}% ${escapeHtml(health.status || 'Unknown')}</span>
+                <div class="text-[10px] font-bold text-slate-400 mt-1">${healthReasons}</div>
             </td>
             <td class="px-6 py-4"><div class="flex flex-wrap gap-1.5">${groups || '<span class="text-xs font-bold text-slate-300">No group</span>'}</div></td>
             <td class="px-6 py-4 font-bold text-slate-500">${escapeHtml(host.ip || '-')}</td>
@@ -1441,7 +1467,8 @@ function renderFleetCenter() {
                 <button onclick="runFleetUpdate('${escapeHtml(host.id)}')" class="px-3 py-2 rounded-xl bg-white border border-slate-200 text-[10px] font-black uppercase text-slate-500 hover:text-indigo-600 hover:bg-indigo-50 transition-all">Update</button>
             </td>
         </tr>`;
-    }).join('') || '<tr><td colspan="7" class="p-12 text-center text-slate-300 font-black">No fleet hosts match filters.</td></tr>';
+    }).join('') || '<tr><td colspan="8" class="p-12 text-center text-slate-300 font-black">No fleet hosts match filters.</td></tr>';
+    updateFleetSelectedCount();
 
     if (packagesBox) {
         packagesBox.innerHTML = (fleetCenterData.packages || []).map(pkg => `
@@ -1515,10 +1542,13 @@ async function runFleetUpdate(hostId=null) {
     const packageId = document.getElementById('fleetPackageSelect')?.value;
     if (!packageId) return alert('Upload or select an agent package first.');
     if (!confirm(hostId ? 'Update this single agent with the selected package?' : 'Start agent rollout with the selected package?')) return;
+    const mode = hostId ? 'selected' : (document.getElementById('fleetTargetMode')?.value || 'outdated');
+    const selectedIds = hostId ? [hostId] : Array.from(fleetSelectedHostIds);
+    if (mode === 'selected' && selectedIds.length === 0) return alert('Check at least one agent in Fleet first.');
     const payload = {
         package_id: packageId,
-        target_mode: hostId ? 'selected' : (document.getElementById('fleetTargetMode')?.value || 'outdated'),
-        target_ids: hostId ? [hostId] : [],
+        target_mode: mode,
+        target_ids: mode === 'selected' ? selectedIds : [],
         group_id: document.getElementById('fleetGroupSelect')?.value || '',
         wave_size: hostId ? 1 : Number(document.getElementById('fleetWaveSize')?.value || 50),
         wave_delay_seconds: Number(document.getElementById('fleetWaveDelay')?.value || 0)
