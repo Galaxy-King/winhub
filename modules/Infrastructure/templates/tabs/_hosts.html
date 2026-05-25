@@ -48,6 +48,7 @@
                     <th class="px-6 py-4">IP / OS</th>
                     <th class="px-6 py-4">Agent</th>
                     <th class="px-6 py-4">Enrollment</th>
+                    <th class="px-6 py-4">Identity / Duplicate</th>
                     <th class="px-6 py-4 text-right">Actions</th>
                 </tr>
             </thead>
@@ -70,6 +71,17 @@
                         <div class="font-black text-slate-700">{{ agent.enrollment_attempts or 0 }} attempts</div>
                         <div class="text-[10px] text-slate-400 font-bold mt-1">{{ agent.last_enrollment_at | string if agent.last_enrollment_at else '-' }}</div>
                     </td>
+                    <td class="px-6 py-4 text-xs">
+                        <div class="font-mono text-[10px] text-slate-500 break-all">{{ agent.identity_fingerprint or '-' }}</div>
+                        {% if agent.possible_duplicate %}
+                        <div class="mt-2 px-2 py-1 rounded-lg bg-rose-50 text-rose-700 border border-rose-100 font-black uppercase text-[9px]">Possible duplicate</div>
+                        {% for duplicate in agent.duplicate_matches %}
+                        <div class="mt-1 text-[10px] font-bold text-slate-500">{{ duplicate.hostname }} / {{ duplicate.agent_version }} / {{ duplicate.reasons|join(', ') }}</div>
+                        {% endfor %}
+                        {% else %}
+                        <div class="mt-2 text-[10px] font-bold text-slate-300">No approved duplicate</div>
+                        {% endif %}
+                    </td>
                     <td class="px-6 py-4">
                         <div class="flex justify-end gap-2">
                             <button onclick="viewHost('{{ agent.id }}')" class="px-3 py-2 bg-white text-slate-600 border border-slate-200 rounded-xl text-[10px] font-black uppercase hover:bg-slate-50">Review</button>
@@ -79,7 +91,7 @@
                     </td>
                 </tr>
                 {% else %}
-                <tr><td colspan="6" class="px-6 py-10 text-center text-slate-400 text-sm font-bold">No pending agents.</td></tr>
+                <tr><td colspan="7" class="px-6 py-10 text-center text-slate-400 text-sm font-bold">No pending agents.</td></tr>
                 {% endfor %}
             </tbody>
         </table>
@@ -103,6 +115,7 @@
                         <th class="px-6 py-4">IP / OS</th>
                         <th class="px-6 py-4">Agent</th>
                         <th class="px-6 py-4">Enrollment</th>
+                        <th class="px-6 py-4">Identity / Duplicate</th>
                         <th class="px-6 py-4 text-right">Actions</th>
                     </tr>
                 </thead>
@@ -122,6 +135,17 @@
                             <div class="font-black text-slate-700">{{ agent.enrollment_attempts or 0 }} attempts</div>
                             <div class="text-[10px] text-slate-400 font-bold mt-1">{{ agent.last_enrollment_at | string if agent.last_enrollment_at else '-' }}</div>
                         </td>
+                        <td class="px-6 py-4 text-xs">
+                            <div class="font-mono text-[10px] text-slate-500 break-all">{{ agent.identity_fingerprint or '-' }}</div>
+                            {% if agent.possible_duplicate %}
+                            <div class="mt-2 px-2 py-1 rounded-lg bg-rose-50 text-rose-700 border border-rose-100 font-black uppercase text-[9px]">Possible duplicate</div>
+                            {% for duplicate in agent.duplicate_matches %}
+                            <div class="mt-1 text-[10px] font-bold text-slate-500">{{ duplicate.hostname }} / {{ duplicate.agent_version }} / {{ duplicate.reasons|join(', ') }}</div>
+                            {% endfor %}
+                            {% else %}
+                            <div class="mt-2 text-[10px] font-bold text-slate-300">No approved duplicate</div>
+                            {% endif %}
+                        </td>
                         <td class="px-6 py-4">
                             <div class="flex justify-end gap-2">
                                 <button onclick="viewHost('{{ agent.id }}')" class="px-3 py-2 bg-white text-slate-600 border border-slate-200 rounded-xl text-[10px] font-black uppercase hover:bg-slate-50">Review</button>
@@ -132,7 +156,7 @@
                         </td>
                     </tr>
                     {% else %}
-                    <tr><td colspan="5" class="px-6 py-10 text-center text-slate-400 text-sm font-bold">No rejected hosts.</td></tr>
+                    <tr><td colspan="6" class="px-6 py-10 text-center text-slate-400 text-sm font-bold">No rejected hosts.</td></tr>
                     {% endfor %}
                 </tbody>
             </table>
