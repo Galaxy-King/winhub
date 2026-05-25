@@ -1441,6 +1441,9 @@ async function uploadAgentPackage(event) {
 
     const xhr = new XMLHttpRequest();
     xhr.open('POST', '/api/infrastructure/agent-packages');
+    const csrfToken = document.querySelector('meta[name="csrf-token"]')?.content;
+    if (csrfToken) xhr.setRequestHeader('X-CSRF-Token', csrfToken);
+    xhr.setRequestHeader('X-Requested-With', 'XMLHttpRequest');
     xhr.upload.onprogress = (event) => {
         if (!event.lengthComputable) return;
         const pct = Math.max(0, Math.min(100, Math.round((event.loaded / event.total) * 100)));
