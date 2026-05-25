@@ -1,17 +1,17 @@
 <!-- VIEW: REPORTS BUFFER -->
 <section id="view-reports" class="hidden animate-in fade-in duration-300 space-y-6">
-    <div class="flex flex-col md:flex-row justify-between items-center bg-white p-5 rounded-[2.5rem] border border-slate-200 shadow-sm gap-4">
+    <div class="wh-blue-panel flex flex-col md:flex-row justify-between items-center p-6 rounded-[2rem] border border-slate-200 shadow-sm gap-4">
         <div class="px-4">
-            <h2 class="text-xl font-black text-slate-800 tracking-tight">Reports</h2>
-            <p class="text-[10px] font-bold text-slate-400 uppercase tracking-widest mt-1">Aggregated results from multiple agents</p>
+            <h2 class="text-xl font-black tracking-tight">Reports</h2>
+            <p class="text-[10px] font-bold uppercase tracking-widest mt-1">Aggregated results from multiple agents</p>
         </div>
-        <button onclick="loadReports()" class="p-3 bg-slate-100 hover:bg-slate-200 rounded-xl text-slate-500 transition-colors">
+        <button onclick="loadReports()" class="p-3 bg-white/15 hover:bg-white/25 rounded-xl text-white border border-white/20 transition-colors">
             <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"></path></svg>
         </button>
     </div>
-    
+
     <!-- Переведено у вертикальний список (flex-col) -->
-    <div class="bg-white rounded-[3rem] border border-slate-200 shadow-sm p-3 flex flex-col gap-3" id="reportsList">
+    <div class="wh-soft-panel bg-white rounded-[3rem] border border-slate-200 shadow-sm p-3 flex flex-col gap-3" id="reportsList">
         <!-- Заповнюється через JS рядками -->
     </div>
 </section>

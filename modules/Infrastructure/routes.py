@@ -1255,7 +1255,12 @@ def fleet_center():
 
     latest_version = latest_agent_package_version()
     hosts = []
-    for endpoint in WinHubCore.get_allowed_hosts(session.get("user_id")):
+    allowed_hosts = [
+        endpoint for endpoint in WinHubCore.get_allowed_hosts(session.get("user_id"))
+        if getattr(endpoint, "approval_status", "Approved") == "Approved"
+    ]
+    allowed_hosts.sort(key=lambda endpoint: ((endpoint.hostname or endpoint.id or "").lower()))
+    for endpoint in allowed_hosts:
         health = endpoint_health_score(endpoint, latest_version)
         hosts.append({
             "id": endpoint.id,
