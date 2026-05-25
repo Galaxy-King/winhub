@@ -1485,13 +1485,63 @@ try {{
     $PackageFile = Join-Path $WorkDir $FileName
     Write-Host "[WinHUB] Downloading $PackageUrl"
     try {{
-        [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
+        [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12 -bor [Net.SecurityProtocolType]::Tls11 -bor [Net.SecurityProtocolType]::Tls
+        [Net.ServicePointManager]::Expect100Continue = $false
         if (-not [string]::IsNullOrWhiteSpace($ExpectedSha256)) {{
             [System.Net.ServicePointManager]::ServerCertificateValidationCallback = {{ $true }}
             Write-Host "[WinHUB] TLS certificate validation relaxed for this package download; SHA256 verification remains enforced."
         }}
     }} catch {{ }}
-    Invoke-WebRequest -Uri $PackageUrl -OutFile $PackageFile -UseBasicParsing
+
+    $Downloaded = $false
+    $DownloadErrors = New-Object System.Collections.Generic.List[string]
+
+    $Curl = Get-Command curl.exe -ErrorAction SilentlyContinue
+    if ($Curl) {{
+        try {{
+            Write-Host "[WinHUB] Download method: curl.exe"
+            $curlArgs = @("-L", "--fail", "--silent", "--show-error")
+            if (-not [string]::IsNullOrWhiteSpace($ExpectedSha256)) {{ $curlArgs += "-k" }}
+            $curlArgs += @("-o", $PackageFile, $PackageUrl)
+            $curlOutput = & $Curl.Source @curlArgs 2>&1
+            if ($LASTEXITCODE -eq 0 -and (Test-Path -LiteralPath $PackageFile)) {{
+                $Downloaded = $true
+            }} else {{
+                $DownloadErrors.Add("curl.exe exit $LASTEXITCODE $curlOutput")
+            }}
+        }} catch {{
+            $DownloadErrors.Add("curl.exe: $($_.Exception.Message)")
+        }}
+    }}
+
+    if (-not $Downloaded) {{
+        try {{
+            Write-Host "[WinHUB] Download method: WebClient"
+            $wc = New-Object System.Net.WebClient
+            $wc.DownloadFile($PackageUrl, $PackageFile)
+            if (Test-Path -LiteralPath $PackageFile) {{ $Downloaded = $true }}
+        }} catch {{
+            $inner = if ($_.Exception.InnerException) {{ $_.Exception.InnerException.Message }} else {{ "" }}
+            $DownloadErrors.Add("WebClient: $($_.Exception.Message) $inner")
+        }} finally {{
+            if ($wc) {{ $wc.Dispose() }}
+        }}
+    }}
+
+    if (-not $Downloaded) {{
+        try {{
+            Write-Host "[WinHUB] Download method: Invoke-WebRequest"
+            Invoke-WebRequest -Uri $PackageUrl -OutFile $PackageFile -UseBasicParsing
+            if (Test-Path -LiteralPath $PackageFile) {{ $Downloaded = $true }}
+        }} catch {{
+            $inner = if ($_.Exception.InnerException) {{ $_.Exception.InnerException.Message }} else {{ "" }}
+            $DownloadErrors.Add("Invoke-WebRequest: $($_.Exception.Message) $inner")
+        }}
+    }}
+
+    if (-not $Downloaded) {{
+        throw "Package download failed. $($DownloadErrors -join ' | ')"
+    }}
 
     if (-not [string]::IsNullOrWhiteSpace($ExpectedSha256)) {{
         $ActualSha256 = (Get-FileHash -Algorithm SHA256 -LiteralPath $PackageFile).Hash.ToLowerInvariant()
