@@ -105,7 +105,6 @@
                             <div id="infraMenuInfrastructure" class="infra-dropdown hidden absolute right-0 lg:left-0 lg:right-auto top-full mt-2 w-56 bg-white border border-slate-200 rounded-2xl shadow-xl p-2 z-30">
                                 {% if permissions.view_hosts %}
                                 <button id="nav-hosts" onclick="switchView('hosts'); closeInfraMenus();" class="active w-full text-left px-4 py-3 rounded-xl font-black text-xs uppercase tracking-wider transition-all bg-white text-indigo-600 shadow-sm border border-slate-200/50">Nodes</button>
-                                <button id="nav-fleet" onclick="switchView('fleet'); closeInfraMenus();" class="w-full text-left text-slate-500 hover:text-slate-700 px-4 py-3 rounded-xl font-black text-xs uppercase tracking-wider transition-all">Fleet</button>
                                 {% endif %}
                                 {% if permissions.view_groups %}
                                 <button id="nav-groups" onclick="switchView('groups'); closeInfraMenus();" class="w-full text-left text-slate-500 hover:text-slate-700 px-4 py-3 rounded-xl font-black text-xs uppercase tracking-wider transition-all">Groups</button>
@@ -176,7 +175,6 @@
                 <div class="relative">
                     {% if permissions.view_hosts %}
                         {% include "tabs/_hosts.html" %}
-                        {% include "tabs/_fleet.html" %}
                     {% endif %}
                     {% if permissions.view_groups %}
                         {% include "tabs/_groups.html" %}

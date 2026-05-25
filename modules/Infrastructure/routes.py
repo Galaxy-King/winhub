@@ -618,6 +618,10 @@ def index():
         a for a in agents
         if getattr(a, "approval_status", "Approved") == "Pending"
     ]
+    rejected_agents = [
+        a for a in agents
+        if getattr(a, "approval_status", "Approved") == "Rejected"
+    ]
         
     is_admin = session.get('is_admin')
     permissions = user_permissions(User.query.get(user_id), "Infrastructure")
@@ -670,6 +674,7 @@ def index():
                            template_categories=template_categories,
                            available_hosts=available_hosts,
                            pending_agents=pending_agents,
+                           rejected_agents=rejected_agents,
                            scheduled_tasks=scheduled_tasks, trigger_rules=trigger_rules, stats=stats,
                            username=session.get('username'), is_admin=is_admin, permissions=permissions)
 
