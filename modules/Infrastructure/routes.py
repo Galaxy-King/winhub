@@ -32,6 +32,8 @@ SMTP_FILE = os.path.join(Config.DATA_DIR, "infra_smtp_profiles.json")
 SECRETS_FILE = os.path.join(Config.DATA_DIR, "infra_template_secrets.json")
 AGENT_PACKAGES_FILE = os.path.join(Config.DATA_DIR, "infra_agent_packages.json")
 AGENT_PACKAGES_DIR = os.path.join(Config.DATA_DIR, "agent_packages")
+SOFTWARE_PACKAGES_FILE = os.path.join(Config.DATA_DIR, "infra_software_packages.json")
+SOFTWARE_PACKAGES_DIR = os.path.join(Config.DATA_DIR, "software_packages")
 
 # Глобальні змінні для фонового потоку автовідправки
 auto_thread_started = False
@@ -76,6 +78,31 @@ def agent_package_public_url(package_id):
 def latest_agent_package_version():
     packages = load_agent_packages()
     return packages[0].get("version", "") if packages else Config.LATEST_AGENT_VERSION
+
+def load_software_packages():
+    if not os.path.exists(SOFTWARE_PACKAGES_FILE):
+        return []
+    try:
+        with open(SOFTWARE_PACKAGES_FILE, "r", encoding="utf-8") as f:
+            data = json.load(f)
+            return data if isinstance(data, list) else []
+    except Exception:
+        logging.getLogger("winhub").exception("Failed to load software package registry")
+        return []
+
+def save_software_packages(packages):
+    os.makedirs(os.path.dirname(SOFTWARE_PACKAGES_FILE), exist_ok=True)
+    with open(SOFTWARE_PACKAGES_FILE, "w", encoding="utf-8") as f:
+        json.dump(packages, f, indent=2, ensure_ascii=False)
+
+def find_software_package(package_id):
+    for package in load_software_packages():
+        if package.get("id") == package_id:
+            return package
+    return None
+
+def software_package_public_url(package_id):
+    return url_for("infrastructure.download_software_package_public", package_id=package_id, _external=True)
 
 def to_kyiv_time(dt):
     if not dt: return "-"
@@ -589,7 +616,7 @@ def auto_email_checker_thread(app):
 @infrastructure_bp.before_request
 def check_access_and_start_thread():
     global auto_thread_started
-    if request.path.startswith("/api/public/agent-packages/"):
+    if request.path.startswith("/api/public/agent-packages/") or request.path.startswith("/api/public/software-packages/"):
         return None
     if not auto_thread_started:
         with auto_thread_lock:
@@ -1283,6 +1310,256 @@ def dispatch_agent_update_waves(app, waves, package_id, package_url, created_by,
             if index > 1 and delay_seconds > 0:
                 threading.Event().wait(delay_seconds)
             create_agent_update_wave(host_ids, package, created_by, index, total)
+
+
+@infrastructure_bp.route('/api/public/software-packages/<package_id>/download', methods=['GET'])
+def download_software_package_public(package_id):
+    package = find_software_package(package_id)
+    if not package:
+        return jsonify({"success": False, "message": "Software package not found"}), 404
+    filename = package.get("filename")
+    if not filename:
+        return jsonify({"success": False, "message": "Software package file missing"}), 404
+    return send_from_directory(SOFTWARE_PACKAGES_DIR, filename, as_attachment=True)
+
+
+def package_form_text(name, limit=4096):
+    return str(request.form.get(name) or "").strip()[:limit]
+
+
+@infrastructure_bp.route('/api/infrastructure/software-packages', methods=['GET', 'POST'])
+def software_packages():
+    if request.method == "GET":
+        denied = require_permission("run_tasks")
+        if denied: return denied
+        packages = load_software_packages()
+        for package in packages:
+            if package.get("filename"):
+                package["download_url"] = software_package_public_url(package["id"])
+        return jsonify({"success": True, "packages": packages})
+
+    denied = require_superadmin()
+    if denied: return denied
+    try:
+        upload = request.files.get("file")
+        external_url = package_form_text("external_url", 2048)
+        name = package_form_text("name", 160)
+        version = package_form_text("version", 80)
+        package_type = package_form_text("package_type", 32).lower() or "exe"
+        install_command = package_form_text("install_command", 12000)
+        if package_type not in ("msi", "exe", "zip", "ps1", "bat", "custom"):
+            return jsonify({"success": False, "message": "Unsupported package type"}), 400
+        if not name:
+            return jsonify({"success": False, "message": "Package name is required"}), 400
+        if not version:
+            return jsonify({"success": False, "message": "Version is required"}), 400
+        if not install_command:
+            return jsonify({"success": False, "message": "Install command is required"}), 400
+        if (not upload or not upload.filename) and not external_url:
+            return jsonify({"success": False, "message": "Upload a file or provide external URL"}), 400
+
+        package_id = str(uuid.uuid4())
+        filename = ""
+        original_filename = ""
+        sha256_value = package_form_text("sha256", 128).lower()
+        size = 0
+        if upload and upload.filename:
+            os.makedirs(SOFTWARE_PACKAGES_DIR, exist_ok=True)
+            original_filename = secure_filename(upload.filename) or f"{name}-{version}"
+            filename = f"{package_id}_{original_filename}"
+            path = os.path.join(SOFTWARE_PACKAGES_DIR, filename)
+            sha256 = hashlib.sha256()
+            with open(path, "wb") as f:
+                while True:
+                    chunk = upload.stream.read(1024 * 1024)
+                    if not chunk:
+                        break
+                    sha256.update(chunk)
+                    size += len(chunk)
+                    f.write(chunk)
+            sha256_value = sha256.hexdigest()
+        elif sha256_value and not re.fullmatch(r"[A-Fa-f0-9]{64}", sha256_value):
+            return jsonify({"success": False, "message": "External URL SHA256 must be 64 hex characters"}), 400
+
+        packages = load_software_packages()
+        record = {
+            "id": package_id,
+            "name": name,
+            "version": version,
+            "vendor": package_form_text("vendor", 160),
+            "package_type": package_type,
+            "architecture": package_form_text("architecture", 32) or "any",
+            "source": "upload" if filename else "external_url",
+            "external_url": external_url,
+            "original_filename": original_filename,
+            "filename": filename,
+            "sha256": sha256_value,
+            "size": size,
+            "install_command": install_command,
+            "uninstall_command": package_form_text("uninstall_command", 12000),
+            "detection_type": package_form_text("detection_type", 40) or "none",
+            "detection_value": package_form_text("detection_value", 4096),
+            "expected_exit_codes": package_form_text("expected_exit_codes", 120) or "0,3010",
+            "timeout_seconds": max(30, min(86400, int(request.form.get("timeout_seconds") or 1800))),
+            "notes": package_form_text("notes", 4096),
+            "uploaded_by": session.get("username"),
+            "uploaded_at": datetime.utcnow().isoformat() + "Z",
+        }
+        packages.insert(0, record)
+        save_software_packages(packages[:200])
+        if filename:
+            record["download_url"] = software_package_public_url(package_id)
+        write_infra_audit("Software Package Upload", "software_package", package_id, {"name": name, "version": version, "sha256": sha256_value, "size": size})
+        db.session.commit()
+        return jsonify({"success": True, "package": record})
+    except Exception as e:
+        db.session.rollback()
+        logging.getLogger("winhub").exception("Software package upload failed")
+        return jsonify({"success": False, "message": f"Software package upload failed: {e}"}), 500
+
+
+def ps_single(value):
+    return str(value or "").replace("'", "''")
+
+
+def build_software_install_script(package):
+    package_url = package.get("external_url") or software_package_public_url(package["id"])
+    placeholders = {
+        "{file}": "$PackageFile",
+        "{extract_dir}": "$ExtractDir",
+        "{package_dir}": "$WorkDir",
+        "{name}": package.get("name", ""),
+        "{version}": package.get("version", ""),
+    }
+    install_command = package.get("install_command") or ""
+    for token, value in placeholders.items():
+        install_command = install_command.replace(token, value)
+    expected_codes = [
+        int(item.strip())
+        for item in str(package.get("expected_exit_codes") or "0,3010").split(",")
+        if item.strip().lstrip("-").isdigit()
+    ] or [0, 3010]
+    return f"""$ErrorActionPreference = 'Stop'
+$ProgressPreference = 'SilentlyContinue'
+$PackageName = '{ps_single(package.get("name"))}'
+$PackageVersion = '{ps_single(package.get("version"))}'
+$PackageUrl = '{ps_single(package_url)}'
+$ExpectedSha256 = '{ps_single(package.get("sha256"))}'.ToLowerInvariant()
+$PackageType = '{ps_single(package.get("package_type"))}'.ToLowerInvariant()
+$DetectionType = '{ps_single(package.get("detection_type"))}'.ToLowerInvariant()
+$DetectionValue = @'
+{package.get("detection_value") or ""}
+'@.Trim()
+$InstallCommand = @'
+{install_command}
+'@.Trim()
+$ExpectedExitCodes = @({','.join(str(code) for code in expected_codes)})
+$WorkDir = Join-Path $env:ProgramData ("WinHUB\\software\\" + [guid]::NewGuid().ToString("N"))
+$ExtractDir = Join-Path $WorkDir "extracted"
+New-Item -ItemType Directory -Force -Path $WorkDir | Out-Null
+
+function Test-WinHUBDetection {{
+    param([string]$Type, [string]$Value)
+    if ([string]::IsNullOrWhiteSpace($Type) -or $Type -eq 'none') {{ return $false }}
+    if ($Type -eq 'file_exists') {{ return Test-Path -LiteralPath $Value -PathType Leaf }}
+    if ($Type -eq 'folder_exists') {{ return Test-Path -LiteralPath $Value -PathType Container }}
+    if ($Type -eq 'registry_key_exists') {{ return Test-Path -LiteralPath $Value }}
+    if ($Type -eq 'command') {{
+        try {{
+            Invoke-Expression $Value | Out-Host
+            return $LASTEXITCODE -eq 0
+        }} catch {{ return $false }}
+    }}
+    return $false
+}}
+
+try {{
+    Write-Host "[WinHUB] Installing $PackageName $PackageVersion"
+    if (Test-WinHUBDetection -Type $DetectionType -Value $DetectionValue) {{
+        Write-Host "[WinHUB] Detection rule already matches. Nothing to install."
+        exit 0
+    }}
+
+    $FileName = [IO.Path]::GetFileName(([Uri]$PackageUrl).AbsolutePath)
+    if ([string]::IsNullOrWhiteSpace($FileName)) {{ $FileName = "package.bin" }}
+    $PackageFile = Join-Path $WorkDir $FileName
+    Write-Host "[WinHUB] Downloading $PackageUrl"
+    Invoke-WebRequest -Uri $PackageUrl -OutFile $PackageFile -UseBasicParsing
+
+    if (-not [string]::IsNullOrWhiteSpace($ExpectedSha256)) {{
+        $ActualSha256 = (Get-FileHash -Algorithm SHA256 -LiteralPath $PackageFile).Hash.ToLowerInvariant()
+        if ($ActualSha256 -ne $ExpectedSha256) {{
+            throw "SHA256 mismatch. Expected $ExpectedSha256, got $ActualSha256"
+        }}
+        Write-Host "[WinHUB] SHA256 verified: $ActualSha256"
+    }}
+
+    if ($PackageType -eq 'zip') {{
+        New-Item -ItemType Directory -Force -Path $ExtractDir | Out-Null
+        Expand-Archive -LiteralPath $PackageFile -DestinationPath $ExtractDir -Force
+        Write-Host "[WinHUB] Extracted to $ExtractDir"
+    }}
+
+    if ([string]::IsNullOrWhiteSpace($InstallCommand)) {{ throw "Install command is empty." }}
+    Write-Host "[WinHUB] Running install command"
+    Invoke-Expression $InstallCommand
+    $ExitCode = if ($null -ne $LASTEXITCODE) {{ [int]$LASTEXITCODE }} else {{ 0 }}
+    Write-Host "[WinHUB] Installer exit code: $ExitCode"
+    if ($ExpectedExitCodes -notcontains $ExitCode) {{
+        throw "Installer returned unexpected exit code $ExitCode. Expected: $($ExpectedExitCodes -join ', ')"
+    }}
+
+    if ($DetectionType -ne 'none' -and -not (Test-WinHUBDetection -Type $DetectionType -Value $DetectionValue)) {{
+        throw "Installation command completed, but detection rule does not match."
+    }}
+    Write-Host "[WinHUB] Software installation completed."
+    exit 0
+}} catch {{
+    Write-Error $_.Exception.Message
+    exit 1
+}} finally {{
+    try {{ Remove-Item -LiteralPath $WorkDir -Recurse -Force -ErrorAction SilentlyContinue }} catch {{ }}
+}}
+"""
+
+
+@infrastructure_bp.route('/api/infrastructure/software/install', methods=['POST'])
+def run_software_install():
+    denied = require_permission("run_tasks")
+    if denied: return denied
+    data = request.get_json(force=True) or {}
+    package = find_software_package(str(data.get("package_id") or ""))
+    if not package:
+        return jsonify({"success": False, "message": "Software package not found"}), 404
+
+    allowed = [h for h in WinHubCore.get_allowed_hosts(session.get("user_id")) if getattr(h, "approval_status", "Approved") == "Approved"]
+    allowed_by_id = {h.id: h for h in allowed if WinHubCore.can_manage_host(session.get("user_id"), h.id)}
+    target_mode = str(data.get("target_mode") or "selected")
+    if target_mode == "group":
+        group = EndpointGroup.query.get(data.get("group_id"))
+        group_ids = {h.id for h in group.endpoints} if group else set()
+        target_ids = [host_id for host_id in allowed_by_id if host_id in group_ids]
+    else:
+        target_ids = [str(item) for item in (data.get("target_ids") or []) if str(item) in allowed_by_id]
+
+    target_ids = list(dict.fromkeys(target_ids))
+    if not target_ids:
+        return jsonify({"success": False, "message": "No eligible targets selected"}), 400
+
+    script = build_software_install_script(package)
+    payload = {"script": script}
+    title = f"Install Software: {package.get('name')} {package.get('version')}"
+    job_id, task_ids = dispatch_infrastructure_task(
+        session.get("user_id"),
+        "run_script",
+        target_ids,
+        payload,
+        title,
+        created_by=current_actor_label(),
+    )
+    write_infra_audit("Software Install Dispatch", "software_package", package["id"], {"targets": len(target_ids), "target_mode": target_mode})
+    db.session.commit()
+    return jsonify({"success": True, "job_id": job_id, "tasks": len(task_ids), "targets": len(target_ids)})
 
 
 @infrastructure_bp.route('/api/infrastructure/fleet', methods=['GET'])

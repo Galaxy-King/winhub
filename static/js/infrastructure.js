@@ -802,7 +802,7 @@ document.addEventListener('DOMContentLoaded', () => {
     try {
         if (!window.location.pathname.includes('/module/infrastructure')) return;
         
-        const defaultView = ['hosts', 'groups', 'queue', 'reports', 'deploy', 'scheduler', 'triggers']
+        const defaultView = ['hosts', 'groups', 'software', 'queue', 'reports', 'deploy', 'scheduler', 'triggers']
             .find(v => document.getElementById('view-' + v)) || 'hosts';
         const saved = localStorage.getItem(infraStateKeys.view) || defaultView;
         switchView(document.getElementById('view-' + saved) ? saved : defaultView, false);
@@ -847,7 +847,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
 function switchView(view, save=true) {
     if(save) localStorage.setItem(infraStateKeys.view, view);
-    ['hosts', 'groups', 'group-detail', 'queue', 'deploy', 'scheduler', 'triggers', 'reports'].forEach(v => {
+    ['hosts', 'groups', 'group-detail', 'software', 'queue', 'deploy', 'scheduler', 'triggers', 'reports'].forEach(v => {
         const el = document.getElementById('view-' + v);
         const nav = document.getElementById('nav-' + v);
         if (el) el.classList.add('hidden');
@@ -869,6 +869,7 @@ function switchView(view, save=true) {
     if(view === 'reports') loadReports();
     if(view === 'deploy') refreshPayloadEditor();
     if(view === 'hosts') loadFleetCenter();
+    if(view === 'software') loadSoftwareRegistry();
 }
 
 // --- MULTI-HOST SELECTION LOGIC ---
@@ -1381,6 +1382,8 @@ async function deleteTemplate(id) {
 let fleetCenterData = { hosts: [], packages: [] };
 let fleetSelectedHostIds = new Set();
 let fleetSortState = { key: 'hostname', direction: 'asc' };
+let softwareRegistryData = { packages: [] };
+let softwareSelectedHostIds = new Set();
 
 async function loadFleetCenter() {
     const body = document.getElementById('fleetHostsBody');
@@ -1610,6 +1613,169 @@ async function runFleetUpdate(hostId=null) {
     const data = await res.json().catch(() => ({}));
     if (!res.ok || !data.success) return alert(data.message || 'Fleet update failed.');
     alert(`Rollout queued for ${data.targets} hosts in ${data.waves} wave(s).`);
+    switchView('queue');
+}
+
+async function loadSoftwareRegistry() {
+    const list = document.getElementById('softwarePackageList');
+    if (!list) return;
+    try {
+        const res = await fetch('/api/infrastructure/software-packages');
+        const data = await res.json();
+        if (!res.ok || !data.success) throw new Error(data.message || 'Software registry load failed');
+        softwareRegistryData = data;
+        renderSoftwareRegistry();
+        renderSoftwareTargets();
+    } catch(e) {
+        list.innerHTML = '<div class="p-6 rounded-2xl bg-rose-50 text-xs font-bold text-rose-500">Failed to load software registry.</div>';
+    }
+}
+
+function softwarePackageLabel(pkg) {
+    return `${pkg.name || 'Software'} ${pkg.version || ''}`.trim();
+}
+
+function renderSoftwareRegistry() {
+    const list = document.getElementById('softwarePackageList');
+    const select = document.getElementById('softwareInstallPackageSelect');
+    if (!list) return;
+    const q = (document.getElementById('softwareSearch')?.value || '').trim().toLowerCase();
+    const packages = (softwareRegistryData.packages || []).filter(pkg => {
+        const haystack = [pkg.name, pkg.version, pkg.vendor, pkg.package_type, pkg.architecture, pkg.notes, pkg.original_filename].join(' ').toLowerCase();
+        return !q || haystack.includes(q);
+    });
+
+    list.innerHTML = packages.map(pkg => {
+        const sizeMb = Math.round((pkg.size || 0) / 1024 / 1024 * 10) / 10;
+        const source = pkg.source === 'external_url' ? 'External URL' : `${sizeMb} MB`;
+        const detection = pkg.detection_type && pkg.detection_type !== 'none'
+            ? `${pkg.detection_type}: ${pkg.detection_value || ''}`
+            : 'No detection rule';
+        return `<div class="p-4 rounded-2xl border border-slate-200 bg-slate-50 hover:bg-white hover:shadow-lg hover:shadow-blue-100/60 transition-all">
+            <div class="flex items-start justify-between gap-3">
+                <div class="min-w-0">
+                    <div class="font-black text-slate-800 text-sm truncate">${escapeHtml(softwarePackageLabel(pkg))}</div>
+                    <div class="text-[10px] font-black text-slate-400 uppercase mt-1">${escapeHtml(pkg.vendor || 'Unknown vendor')} / ${escapeHtml(pkg.package_type || 'custom')} / ${escapeHtml(pkg.architecture || 'any')}</div>
+                </div>
+                <span class="px-2 py-1 rounded-lg bg-white border border-slate-200 text-[9px] font-black uppercase text-slate-500">${escapeHtml(source)}</span>
+            </div>
+            <div class="mt-3 p-3 rounded-xl bg-slate-900 text-slate-100 text-[11px] font-mono whitespace-pre-wrap break-words">${escapeHtml(pkg.install_command || '')}</div>
+            <div class="mt-2 text-[10px] font-bold text-slate-500 break-words">${escapeHtml(detection)}</div>
+            <div class="mt-2 text-[10px] font-mono text-slate-400 break-all">${escapeHtml(pkg.sha256 || 'No SHA256')}</div>
+        </div>`;
+    }).join('') || '<div class="p-6 rounded-2xl bg-slate-50 text-xs font-bold text-slate-400">No software packages found.</div>';
+
+    if (select) {
+        select.innerHTML = (softwareRegistryData.packages || []).map(pkg =>
+            `<option value="${escapeHtml(pkg.id)}">${escapeHtml(softwarePackageLabel(pkg))}</option>`
+        ).join('') || '<option value="">No software packages available</option>';
+    }
+}
+
+function updateSoftwareSelectedCount() {
+    const countEl = document.getElementById('softwareSelectedCount');
+    if (countEl) countEl.innerText = softwareSelectedHostIds.size;
+}
+
+function toggleSoftwareTargetSelection(id, checked) {
+    if (checked) softwareSelectedHostIds.add(id);
+    else softwareSelectedHostIds.delete(id);
+    updateSoftwareSelectedCount();
+}
+
+function renderSoftwareTargets() {
+    const list = document.getElementById('softwareTargetsList');
+    if (!list) return;
+    const mode = document.getElementById('softwareInstallTargetMode')?.value || 'selected';
+    const groupSelect = document.getElementById('softwareInstallGroupSelect');
+    if (groupSelect) groupSelect.classList.toggle('hidden', mode !== 'group');
+    const q = (document.getElementById('softwareTargetSearch')?.value || '').trim().toLowerCase();
+    const hosts = (window.WinhubHosts || []).filter(host => {
+        if ((host.approval_status || 'Approved') !== 'Approved') return false;
+        const haystack = [host.name, host.ip, host.os_type, host.agent_version].join(' ').toLowerCase();
+        return !q || haystack.includes(q);
+    });
+    list.innerHTML = hosts.map(host => {
+        const checked = softwareSelectedHostIds.has(host.id) ? 'checked' : '';
+        return `<label class="flex items-center gap-3 p-3 rounded-xl border border-slate-200 bg-slate-50 hover:bg-white transition-all">
+            <input type="checkbox" value="${escapeHtml(host.id)}" ${checked} onchange="toggleSoftwareTargetSelection('${escapeHtml(host.id)}', this.checked)" class="w-4 h-4 rounded border-slate-300 text-indigo-600 focus:ring-indigo-500">
+            <span class="min-w-0 flex-1">
+                <span class="block text-xs font-black text-slate-700 truncate">${escapeHtml(host.name || host.id)}</span>
+                <span class="block text-[10px] font-bold text-slate-400 truncate">${escapeHtml(host.ip || '-')} / ${escapeHtml(host.os_type || 'Windows')} / ${escapeHtml(host.agent_version || 'unknown')}</span>
+            </span>
+        </label>`;
+    }).join('') || '<div class="p-4 rounded-xl bg-slate-50 text-xs font-bold text-slate-400">No target nodes found.</div>';
+    updateSoftwareSelectedCount();
+}
+
+async function uploadSoftwarePackage(event) {
+    event.preventDefault();
+    const form = document.getElementById('softwarePackageForm');
+    if (!form) return;
+    const formData = new FormData(form);
+    const progressWrap = document.getElementById('softwarePackageProgressWrap');
+    const progressBar = document.getElementById('softwarePackageProgressBar');
+    const progressText = document.getElementById('softwarePackageProgressText');
+    if (progressWrap) progressWrap.classList.remove('hidden');
+    if (progressText) progressText.classList.remove('hidden');
+    if (progressBar) progressBar.style.width = '0%';
+    if (progressText) progressText.innerText = '0%';
+
+    const xhr = new XMLHttpRequest();
+    xhr.open('POST', '/api/infrastructure/software-packages');
+    const csrfToken = document.querySelector('meta[name="csrf-token"]')?.content;
+    if (csrfToken) xhr.setRequestHeader('X-CSRF-Token', csrfToken);
+    xhr.setRequestHeader('X-Requested-With', 'XMLHttpRequest');
+    xhr.upload.onprogress = (event) => {
+        if (!event.lengthComputable) return;
+        const pct = Math.max(0, Math.min(100, Math.round((event.loaded / event.total) * 100)));
+        if (progressBar) progressBar.style.width = pct + '%';
+        if (progressText) progressText.innerText = pct + '%';
+    };
+    xhr.onload = async () => {
+        let data = {};
+        try { data = xhr.responseText ? JSON.parse(xhr.responseText) : {}; } catch(e) { data = { message: xhr.responseText }; }
+        if (xhr.status < 200 || xhr.status >= 300 || !data.success) {
+            const sizeHint = xhr.status === 413 ? ' File is too large for current server/nginx upload limit.' : '';
+            alert((data.message || `Software upload failed with HTTP ${xhr.status}.`) + sizeHint);
+            return;
+        }
+        if (progressBar) progressBar.style.width = '100%';
+        if (progressText) progressText.innerText = '100%';
+        form.reset();
+        await loadSoftwareRegistry();
+    };
+    xhr.onerror = () => alert('Software upload failed: network error.');
+    xhr.onloadend = () => {
+        setTimeout(() => {
+            if (progressWrap) progressWrap.classList.add('hidden');
+            if (progressText) progressText.classList.add('hidden');
+        }, 1200);
+    };
+    xhr.send(formData);
+}
+
+async function runSoftwareInstall() {
+    const packageId = document.getElementById('softwareInstallPackageSelect')?.value;
+    if (!packageId) return alert('Select a software package first.');
+    const mode = document.getElementById('softwareInstallTargetMode')?.value || 'selected';
+    const selectedIds = Array.from(softwareSelectedHostIds);
+    if (mode === 'selected' && selectedIds.length === 0) return alert('Check at least one node first.');
+    if (!confirm('Dispatch software installation to selected targets?')) return;
+    const payload = {
+        package_id: packageId,
+        target_mode: mode,
+        target_ids: mode === 'selected' ? selectedIds : [],
+        group_id: document.getElementById('softwareInstallGroupSelect')?.value || ''
+    };
+    const res = await fetch('/api/infrastructure/software/install', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify(payload)
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok || !data.success) return alert(data.message || 'Software install dispatch failed.');
+    alert(`Software install queued for ${data.targets} host(s).`);
     switchView('queue');
 }
 
