@@ -78,7 +78,10 @@
                                     {% endif %}
                                 </div>
 
-                                <button onclick="event.stopPropagation(); deleteTemplate('{{ t.id }}')" class="absolute top-2 right-2 opacity-0 group-hover:opacity-100 text-slate-300 hover:text-rose-500 transition-all {% if not permissions.manage_templates %}hidden{% endif %}">
+                                <button onclick="event.stopPropagation(); exportTemplate('{{ t.id }}')" class="absolute top-2 right-9 opacity-0 group-hover:opacity-100 text-slate-300 hover:text-indigo-500 transition-all {% if not permissions.manage_templates %}hidden{% endif %}" title="Export this template">
+                                    <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 3v12m0 0l-4-4m4 4l4-4M4 17v2a2 2 0 002 2h12a2 2 0 002-2v-2"></path></svg>
+                                </button>
+                                <button onclick="event.stopPropagation(); deleteTemplate('{{ t.id }}')" class="absolute top-2 right-2 opacity-0 group-hover:opacity-100 text-slate-300 hover:text-rose-500 transition-all {% if not permissions.manage_templates %}hidden{% endif %}" title="Delete template">
                                     <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 14l2-2m0 0l2-2m-2 2l-2-2m2 2l2 2m7-2a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>
                                 </button>
                             </div>

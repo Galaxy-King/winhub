@@ -102,6 +102,7 @@
                         <div id="infraNavScroller" class="flex items-center gap-4 bg-slate-50 p-2 px-11 rounded-2xl border border-slate-200/60 overflow-x-auto w-full lg:w-auto shadow-inner scroll-smooth">
                             {% if permissions.view_hosts %}
                             <button id="nav-hosts" onclick="switchView('hosts')" class="active px-6 py-2.5 rounded-xl font-black text-xs uppercase tracking-wider transition-all whitespace-nowrap bg-white text-indigo-600 shadow-sm border border-slate-200/50">Nodes</button>
+                            <button id="nav-fleet" onclick="switchView('fleet')" class="text-slate-500 hover:text-slate-700 px-6 py-2.5 rounded-xl font-black text-xs uppercase tracking-wider transition-all whitespace-nowrap">Fleet</button>
                             {% endif %}
                             {% if permissions.view_groups %}
                             <button id="nav-groups" onclick="switchView('groups')" class="text-slate-500 hover:text-slate-700 px-6 py-2.5 rounded-xl font-black text-xs uppercase tracking-wider transition-all whitespace-nowrap">Groups</button>
@@ -146,6 +147,7 @@
                 <div class="relative">
                     {% if permissions.view_hosts %}
                         {% include "tabs/_hosts.html" %}
+                        {% include "tabs/_fleet.html" %}
                     {% endif %}
                     {% if permissions.view_groups %}
                         {% include "tabs/_groups.html" %}

@@ -1,0 +1,72 @@
+<!-- VIEW: AGENT FLEET UPDATE CENTER -->
+<section id="view-fleet" class="hidden animate-in fade-in duration-300 space-y-6">
+    <div class="grid grid-cols-1 xl:grid-cols-3 gap-6">
+        <div class="xl:col-span-2 bg-white rounded-[2rem] border border-slate-200 shadow-sm overflow-hidden">
+            <div class="p-6 border-b border-slate-200 flex flex-col md:flex-row md:items-center justify-between gap-4 wh-blue-panel">
+                <div>
+                    <h3 class="text-lg font-black text-white uppercase tracking-tight">Agent Fleet Update Center</h3>
+                    <p class="text-xs font-bold text-white/70 mt-1">Health, versions and controlled rollout waves.</p>
+                </div>
+                <button onclick="loadFleetCenter()" class="px-4 py-2.5 rounded-xl bg-white/15 hover:bg-white/25 text-white text-[10px] font-black uppercase border border-white/20 transition-all">Refresh</button>
+            </div>
+            <div class="overflow-x-auto">
+                <table class="w-full text-left infra-separated-table min-w-[980px]">
+                    <thead>
+                        <tr class="text-[10px] text-slate-400 uppercase tracking-widest font-black">
+                            <th class="px-6 py-4">Node</th>
+                            <th class="px-6 py-4">Agent</th>
+                            <th class="px-6 py-4">Health</th>
+                            <th class="px-6 py-4">Connection IP</th>
+                            <th class="px-6 py-4 text-right">Last Seen</th>
+                        </tr>
+                    </thead>
+                    <tbody id="fleetHostsBody">
+                        <tr><td colspan="5" class="p-12 text-center text-slate-300 font-black">Loading fleet data...</td></tr>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+
+        <div class="space-y-6">
+            <div class="bg-white rounded-[2rem] border border-slate-200 shadow-sm p-6 space-y-4">
+                <div>
+                    <h3 class="text-sm font-black text-slate-800 uppercase">Package Registry</h3>
+                    <p class="text-xs font-bold text-slate-400 mt-1">Upload signed/tested agent ZIP packages.</p>
+                </div>
+                {% if permissions.manage_templates %}
+                <form id="agentPackageForm" class="space-y-3" onsubmit="uploadAgentPackage(event)">
+                    <input id="agentPackageVersion" name="version" placeholder="Version, e.g. 1.2.6" class="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl text-xs font-bold outline-none focus:ring-4 focus:ring-indigo-500/10">
+                    <textarea id="agentPackageNotes" name="notes" placeholder="Release notes..." class="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl text-xs font-bold outline-none focus:ring-4 focus:ring-indigo-500/10 min-h-[84px]"></textarea>
+                    <input id="agentPackageFile" name="file" type="file" accept=".zip" class="w-full text-xs font-bold text-slate-500">
+                    <button class="w-full py-3 rounded-xl bg-slate-900 text-white text-[10px] font-black uppercase hover:bg-slate-800 transition-all">Upload Package</button>
+                </form>
+                {% endif %}
+                <div id="agentPackageList" class="space-y-2 max-h-[260px] overflow-y-auto custom-scrollbar pr-1">
+                    <div class="p-4 rounded-xl bg-slate-50 text-xs font-bold text-slate-400">No packages loaded.</div>
+                </div>
+            </div>
+
+            <div class="bg-white rounded-[2rem] border border-slate-200 shadow-sm p-6 space-y-4">
+                <div>
+                    <h3 class="text-sm font-black text-slate-800 uppercase">Rollout Waves</h3>
+                    <p class="text-xs font-bold text-slate-400 mt-1">Start updates in controlled batches.</p>
+                </div>
+                <select id="fleetPackageSelect" class="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl text-xs font-bold outline-none focus:ring-4 focus:ring-indigo-500/10"></select>
+                <select id="fleetTargetMode" class="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl text-xs font-bold outline-none focus:ring-4 focus:ring-indigo-500/10">
+                    <option value="outdated">Only outdated agents</option>
+                    <option value="group">Selected group</option>
+                </select>
+                <select id="fleetGroupSelect" class="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl text-xs font-bold outline-none focus:ring-4 focus:ring-indigo-500/10">
+                    {% for g in groups %}
+                    <option value="{{ g.id }}">{{ g.name }}</option>
+                    {% endfor %}
+                </select>
+                <div class="grid grid-cols-2 gap-3">
+                    <input id="fleetWaveSize" type="number" min="1" value="50" class="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl text-xs font-bold outline-none focus:ring-4 focus:ring-indigo-500/10" title="Wave size">
+                    <input id="fleetWaveDelay" type="number" min="0" value="300" class="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl text-xs font-bold outline-none focus:ring-4 focus:ring-indigo-500/10" title="Delay between waves in seconds">
+                </div>
+                <button onclick="runFleetUpdate()" class="w-full py-3 rounded-xl bg-indigo-600 text-white text-[10px] font-black uppercase hover:bg-indigo-700 shadow-lg shadow-indigo-200 transition-all">Start Rollout</button>
+            </div>
+        </div>
+    </div>
+</section>

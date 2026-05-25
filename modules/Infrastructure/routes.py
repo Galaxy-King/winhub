@@ -1,6 +1,7 @@
 import os
 import json
 import uuid
+import hashlib
 import logging
 import threading
 import smtplib
@@ -12,10 +13,11 @@ from datetime import datetime, timedelta, timezone
 from email.mime.text import MIMEText
 from email.utils import parseaddr
 from zoneinfo import ZoneInfo
-from flask import Blueprint, request, jsonify, render_template, session, redirect, url_for, current_app, Response
-from sqlalchemy import func
+from flask import Blueprint, request, jsonify, render_template, session, redirect, url_for, current_app, Response, send_from_directory
+from sqlalchemy import func, or_
+from werkzeug.utils import secure_filename
 
-from core.database import db, User, Endpoint, EndpointGroup, AgentTask, TaskTemplate, TelemetryHistory, ScheduledTask, EndpointMetric, TriggerRule, AggregatedJob, ApiKey, RegistrationHistory
+from core.database import db, User, Endpoint, EndpointGroup, AgentTask, TaskTemplate, TelemetryHistory, ScheduledTask, EndpointMetric, TriggerRule, AggregatedJob, ApiKey, RegistrationHistory, AuditLog
 from core.sdk import WinHubCore
 from core.admin import send_notification_email
 from core.security import sec_manager
@@ -28,6 +30,8 @@ kyiv_tz = ZoneInfo("Europe/Kyiv")
 
 SMTP_FILE = os.path.join(Config.DATA_DIR, "infra_smtp_profiles.json")
 SECRETS_FILE = os.path.join(Config.DATA_DIR, "infra_template_secrets.json")
+AGENT_PACKAGES_FILE = os.path.join(Config.DATA_DIR, "infra_agent_packages.json")
+AGENT_PACKAGES_DIR = os.path.join(Config.DATA_DIR, "agent_packages")
 
 # Глобальні змінні для фонового потоку автовідправки
 auto_thread_started = False
@@ -43,6 +47,35 @@ def load_smtp_profiles():
 def save_smtp_profiles(data):
     with open(SMTP_FILE, 'w', encoding='utf-8') as f:
         json.dump(data, f, indent=4)
+
+def load_agent_packages():
+    if not os.path.exists(AGENT_PACKAGES_FILE):
+        return []
+    try:
+        with open(AGENT_PACKAGES_FILE, "r", encoding="utf-8") as f:
+            data = json.load(f)
+            return data if isinstance(data, list) else []
+    except Exception:
+        logging.getLogger("winhub").exception("Failed to load agent package registry")
+        return []
+
+def save_agent_packages(packages):
+    os.makedirs(os.path.dirname(AGENT_PACKAGES_FILE), exist_ok=True)
+    with open(AGENT_PACKAGES_FILE, "w", encoding="utf-8") as f:
+        json.dump(packages, f, indent=2, ensure_ascii=False)
+
+def find_agent_package(package_id):
+    for package in load_agent_packages():
+        if package.get("id") == package_id:
+            return package
+    return None
+
+def agent_package_public_url(package_id):
+    return url_for("infrastructure.download_agent_package_public", package_id=package_id, _external=True)
+
+def latest_agent_package_version():
+    packages = load_agent_packages()
+    return packages[0].get("version", "") if packages else Config.LATEST_AGENT_VERSION
 
 def to_kyiv_time(dt):
     if not dt: return "-"
@@ -233,6 +266,23 @@ def current_actor_label():
         return "API Key"
     return session.get("username") or "System"
 
+def write_infra_audit(action, target_type="", target_id="", details=None, status="Success"):
+    try:
+        db.session.add(AuditLog(
+            user=session.get("username") or "System",
+            actor_type="api_key" if session.get("api_key_auth") else "user",
+            actor_name=current_actor_label(),
+            module="Infrastructure",
+            action=action,
+            target_type=target_type,
+            target_id=str(target_id or ""),
+            ip_address=request.headers.get("X-Forwarded-For", request.remote_addr or ""),
+            details=json.dumps(details or {}, ensure_ascii=False),
+            status=status,
+        ))
+    except Exception:
+        logging.getLogger("winhub").exception("Failed to write Infrastructure audit")
+
 
 def dispatch_infrastructure_task(user_id, action_type, target_ids, payload, title, created_by=None):
     user = User.query.get(user_id)
@@ -276,6 +326,56 @@ def current_user():
 
 def can(permission_id):
     return has_permission(current_user(), "Infrastructure", permission_id)
+
+def endpoint_health_score(endpoint, latest_version=None):
+    now = datetime.utcnow()
+    latest_version = latest_version if latest_version is not None else latest_agent_package_version()
+    last_seen = endpoint.last_seen
+    if last_seen and getattr(last_seen, "tzinfo", None):
+        last_seen = last_seen.replace(tzinfo=None)
+    online = bool(last_seen and last_seen >= now - timedelta(minutes=5))
+    outdated = bool(latest_version and (getattr(endpoint, "agent_version", "") or "") != latest_version)
+
+    score = 100
+    reasons = []
+    if not online:
+        score -= 35
+        reasons.append("offline")
+    if outdated:
+        score -= 20
+        reasons.append("agent_outdated")
+    if getattr(endpoint, "is_blocked", False):
+        score -= 30
+        reasons.append("blocked")
+    if getattr(endpoint, "approval_status", "Approved") != "Approved":
+        score -= 25
+        reasons.append("not_approved")
+    if getattr(endpoint, "identity_warning", None):
+        score -= 15
+        reasons.append("identity_warning")
+
+    try:
+        host_info = json.loads(endpoint.host_info or "{}")
+        if host_info.get("pending_reboot") or host_info.get("pendingReboot"):
+            score -= 10
+            reasons.append("pending_reboot")
+    except Exception:
+        pass
+
+    score = max(0, min(100, score))
+    if score >= 80:
+        status = "Healthy"
+    elif score >= 50:
+        status = "Warning"
+    else:
+        status = "Critical"
+    return {
+        "score": score,
+        "status": status,
+        "reasons": reasons,
+        "online": online,
+        "outdated": outdated,
+    }
 
 def can_use_template(template):
     if session.get("is_admin"):
@@ -453,6 +553,8 @@ def auto_email_checker_thread(app):
 @infrastructure_bp.before_request
 def check_access_and_start_thread():
     global auto_thread_started
+    if request.path.startswith("/api/public/agent-packages/"):
+        return None
     if not auto_thread_started:
         with auto_thread_lock:
             if not auto_thread_started:
@@ -922,6 +1024,39 @@ def export_templates():
         headers={"Content-Disposition": f'attachment; filename="{filename}"'}
     )
 
+@infrastructure_bp.route('/api/infrastructure/templates/<tid>/export', methods=['GET'])
+def export_single_template(tid):
+    denied = require_permission("manage_templates")
+    if denied: return denied
+
+    t = TaskTemplate.query.get(tid)
+    if not t:
+        return jsonify({"success": False, "message": "Template not found"}), 404
+
+    payload = {
+        "format": "winhub-template-library",
+        "version": 1,
+        "exported_at": datetime.utcnow().isoformat() + "Z",
+        "templates": [{
+            "id": t.id,
+            "name": t.name,
+            "category": t.category,
+            "action_type": t.action_type,
+            "type": getattr(t, "type", "action"),
+            "payload": load_template_payload(t),
+            "is_approved": bool(t.is_approved),
+            "created_by": t.created_by,
+            "created_at": t.created_at.isoformat() + "Z" if t.created_at else None,
+        }]
+    }
+    safe_name = secure_filename(t.name or "template") or "template"
+    filename = f"winhub_template_{safe_name}_{datetime.utcnow().strftime('%Y%m%d_%H%M%S')}.json"
+    return Response(
+        json.dumps(payload, ensure_ascii=False, indent=2),
+        mimetype="application/json",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'}
+    )
+
 
 @infrastructure_bp.route('/api/infrastructure/templates/import', methods=['POST'])
 def import_templates():
@@ -986,11 +1121,213 @@ def import_templates():
                 imported += 1
 
         db.session.commit()
+        write_infra_audit("Template Import", "template", "bulk", {"imported": imported, "updated": updated})
+        db.session.commit()
         return jsonify({"success": True, "imported": imported, "updated": updated})
     except Exception as e:
         db.session.rollback()
         logging.getLogger("winhub").exception("Template import failed")
         return jsonify({"success": False, "message": f"Template import failed: {e}"}), 400
+
+
+@infrastructure_bp.route('/api/public/agent-packages/<package_id>/download', methods=['GET'])
+def download_agent_package_public(package_id):
+    package = find_agent_package(package_id)
+    if not package:
+        return jsonify({"success": False, "message": "Package not found"}), 404
+    filename = package.get("filename")
+    if not filename:
+        return jsonify({"success": False, "message": "Package file missing"}), 404
+    return send_from_directory(AGENT_PACKAGES_DIR, filename, as_attachment=True)
+
+
+@infrastructure_bp.route('/api/infrastructure/agent-packages', methods=['GET', 'POST'])
+def agent_packages():
+    if request.method == "GET":
+        denied = require_permission("view_hosts")
+        if denied: return denied
+        packages = load_agent_packages()
+        for package in packages:
+            package["download_url"] = agent_package_public_url(package["id"])
+        return jsonify({"success": True, "packages": packages})
+
+    denied = require_permission("manage_templates")
+    if denied: return denied
+    upload = request.files.get("file")
+    version = str(request.form.get("version") or "").strip()
+    if not upload or not upload.filename:
+        return jsonify({"success": False, "message": "Package file is required"}), 400
+    if not version:
+        return jsonify({"success": False, "message": "Version is required"}), 400
+
+    os.makedirs(AGENT_PACKAGES_DIR, exist_ok=True)
+    package_id = str(uuid.uuid4())
+    base_name = secure_filename(upload.filename) or f"WinHUBAgent-{version}.zip"
+    filename = f"{package_id}_{base_name}"
+    path = os.path.join(AGENT_PACKAGES_DIR, filename)
+
+    sha256 = hashlib.sha256()
+    size = 0
+    with open(path, "wb") as f:
+        while True:
+            chunk = upload.stream.read(1024 * 1024)
+            if not chunk:
+                break
+            sha256.update(chunk)
+            size += len(chunk)
+            f.write(chunk)
+
+    packages = load_agent_packages()
+    record = {
+        "id": package_id,
+        "version": version,
+        "original_filename": base_name,
+        "filename": filename,
+        "sha256": sha256.hexdigest(),
+        "size": size,
+        "notes": str(request.form.get("notes") or "").strip(),
+        "uploaded_by": session.get("username"),
+        "uploaded_at": datetime.utcnow().isoformat() + "Z",
+    }
+    packages.insert(0, record)
+    save_agent_packages(packages[:50])
+    record["download_url"] = agent_package_public_url(package_id)
+    write_infra_audit("Agent Package Upload", "agent_package", package_id, {"version": version, "sha256": record["sha256"], "size": size})
+    db.session.commit()
+    return jsonify({"success": True, "package": record})
+
+
+def create_agent_update_wave(host_ids, package, created_by, wave_index, wave_total):
+    job_id = str(uuid.uuid4())
+    payload = {
+        "package_url": package.get("download_url") or agent_package_public_url(package["id"]),
+        "package_sha256": package.get("sha256"),
+        "target_version": package.get("version"),
+    }
+    title = f"Agent Update {package.get('version')} - Wave {wave_index}/{wave_total}"
+    for host_id in host_ids:
+        db.session.add(AgentTask(
+            id=str(uuid.uuid4()),
+            job_id=job_id,
+            endpoint_id=host_id,
+            title=title,
+            module_source="Infrastructure",
+            action_type="agent_update",
+            payload=json.dumps(payload, ensure_ascii=False),
+            created_by=created_by,
+        ))
+    db.session.commit()
+    return job_id
+
+
+def dispatch_agent_update_waves(app, waves, package_id, package_url, created_by, delay_seconds):
+    with app.app_context():
+        package = find_agent_package(package_id)
+        if not package:
+            return
+        package["download_url"] = package_url
+        total = len(waves)
+        for index, host_ids in enumerate(waves, start=1):
+            if index > 1 and delay_seconds > 0:
+                threading.Event().wait(delay_seconds)
+            create_agent_update_wave(host_ids, package, created_by, index, total)
+
+
+@infrastructure_bp.route('/api/infrastructure/fleet', methods=['GET'])
+def fleet_center():
+    denied = require_permission("view_hosts")
+    if denied: return denied
+
+    latest_version = latest_agent_package_version()
+    hosts = []
+    for endpoint in WinHubCore.get_allowed_hosts(session.get("user_id")):
+        health = endpoint_health_score(endpoint, latest_version)
+        hosts.append({
+            "id": endpoint.id,
+            "hostname": endpoint.hostname or endpoint.id,
+            "ip": endpoint.ip_address or "",
+            "os": endpoint.os_version or getattr(endpoint, "os_type", "Windows"),
+            "agent_version": getattr(endpoint, "agent_version", "") or "",
+            "last_seen": to_kyiv_time_short(endpoint.last_seen),
+            "health": health,
+        })
+
+    packages = load_agent_packages()
+    for package in packages:
+        package["download_url"] = agent_package_public_url(package["id"])
+
+    return jsonify({
+        "success": True,
+        "latest_version": latest_version,
+        "hosts": hosts,
+        "packages": packages,
+    })
+
+
+@infrastructure_bp.route('/api/infrastructure/fleet/update', methods=['POST'])
+def run_fleet_update():
+    denied = require_permission("run_tasks")
+    if denied: return denied
+    data = request.get_json(force=True) or {}
+    package = find_agent_package(str(data.get("package_id") or ""))
+    if not package:
+        return jsonify({"success": False, "message": "Agent package not found"}), 404
+    package["download_url"] = agent_package_public_url(package["id"])
+
+    target_mode = str(data.get("target_mode") or "outdated")
+    allowed = [h for h in WinHubCore.get_allowed_hosts(session.get("user_id")) if getattr(h, "approval_status", "Approved") == "Approved"]
+    allowed_by_id = {h.id: h for h in allowed if WinHubCore.can_manage_host(session.get("user_id"), h.id)}
+    latest_version = package.get("version")
+
+    if target_mode == "selected":
+        target_ids = [str(item) for item in (data.get("target_ids") or []) if str(item) in allowed_by_id]
+    elif target_mode == "group":
+        group = EndpointGroup.query.get(data.get("group_id"))
+        group_ids = {h.id for h in group.endpoints} if group else set()
+        target_ids = [host_id for host_id in allowed_by_id if host_id in group_ids]
+    else:
+        target_ids = [
+            host_id for host_id, host in allowed_by_id.items()
+            if latest_version and (getattr(host, "agent_version", "") or "") != latest_version
+        ]
+
+    target_ids = list(dict.fromkeys(target_ids))
+    if not target_ids:
+        return jsonify({"success": False, "message": "No eligible targets selected"}), 400
+
+    wave_size = max(1, int(data.get("wave_size") or 50))
+    wave_delay_seconds = max(0, int(data.get("wave_delay_seconds") or 0))
+    waves = [target_ids[i:i + wave_size] for i in range(0, len(target_ids), wave_size)]
+    app = current_app._get_current_object()
+    created_by = current_actor_label()
+
+    if len(waves) == 1:
+        job_id = create_agent_update_wave(waves[0], package, created_by, 1, 1)
+    else:
+        job_id = "wave-dispatch"
+        threading.Thread(
+            target=dispatch_agent_update_waves,
+            args=(app, waves, package["id"], package["download_url"], created_by, wave_delay_seconds),
+            daemon=True,
+        ).start()
+
+    write_infra_audit("Fleet Agent Update", "agent_package", package["id"], {
+        "version": package.get("version"),
+        "targets": len(target_ids),
+        "waves": len(waves),
+        "wave_size": wave_size,
+        "wave_delay_seconds": wave_delay_seconds,
+        "target_mode": target_mode,
+    })
+    db.session.commit()
+    return jsonify({
+        "success": True,
+        "job_id": job_id,
+        "targets": len(target_ids),
+        "waves": len(waves),
+        "wave_size": wave_size,
+        "wave_delay_seconds": wave_delay_seconds,
+    })
 
 
 @infrastructure_bp.route('/api/infrastructure/templates', methods=['POST'])
@@ -1334,7 +1671,7 @@ def get_tasks():
     for t, hostname in tasks:
         jid = t.job_id or t.id
         if jid not in jobs:
-            jobs[jid] = {"job_id": jid, "title": t.title or "Untitled Task", "action": t.action_type, "created_at": to_kyiv_time(t.created_at), "created_by": t.created_by, "tasks": [], "total": 0, "success": 0, "error": 0, "pending": 0, "running": 0}
+            jobs[jid] = {"job_id": jid, "title": t.title or "Untitled Task", "action": t.action_type, "created_at": to_kyiv_time(t.created_at), "created_by": t.created_by, "tasks": [], "total": 0, "success": 0, "error": 0, "pending": 0, "running": 0, "cancelled": 0}
         jobs[jid]["tasks"].append({"task_id": t.id, "hostname": hostname, "status": t.status or "Pending"})
         jobs[jid]["total"] += 1
         
@@ -1342,6 +1679,7 @@ def get_tasks():
         if status_norm == "Success": jobs[jid]["success"] += 1
         elif status_norm == "Error": jobs[jid]["error"] += 1
         elif status_norm in ["Pending", "Pickedup"]: jobs[jid]["pending"] += 1
+        elif status_norm == "Cancelled": jobs[jid]["cancelled"] += 1
         else: jobs[jid]["running"] += 1
 
     result = []
@@ -1351,6 +1689,7 @@ def get_tasks():
             continue
         data["target_summary"] = data["tasks"][0]["hostname"] if data["total"] == 1 else f"Group Deployment ({data['total']} hosts)"
         if data["error"] > 0: data["status"] = "Error"
+        elif data["cancelled"] == data["total"]: data["status"] = "Cancelled"
         elif data["pending"] > 0 or data["running"] > 0: data["status"] = "Pending"
         else: data["status"] = "Success"
         result.append(data)
@@ -1381,6 +1720,52 @@ def delete_job(job_id):
     if denied: return denied
     AgentTask.query.filter_by(job_id=job_id).delete(synchronize_session=False); AgentTask.query.filter_by(id=job_id).delete(synchronize_session=False); db.session.commit()
     return jsonify({"success": True})
+
+@infrastructure_bp.route('/api/infrastructure/job/<job_id>/cancel-pending', methods=['POST'])
+def cancel_pending_job(job_id):
+    denied = require_permission("run_tasks")
+    if denied: return denied
+    if not can_access_report(job_id):
+        return jsonify({"success": False, "message": "Permission denied"}), 403
+    tasks = AgentTask.query.filter_by(job_id=job_id).filter(or_(AgentTask.status.is_(None), AgentTask.status == "Pending")).all()
+    for task in tasks:
+        if WinHubCore.can_manage_host(session.get("user_id"), task.endpoint_id):
+            task.status = "Cancelled"
+            task.result_log = "Cancelled before pickup."
+            task.finished_at = datetime.utcnow()
+    write_infra_audit("Cancel Pending Job Tasks", "job", job_id, {"cancelled": len(tasks)})
+    db.session.commit()
+    return jsonify({"success": True, "cancelled": len(tasks)})
+
+@infrastructure_bp.route('/api/infrastructure/job/<job_id>/retry-failed', methods=['POST'])
+def retry_failed_job(job_id):
+    denied = require_permission("run_tasks")
+    if denied: return denied
+    if not can_access_report(job_id):
+        return jsonify({"success": False, "message": "Permission denied"}), 403
+
+    failed_tasks = AgentTask.query.filter_by(job_id=job_id).filter(AgentTask.status.in_(["Error", "Cancelled"])).all()
+    new_job_id = str(uuid.uuid4())
+    created = 0
+    for task in failed_tasks:
+        if not WinHubCore.can_manage_host(session.get("user_id"), task.endpoint_id):
+            continue
+        db.session.add(AgentTask(
+            id=str(uuid.uuid4()),
+            job_id=new_job_id,
+            endpoint_id=task.endpoint_id,
+            title=f"[Retry] {task.title or 'Untitled Task'}",
+            module_source=task.module_source or "Infrastructure",
+            action_type=task.action_type,
+            payload=task.payload,
+            created_by=current_actor_label(),
+        ))
+        created += 1
+    if not created:
+        return jsonify({"success": False, "message": "No failed tasks available to retry"}), 400
+    write_infra_audit("Retry Failed Job Tasks", "job", job_id, {"new_job_id": new_job_id, "created": created})
+    db.session.commit()
+    return jsonify({"success": True, "job_id": new_job_id, "created": created})
 
 # ==========================================
 # API: GROUPS & HOSTS
