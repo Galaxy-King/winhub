@@ -391,6 +391,11 @@ def require_permission(permission_id):
         return jsonify({"success": False, "message": "Permission denied"}), 403
     return None
 
+def require_superadmin():
+    if not session.get("is_admin"):
+        return jsonify({"success": False, "message": "Superadmin access required"}), 403
+    return None
+
 # ==========================================
 # BACKGROUND AUTO-EMAIL THREAD
 # ==========================================
@@ -1026,7 +1031,7 @@ def export_templates():
 
 @infrastructure_bp.route('/api/infrastructure/templates/<tid>/export', methods=['GET'])
 def export_single_template(tid):
-    denied = require_permission("manage_templates")
+    denied = require_superadmin()
     if denied: return denied
 
     t = TaskTemplate.query.get(tid)
@@ -1151,7 +1156,7 @@ def agent_packages():
             package["download_url"] = agent_package_public_url(package["id"])
         return jsonify({"success": True, "packages": packages})
 
-    denied = require_permission("manage_templates")
+    denied = require_superadmin()
     if denied: return denied
     try:
         upload = request.files.get("file")
