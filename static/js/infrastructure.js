@@ -1415,6 +1415,11 @@ function toggleFleetSelectionAll(checkbox) {
     });
 }
 
+function togglePackageRegistry() {
+    const card = document.getElementById('packageRegistryCard');
+    if (card) card.classList.toggle('hidden');
+}
+
 function renderFleetCenter() {
     const body = document.getElementById('fleetHostsBody');
     const packagesBox = document.getElementById('agentPackageList');
@@ -1427,7 +1432,7 @@ function renderFleetCenter() {
     const hosts = (fleetCenterData.hosts || []).filter(host => {
         const health = host.health || {};
         const groupText = (host.groups || []).map(group => group.name).join(' ');
-        const haystack = [host.hostname, host.ip, host.os, host.agent_version, groupText, health.status, ...(health.reasons || [])].join(' ').toLowerCase();
+        const haystack = [host.hostname, host.ip, host.os, host.agent_version, host.identity_fingerprint, groupText, health.status, ...(health.reasons || [])].join(' ').toLowerCase();
         const matchSearch = !search || haystack.includes(search);
         const matchGroup = groupFilter === 'all' || (host.groups || []).some(group => String(group.id) === String(groupFilter));
         let matchStatus = true;

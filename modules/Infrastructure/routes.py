@@ -377,6 +377,37 @@ def endpoint_health_score(endpoint, latest_version=None):
         "outdated": outdated,
     }
 
+def annotate_endpoint_duplicates(agents):
+    approved = [
+        agent for agent in agents
+        if getattr(agent, "approval_status", "Approved") == "Approved"
+    ]
+    for agent in agents:
+        matches = []
+        for approved_agent in approved:
+            if approved_agent.id == agent.id:
+                continue
+            reasons = []
+            if agent.hostname and approved_agent.hostname and agent.hostname == approved_agent.hostname:
+                reasons.append("hostname")
+            if agent.ip_address and approved_agent.ip_address and agent.ip_address == approved_agent.ip_address:
+                reasons.append("connection_ip")
+            if (
+                getattr(agent, "identity_fingerprint", None)
+                and getattr(approved_agent, "identity_fingerprint", None)
+                and agent.identity_fingerprint == approved_agent.identity_fingerprint
+            ):
+                reasons.append("identity")
+            if reasons:
+                matches.append({
+                    "id": approved_agent.id,
+                    "hostname": approved_agent.hostname or approved_agent.id,
+                    "agent_version": getattr(approved_agent, "agent_version", "") or "unknown",
+                    "reasons": reasons,
+                })
+        agent.duplicate_matches = matches
+        agent.possible_duplicate = bool(matches)
+
 def can_use_template(template):
     if session.get("is_admin"):
         return True
@@ -603,6 +634,7 @@ def index():
         a.is_online = (a.last_seen and a.last_seen >= online_threshold)
         a.last_seen_str = to_kyiv_time(a.last_seen)
         a.agent_outdated = bool(Config.LATEST_AGENT_VERSION and (a.agent_version or "") != Config.LATEST_AGENT_VERSION)
+    annotate_endpoint_duplicates(agents)
 
     available_hosts = [{
         "id": a.id,
@@ -1273,6 +1305,7 @@ def fleet_center():
             "ip": endpoint.ip_address or "",
             "os": endpoint.os_version or getattr(endpoint, "os_type", "Windows"),
             "agent_version": getattr(endpoint, "agent_version", "") or "",
+            "identity_fingerprint": getattr(endpoint, "identity_fingerprint", "") or "",
             "last_seen": to_kyiv_time_short(endpoint.last_seen),
             "groups": [{"id": group.id, "name": group.name} for group in endpoint.groups],
             "health": health,
@@ -1816,7 +1849,8 @@ def host_operations(host_id):
         host_info = json.loads(agent.host_info or "{}")
     except Exception:
         host_info = {}
-    return jsonify({"success": True, "data": {"id": agent.id, "hostname": agent.hostname, "os": agent.os_version, "ip": agent.ip_address, "os_type": getattr(agent, 'os_type', 'Windows'), "last_seen": to_kyiv_time(agent.last_seen), "first_seen": to_kyiv_time(getattr(agent, "first_seen", None)), "last_enrollment_at": to_kyiv_time(getattr(agent, "last_enrollment_at", None)), "last_enrollment_ip": getattr(agent, "last_enrollment_ip", None), "enrollment_attempts": int(getattr(agent, "enrollment_attempts", 0) or 0), "identity_warning": getattr(agent, "identity_warning", None), "is_blocked": agent.is_blocked, "approval_status": getattr(agent, "approval_status", "Approved"), "agent_version": getattr(agent, "agent_version", None), "network_info": network_info, "host_info": host_info, "groups": [{"id": g.id, "name": g.name} for g in agent.groups], "history": [{"id": h.id, "title": h.title, "status": h.status or "Pending", "date": to_kyiv_time_short(h.created_at), "by": h.created_by} for h in history]}})
+    annotate_endpoint_duplicates(WinHubCore.get_allowed_hosts(session.get("user_id")))
+    return jsonify({"success": True, "data": {"id": agent.id, "hostname": agent.hostname, "os": agent.os_version, "ip": agent.ip_address, "os_type": getattr(agent, 'os_type', 'Windows'), "last_seen": to_kyiv_time(agent.last_seen), "first_seen": to_kyiv_time(getattr(agent, "first_seen", None)), "last_enrollment_at": to_kyiv_time(getattr(agent, "last_enrollment_at", None)), "last_enrollment_ip": getattr(agent, "last_enrollment_ip", None), "enrollment_attempts": int(getattr(agent, "enrollment_attempts", 0) or 0), "identity_fingerprint": getattr(agent, "identity_fingerprint", None), "duplicate_matches": getattr(agent, "duplicate_matches", []), "identity_warning": getattr(agent, "identity_warning", None), "is_blocked": agent.is_blocked, "approval_status": getattr(agent, "approval_status", "Approved"), "agent_version": getattr(agent, "agent_version", None), "network_info": network_info, "host_info": host_info, "groups": [{"id": g.id, "name": g.name} for g in agent.groups], "history": [{"id": h.id, "title": h.title, "status": h.status or "Pending", "date": to_kyiv_time_short(h.created_at), "by": h.created_by} for h in history]}})
 
 @infrastructure_bp.route('/api/infrastructure/host/<host_id>/telemetry', methods=['GET'])
 def get_host_telemetry(host_id):
