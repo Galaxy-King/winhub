@@ -933,6 +933,11 @@ def action_report(report_id):
     if action == 'save':
         denied = require_permission("manage_reports")
         if denied: return denied
+        if not can_view_sensitive_reports():
+            return jsonify({
+                "success": False,
+                "message": "This report contains masked sensitive data. Users without sensitive report access cannot save report text."
+            }), 403
         r.report_data = request.json.get('report_data', '')
         db.session.commit()
         return jsonify({"success": True})
