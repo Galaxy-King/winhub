@@ -1384,6 +1384,9 @@ let fleetSelectedHostIds = new Set();
 let fleetSortState = { key: 'hostname', direction: 'asc' };
 let softwareRegistryData = { packages: [] };
 let softwareSelectedHostIds = new Set();
+let softwareSelectedPackageId = null;
+let softwareActiveTab = 'library';
+let softwareInfoLanguage = localStorage.getItem('software_info_lang') || 'en';
 
 async function loadFleetCenter() {
     const body = document.getElementById('fleetHostsBody');
@@ -1624,7 +1627,11 @@ async function loadSoftwareRegistry() {
         const data = await res.json();
         if (!res.ok || !data.success) throw new Error(data.message || 'Software registry load failed');
         softwareRegistryData = data;
+        if (!softwareSelectedPackageId && (data.packages || []).length) {
+            softwareSelectedPackageId = data.packages[0].id;
+        }
         renderSoftwareRegistry();
+        renderSoftwareInstallPanel();
         renderSoftwareTargets();
     } catch(e) {
         list.innerHTML = '<div class="p-6 rounded-2xl bg-rose-50 text-xs font-bold text-rose-500">Failed to load software registry.</div>';
@@ -1635,9 +1642,46 @@ function softwarePackageLabel(pkg) {
     return `${pkg.name || 'Software'} ${pkg.version || ''}`.trim();
 }
 
+function getSoftwarePackage(id=softwareSelectedPackageId) {
+    return (softwareRegistryData.packages || []).find(pkg => String(pkg.id) === String(id));
+}
+
+function switchSoftwareTab(tab) {
+    softwareActiveTab = tab || 'library';
+    const library = document.getElementById('softwareLibraryPanel');
+    const add = document.getElementById('softwareAddPanel');
+    const info = document.getElementById('softwareInfoPanel');
+    const libraryBtn = document.getElementById('softwareTab-library');
+    const addBtn = document.getElementById('softwareTab-add');
+    const infoBtn = document.getElementById('softwareTab-info');
+    if (library) library.classList.toggle('hidden', softwareActiveTab !== 'library');
+    if (add) add.classList.toggle('hidden', softwareActiveTab !== 'add');
+    if (info) info.classList.toggle('hidden', softwareActiveTab !== 'info');
+    if (libraryBtn) libraryBtn.className = softwareActiveTab === 'library' ? "software-tab-btn px-5 py-2.5 rounded-xl text-xs font-black uppercase bg-slate-900 text-white shadow-sm" : "software-tab-btn px-5 py-2.5 rounded-xl text-xs font-black uppercase text-slate-500 hover:text-indigo-700";
+    if (addBtn) addBtn.className = softwareActiveTab === 'add' ? "software-tab-btn px-5 py-2.5 rounded-xl text-xs font-black uppercase bg-slate-900 text-white shadow-sm" : "software-tab-btn px-5 py-2.5 rounded-xl text-xs font-black uppercase text-slate-500 hover:text-indigo-700";
+    if (infoBtn) infoBtn.className = softwareActiveTab === 'info' ? "software-tab-btn px-5 py-2.5 rounded-xl text-xs font-black uppercase bg-slate-900 text-white shadow-sm" : "software-tab-btn px-5 py-2.5 rounded-xl text-xs font-black uppercase text-slate-500 hover:text-indigo-700";
+    if (softwareActiveTab === 'info') setSoftwareInfoLanguage(softwareInfoLanguage);
+}
+
+function setSoftwareInfoLanguage(lang) {
+    softwareInfoLanguage = lang === 'ua' ? 'ua' : 'en';
+    localStorage.setItem('software_info_lang', softwareInfoLanguage);
+    document.querySelectorAll('.software-info-content').forEach(el => el.classList.add('hidden'));
+    document.getElementById(`softwareInfoContent-${softwareInfoLanguage}`)?.classList.remove('hidden');
+    const en = document.getElementById('softwareInfoLang-en');
+    const ua = document.getElementById('softwareInfoLang-ua');
+    if (en) en.className = softwareInfoLanguage === 'en' ? "px-4 py-2 bg-slate-900 text-white rounded-lg text-[10px] font-black uppercase" : "px-4 py-2 text-slate-500 rounded-lg text-[10px] font-black uppercase";
+    if (ua) ua.className = softwareInfoLanguage === 'ua' ? "px-4 py-2 bg-slate-900 text-white rounded-lg text-[10px] font-black uppercase" : "px-4 py-2 text-slate-500 rounded-lg text-[10px] font-black uppercase";
+}
+
+function selectSoftwarePackage(id) {
+    softwareSelectedPackageId = id;
+    renderSoftwareRegistry();
+    renderSoftwareInstallPanel();
+}
+
 function renderSoftwareRegistry() {
     const list = document.getElementById('softwarePackageList');
-    const select = document.getElementById('softwareInstallPackageSelect');
     if (!list) return;
     const q = (document.getElementById('softwareSearch')?.value || '').trim().toLowerCase();
     const packages = (softwareRegistryData.packages || []).filter(pkg => {
@@ -1646,12 +1690,18 @@ function renderSoftwareRegistry() {
     });
 
     list.innerHTML = packages.map(pkg => {
+        const active = String(pkg.id) === String(softwareSelectedPackageId);
         const sizeMb = Math.round((pkg.size || 0) / 1024 / 1024 * 10) / 10;
         const source = pkg.source === 'external_url' ? 'External URL' : `${sizeMb} MB`;
         const detection = pkg.detection_type && pkg.detection_type !== 'none'
             ? `${pkg.detection_type}: ${pkg.detection_value || ''}`
             : 'No detection rule';
-        return `<div class="p-4 rounded-2xl border border-slate-200 bg-slate-50 hover:bg-white hover:shadow-lg hover:shadow-blue-100/60 transition-all">
+        const userRecipe = pkg.user_install_command ? '<span class="px-2 py-1 rounded-lg bg-indigo-50 text-indigo-700 border border-indigo-100 text-[9px] font-black uppercase">User scope</span>' : '';
+        const adminButtons = window.WinhubIsAdmin ? `
+            <button onclick="event.stopPropagation(); openSoftwareEditModal('${escapeHtml(pkg.id)}')" class="px-3 py-1.5 rounded-xl bg-white border border-slate-200 text-[9px] font-black uppercase text-slate-500 hover:text-indigo-600">Edit</button>
+            <button onclick="event.stopPropagation(); deleteSoftwarePackage('${escapeHtml(pkg.id)}')" class="px-3 py-1.5 rounded-xl bg-white border border-rose-100 text-[9px] font-black uppercase text-rose-500 hover:bg-rose-50">Delete</button>
+        ` : '';
+        return `<div onclick="selectSoftwarePackage('${escapeHtml(pkg.id)}')" class="group p-4 rounded-2xl border ${active ? 'border-indigo-300 bg-indigo-50/60 shadow-lg shadow-indigo-100' : 'border-slate-200 bg-slate-50 hover:bg-white hover:shadow-lg hover:shadow-blue-100/60'} transition-all cursor-pointer">
             <div class="flex items-start justify-between gap-3">
                 <div class="min-w-0">
                     <div class="font-black text-slate-800 text-sm truncate">${escapeHtml(softwarePackageLabel(pkg))}</div>
@@ -1659,16 +1709,35 @@ function renderSoftwareRegistry() {
                 </div>
                 <span class="px-2 py-1 rounded-lg bg-white border border-slate-200 text-[9px] font-black uppercase text-slate-500">${escapeHtml(source)}</span>
             </div>
-            <div class="mt-3 p-3 rounded-xl bg-slate-900 text-slate-100 text-[11px] font-mono whitespace-pre-wrap break-words">${escapeHtml(pkg.install_command || '')}</div>
+            <div class="mt-3 flex flex-wrap gap-2">${userRecipe}<span class="px-2 py-1 rounded-lg bg-white border border-slate-200 text-[9px] font-black uppercase text-slate-500">${escapeHtml(pkg.expected_exit_codes || '0,3010')}</span></div>
+            <div class="mt-3 p-3 rounded-xl bg-slate-900 text-slate-100 text-[11px] font-mono whitespace-pre-wrap break-words max-h-28 overflow-y-auto custom-scrollbar">${escapeHtml(pkg.install_command || '')}</div>
             <div class="mt-2 text-[10px] font-bold text-slate-500 break-words">${escapeHtml(detection)}</div>
             <div class="mt-2 text-[10px] font-mono text-slate-400 break-all">${escapeHtml(pkg.sha256 || 'No SHA256')}</div>
+            <div class="mt-3 flex justify-end gap-2 opacity-100 md:opacity-0 md:group-hover:opacity-100 transition-opacity">${adminButtons}</div>
         </div>`;
     }).join('') || '<div class="p-6 rounded-2xl bg-slate-50 text-xs font-bold text-slate-400">No software packages found.</div>';
+}
 
-    if (select) {
-        select.innerHTML = (softwareRegistryData.packages || []).map(pkg =>
-            `<option value="${escapeHtml(pkg.id)}">${escapeHtml(softwarePackageLabel(pkg))}</option>`
-        ).join('') || '<option value="">No software packages available</option>';
+function renderSoftwareInstallPanel() {
+    const pkg = getSoftwarePackage();
+    const hiddenId = document.getElementById('softwareInstallPackageId');
+    const hint = document.getElementById('softwareSelectedPackageHint');
+    if (hiddenId) hiddenId.value = pkg?.id || '';
+    if (hint) hint.innerText = pkg ? `${softwarePackageLabel(pkg)} / ${pkg.vendor || 'Unknown vendor'}` : 'Select a package from the library.';
+    const scope = document.getElementById('softwareInstallScope');
+    if (scope && pkg && !pkg.user_install_command && scope.value === 'users') scope.value = 'all';
+    renderSoftwareInstallScope();
+}
+
+function renderSoftwareInstallScope() {
+    const pkg = getSoftwarePackage();
+    const scope = document.getElementById('softwareInstallScope')?.value || 'all';
+    const users = document.getElementById('softwareUserLogins');
+    if (users) {
+        users.classList.toggle('hidden', scope !== 'users');
+        users.placeholder = pkg?.user_install_command
+            ? 'User logins, one per line or comma-separated'
+            : 'This package has no specific-user recipe yet. Edit package to add one.';
     }
 }
 
@@ -1708,11 +1777,34 @@ function renderSoftwareTargets() {
     updateSoftwareSelectedCount();
 }
 
+function submitSoftwareForm(form, url, method, onSuccess, onProgress=null, onEnd=null) {
+    const formData = new FormData(form);
+    const xhr = new XMLHttpRequest();
+    xhr.open(method, url);
+    const csrfToken = document.querySelector('meta[name="csrf-token"]')?.content;
+    if (csrfToken) xhr.setRequestHeader('X-CSRF-Token', csrfToken);
+    xhr.setRequestHeader('X-Requested-With', 'XMLHttpRequest');
+    xhr.onload = async () => {
+        let data = {};
+        try { data = xhr.responseText ? JSON.parse(xhr.responseText) : {}; } catch(e) { data = { message: xhr.responseText }; }
+        if (xhr.status < 200 || xhr.status >= 300 || !data.success) {
+            const sizeHint = xhr.status === 413 ? ' File is too large for current server/nginx upload limit.' : '';
+            alert((data.message || `Software save failed with HTTP ${xhr.status}.`) + sizeHint);
+            return;
+        }
+        await onSuccess(data);
+    };
+    xhr.onerror = () => alert('Software save failed: network error.');
+    if (onProgress) xhr.upload.onprogress = onProgress;
+    if (onEnd) xhr.onloadend = onEnd;
+    xhr.send(formData);
+    return xhr;
+}
+
 async function uploadSoftwarePackage(event) {
     event.preventDefault();
     const form = document.getElementById('softwarePackageForm');
     if (!form) return;
-    const formData = new FormData(form);
     const progressWrap = document.getElementById('softwarePackageProgressWrap');
     const progressBar = document.getElementById('softwarePackageProgressBar');
     const progressText = document.getElementById('softwarePackageProgressText');
@@ -1720,57 +1812,117 @@ async function uploadSoftwarePackage(event) {
     if (progressText) progressText.classList.remove('hidden');
     if (progressBar) progressBar.style.width = '0%';
     if (progressText) progressText.innerText = '0%';
-
-    const xhr = new XMLHttpRequest();
-    xhr.open('POST', '/api/infrastructure/software-packages');
-    const csrfToken = document.querySelector('meta[name="csrf-token"]')?.content;
-    if (csrfToken) xhr.setRequestHeader('X-CSRF-Token', csrfToken);
-    xhr.setRequestHeader('X-Requested-With', 'XMLHttpRequest');
-    xhr.upload.onprogress = (event) => {
+    submitSoftwareForm(form, '/api/infrastructure/software-packages', 'POST', async (data) => {
+        if (progressBar) progressBar.style.width = '100%';
+        if (progressText) progressText.innerText = '100%';
+        form.reset();
+        softwareSelectedPackageId = data.package?.id || softwareSelectedPackageId;
+        switchSoftwareTab('library');
+        await loadSoftwareRegistry();
+    }, (event) => {
         if (!event.lengthComputable) return;
         const pct = Math.max(0, Math.min(100, Math.round((event.loaded / event.total) * 100)));
         if (progressBar) progressBar.style.width = pct + '%';
         if (progressText) progressText.innerText = pct + '%';
-    };
-    xhr.onload = async () => {
-        let data = {};
-        try { data = xhr.responseText ? JSON.parse(xhr.responseText) : {}; } catch(e) { data = { message: xhr.responseText }; }
-        if (xhr.status < 200 || xhr.status >= 300 || !data.success) {
-            const sizeHint = xhr.status === 413 ? ' File is too large for current server/nginx upload limit.' : '';
-            alert((data.message || `Software upload failed with HTTP ${xhr.status}.`) + sizeHint);
-            return;
-        }
-        if (progressBar) progressBar.style.width = '100%';
-        if (progressText) progressText.innerText = '100%';
-        form.reset();
+    }, () => setTimeout(() => {
+        if (progressWrap) progressWrap.classList.add('hidden');
+        if (progressText) progressText.classList.add('hidden');
+    }, 1200));
+}
+
+function fillSoftwareForm(form, pkg) {
+    if (!form || !pkg) return;
+    ['name', 'version', 'vendor', 'package_type', 'architecture', 'external_url', 'sha256', 'install_command', 'user_install_command', 'uninstall_command', 'detection_type', 'detection_value', 'expected_exit_codes', 'notes'].forEach(name => {
+        const el = form.elements[name];
+        if (el) el.value = pkg[name] || '';
+    });
+    if (form.elements.package_id) form.elements.package_id.value = pkg.id;
+}
+
+function openSoftwareEditModal(id) {
+    const pkg = getSoftwarePackage(id);
+    if (!pkg) return;
+    const modal = document.getElementById('softwareEditModal');
+    const form = document.getElementById('softwareEditForm');
+    const hint = document.getElementById('softwareEditHint');
+    const fileInfo = document.getElementById('softwareEditFileInfo');
+    const removeFile = document.getElementById('softwareEditRemoveFile');
+    fillSoftwareForm(form, pkg);
+    if (removeFile) removeFile.value = '0';
+    if (hint) hint.innerText = softwarePackageLabel(pkg);
+    if (fileInfo) fileInfo.innerText = pkg.filename ? `Current file: ${pkg.original_filename || pkg.filename} / SHA256 ${pkg.sha256 || '-'}` : `External URL: ${pkg.external_url || '-'}`;
+    if (modal) modal.classList.remove('hidden');
+    document.body.classList.add('overflow-hidden');
+}
+
+function closeSoftwareEditModal() {
+    const modal = document.getElementById('softwareEditModal');
+    if (modal) modal.classList.add('hidden');
+    document.body.classList.remove('overflow-hidden');
+}
+
+function markSoftwareFileForRemoval() {
+    const removeFile = document.getElementById('softwareEditRemoveFile');
+    const fileInfo = document.getElementById('softwareEditFileInfo');
+    if (removeFile) removeFile.value = '1';
+    if (fileInfo) fileInfo.innerText = 'Current uploaded file will be removed when you save. Provide an external URL or select a replacement file.';
+}
+
+async function submitSoftwareEdit(event) {
+    event.preventDefault();
+    const form = document.getElementById('softwareEditForm');
+    const packageId = form?.elements.package_id?.value;
+    if (!form || !packageId) return;
+    submitSoftwareForm(form, `/api/infrastructure/software-packages/${encodeURIComponent(packageId)}`, 'PUT', async (data) => {
+        softwareSelectedPackageId = data.package?.id || packageId;
+        closeSoftwareEditModal();
         await loadSoftwareRegistry();
-    };
-    xhr.onerror = () => alert('Software upload failed: network error.');
-    xhr.onloadend = () => {
-        setTimeout(() => {
-            if (progressWrap) progressWrap.classList.add('hidden');
-            if (progressText) progressText.classList.add('hidden');
-        }, 1200);
-    };
-    xhr.send(formData);
+    });
+}
+
+async function deleteSoftwarePackage(id) {
+    const pkg = getSoftwarePackage(id);
+    if (!pkg || !confirm(`Delete ${softwarePackageLabel(pkg)}? Uploaded file will also be removed.`)) return;
+    const csrfToken = document.querySelector('meta[name="csrf-token"]')?.content;
+    const res = await fetch(`/api/infrastructure/software-packages/${encodeURIComponent(id)}`, {
+        method: 'DELETE',
+        headers: csrfToken ? {'X-CSRF-Token': csrfToken} : {}
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok || !data.success) return alert(data.message || 'Software package delete failed.');
+    if (softwareSelectedPackageId === id) softwareSelectedPackageId = null;
+    await loadSoftwareRegistry();
 }
 
 async function runSoftwareInstall() {
-    const packageId = document.getElementById('softwareInstallPackageSelect')?.value;
-    if (!packageId) return alert('Select a software package first.');
+    const packageId = document.getElementById('softwareInstallPackageId')?.value;
+    const pkg = getSoftwarePackage(packageId);
+    if (!packageId || !pkg) return alert('Select a software package first.');
     const mode = document.getElementById('softwareInstallTargetMode')?.value || 'selected';
     const selectedIds = Array.from(softwareSelectedHostIds);
+    const installScope = document.getElementById('softwareInstallScope')?.value || 'all';
+    const userLoginsRaw = document.getElementById('softwareUserLogins')?.value || '';
+    const userLogins = userLoginsRaw.split(/[\n,;]+/).map(item => item.trim()).filter(Boolean);
     if (mode === 'selected' && selectedIds.length === 0) return alert('Check at least one node first.');
-    if (!confirm('Dispatch software installation to selected targets?')) return;
+    if (installScope === 'users') {
+        if (!pkg.user_install_command) return alert('This package has no specific-user install recipe. Edit the package and add one first.');
+        if (userLogins.length === 0) return alert('Specify at least one user login.');
+    }
+    if (!confirm(`Dispatch ${softwarePackageLabel(pkg)} installation?`)) return;
     const payload = {
         package_id: packageId,
         target_mode: mode,
         target_ids: mode === 'selected' ? selectedIds : [],
-        group_id: document.getElementById('softwareInstallGroupSelect')?.value || ''
+        group_id: document.getElementById('softwareInstallGroupSelect')?.value || '',
+        install_scope: installScope,
+        user_logins: userLogins
     };
     const res = await fetch('/api/infrastructure/software/install', {
         method: 'POST',
-        headers: {'Content-Type': 'application/json'},
+        headers: {
+            'Content-Type': 'application/json',
+            ...(document.querySelector('meta[name="csrf-token"]')?.content ? {'X-CSRF-Token': document.querySelector('meta[name="csrf-token"]')?.content} : {})
+        },
         body: JSON.stringify(payload)
     });
     const data = await res.json().catch(() => ({}));

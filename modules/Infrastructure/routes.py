@@ -1327,6 +1327,142 @@ def package_form_text(name, limit=4096):
     return str(request.form.get(name) or "").strip()[:limit]
 
 
+def write_uploaded_software_file(upload, package_id, fallback_name):
+    os.makedirs(SOFTWARE_PACKAGES_DIR, exist_ok=True)
+    original_filename = secure_filename(upload.filename) or fallback_name
+    filename = f"{package_id}_{original_filename}"
+    path = os.path.join(SOFTWARE_PACKAGES_DIR, filename)
+    sha256 = hashlib.sha256()
+    size = 0
+    with open(path, "wb") as f:
+        while True:
+            chunk = upload.stream.read(1024 * 1024)
+            if not chunk:
+                break
+            sha256.update(chunk)
+            size += len(chunk)
+            f.write(chunk)
+    return {
+        "source": "upload",
+        "original_filename": original_filename,
+        "filename": filename,
+        "sha256": sha256.hexdigest(),
+        "size": size,
+    }
+
+
+def software_package_form_record(package_id, existing=None):
+    existing = existing or {}
+    upload = request.files.get("file")
+    external_url = package_form_text("external_url", 2048)
+    name = package_form_text("name", 160)
+    version = package_form_text("version", 80)
+    package_type = package_form_text("package_type", 32).lower() or "exe"
+    install_command = package_form_text("install_command", 12000)
+    if package_type not in ("msi", "exe", "zip", "ps1", "bat", "custom"):
+        raise ValueError("Unsupported package type")
+    if not name:
+        raise ValueError("Package name is required")
+    if not version:
+        raise ValueError("Version is required")
+    if not install_command:
+        raise ValueError("Install command for all users is required")
+
+    file_data = {}
+    sha256_value = package_form_text("sha256", 128).lower()
+    remove_file = package_form_text("remove_file", 16).lower() in ("1", "true", "yes")
+    if upload and upload.filename:
+        old_filename = existing.get("filename")
+        file_data = write_uploaded_software_file(upload, package_id, f"{name}-{version}")
+        if old_filename and old_filename != file_data.get("filename"):
+            try:
+                os.remove(os.path.join(SOFTWARE_PACKAGES_DIR, old_filename))
+            except OSError:
+                pass
+    elif external_url:
+        if sha256_value and not re.fullmatch(r"[A-Fa-f0-9]{64}", sha256_value):
+            raise ValueError("External URL SHA256 must be 64 hex characters")
+        if remove_file and existing.get("filename"):
+            try:
+                os.remove(os.path.join(SOFTWARE_PACKAGES_DIR, existing.get("filename")))
+            except OSError:
+                pass
+        file_data = {
+            "source": "external_url",
+            "external_url": external_url,
+            "original_filename": "",
+            "filename": "",
+            "sha256": sha256_value,
+            "size": 0,
+        }
+    elif existing.get("external_url") and not remove_file:
+        file_data = {
+            "source": "external_url",
+            "external_url": existing.get("external_url", ""),
+            "original_filename": "",
+            "filename": "",
+            "sha256": existing.get("sha256", ""),
+            "size": 0,
+        }
+    elif existing.get("filename") and not remove_file:
+        file_data = {
+            "source": "upload",
+            "external_url": "",
+            "original_filename": existing.get("original_filename", ""),
+            "filename": existing.get("filename", ""),
+            "sha256": existing.get("sha256", ""),
+            "size": int(existing.get("size") or 0),
+        }
+    elif remove_file:
+        if not external_url:
+            raise ValueError("Select a replacement file or provide external URL before removing the current file")
+        if existing.get("filename"):
+            try:
+                os.remove(os.path.join(SOFTWARE_PACKAGES_DIR, existing.get("filename")))
+            except OSError:
+                pass
+        file_data = {
+            "source": "external_url" if external_url else "",
+            "external_url": external_url,
+            "original_filename": "",
+            "filename": "",
+            "sha256": sha256_value,
+            "size": 0,
+        }
+    else:
+        raise ValueError("Upload a file or provide external URL")
+
+    record = dict(existing)
+    record.update({
+        "id": package_id,
+        "name": name,
+        "version": version,
+        "vendor": package_form_text("vendor", 160),
+        "package_type": package_type,
+        "architecture": package_form_text("architecture", 32) or "any",
+        "external_url": file_data.get("external_url", external_url),
+        "original_filename": file_data.get("original_filename", ""),
+        "filename": file_data.get("filename", ""),
+        "sha256": file_data.get("sha256", ""),
+        "size": file_data.get("size", 0),
+        "source": file_data.get("source", "upload" if file_data.get("filename") else "external_url"),
+        "install_command": install_command,
+        "user_install_command": package_form_text("user_install_command", 12000),
+        "uninstall_command": package_form_text("uninstall_command", 12000),
+        "detection_type": package_form_text("detection_type", 40) or "none",
+        "detection_value": package_form_text("detection_value", 4096),
+        "expected_exit_codes": package_form_text("expected_exit_codes", 120) or "0,3010",
+        "timeout_seconds": max(30, min(86400, int(request.form.get("timeout_seconds") or existing.get("timeout_seconds") or 1800))),
+        "notes": package_form_text("notes", 4096),
+        "updated_by": session.get("username"),
+        "updated_at": datetime.utcnow().isoformat() + "Z",
+    })
+    if not record.get("uploaded_at"):
+        record["uploaded_by"] = session.get("username")
+        record["uploaded_at"] = record["updated_at"]
+    return record
+
+
 @infrastructure_bp.route('/api/infrastructure/software-packages', methods=['GET', 'POST'])
 def software_packages():
     if request.method == "GET":
@@ -1341,97 +1477,89 @@ def software_packages():
     denied = require_superadmin()
     if denied: return denied
     try:
-        upload = request.files.get("file")
-        external_url = package_form_text("external_url", 2048)
-        name = package_form_text("name", 160)
-        version = package_form_text("version", 80)
-        package_type = package_form_text("package_type", 32).lower() or "exe"
-        install_command = package_form_text("install_command", 12000)
-        if package_type not in ("msi", "exe", "zip", "ps1", "bat", "custom"):
-            return jsonify({"success": False, "message": "Unsupported package type"}), 400
-        if not name:
-            return jsonify({"success": False, "message": "Package name is required"}), 400
-        if not version:
-            return jsonify({"success": False, "message": "Version is required"}), 400
-        if not install_command:
-            return jsonify({"success": False, "message": "Install command is required"}), 400
-        if (not upload or not upload.filename) and not external_url:
-            return jsonify({"success": False, "message": "Upload a file or provide external URL"}), 400
-
         package_id = str(uuid.uuid4())
-        filename = ""
-        original_filename = ""
-        sha256_value = package_form_text("sha256", 128).lower()
-        size = 0
-        if upload and upload.filename:
-            os.makedirs(SOFTWARE_PACKAGES_DIR, exist_ok=True)
-            original_filename = secure_filename(upload.filename) or f"{name}-{version}"
-            filename = f"{package_id}_{original_filename}"
-            path = os.path.join(SOFTWARE_PACKAGES_DIR, filename)
-            sha256 = hashlib.sha256()
-            with open(path, "wb") as f:
-                while True:
-                    chunk = upload.stream.read(1024 * 1024)
-                    if not chunk:
-                        break
-                    sha256.update(chunk)
-                    size += len(chunk)
-                    f.write(chunk)
-            sha256_value = sha256.hexdigest()
-        elif sha256_value and not re.fullmatch(r"[A-Fa-f0-9]{64}", sha256_value):
-            return jsonify({"success": False, "message": "External URL SHA256 must be 64 hex characters"}), 400
-
         packages = load_software_packages()
-        record = {
-            "id": package_id,
-            "name": name,
-            "version": version,
-            "vendor": package_form_text("vendor", 160),
-            "package_type": package_type,
-            "architecture": package_form_text("architecture", 32) or "any",
-            "source": "upload" if filename else "external_url",
-            "external_url": external_url,
-            "original_filename": original_filename,
-            "filename": filename,
-            "sha256": sha256_value,
-            "size": size,
-            "install_command": install_command,
-            "uninstall_command": package_form_text("uninstall_command", 12000),
-            "detection_type": package_form_text("detection_type", 40) or "none",
-            "detection_value": package_form_text("detection_value", 4096),
-            "expected_exit_codes": package_form_text("expected_exit_codes", 120) or "0,3010",
-            "timeout_seconds": max(30, min(86400, int(request.form.get("timeout_seconds") or 1800))),
-            "notes": package_form_text("notes", 4096),
-            "uploaded_by": session.get("username"),
-            "uploaded_at": datetime.utcnow().isoformat() + "Z",
-        }
+        record = software_package_form_record(package_id)
         packages.insert(0, record)
         save_software_packages(packages[:200])
-        if filename:
+        if record.get("filename"):
             record["download_url"] = software_package_public_url(package_id)
-        write_infra_audit("Software Package Upload", "software_package", package_id, {"name": name, "version": version, "sha256": sha256_value, "size": size})
+        write_infra_audit("Software Package Upload", "software_package", package_id, {"name": record.get("name"), "version": record.get("version"), "sha256": record.get("sha256"), "size": record.get("size")})
         db.session.commit()
         return jsonify({"success": True, "package": record})
+    except ValueError as e:
+        return jsonify({"success": False, "message": str(e)}), 400
     except Exception as e:
         db.session.rollback()
         logging.getLogger("winhub").exception("Software package upload failed")
         return jsonify({"success": False, "message": f"Software package upload failed: {e}"}), 500
 
 
+@infrastructure_bp.route('/api/infrastructure/software-packages/<package_id>', methods=['PUT', 'DELETE'])
+def software_package_detail(package_id):
+    denied = require_superadmin()
+    if denied: return denied
+    packages = load_software_packages()
+    index = next((i for i, package in enumerate(packages) if package.get("id") == package_id), None)
+    if index is None:
+        return jsonify({"success": False, "message": "Software package not found"}), 404
+
+    if request.method == "DELETE":
+        filename = packages[index].get("filename")
+        if filename:
+            try:
+                os.remove(os.path.join(SOFTWARE_PACKAGES_DIR, filename))
+            except OSError:
+                pass
+        removed = packages.pop(index)
+        save_software_packages(packages)
+        write_infra_audit("Software Package Delete", "software_package", package_id, {"name": removed.get("name"), "version": removed.get("version")})
+        db.session.commit()
+        return jsonify({"success": True})
+
+    try:
+        record = software_package_form_record(package_id, packages[index])
+        packages[index] = record
+        save_software_packages(packages)
+        if record.get("filename"):
+            record["download_url"] = software_package_public_url(package_id)
+        write_infra_audit("Software Package Update", "software_package", package_id, {"name": record.get("name"), "version": record.get("version"), "sha256": record.get("sha256"), "size": record.get("size")})
+        db.session.commit()
+        return jsonify({"success": True, "package": record})
+    except ValueError as e:
+        return jsonify({"success": False, "message": str(e)}), 400
+    except Exception as e:
+        db.session.rollback()
+        logging.getLogger("winhub").exception("Software package update failed")
+        return jsonify({"success": False, "message": f"Software package update failed: {e}"}), 500
+
+
 def ps_single(value):
     return str(value or "").replace("'", "''")
 
 
-def build_software_install_script(package):
+def build_software_install_script(package, install_scope="all", user_logins=None):
     package_url = package.get("external_url") or software_package_public_url(package["id"])
+    user_logins = [
+        str(item).strip()
+        for item in (user_logins or [])
+        if str(item).strip()
+    ][:100]
+    user_csv = ",".join(user_logins)
+    selected_command = package.get("install_command") or ""
+    if install_scope == "users" and package.get("user_install_command"):
+        selected_command = package.get("user_install_command") or selected_command
     placeholders = {
         "{file}": "$PackageFile",
         "{extract_dir}": "$ExtractDir",
         "{package_dir}": "$WorkDir",
         "{name}": package.get("name", ""),
         "{version}": package.get("version", ""),
+        "{users}": user_csv,
+        "{user_list}": user_csv,
+        "{user_logins}": user_csv,
     }
-    install_command = package.get("install_command") or ""
+    install_command = selected_command
     for token, value in placeholders.items():
         install_command = install_command.replace(token, value)
     expected_codes = [
@@ -1446,6 +1574,9 @@ $PackageVersion = '{ps_single(package.get("version"))}'
 $PackageUrl = '{ps_single(package_url)}'
 $ExpectedSha256 = '{ps_single(package.get("sha256"))}'.ToLowerInvariant()
 $PackageType = '{ps_single(package.get("package_type"))}'.ToLowerInvariant()
+$InstallScope = '{ps_single(install_scope)}'.ToLowerInvariant()
+$TargetUsersCsv = '{ps_single(user_csv)}'
+$TargetUsers = @($TargetUsersCsv -split ',' | ForEach-Object {{ $_.Trim() }} | Where-Object {{ $_ }})
 $DetectionType = '{ps_single(package.get("detection_type"))}'.ToLowerInvariant()
 $DetectionValue = @'
 {package.get("detection_value") or ""}
@@ -1475,6 +1606,11 @@ function Test-WinHUBDetection {{
 
 try {{
     Write-Host "[WinHUB] Installing $PackageName $PackageVersion"
+    Write-Host "[WinHUB] Install scope: $InstallScope"
+    if ($InstallScope -eq 'users') {{
+        if ($TargetUsers.Count -eq 0) {{ throw "Specific users scope requires at least one user login." }}
+        Write-Host "[WinHUB] Target users: $($TargetUsers -join ', ')"
+    }}
     if (Test-WinHUBDetection -Type $DetectionType -Value $DetectionValue) {{
         Write-Host "[WinHUB] Detection rule already matches. Nothing to install."
         exit 0
@@ -1603,9 +1739,26 @@ def run_software_install():
     if not target_ids:
         return jsonify({"success": False, "message": "No eligible targets selected"}), 400
 
-    script = build_software_install_script(package)
+    install_scope = str(data.get("install_scope") or "all").strip().lower()
+    if install_scope not in ("all", "users"):
+        return jsonify({"success": False, "message": "Unsupported install scope"}), 400
+    if install_scope == "users" and not package.get("user_install_command"):
+        return jsonify({"success": False, "message": "This software package has no specific-user install recipe"}), 400
+    raw_user_logins = data.get("user_logins") or []
+    if isinstance(raw_user_logins, str):
+        raw_user_logins = re.split(r"[\n,;]+", raw_user_logins)
+    user_logins = [
+        str(item).strip()
+        for item in raw_user_logins
+        if str(item).strip()
+    ][:100]
+    if install_scope == "users" and not user_logins:
+        return jsonify({"success": False, "message": "Specify at least one user login"}), 400
+
+    script = build_software_install_script(package, install_scope=install_scope, user_logins=user_logins)
     payload = {"script": script}
-    title = f"Install Software: {package.get('name')} {package.get('version')}"
+    scope_title = "users" if install_scope == "users" else "all users"
+    title = f"Install Software: {package.get('name')} {package.get('version')} ({scope_title})"
     job_id, task_ids = dispatch_infrastructure_task(
         session.get("user_id"),
         "run_script",
@@ -1614,7 +1767,7 @@ def run_software_install():
         title,
         created_by=current_actor_label(),
     )
-    write_infra_audit("Software Install Dispatch", "software_package", package["id"], {"targets": len(target_ids), "target_mode": target_mode})
+    write_infra_audit("Software Install Dispatch", "software_package", package["id"], {"targets": len(target_ids), "target_mode": target_mode, "install_scope": install_scope, "user_logins": user_logins})
     db.session.commit()
     return jsonify({"success": True, "job_id": job_id, "tasks": len(task_ids), "targets": len(target_ids)})
 
