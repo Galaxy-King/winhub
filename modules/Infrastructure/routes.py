@@ -1572,6 +1572,7 @@ $ProgressPreference = 'SilentlyContinue'
 $PackageName = '{ps_single(package.get("name"))}'
 $PackageVersion = '{ps_single(package.get("version"))}'
 $PackageUrl = '{ps_single(package_url)}'
+$PackageOriginalFilename = '{ps_single(package.get("original_filename") or "")}'
 $ExpectedSha256 = '{ps_single(package.get("sha256"))}'.ToLowerInvariant()
 $PackageType = '{ps_single(package.get("package_type"))}'.ToLowerInvariant()
 $InstallScope = '{ps_single(install_scope)}'.ToLowerInvariant()
@@ -1623,6 +1624,7 @@ try {{
     }}
 
     $FileName = [IO.Path]::GetFileName(([Uri]$PackageUrl).AbsolutePath)
+    if (-not [string]::IsNullOrWhiteSpace($PackageOriginalFilename)) {{ $FileName = $PackageOriginalFilename }}
     if ([string]::IsNullOrWhiteSpace($FileName)) {{ $FileName = "package.bin" }}
     $PackageFile = Join-Path $WorkDir $FileName
     Write-Host "[WinHUB] Downloading $PackageUrl"
