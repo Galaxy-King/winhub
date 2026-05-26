@@ -1764,10 +1764,6 @@ function renderSoftwareRegistry() {
         return acc;
     }, {});
     const categories = Object.keys(grouped).sort((a, b) => a.localeCompare(b, undefined, { sensitivity: 'base' }));
-    if (categories.length && softwareOpenGroups.size === 0) {
-        softwareOpenGroups.add(categories[0]);
-        persistSoftwareOpenGroups();
-    }
 
     list.innerHTML = categories.map(category => {
         const open = softwareOpenGroups.has(category);
@@ -1779,21 +1775,20 @@ function renderSoftwareRegistry() {
             const detection = pkg.detection_type && pkg.detection_type !== 'none' ? pkg.detection_type : 'No detection';
             const userRecipe = pkg.user_install_command ? '<span class="px-2 py-1 rounded-lg bg-indigo-50 text-indigo-700 border border-indigo-100 text-[9px] font-black uppercase">User scope</span>' : '';
             const uninstallReady = pkg.uninstall_command ? '<span class="px-2 py-1 rounded-lg bg-rose-50 text-rose-700 border border-rose-100 text-[9px] font-black uppercase">Uninstall</span>' : '';
-            const adminButtons = window.WinhubIsAdmin ? `
+        const adminButtons = window.WinhubCanManageSoftware ? `
                 <button onclick="event.stopPropagation(); openSoftwareEditModal('${escapeHtml(pkg.id)}')" class="px-3 py-1.5 rounded-xl bg-white border border-slate-200 text-[9px] font-black uppercase text-slate-500 hover:text-indigo-600">Edit</button>
                 <button onclick="event.stopPropagation(); deleteSoftwarePackage('${escapeHtml(pkg.id)}')" class="px-3 py-1.5 rounded-xl bg-white border border-rose-100 text-[9px] font-black uppercase text-rose-500 hover:bg-rose-50">Delete</button>
             ` : '';
-            return `<div onclick="selectSoftwarePackage('${escapeHtml(pkg.id)}')" class="group p-4 rounded-2xl border ${active ? 'border-indigo-300 bg-indigo-50/60 shadow-lg shadow-indigo-100' : 'border-slate-200 bg-white hover:shadow-lg hover:shadow-blue-100/60'} transition-all cursor-pointer">
-                <div class="flex items-start justify-between gap-3">
-                    <div class="min-w-0">
-                        <div class="font-black text-slate-800 text-sm truncate">${escapeHtml(softwarePackageLabel(pkg))}</div>
-                        <div class="text-[10px] font-black text-slate-500 uppercase mt-1">${escapeHtml(pkg.vendor || 'Unknown vendor')} / ${escapeHtml(pkg.package_type || 'custom')} / ${escapeHtml(pkg.architecture || 'any')}</div>
-                    </div>
-                    <span class="px-2 py-1 rounded-lg bg-slate-50 border border-slate-200 text-[9px] font-black uppercase text-slate-600">${escapeHtml(source)}</span>
+            return `<div onclick="selectSoftwarePackage('${escapeHtml(pkg.id)}')" class="group grid grid-cols-12 gap-3 items-center px-4 py-3 border-t border-slate-200 ${active ? 'bg-indigo-50/70' : 'bg-white hover:bg-slate-50'} transition-all cursor-pointer">
+                <div class="col-span-12 xl:col-span-4 min-w-0">
+                    <div class="font-black text-slate-800 text-sm truncate">${escapeHtml(softwarePackageLabel(pkg))}</div>
+                    <div class="text-[10px] font-bold text-slate-500 uppercase mt-1 truncate">${escapeHtml(pkg.vendor || 'Unknown vendor')}</div>
                 </div>
-                <div class="mt-3 flex flex-wrap gap-2">${userRecipe}${uninstallReady}<span class="px-2 py-1 rounded-lg bg-slate-50 border border-slate-200 text-[9px] font-black uppercase text-slate-600">${escapeHtml(detection)}</span></div>
-                <div class="mt-3 text-[10px] font-bold text-slate-500 line-clamp-2">${escapeHtml(pkg.notes || pkg.original_filename || pkg.external_url || 'No description')}</div>
-                <div class="mt-3 flex justify-end gap-2 opacity-100 md:opacity-0 md:group-hover:opacity-100 transition-opacity">${adminButtons}</div>
+                <div class="col-span-6 xl:col-span-2 text-[10px] font-black uppercase text-slate-600">${escapeHtml(pkg.package_type || 'custom')} / ${escapeHtml(pkg.architecture || 'any')}</div>
+                <div class="col-span-6 xl:col-span-2"><span class="px-2 py-1 rounded-lg bg-slate-50 border border-slate-200 text-[9px] font-black uppercase text-slate-600">${escapeHtml(source)}</span></div>
+                <div class="col-span-12 xl:col-span-2 flex flex-wrap gap-1.5">${userRecipe}${uninstallReady}<span class="px-2 py-1 rounded-lg bg-slate-50 border border-slate-200 text-[9px] font-black uppercase text-slate-600">${escapeHtml(detection)}</span></div>
+                <div class="col-span-12 xl:col-span-2 flex justify-end gap-2">${adminButtons}</div>
+                <div class="col-span-12 text-[10px] font-bold text-slate-500 truncate">${escapeHtml(pkg.notes || pkg.original_filename || pkg.external_url || 'No description')}</div>
             </div>`;
         }).join('');
         return `<div class="lg:col-span-2 rounded-2xl border border-slate-200 bg-slate-50/80 overflow-hidden">
@@ -1802,9 +1797,9 @@ function renderSoftwareRegistry() {
                     <span class="block text-xs font-black text-slate-800 uppercase tracking-widest">${escapeHtml(category)}</span>
                     <span class="block text-[10px] font-bold text-slate-500 mt-1">${items.length} package(s)</span>
                 </span>
-                <span class="text-slate-400 font-black text-lg">${open ? '-' : '+'}</span>
+                <svg class="w-4 h-4 text-slate-400 transition-transform ${open ? 'rotate-180' : ''}" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path d="m6 9 6 6 6-6" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
             </button>
-            <div class="${open ? 'grid' : 'hidden'} grid-cols-1 lg:grid-cols-2 gap-3 p-4 border-t border-slate-200">${cards}</div>
+            <div class="${open ? 'block' : 'hidden'} border-t border-slate-200">${cards}</div>
         </div>`;
     }).join('') || '<div class="p-6 rounded-2xl bg-slate-50 text-xs font-bold text-slate-400">No software packages found.</div>';
 }

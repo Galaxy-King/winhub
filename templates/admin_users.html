@@ -209,7 +209,8 @@
                 <option value="operator">Operator</option>
                 <option value="template_engineer">Template Engineer</option>
                 <option value="group_manager">Group Manager</option>
-                <option value="infrastructure_admin">Infrastructure Admin</option>
+                <option value="software_manager">Software Manager</option>
+                <option value="infrastructure_admin">Endpoint Management Admin</option>
             </select>
         </div>
         <div class="grid grid-cols-1 md:grid-cols-3 gap-8">
@@ -254,7 +255,8 @@
                         <option value="operator" selected>Operator</option>
                         <option value="template_engineer">Template Engineer</option>
                         <option value="group_manager">Group Manager</option>
-                        <option value="infrastructure_admin">Infrastructure Admin</option>
+                        <option value="software_manager">Software Manager</option>
+                        <option value="infrastructure_admin">Endpoint Management Admin</option>
                         <option value="system_admin">System Admin</option>
                     </select>
                     <label class="flex items-center gap-3 cursor-pointer p-4 border border-slate-200 rounded-2xl hover:bg-slate-50 transition-colors">
@@ -339,7 +341,7 @@
                 <pre class="bg-slate-950 text-emerald-300 rounded-2xl p-4 text-xs overflow-x-auto"><code>curl -H "X-API-Key: wh_your_generated_key" https://your-winhub/api/newsletter/config</code></pre>
             </div>
             <div>
-                <label class="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2">Run approved Infrastructure template</label>
+                <label class="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2">Run approved Endpoint Management template</label>
                 <pre class="bg-slate-950 text-emerald-300 rounded-2xl p-4 text-xs overflow-x-auto"><code>curl -X POST https://your-winhub/api/infrastructure/templates/TEMPLATE_ID/run \
   -H "Authorization: Bearer wh_your_generated_key" \
   -H "Content-Type: application/json" \
@@ -372,7 +374,7 @@ $StaticPassword = "{{secret:local_admin_password}}"
   "ticket_id": "INC-1001"
 }
 
-# Secrets are created in Infrastructure -> Template Secrets.
+# Secrets are created in Endpoint Management -> Template Secrets.
 # API clients do not send secret values.{% endraw %}</code></pre>
             </div>
             <div>
@@ -474,13 +476,21 @@ $StaticPassword = "{{secret:local_admin_password}}"
                 'Infrastructure:run_tasks', 'Infrastructure:manage_groups'
             ]
         },
+        software_manager: {
+            label: 'Software Manager',
+            admin: false,
+            modules: [
+                'Infrastructure:view_hosts', 'Infrastructure:view_groups', 'Infrastructure:view_queue', 'Infrastructure:view_reports',
+                'Infrastructure:run_tasks', 'Infrastructure:manage_software'
+            ]
+        },
         infrastructure_admin: {
-            label: 'Infrastructure Admin',
+            label: 'Endpoint Management Admin',
             admin: false,
             modules: [
                 'Infrastructure:view_hosts', 'Infrastructure:view_groups', 'Infrastructure:view_queue', 'Infrastructure:view_reports',
                 'Infrastructure:view_sensitive_reports', 'Infrastructure:manage_reports', 'Infrastructure:run_tasks',
-                'Infrastructure:send_reports', 'Infrastructure:manage_templates', 'Infrastructure:manage_smtp',
+                'Infrastructure:send_reports', 'Infrastructure:manage_templates', 'Infrastructure:manage_software', 'Infrastructure:manage_smtp',
                 'Infrastructure:manage_scheduler', 'Infrastructure:manage_triggers', 'Infrastructure:manage_hosts',
                 'Infrastructure:manage_groups', 'Infrastructure:cleanup_tasks',
                 'HistoryAudit:view_history'
@@ -509,7 +519,7 @@ $StaticPassword = "{{secret:local_admin_password}}"
     function userTypeLabel(user) {
         if (user.is_admin) return rolePresets.system_admin.label;
         const allowed = user.allowed_modules || [];
-        for (const key of ['infrastructure_admin', 'group_manager', 'template_engineer', 'operator', 'viewer']) {
+        for (const key of ['infrastructure_admin', 'software_manager', 'group_manager', 'template_engineer', 'operator', 'viewer']) {
             if (tokensMatch(allowed, rolePresets[key].modules)) return rolePresets[key].label;
         }
         return allowed.length ? 'Custom' : 'No Access';

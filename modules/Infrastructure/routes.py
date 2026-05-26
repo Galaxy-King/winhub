@@ -454,6 +454,11 @@ def require_superadmin():
         return jsonify({"success": False, "message": "Superadmin access required"}), 403
     return None
 
+def require_any_permission(*permission_ids):
+    if not any(can(permission_id) for permission_id in permission_ids):
+        return jsonify({"success": False, "message": "Permission denied"}), 403
+    return None
+
 # ==========================================
 # BACKGROUND AUTO-EMAIL THREAD
 # ==========================================
@@ -1467,7 +1472,7 @@ def software_package_form_record(package_id, existing=None):
 @infrastructure_bp.route('/api/infrastructure/software-packages', methods=['GET', 'POST'])
 def software_packages():
     if request.method == "GET":
-        denied = require_permission("run_tasks")
+        denied = require_any_permission("run_tasks", "manage_software")
         if denied: return denied
         packages = load_software_packages()
         for package in packages:
@@ -1475,7 +1480,7 @@ def software_packages():
                 package["download_url"] = software_package_public_url(package["id"])
         return jsonify({"success": True, "packages": packages})
 
-    denied = require_superadmin()
+    denied = require_permission("manage_software")
     if denied: return denied
     try:
         package_id = str(uuid.uuid4())
@@ -1498,7 +1503,7 @@ def software_packages():
 
 @infrastructure_bp.route('/api/infrastructure/software-packages/<package_id>', methods=['PUT', 'DELETE'])
 def software_package_detail(package_id):
-    denied = require_superadmin()
+    denied = require_permission("manage_software")
     if denied: return denied
     packages = load_software_packages()
     index = next((i for i, package in enumerate(packages) if package.get("id") == package_id), None)
