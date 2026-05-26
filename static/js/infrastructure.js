@@ -43,6 +43,7 @@ const infraStateKeys = {
 };
 let workspaceTab = 'builder';
 let guideLanguage = localStorage.getItem('infra_workspace_guide_lang') || 'en';
+let multiHostSelectedIds = new Set();
 let pendingTemplateImport = [];
 
 function getPayloadValue() {
@@ -888,9 +889,15 @@ function initAvailableHostsData() {
 
 function openMultiHostModal() {
     if(availableHostsData.length === 0) initAvailableHostsData();
-    renderMultiHostList('');
     const searchEl = document.getElementById('multiHostSearch');
     if(searchEl) searchEl.value = '';
+    const currentSelectedStr = document.getElementById('depTargetHostIds')?.value || "[]";
+    try {
+        multiHostSelectedIds = new Set(JSON.parse(currentSelectedStr).map(String));
+    } catch(e) {
+        multiHostSelectedIds = new Set();
+    }
+    renderMultiHostList('');
     openModal('selectMultipleHostsModal');
 }
 
@@ -899,9 +906,6 @@ function renderMultiHostList(query) {
     if(!list) return;
 
     const q = query.toLowerCase();
-    const currentSelectedStr = document.getElementById('depTargetHostIds')?.value || "[]";
-    let selectedIds = [];
-    try { selectedIds = JSON.parse(currentSelectedStr); } catch(e){}
 
     const filtered = availableHostsData.filter(h => {
         const text = `${h.name || ''} ${h.ip || ''} ${h.os_type || ''} ${h.agent_version || ''}`.toLowerCase();
@@ -909,7 +913,9 @@ function renderMultiHostList(query) {
     });
     
     list.innerHTML = filtered.map(h => {
-        const isChecked = selectedIds.includes(h.id) ? 'checked' : '';
+        const hostId = String(h.id);
+        const safeId = escapeHtml(hostId);
+        const isChecked = multiHostSelectedIds.has(hostId) ? 'checked' : '';
         const blockedBadge = h.is_blocked ? '<span class="ml-2 px-2 py-0.5 rounded bg-rose-50 text-rose-600 border border-rose-100 text-[9px] font-black uppercase">Blocked</span>' : '';
         const approval = h.approval_status || 'Approved';
         const approvalBadge = approval !== 'Approved' ? `<span class="ml-2 px-2 py-0.5 rounded bg-amber-50 text-amber-600 border border-amber-100 text-[9px] font-black uppercase">${approval}</span>` : '';
@@ -917,10 +923,10 @@ function renderMultiHostList(query) {
         const disabled = approval !== 'Approved' || h.is_blocked ? 'disabled' : '';
         return `
         <label class="flex items-center gap-4 p-4 border-b border-slate-100 hover:bg-slate-50 cursor-pointer transition-colors group ${disabled ? 'opacity-60' : ''}">
-            <input type="checkbox" value="${h.id}" ${isChecked} ${disabled} class="multi-host-cb w-5 h-5 text-indigo-600 rounded border-slate-300 focus:ring-indigo-500" onchange="updateMultiHostCount()">
+            <input type="checkbox" value="${safeId}" ${isChecked} ${disabled} class="multi-host-cb w-5 h-5 text-indigo-600 rounded border-slate-300 focus:ring-indigo-500" onchange="toggleMultiHostSelection(this.value, this.checked)">
             <span class="min-w-0">
-                <span class="font-black text-slate-700 text-sm group-hover:text-indigo-600 transition-colors">${h.name}${blockedBadge}${approvalBadge}${versionBadge}</span>
-                <span class="block text-[10px] text-slate-400 font-bold mt-1">${h.ip || 'No IP'} / ${h.os_type || 'Unknown OS'} / Agent ${h.agent_version || 'unknown'}</span>
+                <span class="font-black text-slate-700 text-sm group-hover:text-indigo-600 transition-colors">${escapeHtml(h.name || hostId)}${blockedBadge}${approvalBadge}${versionBadge}</span>
+                <span class="block text-[10px] text-slate-400 font-bold mt-1">${escapeHtml(h.ip || 'No IP')} / ${escapeHtml(h.os_type || 'Unknown OS')} / Agent ${escapeHtml(h.agent_version || 'unknown')}</span>
             </span>
         </label>`;
     }).join('') || '<div class="p-10 text-center text-slate-400 font-bold">No endpoints match search</div>';
@@ -936,19 +942,30 @@ function filterMultiHostList() {
 function toggleAllMultiHosts() {
     const checkboxes = document.querySelectorAll('.multi-host-cb');
     const allChecked = Array.from(checkboxes).every(cb => cb.checked);
-    checkboxes.forEach(cb => cb.checked = !allChecked);
+    checkboxes.forEach(cb => {
+        cb.checked = !allChecked;
+        toggleMultiHostSelection(cb.value, cb.checked, false);
+    });
     updateMultiHostCount();
 }
 
+function toggleMultiHostSelection(hostId, checked, updateLabel = true) {
+    const id = String(hostId);
+    if(checked) {
+        multiHostSelectedIds.add(id);
+    } else {
+        multiHostSelectedIds.delete(id);
+    }
+    if(updateLabel) updateMultiHostCount();
+}
+
 function updateMultiHostCount() {
-    const count = document.querySelectorAll('.multi-host-cb:checked').length;
     const label = document.getElementById('multiHostSelCount');
-    if(label) label.innerText = count;
+    if(label) label.innerText = multiHostSelectedIds.size;
 }
 
 function confirmMultiHostSelection() {
-    const cbs = document.querySelectorAll('.multi-host-cb:checked');
-    const selectedIds = Array.from(cbs).map(cb => cb.value);
+    const selectedIds = Array.from(multiHostSelectedIds);
     
     const hiddenInput = document.getElementById('depTargetHostIds');
     if(hiddenInput) hiddenInput.value = JSON.stringify(selectedIds);
