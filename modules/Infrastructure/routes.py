@@ -1596,10 +1596,16 @@ function Test-WinHUBDetection {{
     if ($Type -eq 'folder_exists') {{ return Test-Path -LiteralPath $Value -PathType Container }}
     if ($Type -eq 'registry_key_exists') {{ return Test-Path -LiteralPath $Value }}
     if ($Type -eq 'command') {{
+        $DetectionScript = Join-Path $env:TEMP ("winhub_detection_" + [guid]::NewGuid().ToString("N") + ".ps1")
         try {{
-            Invoke-Expression $Value | Out-Host
-            return $LASTEXITCODE -eq 0
-        }} catch {{ return $false }}
+            Set-Content -LiteralPath $DetectionScript -Value $Value -Encoding UTF8
+            $Process = Start-Process -FilePath "powershell.exe" -ArgumentList @("-ExecutionPolicy", "Bypass", "-NoProfile", "-NonInteractive", "-File", $DetectionScript) -Wait -PassThru -WindowStyle Hidden
+            return $Process.ExitCode -eq 0
+        }} catch {{
+            return $false
+        }} finally {{
+            try {{ Remove-Item -LiteralPath $DetectionScript -Force -ErrorAction SilentlyContinue }} catch {{ }}
+        }}
     }}
     return $false
 }}
