@@ -1438,6 +1438,7 @@ def software_package_form_record(package_id, existing=None):
         "name": name,
         "version": version,
         "vendor": package_form_text("vendor", 160),
+        "category": package_form_text("category", 120) or "General",
         "package_type": package_type,
         "architecture": package_form_text("architecture", 32) or "any",
         "external_url": file_data.get("external_url", external_url),

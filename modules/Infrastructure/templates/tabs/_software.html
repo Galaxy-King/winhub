@@ -21,7 +21,7 @@
             <div class="p-5 border-b border-slate-200 bg-slate-50/70 flex flex-col md:flex-row md:items-center justify-between gap-3">
                 <div>
                     <h4 class="text-sm font-black text-slate-800 uppercase">Package Library</h4>
-                    <p class="text-xs font-bold text-slate-400 mt-1">Click a package to configure targets and install scope.</p>
+                    <p class="text-xs font-bold text-slate-400 mt-1">Packages are grouped by category. Expand a group and select software to configure targets.</p>
                 </div>
                 <input id="softwareSearch" oninput="renderSoftwareRegistry()" placeholder="Search software, vendor, version..." class="w-full md:w-80 p-3 bg-white border border-slate-200 rounded-xl text-xs font-bold outline-none focus:ring-4 focus:ring-indigo-500/10">
             </div>
@@ -134,9 +134,9 @@
                 <div class="p-5 rounded-2xl border border-slate-200 bg-slate-50">
                     <h5 class="text-xs font-black text-slate-800 uppercase">Workflow</h5>
                     <ol class="mt-3 space-y-2 text-xs font-bold text-slate-600 list-decimal list-inside">
-                        <li>Add a package in the Add Package tab.</li>
+                        <li>Add a package in the Add Package tab and choose its category/group.</li>
                         <li>Define the all-users install recipe and optional user-scoped recipe.</li>
-                        <li>Select a package in Package Library.</li>
+                        <li>Open a package group in Package Library and select software.</li>
                         <li>Choose targets: checked nodes or a group.</li>
                         <li>Choose Install or Uninstall, select scope, and dispatch the task.</li>
                         <li>Review execution logs in Queue.</li>
@@ -146,6 +146,7 @@
                     <h5 class="text-xs font-black text-slate-800 uppercase">Package Fields</h5>
                     <div class="mt-3 space-y-2 text-xs font-bold text-slate-600">
                         <p><b>Name / Version / Vendor</b> identify the software in the library and task logs.</p>
+                        <p><b>Category / Group</b> controls where the package appears in Package Library. Groups can be expanded and collapsed.</p>
                         <p><b>Package type</b> controls ZIP extraction behavior and documents installer type.</p>
                         <p><b>Architecture</b> marks x64, x86, ARM64, or any.</p>
                         <p><b>File</b> uploads the installer to WinHUB. SHA256 is calculated automatically.</p>
@@ -155,7 +156,7 @@
                 <div class="p-5 rounded-2xl border border-slate-200 bg-slate-50">
                     <h5 class="text-xs font-black text-slate-800 uppercase">Install Recipes</h5>
                     <div class="mt-3 space-y-2 text-xs font-bold text-slate-600">
-                        <p><b>All users install command</b> is used for machine-wide installs.</p>
+                        <p><b>All users install command</b> is used for machine-wide installs. Code fields use the same editor style as Workspace.</p>
                         <p><b>Specific users install command</b> is used only when you select the specific-users mode.</p>
                         <p><b>Uninstall command</b> is used by the Uninstall action from the Software panel.</p>
                         <p>Available variables: <code>{file}</code>, <code>{extract_dir}</code>, <code>{package_dir}</code>, <code>{users}</code>, <code>{name}</code>, <code>{version}</code>.</p>
@@ -184,9 +185,9 @@
                 <div class="p-5 rounded-2xl border border-slate-200 bg-slate-50">
                     <h5 class="text-xs font-black text-slate-800 uppercase">Процес роботи</h5>
                     <ol class="mt-3 space-y-2 text-xs font-bold text-slate-600 list-decimal list-inside">
-                        <li>Додай пакет у вкладці Add Package.</li>
+                        <li>Додай пакет у вкладці Add Package і обери його категорію/групу.</li>
                         <li>Задай рецепт встановлення для всіх користувачів і, за потреби, рецепт для конкретних користувачів.</li>
-                        <li>Обери пакет у Package Library.</li>
+                        <li>Відкрий групу в Package Library і обери потрібне ПЗ.</li>
                         <li>Обери цілі: відмічені хости або групу.</li>
                         <li>Обери Install або Uninstall, режим виконання і запусти задачу.</li>
                         <li>Перевір лог виконання у Queue.</li>
@@ -196,6 +197,7 @@
                     <h5 class="text-xs font-black text-slate-800 uppercase">Поля пакета</h5>
                     <div class="mt-3 space-y-2 text-xs font-bold text-slate-600">
                         <p><b>Name / Version / Vendor</b> показуються у бібліотеці та логах задач.</p>
+                        <p><b>Category / Group</b> визначає, в якій групі пакет буде показано в Package Library. Групи можна згортати й розгортати.</p>
                         <p><b>Package type</b> описує тип інсталятора і керує розпаковкою ZIP.</p>
                         <p><b>Architecture</b> позначає x64, x86, ARM64 або any.</p>
                         <p><b>File</b> завантажує інсталятор на WinHUB. SHA256 рахується автоматично.</p>
@@ -205,7 +207,7 @@
                 <div class="p-5 rounded-2xl border border-slate-200 bg-slate-50">
                     <h5 class="text-xs font-black text-slate-800 uppercase">Рецепти встановлення</h5>
                     <div class="mt-3 space-y-2 text-xs font-bold text-slate-600">
-                        <p><b>All users install command</b> використовується для встановлення на весь сервер.</p>
+                        <p><b>All users install command</b> використовується для встановлення на весь сервер. Поля з кодом мають такий самий редактор, як Workspace.</p>
                         <p><b>Specific users install command</b> використовується лише в режимі конкретних користувачів.</p>
                         <p><b>Uninstall command</b> використовується дією Uninstall у панелі Software.</p>
                         <p>Доступні змінні: <code>{file}</code>, <code>{extract_dir}</code>, <code>{package_dir}</code>, <code>{users}</code>, <code>{name}</code>, <code>{version}</code>.</p>
