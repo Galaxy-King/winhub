@@ -24,6 +24,38 @@ from core.gpg import gpg_env, import_public_key, fetch_public_key, list_public_k
 
 log = logging.getLogger("winhub.admin")
 admin_bp = Blueprint('admin', __name__)
+GPG_KEYSERVERS_FILE = os.path.join(Config.DATA_DIR, "gpg_keyservers.json")
+DEFAULT_GPG_KEYSERVERS = [
+    "hkps://keys.openpgp.org",
+    "hkps://keyserver.ubuntu.com",
+]
+
+
+def load_gpg_keyservers():
+    try:
+        with open(GPG_KEYSERVERS_FILE, "r", encoding="utf-8") as handle:
+            data = json.load(handle)
+            if isinstance(data, list):
+                values = [str(item).strip() for item in data if str(item).strip()]
+                return list(dict.fromkeys(DEFAULT_GPG_KEYSERVERS + values))
+    except FileNotFoundError:
+        pass
+    except Exception:
+        log.exception("Failed to load GPG keyservers")
+    return list(DEFAULT_GPG_KEYSERVERS)
+
+
+def save_gpg_keyserver(keyserver):
+    value = str(keyserver or "").strip()
+    if not value:
+        return load_gpg_keyservers()
+    values = load_gpg_keyservers()
+    if value not in values:
+        values.append(value)
+    os.makedirs(os.path.dirname(GPG_KEYSERVERS_FILE), exist_ok=True)
+    with open(GPG_KEYSERVERS_FILE, "w", encoding="utf-8") as handle:
+        json.dump(values, handle, indent=2)
+    return values
 
 
 def sanitize_allowed_modules(raw_items):
@@ -632,7 +664,12 @@ def get_gpg_keys():
     if not ok:
         return jsonify({"success": False, "message": message, "keys": []}), 500
     listed, list_message, keys = list_public_keys()
-    return jsonify({"success": listed, "message": list_message, "keys": keys})
+    return jsonify({"success": listed, "message": list_message, "keys": keys, "keyservers": load_gpg_keyservers()})
+
+
+@admin_bp.route('/api/admin/gpg/keyservers', methods=['GET'])
+def get_gpg_keyservers():
+    return jsonify({"success": True, "keyservers": load_gpg_keyservers()})
 
 
 @admin_bp.route('/api/admin/gpg/import', methods=['POST'])
@@ -652,15 +689,17 @@ def import_gpg_key():
 @admin_bp.route('/api/admin/gpg/fetch', methods=['POST'])
 def fetch_gpg_key_route():
     data = request.json or {}
-    ok, message = fetch_public_key(data.get("keyserver"), data.get("search"))
+    keyserver = data.get("keyserver")
+    ok, message = fetch_public_key(keyserver, data.get("search"))
+    keyservers = save_gpg_keyserver(keyserver) if ok else load_gpg_keyservers()
     WinHubCore.audit(
         user_id=session.get('user_id'),
         module="Admin",
         action="Fetch GPG Key",
-        details={"success": bool(ok), "search": data.get("search"), "keyserver": data.get("keyserver"), "message": message[:300]},
+        details={"success": bool(ok), "search": data.get("search"), "keyserver": keyserver, "message": message[:300]},
         status="Success" if ok else "Error"
     )
-    return jsonify({"success": ok, "message": message}), 200 if ok else 400
+    return jsonify({"success": ok, "message": message, "keyservers": keyservers}), 200 if ok else 400
 
 
 @admin_bp.route('/api/admin/gpg/keys/<fingerprint>', methods=['DELETE'])
