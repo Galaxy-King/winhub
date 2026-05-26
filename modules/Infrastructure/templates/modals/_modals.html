@@ -243,7 +243,7 @@
                 </div>
             </div>
             <div class="flex items-center gap-3">
-                {% if permissions.manage_reports %}
+                {% if permissions.edit_reports %}
                 <button id="btnSaveReportText" onclick="saveReportChanges()" class="px-6 py-3 bg-emerald-50 text-emerald-600 border border-emerald-200 hover:bg-emerald-100 rounded-2xl text-xs font-black uppercase transition-all shadow-sm">Save Changes</button>
                 {% endif %}
                 <button onclick="closeModal('reportViewModal')" class="p-3 bg-white border border-slate-200 hover:bg-slate-50 rounded-2xl text-slate-500 hover:text-slate-800 transition-colors shadow-sm"><svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path d="M6 18L18 6M6 6l12 12" stroke-width="2.5"/></svg></button>
@@ -251,18 +251,18 @@
         </div>
         
         <div class="flex-1 bg-slate-900 shadow-inner flex flex-col p-6 sm:p-8">
-            <textarea id="vrBody" spellcheck="false" class="w-full flex-1 bg-transparent text-emerald-400 font-mono text-sm leading-relaxed resize-none outline-none custom-scrollbar border-0 p-0 focus:ring-0" {% if not permissions.manage_reports %}readonly{% endif %}>Loading...</textarea>
+            <textarea id="vrBody" spellcheck="false" class="w-full flex-1 bg-transparent text-emerald-400 font-mono text-sm leading-relaxed resize-none outline-none custom-scrollbar border-0 p-0 focus:ring-0" {% if not permissions.edit_reports %}readonly{% endif %}>Loading...</textarea>
         </div>
         
         <div class="p-6 sm:p-8 border-t border-slate-100 bg-white flex flex-wrap justify-between items-center gap-4 shrink-0">
-            {% if permissions.manage_reports %}
+            {% if permissions.delete_reports %}
             <button onclick="deleteCurrentReport()" class="px-6 py-3.5 bg-white border border-rose-200 text-rose-500 hover:bg-rose-50 rounded-2xl text-xs font-black uppercase transition-all shadow-sm">Delete Report</button>
             {% else %}
             <div></div> <!-- Spacer -->
             {% endif %}
             
             <div class="flex gap-3">
-                {% if permissions.manage_reports %}
+                {% if permissions.dismiss_reports %}
                 <button onclick="dismissCurrentReport()" class="px-6 py-3.5 bg-white border border-slate-200 text-slate-600 hover:bg-slate-100 rounded-2xl text-xs font-black uppercase transition-all shadow-sm">Dismiss</button>
                 {% endif %}
                 {% if permissions.send_reports %}
