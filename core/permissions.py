@@ -12,6 +12,7 @@ MODULE_PERMISSION_CATALOG = {
         {"id": "view_sensitive_reports", "name": "View sensitive report values"},
         {"id": "manage_reports", "name": "Edit/dismiss reports"},
         {"id": "run_tasks", "name": "Run approved templates"},
+        {"id": "manage_software", "name": "Manage software packages"},
         {"id": "send_reports", "name": "Send reports by email"},
         {"id": "manage_templates", "name": "Manage templates"},
         {"id": "manage_smtp", "name": "Manage SMTP profiles"},
