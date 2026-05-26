@@ -2,18 +2,26 @@
 <section id="view-software" class="hidden space-y-6 animate-in fade-in duration-300">
     <div class="wh-blue-panel p-6 rounded-[2rem] border border-slate-200 shadow-sm flex flex-col md:flex-row md:items-center justify-between gap-4">
         <div>
-            <h3 class="text-lg font-black uppercase tracking-tight">Software Registry</h3>
-            <p class="text-xs font-bold mt-1">Packages, install recipes, detection rules and dispatch to nodes.</p>
+            <h3 class="text-lg font-black uppercase tracking-tight">Software</h3>
+            <p class="text-xs font-bold mt-1">Package library, install recipes, user-scoped installs and node dispatch.</p>
         </div>
         <button onclick="loadSoftwareRegistry()" class="px-4 py-2.5 rounded-xl bg-white/15 hover:bg-white/25 text-white text-[10px] font-black uppercase border border-white/20 transition-all">Refresh</button>
     </div>
 
-    <div class="grid grid-cols-1 xl:grid-cols-3 gap-6">
+    <div class="wh-soft-panel bg-white p-2 rounded-2xl border border-slate-200 shadow-sm flex gap-2 w-fit">
+        <button onclick="switchSoftwareTab('library')" id="softwareTab-library" class="software-tab-btn px-5 py-2.5 rounded-xl text-xs font-black uppercase bg-slate-900 text-white shadow-sm">Package Library</button>
+        {% if is_admin %}
+        <button onclick="switchSoftwareTab('add')" id="softwareTab-add" class="software-tab-btn px-5 py-2.5 rounded-xl text-xs font-black uppercase text-slate-500 hover:text-indigo-700">Add Package</button>
+        {% endif %}
+        <button onclick="switchSoftwareTab('info')" id="softwareTab-info" class="software-tab-btn px-5 py-2.5 rounded-xl text-xs font-black uppercase text-slate-500 hover:text-indigo-700">Info</button>
+    </div>
+
+    <div id="softwareLibraryPanel" class="grid grid-cols-1 xl:grid-cols-3 gap-6">
         <div class="xl:col-span-2 bg-white rounded-[2rem] border border-slate-200 shadow-sm overflow-hidden">
             <div class="p-5 border-b border-slate-200 bg-slate-50/70 flex flex-col md:flex-row md:items-center justify-between gap-3">
                 <div>
                     <h4 class="text-sm font-black text-slate-800 uppercase">Package Library</h4>
-                    <p class="text-xs font-bold text-slate-400 mt-1">Search uploaded installers and recipes.</p>
+                    <p class="text-xs font-bold text-slate-400 mt-1">Click a package to configure targets and install scope.</p>
                 </div>
                 <input id="softwareSearch" oninput="renderSoftwareRegistry()" placeholder="Search software, vendor, version..." class="w-full md:w-80 p-3 bg-white border border-slate-200 rounded-xl text-xs font-bold outline-none focus:ring-4 focus:ring-indigo-500/10">
             </div>
@@ -22,82 +30,200 @@
             </div>
         </div>
 
-        <div class="space-y-6">
-            {% if is_admin %}
-            <form id="softwarePackageForm" class="bg-white rounded-[2rem] border border-slate-200 shadow-sm p-6 space-y-3" onsubmit="uploadSoftwarePackage(event)">
+        <div id="softwareInstallPanel" class="bg-white rounded-[2rem] border border-slate-200 shadow-sm p-6 space-y-3">
+            <div>
+                <h4 class="text-sm font-black text-slate-800 uppercase">Install Software</h4>
+                <p id="softwareSelectedPackageHint" class="text-xs font-bold text-slate-400 mt-1">Select a package from the library.</p>
+            </div>
+            <input id="softwareInstallPackageId" type="hidden">
+            <select id="softwareInstallScope" onchange="renderSoftwareInstallScope()" class="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl text-xs font-bold outline-none focus:ring-4 focus:ring-indigo-500/10">
+                <option value="all">Install for all users / machine-wide</option>
+                <option value="users">Install for specific users</option>
+            </select>
+            <textarea id="softwareUserLogins" placeholder="User logins, one per line or comma-separated" class="hidden w-full p-3 bg-slate-50 border border-slate-200 rounded-xl text-xs font-mono font-bold outline-none focus:ring-4 focus:ring-indigo-500/10 min-h-[96px]"></textarea>
+            <select id="softwareInstallTargetMode" onchange="renderSoftwareTargets()" class="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl text-xs font-bold outline-none focus:ring-4 focus:ring-indigo-500/10">
+                <option value="selected">Checked nodes</option>
+                <option value="group">Selected group</option>
+            </select>
+            <select id="softwareInstallGroupSelect" class="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl text-xs font-bold outline-none focus:ring-4 focus:ring-indigo-500/10">
+                {% for g in groups %}
+                <option value="{{ g.id }}">{{ g.name }}</option>
+                {% endfor %}
+            </select>
+            <input id="softwareTargetSearch" oninput="renderSoftwareTargets()" placeholder="Search target nodes..." class="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl text-xs font-bold outline-none focus:ring-4 focus:ring-indigo-500/10">
+            <div class="p-3 bg-indigo-50 border border-indigo-100 rounded-xl text-[10px] font-black text-indigo-700 uppercase tracking-widest">
+                <span id="softwareSelectedCount">0</span> checked nodes
+            </div>
+            <div id="softwareTargetsList" class="max-h-[320px] overflow-y-auto custom-scrollbar space-y-2 pr-1"></div>
+            <button onclick="runSoftwareInstall()" class="w-full py-3 rounded-xl bg-indigo-600 text-white text-[10px] font-black uppercase hover:bg-indigo-700 shadow-lg shadow-indigo-200 transition-all">Install Selected Package</button>
+        </div>
+    </div>
+
+    {% if is_admin %}
+    <div id="softwareAddPanel" class="hidden grid grid-cols-1 xl:grid-cols-3 gap-6">
+        <div class="xl:col-span-2 bg-white rounded-[2rem] border border-slate-200 shadow-sm p-6">
+            <form id="softwarePackageForm" class="space-y-3" onsubmit="uploadSoftwarePackage(event)">
                 <div>
                     <h4 class="text-sm font-black text-slate-800 uppercase">Add Package</h4>
-                    <p class="text-xs font-bold text-slate-400 mt-1">Upload file or register external URL.</p>
+                    <p class="text-xs font-bold text-slate-400 mt-1">Create a new software package and its install recipes.</p>
                 </div>
-                <input name="name" placeholder="Name, e.g. 7-Zip" class="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl text-xs font-bold outline-none focus:ring-4 focus:ring-indigo-500/10">
-                <div class="grid grid-cols-2 gap-3">
-                    <input name="version" placeholder="Version" class="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl text-xs font-bold outline-none focus:ring-4 focus:ring-indigo-500/10">
-                    <input name="vendor" placeholder="Vendor" class="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl text-xs font-bold outline-none focus:ring-4 focus:ring-indigo-500/10">
-                </div>
-                <div class="grid grid-cols-2 gap-3">
-                    <select name="package_type" class="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl text-xs font-bold outline-none focus:ring-4 focus:ring-indigo-500/10">
-                        <option value="exe">EXE</option>
-                        <option value="msi">MSI</option>
-                        <option value="zip">ZIP</option>
-                        <option value="ps1">PS1</option>
-                        <option value="bat">BAT</option>
-                        <option value="custom">Custom</option>
-                    </select>
-                    <select name="architecture" class="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl text-xs font-bold outline-none focus:ring-4 focus:ring-indigo-500/10">
-                        <option value="any">Any arch</option>
-                        <option value="x64">x64</option>
-                        <option value="x86">x86</option>
-                        <option value="arm64">ARM64</option>
-                    </select>
-                </div>
-                <input name="external_url" placeholder="External URL instead of upload" class="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl text-xs font-bold outline-none focus:ring-4 focus:ring-indigo-500/10">
-                <input name="sha256" placeholder="SHA256 for external URL" class="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl text-xs font-mono font-bold outline-none focus:ring-4 focus:ring-indigo-500/10">
-                <input name="file" type="file" class="w-full text-xs font-bold text-slate-500">
-                <textarea name="install_command" placeholder='Install command, e.g. msiexec /i "{file}" /qn /norestart' class="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl text-xs font-mono font-bold outline-none focus:ring-4 focus:ring-indigo-500/10 min-h-[96px]"></textarea>
-                <div class="grid grid-cols-2 gap-3">
-                    <select name="detection_type" class="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl text-xs font-bold outline-none focus:ring-4 focus:ring-indigo-500/10">
-                        <option value="none">No detection</option>
-                        <option value="file_exists">File exists</option>
-                        <option value="folder_exists">Folder exists</option>
-                        <option value="registry_key_exists">Registry key exists</option>
-                        <option value="command">Command returns 0</option>
-                    </select>
-                    <input name="expected_exit_codes" value="0,3010" placeholder="Exit codes" class="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl text-xs font-bold outline-none focus:ring-4 focus:ring-indigo-500/10">
-                </div>
-                <textarea name="detection_value" placeholder="Detection value/path/command" class="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl text-xs font-mono font-bold outline-none focus:ring-4 focus:ring-indigo-500/10 min-h-[72px]"></textarea>
-                <textarea name="uninstall_command" placeholder="Optional uninstall command" class="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl text-xs font-mono font-bold outline-none focus:ring-4 focus:ring-indigo-500/10 min-h-[72px]"></textarea>
-                <textarea name="notes" placeholder="Notes..." class="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl text-xs font-bold outline-none focus:ring-4 focus:ring-indigo-500/10 min-h-[72px]"></textarea>
+                {% include "tabs/_software_form_fields.html" ignore missing %}
                 <div id="softwarePackageProgressWrap" class="hidden h-3 bg-slate-100 rounded-full overflow-hidden border border-slate-200">
                     <div id="softwarePackageProgressBar" class="h-full bg-indigo-600 rounded-full transition-all" style="width: 0%"></div>
                 </div>
                 <div id="softwarePackageProgressText" class="hidden text-[10px] font-black text-slate-400 uppercase tracking-widest">0%</div>
                 <button class="w-full py-3 rounded-xl bg-slate-900 text-white text-[10px] font-black uppercase hover:bg-slate-800 transition-all">Save Package</button>
             </form>
-            {% else %}
-            <div class="bg-white rounded-[2rem] border border-slate-200 shadow-sm p-6 text-xs font-bold text-slate-500">Software package upload is available only for superadmins.</div>
-            {% endif %}
+        </div>
+        <div class="bg-white rounded-[2rem] border border-slate-200 shadow-sm p-6 space-y-3">
+            <h4 class="text-sm font-black text-slate-800 uppercase">Recipe Variables</h4>
+            <div class="grid gap-2 text-[11px] font-bold text-slate-500">
+                <span><code>{file}</code> downloaded package path</span>
+                <span><code>{extract_dir}</code> ZIP extraction folder</span>
+                <span><code>{package_dir}</code> working folder</span>
+                <span><code>{users}</code> selected user logins</span>
+                <span><code>{name}</code> package name</span>
+                <span><code>{version}</code> package version</span>
+            </div>
+        </div>
+    </div>
 
-            <div class="bg-white rounded-[2rem] border border-slate-200 shadow-sm p-6 space-y-3">
+    <div id="softwareEditModal" class="hidden fixed inset-0 z-50 bg-slate-950/45 backdrop-blur-sm p-4 md:p-8 overflow-y-auto">
+        <div class="max-w-4xl mx-auto bg-white rounded-[2rem] border border-slate-200 shadow-2xl p-6 space-y-5">
+            <div class="flex items-start justify-between gap-4">
                 <div>
-                    <h4 class="text-sm font-black text-slate-800 uppercase">Install Software</h4>
-                    <p class="text-xs font-bold text-slate-400 mt-1">Select package and target nodes.</p>
+                    <h3 class="text-sm font-black text-slate-800 uppercase">Edit Software Package</h3>
+                    <p id="softwareEditHint" class="text-xs font-bold text-slate-400 mt-1">Update recipe, metadata, or replace uploaded file.</p>
                 </div>
-                <select id="softwareInstallPackageSelect" class="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl text-xs font-bold outline-none focus:ring-4 focus:ring-indigo-500/10"></select>
-                <select id="softwareInstallTargetMode" onchange="renderSoftwareTargets()" class="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl text-xs font-bold outline-none focus:ring-4 focus:ring-indigo-500/10">
-                    <option value="selected">Checked nodes</option>
-                    <option value="group">Selected group</option>
-                </select>
-                <select id="softwareInstallGroupSelect" class="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl text-xs font-bold outline-none focus:ring-4 focus:ring-indigo-500/10">
-                    {% for g in groups %}
-                    <option value="{{ g.id }}">{{ g.name }}</option>
-                    {% endfor %}
-                </select>
-                <input id="softwareTargetSearch" oninput="renderSoftwareTargets()" placeholder="Search target nodes..." class="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl text-xs font-bold outline-none focus:ring-4 focus:ring-indigo-500/10">
-                <div class="p-3 bg-indigo-50 border border-indigo-100 rounded-xl text-[10px] font-black text-indigo-700 uppercase tracking-widest">
-                    <span id="softwareSelectedCount">0</span> checked nodes
+                <button onclick="closeSoftwareEditModal()" class="p-2 rounded-xl bg-slate-50 border border-slate-200 text-slate-500 hover:text-rose-600 hover:bg-rose-50 transition-all" aria-label="Close Software Editor">
+                    <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18" stroke-width="2.5" stroke-linecap="round"/></svg>
+                </button>
+            </div>
+            <form id="softwareEditForm" class="space-y-3" onsubmit="submitSoftwareEdit(event)">
+                <input name="package_id" type="hidden">
+                <input name="remove_file" id="softwareEditRemoveFile" type="hidden" value="0">
+                {% include "tabs/_software_form_fields.html" ignore missing %}
+                <div id="softwareEditFileInfo" class="p-3 rounded-xl bg-slate-50 border border-slate-200 text-[10px] font-bold text-slate-500 break-all"></div>
+                <div class="flex flex-wrap gap-2">
+                    <button type="button" onclick="markSoftwareFileForRemoval()" class="px-4 py-2 rounded-xl bg-rose-50 text-rose-700 border border-rose-100 text-[10px] font-black uppercase hover:bg-rose-100">Remove Current File</button>
+                    <button type="submit" class="ml-auto px-5 py-2 rounded-xl bg-slate-900 text-white text-[10px] font-black uppercase hover:bg-slate-800">Save Changes</button>
                 </div>
-                <div id="softwareTargetsList" class="max-h-[260px] overflow-y-auto custom-scrollbar space-y-2 pr-1"></div>
-                <button onclick="runSoftwareInstall()" class="w-full py-3 rounded-xl bg-indigo-600 text-white text-[10px] font-black uppercase hover:bg-indigo-700 shadow-lg shadow-indigo-200 transition-all">Install Selected Package</button>
+            </form>
+        </div>
+    </div>
+    {% endif %}
+
+    <div id="softwareInfoPanel" class="hidden bg-white rounded-[2rem] border border-slate-200 shadow-sm overflow-hidden">
+        <div class="p-6 border-b border-slate-200 bg-slate-50/70 flex flex-col md:flex-row md:items-center justify-between gap-3">
+            <div>
+                <h4 class="text-sm font-black text-slate-800 uppercase">Software Info</h4>
+                <p class="text-xs font-bold text-slate-400 mt-1">Usage guide, fields, recipes and install modes.</p>
+            </div>
+            <div class="bg-white p-1.5 rounded-xl border border-slate-200 flex gap-1">
+                <button onclick="setSoftwareInfoLanguage('en')" id="softwareInfoLang-en" class="px-4 py-2 bg-slate-900 text-white rounded-lg text-[10px] font-black uppercase">EN</button>
+                <button onclick="setSoftwareInfoLanguage('ua')" id="softwareInfoLang-ua" class="px-4 py-2 text-slate-500 rounded-lg text-[10px] font-black uppercase">UA</button>
+            </div>
+        </div>
+
+        <div class="p-6 md:p-8">
+            <div id="softwareInfoContent-en" class="software-info-content grid grid-cols-1 lg:grid-cols-2 gap-5">
+                <div class="p-5 rounded-2xl border border-slate-200 bg-slate-50">
+                    <h5 class="text-xs font-black text-slate-800 uppercase">Workflow</h5>
+                    <ol class="mt-3 space-y-2 text-xs font-bold text-slate-600 list-decimal list-inside">
+                        <li>Add a package in the Add Package tab.</li>
+                        <li>Define the all-users install recipe and optional user-scoped recipe.</li>
+                        <li>Select a package in Package Library.</li>
+                        <li>Choose targets: checked nodes or a group.</li>
+                        <li>Choose install scope and dispatch the task.</li>
+                        <li>Review execution logs in Queue.</li>
+                    </ol>
+                </div>
+                <div class="p-5 rounded-2xl border border-slate-200 bg-slate-50">
+                    <h5 class="text-xs font-black text-slate-800 uppercase">Package Fields</h5>
+                    <div class="mt-3 space-y-2 text-xs font-bold text-slate-600">
+                        <p><b>Name / Version / Vendor</b> identify the software in the library and task logs.</p>
+                        <p><b>Package type</b> controls ZIP extraction behavior and documents installer type.</p>
+                        <p><b>Architecture</b> marks x64, x86, ARM64, or any.</p>
+                        <p><b>File</b> uploads the installer to WinHUB. SHA256 is calculated automatically.</p>
+                        <p><b>External URL</b> points agents to another repository. Provide SHA256 for safety.</p>
+                    </div>
+                </div>
+                <div class="p-5 rounded-2xl border border-slate-200 bg-slate-50">
+                    <h5 class="text-xs font-black text-slate-800 uppercase">Install Recipes</h5>
+                    <div class="mt-3 space-y-2 text-xs font-bold text-slate-600">
+                        <p><b>All users install command</b> is used for machine-wide installs.</p>
+                        <p><b>Specific users install command</b> is used only when you select the specific-users mode.</p>
+                        <p><b>Uninstall command</b> is stored for removal workflows and future uninstall actions.</p>
+                        <p>Available variables: <code>{file}</code>, <code>{extract_dir}</code>, <code>{package_dir}</code>, <code>{users}</code>, <code>{name}</code>, <code>{version}</code>.</p>
+                    </div>
+                </div>
+                <div class="p-5 rounded-2xl border border-slate-200 bg-slate-50">
+                    <h5 class="text-xs font-black text-slate-800 uppercase">Detection And Exit Codes</h5>
+                    <div class="mt-3 space-y-2 text-xs font-bold text-slate-600">
+                        <p><b>Detection type</b> tells WinHUB how to confirm the software is installed.</p>
+                        <p><b>Detection value</b> is a path, registry key, or command depending on detection type.</p>
+                        <p><b>Expected exit codes</b> are successful installer codes, usually <code>0,3010</code>.</p>
+                        <p>If detection already matches, the generated task skips installation.</p>
+                    </div>
+                </div>
+                <div class="p-5 rounded-2xl border border-slate-200 bg-slate-50 lg:col-span-2">
+                    <h5 class="text-xs font-black text-slate-800 uppercase">Edit And Delete</h5>
+                    <div class="mt-3 space-y-2 text-xs font-bold text-slate-600">
+                        <p>Hover a package card and click <b>Edit</b> to update metadata, recipes, detection rules, or replace the uploaded file.</p>
+                        <p>Use <b>Remove Current File</b> only when you also provide a replacement file or an external URL.</p>
+                        <p><b>Delete</b> removes the package record and its uploaded file from the server.</p>
+                    </div>
+                </div>
+            </div>
+
+            <div id="softwareInfoContent-ua" class="software-info-content hidden grid grid-cols-1 lg:grid-cols-2 gap-5">
+                <div class="p-5 rounded-2xl border border-slate-200 bg-slate-50">
+                    <h5 class="text-xs font-black text-slate-800 uppercase">Процес роботи</h5>
+                    <ol class="mt-3 space-y-2 text-xs font-bold text-slate-600 list-decimal list-inside">
+                        <li>Додай пакет у вкладці Add Package.</li>
+                        <li>Задай рецепт встановлення для всіх користувачів і, за потреби, рецепт для конкретних користувачів.</li>
+                        <li>Обери пакет у Package Library.</li>
+                        <li>Обери цілі: відмічені хости або групу.</li>
+                        <li>Обери режим встановлення і запусти задачу.</li>
+                        <li>Перевір лог виконання у Queue.</li>
+                    </ol>
+                </div>
+                <div class="p-5 rounded-2xl border border-slate-200 bg-slate-50">
+                    <h5 class="text-xs font-black text-slate-800 uppercase">Поля пакета</h5>
+                    <div class="mt-3 space-y-2 text-xs font-bold text-slate-600">
+                        <p><b>Name / Version / Vendor</b> показуються у бібліотеці та логах задач.</p>
+                        <p><b>Package type</b> описує тип інсталятора і керує розпаковкою ZIP.</p>
+                        <p><b>Architecture</b> позначає x64, x86, ARM64 або any.</p>
+                        <p><b>File</b> завантажує інсталятор на WinHUB. SHA256 рахується автоматично.</p>
+                        <p><b>External URL</b> дає агентам посилання на інше сховище. Для безпеки вкажи SHA256.</p>
+                    </div>
+                </div>
+                <div class="p-5 rounded-2xl border border-slate-200 bg-slate-50">
+                    <h5 class="text-xs font-black text-slate-800 uppercase">Рецепти встановлення</h5>
+                    <div class="mt-3 space-y-2 text-xs font-bold text-slate-600">
+                        <p><b>All users install command</b> використовується для встановлення на весь сервер.</p>
+                        <p><b>Specific users install command</b> використовується лише в режимі конкретних користувачів.</p>
+                        <p><b>Uninstall command</b> зберігається для сценаріїв видалення і майбутньої дії uninstall.</p>
+                        <p>Доступні змінні: <code>{file}</code>, <code>{extract_dir}</code>, <code>{package_dir}</code>, <code>{users}</code>, <code>{name}</code>, <code>{version}</code>.</p>
+                    </div>
+                </div>
+                <div class="p-5 rounded-2xl border border-slate-200 bg-slate-50">
+                    <h5 class="text-xs font-black text-slate-800 uppercase">Detection і коди виходу</h5>
+                    <div class="mt-3 space-y-2 text-xs font-bold text-slate-600">
+                        <p><b>Detection type</b> визначає, як WinHUB перевіряє, що софт встановлено.</p>
+                        <p><b>Detection value</b> це шлях, registry key або команда, залежно від типу detection.</p>
+                        <p><b>Expected exit codes</b> це успішні коди інсталятора, зазвичай <code>0,3010</code>.</p>
+                        <p>Якщо detection вже спрацював, задача пропустить встановлення.</p>
+                    </div>
+                </div>
+                <div class="p-5 rounded-2xl border border-slate-200 bg-slate-50 lg:col-span-2">
+                    <h5 class="text-xs font-black text-slate-800 uppercase">Редагування і видалення</h5>
+                    <div class="mt-3 space-y-2 text-xs font-bold text-slate-600">
+                        <p>Наведи на картку пакета і натисни <b>Edit</b>, щоб змінити параметри, рецепти, detection або замінити файл.</p>
+                        <p><b>Remove Current File</b> використовуй тільки якщо одразу додаєш новий файл або вказуєш external URL.</p>
+                        <p><b>Delete</b> видаляє запис пакета і завантажений файл із сервера.</p>
+                    </div>
+                </div>
             </div>
         </div>
     </div>
