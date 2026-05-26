@@ -122,8 +122,15 @@ def can_access_report(report_id):
     allowed_hosts = [h.id for h in WinHubCore.get_allowed_hosts(session.get('user_id'))]
     if not allowed_hosts:
         return False
+    source_job_id = report_id
+    split_match = re.match(r"^([0-9a-fA-F]{32})\.(\d{3})$", str(report_id or ""))
+    if split_match:
+        try:
+            source_job_id = str(uuid.UUID(hex=split_match.group(1)))
+        except ValueError:
+            source_job_id = report_id
     return AgentTask.query.filter(
-        ((AgentTask.job_id == report_id) | (AgentTask.id == report_id)),
+        ((AgentTask.job_id == source_job_id) | (AgentTask.id == report_id)),
         AgentTask.endpoint_id.in_(allowed_hosts)
     ).first() is not None
 
@@ -595,7 +602,14 @@ def auto_email_checker_thread(app):
                 db.session.commit()
                 jobs = AggregatedJob.query.filter_by(status='Waiting Review').all()
                 for job in jobs:
-                    task = AgentTask.query.filter((AgentTask.job_id == job.id) | (AgentTask.id == job.id)).first()
+                    source_job_id = job.id
+                    split_match = re.match(r"^([0-9a-fA-F]{32})\.(\d{3})$", str(job.id or ""))
+                    if split_match:
+                        try:
+                            source_job_id = str(uuid.UUID(hex=split_match.group(1)))
+                        except ValueError:
+                            source_job_id = job.id
+                    task = AgentTask.query.filter((AgentTask.job_id == source_job_id) | (AgentTask.id == job.id)).first()
                     if task:
                         payload = get_task_payload(task)
                         if payload.get('__auto_email_toggle') or payload.get('auto_email_toggle'):

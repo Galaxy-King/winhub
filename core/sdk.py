@@ -160,10 +160,16 @@ class WinHubCore:
     def process_job_completion(job_id: str, app=None):
         """Збирає результати і формує звіт (з використанням кастомного шаблону, якщо він заданий)"""
         import json
+        import re
         from core.database import AgentTask, AggregatedJob, TaskTemplate, db
         from flask import render_template_string
-        
-        if AggregatedJob.query.get(job_id):
+
+        try:
+            split_prefix = f"{uuid.UUID(job_id).hex}.%"
+        except Exception:
+            split_prefix = None
+
+        if AggregatedJob.query.get(job_id) or (split_prefix and AggregatedJob.query.filter(AggregatedJob.id.like(split_prefix)).first()):
             return
             
         tasks = AgentTask.query.filter_by(job_id=job_id).all()
@@ -224,14 +230,39 @@ class WinHubCore:
                 report_lines.append(f"{status_icon} [{r['host']}] - {details}")
             final_report_text = "\n".join(report_lines)
 
-        agg_job = AggregatedJob(
-            id=job_id,
-            title=tasks[0].title or "Untitled Job",
-            total_count=total,
-            success_count=success,
-            error_count=errors,
-            report_data=final_report_text,
-            status="Waiting Review"
+        split_pattern = re.compile(
+            r'\[\[WINHUB_REPORT(?:\s+title="([^"]*)")?\]\]\s*(.*?)\s*\[\[/WINHUB_REPORT\]\]',
+            re.DOTALL
         )
-        db.session.add(agg_job)
+        split_reports = [
+            {
+                "title": (match.group(1) or tasks[0].title or "Untitled Job").strip(),
+                "body": (match.group(2) or "").strip()
+            }
+            for match in split_pattern.finditer(final_report_text or "")
+            if (match.group(2) or "").strip()
+        ]
+
+        if split_reports:
+            parent_hex = uuid.UUID(job_id).hex
+            for index, report in enumerate(split_reports[:999], start=1):
+                db.session.add(AggregatedJob(
+                    id=f"{parent_hex}.{index:03d}",
+                    title=report["title"][:150],
+                    total_count=total,
+                    success_count=success,
+                    error_count=errors,
+                    report_data=report["body"],
+                    status="Waiting Review"
+                ))
+        else:
+            db.session.add(AggregatedJob(
+                id=job_id,
+                title=tasks[0].title or "Untitled Job",
+                total_count=total,
+                success_count=success,
+                error_count=errors,
+                report_data=final_report_text,
+                status="Waiting Review"
+            ))
         db.session.commit()
