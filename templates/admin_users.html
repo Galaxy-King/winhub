@@ -359,7 +359,10 @@ GET /api/infrastructure/groups</code></pre>
                     <pre class="bg-slate-950 text-emerald-300 rounded-2xl p-4 text-xs overflow-x-auto"><code>Infrastructure:run_tasks
 Infrastructure:view_hosts
 Infrastructure:view_groups
-Infrastructure:send_reports</code></pre>
+Infrastructure:send_reports
+Infrastructure:edit_reports
+Infrastructure:dismiss_reports
+Infrastructure:delete_reports</code></pre>
                 </div>
             </div>
             <div>
@@ -489,7 +492,7 @@ $StaticPassword = "{{secret:local_admin_password}}"
             admin: false,
             modules: [
                 'Infrastructure:view_hosts', 'Infrastructure:view_groups', 'Infrastructure:view_queue', 'Infrastructure:view_reports',
-                'Infrastructure:view_sensitive_reports', 'Infrastructure:manage_reports', 'Infrastructure:run_tasks',
+                'Infrastructure:view_sensitive_reports', 'Infrastructure:edit_reports', 'Infrastructure:dismiss_reports', 'Infrastructure:delete_reports', 'Infrastructure:run_tasks',
                 'Infrastructure:send_reports', 'Infrastructure:manage_templates', 'Infrastructure:manage_software', 'Infrastructure:manage_smtp',
                 'Infrastructure:manage_scheduler', 'Infrastructure:manage_triggers', 'Infrastructure:manage_hosts',
                 'Infrastructure:manage_groups', 'Infrastructure:cleanup_tasks',

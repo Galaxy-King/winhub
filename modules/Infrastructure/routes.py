@@ -931,7 +931,7 @@ def action_report(report_id):
     action = request.json.get('action')
     
     if action == 'save':
-        denied = require_permission("manage_reports")
+        denied = require_permission("edit_reports")
         if denied: return denied
         if not can_view_sensitive_reports():
             return jsonify({
@@ -943,7 +943,7 @@ def action_report(report_id):
         return jsonify({"success": True})
         
     elif action == 'dismiss':
-        denied = require_permission("manage_reports")
+        denied = require_permission("dismiss_reports")
         if denied: return denied
         r.status = 'Dismissed'
         db.session.commit()
@@ -982,7 +982,7 @@ def action_report(report_id):
 
 @infrastructure_bp.route('/api/infrastructure/reports/<report_id>', methods=['DELETE'])
 def delete_report(report_id):
-    denied = require_permission("manage_reports")
+    denied = require_permission("delete_reports")
     if denied: return denied
     r = AggregatedJob.query.get(report_id)
     if r:
