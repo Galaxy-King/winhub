@@ -1387,6 +1387,8 @@ let softwareSelectedHostIds = new Set();
 let softwareSelectedPackageId = null;
 let softwareActiveTab = 'library';
 let softwareInfoLanguage = localStorage.getItem('software_info_lang') || 'en';
+let softwareOpenGroups = new Set(JSON.parse(localStorage.getItem('software_open_groups') || '[]'));
+let softwareCodeEditors = new Map();
 
 async function loadFleetCenter() {
     const body = document.getElementById('fleetHostsBody');
@@ -1646,6 +1648,72 @@ function getSoftwarePackage(id=softwareSelectedPackageId) {
     return (softwareRegistryData.packages || []).find(pkg => String(pkg.id) === String(id));
 }
 
+function softwareCategory(pkg) {
+    return (pkg.category || 'General').trim() || 'General';
+}
+
+function persistSoftwareOpenGroups() {
+    localStorage.setItem('software_open_groups', JSON.stringify(Array.from(softwareOpenGroups)));
+}
+
+function toggleSoftwareGroup(category) {
+    if (softwareOpenGroups.has(category)) softwareOpenGroups.delete(category);
+    else softwareOpenGroups.add(category);
+    persistSoftwareOpenGroups();
+    renderSoftwareRegistry();
+}
+
+function destroySoftwareCodeEditors(form) {
+    if (!form) return;
+    form.querySelectorAll('textarea[data-software-code]').forEach(textarea => {
+        const editor = softwareCodeEditors.get(textarea);
+        if (editor) {
+            editor.toTextArea();
+            softwareCodeEditors.delete(textarea);
+        }
+    });
+}
+
+function initSoftwareCodeEditors(form) {
+    if (!form || typeof CodeMirror === 'undefined') return;
+    form.querySelectorAll('textarea[data-software-code]').forEach(textarea => {
+        if (softwareCodeEditors.has(textarea)) return;
+        const editor = CodeMirror.fromTextArea(textarea, {
+            mode: 'powershell',
+            theme: 'material-darker',
+            lineNumbers: true,
+            lineWrapping: true,
+            indentUnit: 4,
+            tabSize: 4,
+            matchBrackets: true,
+            viewportMargin: Infinity,
+            extraKeys: {
+                Tab(cm) {
+                    if (cm.somethingSelected()) cm.indentSelection('add');
+                    else cm.replaceSelection('    ', 'end');
+                }
+            }
+        });
+        editor.setSize(null, textarea.name === 'detection_value' ? 150 : 220);
+        editor.on('change', () => editor.save());
+        softwareCodeEditors.set(textarea, editor);
+    });
+    setTimeout(() => {
+        form.querySelectorAll('textarea[data-software-code]').forEach(textarea => {
+            const editor = softwareCodeEditors.get(textarea);
+            if (editor) editor.refresh();
+        });
+    }, 60);
+}
+
+function syncSoftwareCodeEditors(form) {
+    if (!form) return;
+    form.querySelectorAll('textarea[data-software-code]').forEach(textarea => {
+        const editor = softwareCodeEditors.get(textarea);
+        if (editor) editor.save();
+    });
+}
+
 function switchSoftwareTab(tab) {
     softwareActiveTab = tab || 'library';
     const library = document.getElementById('softwareLibraryPanel');
@@ -1660,6 +1728,7 @@ function switchSoftwareTab(tab) {
     if (libraryBtn) libraryBtn.className = softwareActiveTab === 'library' ? "software-tab-btn px-5 py-2.5 rounded-xl text-xs font-black uppercase bg-slate-900 text-white shadow-sm" : "software-tab-btn px-5 py-2.5 rounded-xl text-xs font-black uppercase text-slate-500 hover:text-indigo-700";
     if (addBtn) addBtn.className = softwareActiveTab === 'add' ? "software-tab-btn px-5 py-2.5 rounded-xl text-xs font-black uppercase bg-slate-900 text-white shadow-sm" : "software-tab-btn px-5 py-2.5 rounded-xl text-xs font-black uppercase text-slate-500 hover:text-indigo-700";
     if (infoBtn) infoBtn.className = softwareActiveTab === 'info' ? "software-tab-btn px-5 py-2.5 rounded-xl text-xs font-black uppercase bg-slate-900 text-white shadow-sm" : "software-tab-btn px-5 py-2.5 rounded-xl text-xs font-black uppercase text-slate-500 hover:text-indigo-700";
+    if (softwareActiveTab === 'add') initSoftwareCodeEditors(document.getElementById('softwarePackageForm'));
     if (softwareActiveTab === 'info') setSoftwareInfoLanguage(softwareInfoLanguage);
 }
 
@@ -1685,35 +1754,57 @@ function renderSoftwareRegistry() {
     if (!list) return;
     const q = (document.getElementById('softwareSearch')?.value || '').trim().toLowerCase();
     const packages = (softwareRegistryData.packages || []).filter(pkg => {
-        const haystack = [pkg.name, pkg.version, pkg.vendor, pkg.package_type, pkg.architecture, pkg.notes, pkg.original_filename].join(' ').toLowerCase();
+        const haystack = [pkg.name, pkg.version, pkg.vendor, pkg.category, pkg.package_type, pkg.architecture, pkg.notes, pkg.original_filename].join(' ').toLowerCase();
         return !q || haystack.includes(q);
     });
+    const grouped = packages.reduce((acc, pkg) => {
+        const category = softwareCategory(pkg);
+        if (!acc[category]) acc[category] = [];
+        acc[category].push(pkg);
+        return acc;
+    }, {});
+    const categories = Object.keys(grouped).sort((a, b) => a.localeCompare(b, undefined, { sensitivity: 'base' }));
+    if (categories.length && softwareOpenGroups.size === 0) {
+        softwareOpenGroups.add(categories[0]);
+        persistSoftwareOpenGroups();
+    }
 
-    list.innerHTML = packages.map(pkg => {
-        const active = String(pkg.id) === String(softwareSelectedPackageId);
-        const sizeMb = Math.round((pkg.size || 0) / 1024 / 1024 * 10) / 10;
-        const source = pkg.source === 'external_url' ? 'External URL' : `${sizeMb} MB`;
-        const detection = pkg.detection_type && pkg.detection_type !== 'none'
-            ? `${pkg.detection_type}: ${pkg.detection_value || ''}`
-            : 'No detection rule';
-        const userRecipe = pkg.user_install_command ? '<span class="px-2 py-1 rounded-lg bg-indigo-50 text-indigo-700 border border-indigo-100 text-[9px] font-black uppercase">User scope</span>' : '';
-        const adminButtons = window.WinhubIsAdmin ? `
-            <button onclick="event.stopPropagation(); openSoftwareEditModal('${escapeHtml(pkg.id)}')" class="px-3 py-1.5 rounded-xl bg-white border border-slate-200 text-[9px] font-black uppercase text-slate-500 hover:text-indigo-600">Edit</button>
-            <button onclick="event.stopPropagation(); deleteSoftwarePackage('${escapeHtml(pkg.id)}')" class="px-3 py-1.5 rounded-xl bg-white border border-rose-100 text-[9px] font-black uppercase text-rose-500 hover:bg-rose-50">Delete</button>
-        ` : '';
-        return `<div onclick="selectSoftwarePackage('${escapeHtml(pkg.id)}')" class="group p-4 rounded-2xl border ${active ? 'border-indigo-300 bg-indigo-50/60 shadow-lg shadow-indigo-100' : 'border-slate-200 bg-slate-50 hover:bg-white hover:shadow-lg hover:shadow-blue-100/60'} transition-all cursor-pointer">
-            <div class="flex items-start justify-between gap-3">
-                <div class="min-w-0">
-                    <div class="font-black text-slate-800 text-sm truncate">${escapeHtml(softwarePackageLabel(pkg))}</div>
-                    <div class="text-[10px] font-black text-slate-400 uppercase mt-1">${escapeHtml(pkg.vendor || 'Unknown vendor')} / ${escapeHtml(pkg.package_type || 'custom')} / ${escapeHtml(pkg.architecture || 'any')}</div>
+    list.innerHTML = categories.map(category => {
+        const open = softwareOpenGroups.has(category);
+        const items = grouped[category].sort((a, b) => softwarePackageLabel(a).localeCompare(softwarePackageLabel(b), undefined, { numeric: true, sensitivity: 'base' }));
+        const cards = items.map(pkg => {
+            const active = String(pkg.id) === String(softwareSelectedPackageId);
+            const sizeMb = Math.round((pkg.size || 0) / 1024 / 1024 * 10) / 10;
+            const source = pkg.source === 'external_url' ? 'External URL' : `${sizeMb} MB`;
+            const detection = pkg.detection_type && pkg.detection_type !== 'none' ? pkg.detection_type : 'No detection';
+            const userRecipe = pkg.user_install_command ? '<span class="px-2 py-1 rounded-lg bg-indigo-50 text-indigo-700 border border-indigo-100 text-[9px] font-black uppercase">User scope</span>' : '';
+            const uninstallReady = pkg.uninstall_command ? '<span class="px-2 py-1 rounded-lg bg-rose-50 text-rose-700 border border-rose-100 text-[9px] font-black uppercase">Uninstall</span>' : '';
+            const adminButtons = window.WinhubIsAdmin ? `
+                <button onclick="event.stopPropagation(); openSoftwareEditModal('${escapeHtml(pkg.id)}')" class="px-3 py-1.5 rounded-xl bg-white border border-slate-200 text-[9px] font-black uppercase text-slate-500 hover:text-indigo-600">Edit</button>
+                <button onclick="event.stopPropagation(); deleteSoftwarePackage('${escapeHtml(pkg.id)}')" class="px-3 py-1.5 rounded-xl bg-white border border-rose-100 text-[9px] font-black uppercase text-rose-500 hover:bg-rose-50">Delete</button>
+            ` : '';
+            return `<div onclick="selectSoftwarePackage('${escapeHtml(pkg.id)}')" class="group p-4 rounded-2xl border ${active ? 'border-indigo-300 bg-indigo-50/60 shadow-lg shadow-indigo-100' : 'border-slate-200 bg-white hover:shadow-lg hover:shadow-blue-100/60'} transition-all cursor-pointer">
+                <div class="flex items-start justify-between gap-3">
+                    <div class="min-w-0">
+                        <div class="font-black text-slate-800 text-sm truncate">${escapeHtml(softwarePackageLabel(pkg))}</div>
+                        <div class="text-[10px] font-black text-slate-500 uppercase mt-1">${escapeHtml(pkg.vendor || 'Unknown vendor')} / ${escapeHtml(pkg.package_type || 'custom')} / ${escapeHtml(pkg.architecture || 'any')}</div>
+                    </div>
+                    <span class="px-2 py-1 rounded-lg bg-slate-50 border border-slate-200 text-[9px] font-black uppercase text-slate-600">${escapeHtml(source)}</span>
                 </div>
-                <span class="px-2 py-1 rounded-lg bg-white border border-slate-200 text-[9px] font-black uppercase text-slate-500">${escapeHtml(source)}</span>
-            </div>
-            <div class="mt-3 flex flex-wrap gap-2">${userRecipe}<span class="px-2 py-1 rounded-lg bg-white border border-slate-200 text-[9px] font-black uppercase text-slate-500">${escapeHtml(pkg.expected_exit_codes || '0,3010')}</span></div>
-            <div class="mt-3 p-3 rounded-xl bg-slate-900 text-slate-100 text-[11px] font-mono whitespace-pre-wrap break-words max-h-28 overflow-y-auto custom-scrollbar">${escapeHtml(pkg.install_command || '')}</div>
-            <div class="mt-2 text-[10px] font-bold text-slate-500 break-words">${escapeHtml(detection)}</div>
-            <div class="mt-2 text-[10px] font-mono text-slate-400 break-all">${escapeHtml(pkg.sha256 || 'No SHA256')}</div>
-            <div class="mt-3 flex justify-end gap-2 opacity-100 md:opacity-0 md:group-hover:opacity-100 transition-opacity">${adminButtons}</div>
+                <div class="mt-3 flex flex-wrap gap-2">${userRecipe}${uninstallReady}<span class="px-2 py-1 rounded-lg bg-slate-50 border border-slate-200 text-[9px] font-black uppercase text-slate-600">${escapeHtml(detection)}</span></div>
+                <div class="mt-3 text-[10px] font-bold text-slate-500 line-clamp-2">${escapeHtml(pkg.notes || pkg.original_filename || pkg.external_url || 'No description')}</div>
+                <div class="mt-3 flex justify-end gap-2 opacity-100 md:opacity-0 md:group-hover:opacity-100 transition-opacity">${adminButtons}</div>
+            </div>`;
+        }).join('');
+        return `<div class="lg:col-span-2 rounded-2xl border border-slate-200 bg-slate-50/80 overflow-hidden">
+            <button onclick="toggleSoftwareGroup('${escapeHtml(category)}')" class="w-full px-5 py-4 flex items-center justify-between gap-3 text-left">
+                <span>
+                    <span class="block text-xs font-black text-slate-800 uppercase tracking-widest">${escapeHtml(category)}</span>
+                    <span class="block text-[10px] font-bold text-slate-500 mt-1">${items.length} package(s)</span>
+                </span>
+                <span class="text-slate-400 font-black text-lg">${open ? '-' : '+'}</span>
+            </button>
+            <div class="${open ? 'grid' : 'hidden'} grid-cols-1 lg:grid-cols-2 gap-3 p-4 border-t border-slate-200">${cards}</div>
         </div>`;
     }).join('') || '<div class="p-6 rounded-2xl bg-slate-50 text-xs font-bold text-slate-400">No software packages found.</div>';
 }
@@ -1803,6 +1894,7 @@ function renderSoftwareTargets() {
 }
 
 function submitSoftwareForm(form, url, method, onSuccess, onProgress=null, onEnd=null) {
+    syncSoftwareCodeEditors(form);
     const formData = new FormData(form);
     const xhr = new XMLHttpRequest();
     xhr.open(method, url);
@@ -1857,9 +1949,13 @@ async function uploadSoftwarePackage(event) {
 
 function fillSoftwareForm(form, pkg) {
     if (!form || !pkg) return;
-    ['name', 'version', 'vendor', 'package_type', 'architecture', 'external_url', 'sha256', 'install_command', 'user_install_command', 'uninstall_command', 'detection_type', 'detection_value', 'expected_exit_codes', 'notes'].forEach(name => {
+    ['name', 'version', 'vendor', 'category', 'package_type', 'architecture', 'external_url', 'sha256', 'install_command', 'user_install_command', 'uninstall_command', 'detection_type', 'detection_value', 'expected_exit_codes', 'notes'].forEach(name => {
         const el = form.elements[name];
-        if (el) el.value = pkg[name] || '';
+        if (el) {
+            el.value = pkg[name] || '';
+            const editor = softwareCodeEditors.get(el);
+            if (editor) editor.setValue(el.value || '');
+        }
     });
     if (form.elements.package_id) form.elements.package_id.value = pkg.id;
 }
@@ -1872,15 +1968,18 @@ function openSoftwareEditModal(id) {
     const hint = document.getElementById('softwareEditHint');
     const fileInfo = document.getElementById('softwareEditFileInfo');
     const removeFile = document.getElementById('softwareEditRemoveFile');
+    initSoftwareCodeEditors(form);
     fillSoftwareForm(form, pkg);
     if (removeFile) removeFile.value = '0';
     if (hint) hint.innerText = softwarePackageLabel(pkg);
     if (fileInfo) fileInfo.innerText = pkg.filename ? `Current file: ${pkg.original_filename || pkg.filename} / SHA256 ${pkg.sha256 || '-'}` : `External URL: ${pkg.external_url || '-'}`;
     if (modal) modal.classList.remove('hidden');
     document.body.classList.add('overflow-hidden');
+    setTimeout(() => initSoftwareCodeEditors(form), 80);
 }
 
 function closeSoftwareEditModal() {
+    destroySoftwareCodeEditors(document.getElementById('softwareEditForm'));
     const modal = document.getElementById('softwareEditModal');
     if (modal) modal.classList.add('hidden');
     document.body.classList.remove('overflow-hidden');

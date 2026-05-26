@@ -1,20 +1,24 @@
 <label class="block space-y-1.5">
-    <span class="text-[10px] font-black uppercase tracking-widest text-slate-500">Package Name</span>
+    <span class="text-[10px] font-black uppercase tracking-widest text-slate-800">Package Name</span>
     <input name="name" placeholder="e.g. 7-Zip" class="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl text-xs font-bold outline-none focus:ring-4 focus:ring-indigo-500/10">
 </label>
 <div class="grid grid-cols-2 gap-3">
     <label class="block space-y-1.5">
-        <span class="text-[10px] font-black uppercase tracking-widest text-slate-500">Version</span>
+        <span class="text-[10px] font-black uppercase tracking-widest text-slate-800">Version</span>
         <input name="version" placeholder="e.g. 24.09" class="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl text-xs font-bold outline-none focus:ring-4 focus:ring-indigo-500/10">
     </label>
     <label class="block space-y-1.5">
-        <span class="text-[10px] font-black uppercase tracking-widest text-slate-500">Vendor</span>
+        <span class="text-[10px] font-black uppercase tracking-widest text-slate-800">Vendor</span>
         <input name="vendor" placeholder="e.g. Igor Pavlov" class="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl text-xs font-bold outline-none focus:ring-4 focus:ring-indigo-500/10">
     </label>
 </div>
+<label class="block space-y-1.5">
+    <span class="text-[10px] font-black uppercase tracking-widest text-slate-800">Category / Group</span>
+    <input name="category" placeholder="e.g. Messengers, Browsers, Utilities" class="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl text-xs font-bold outline-none focus:ring-4 focus:ring-indigo-500/10">
+</label>
 <div class="grid grid-cols-2 gap-3">
     <label class="block space-y-1.5">
-        <span class="text-[10px] font-black uppercase tracking-widest text-slate-500">Package Type</span>
+        <span class="text-[10px] font-black uppercase tracking-widest text-slate-800">Package Type</span>
         <select name="package_type" class="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl text-xs font-bold outline-none focus:ring-4 focus:ring-indigo-500/10">
             <option value="exe">EXE</option>
             <option value="msi">MSI</option>
@@ -25,7 +29,7 @@
         </select>
     </label>
     <label class="block space-y-1.5">
-        <span class="text-[10px] font-black uppercase tracking-widest text-slate-500">Architecture</span>
+        <span class="text-[10px] font-black uppercase tracking-widest text-slate-800">Architecture</span>
         <select name="architecture" class="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl text-xs font-bold outline-none focus:ring-4 focus:ring-indigo-500/10">
             <option value="any">Any arch</option>
             <option value="x64">x64</option>
@@ -35,28 +39,28 @@
     </label>
 </div>
 <label class="block space-y-1.5">
-    <span class="text-[10px] font-black uppercase tracking-widest text-slate-500">External URL</span>
+    <span class="text-[10px] font-black uppercase tracking-widest text-slate-800">External URL</span>
     <input name="external_url" placeholder="Optional URL instead of uploaded file" class="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl text-xs font-bold outline-none focus:ring-4 focus:ring-indigo-500/10">
 </label>
 <label class="block space-y-1.5">
-    <span class="text-[10px] font-black uppercase tracking-widest text-slate-500">SHA256 For External URL</span>
+    <span class="text-[10px] font-black uppercase tracking-widest text-slate-800">SHA256 For External URL</span>
     <input name="sha256" placeholder="64 hex characters" class="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl text-xs font-mono font-bold outline-none focus:ring-4 focus:ring-indigo-500/10">
 </label>
 <label class="block space-y-1.5">
-    <span class="text-[10px] font-black uppercase tracking-widest text-slate-500">Package File</span>
+    <span class="text-[10px] font-black uppercase tracking-widest text-slate-800">Package File</span>
     <input name="file" type="file" class="w-full text-xs font-bold text-slate-500">
 </label>
 <label class="block space-y-1.5">
-    <span class="text-[10px] font-black uppercase tracking-widest text-slate-500">All Users Install Command</span>
-    <textarea name="install_command" placeholder='msiexec /i "{file}" /qn /norestart' class="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl text-xs font-mono font-bold outline-none focus:ring-4 focus:ring-indigo-500/10 min-h-[110px]"></textarea>
+    <span class="text-[10px] font-black uppercase tracking-widest text-slate-800">All Users Install Command</span>
+    <textarea name="install_command" data-software-code="1" placeholder='msiexec /i "{file}" /qn /norestart' class="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl text-xs font-mono font-bold outline-none focus:ring-4 focus:ring-indigo-500/10 min-h-[110px]"></textarea>
 </label>
 <label class="block space-y-1.5">
-    <span class="text-[10px] font-black uppercase tracking-widest text-slate-500">Specific Users Install Command</span>
-    <textarea name="user_install_command" placeholder='Use {users} for selected logins' class="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl text-xs font-mono font-bold outline-none focus:ring-4 focus:ring-indigo-500/10 min-h-[110px]"></textarea>
+    <span class="text-[10px] font-black uppercase tracking-widest text-slate-800">Specific Users Install Command</span>
+    <textarea name="user_install_command" data-software-code="1" placeholder='Use {users} for selected logins' class="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl text-xs font-mono font-bold outline-none focus:ring-4 focus:ring-indigo-500/10 min-h-[110px]"></textarea>
 </label>
 <div class="grid grid-cols-2 gap-3">
     <label class="block space-y-1.5">
-        <span class="text-[10px] font-black uppercase tracking-widest text-slate-500">Detection Type</span>
+        <span class="text-[10px] font-black uppercase tracking-widest text-slate-800">Detection Type</span>
         <select name="detection_type" class="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl text-xs font-bold outline-none focus:ring-4 focus:ring-indigo-500/10">
             <option value="none">No detection</option>
             <option value="file_exists">File exists</option>
@@ -66,19 +70,19 @@
         </select>
     </label>
     <label class="block space-y-1.5">
-        <span class="text-[10px] font-black uppercase tracking-widest text-slate-500">Expected Exit Codes</span>
+        <span class="text-[10px] font-black uppercase tracking-widest text-slate-800">Expected Exit Codes</span>
         <input name="expected_exit_codes" value="0,3010" placeholder="0,3010" class="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl text-xs font-bold outline-none focus:ring-4 focus:ring-indigo-500/10">
     </label>
 </div>
 <label class="block space-y-1.5">
-    <span class="text-[10px] font-black uppercase tracking-widest text-slate-500">Detection Value</span>
-    <textarea name="detection_value" placeholder="Path, registry key, or command depending on detection type" class="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl text-xs font-mono font-bold outline-none focus:ring-4 focus:ring-indigo-500/10 min-h-[72px]"></textarea>
+    <span class="text-[10px] font-black uppercase tracking-widest text-slate-800">Detection Value</span>
+    <textarea name="detection_value" data-software-code="1" placeholder="Path, registry key, or command depending on detection type" class="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl text-xs font-mono font-bold outline-none focus:ring-4 focus:ring-indigo-500/10 min-h-[72px]"></textarea>
 </label>
 <label class="block space-y-1.5">
-    <span class="text-[10px] font-black uppercase tracking-widest text-slate-500">Uninstall Command</span>
-    <textarea name="uninstall_command" placeholder="Command used by the Uninstall action" class="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl text-xs font-mono font-bold outline-none focus:ring-4 focus:ring-indigo-500/10 min-h-[72px]"></textarea>
+    <span class="text-[10px] font-black uppercase tracking-widest text-slate-800">Uninstall Command</span>
+    <textarea name="uninstall_command" data-software-code="1" placeholder="Command used by the Uninstall action" class="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl text-xs font-mono font-bold outline-none focus:ring-4 focus:ring-indigo-500/10 min-h-[72px]"></textarea>
 </label>
 <label class="block space-y-1.5">
-    <span class="text-[10px] font-black uppercase tracking-widest text-slate-500">Notes</span>
+    <span class="text-[10px] font-black uppercase tracking-widest text-slate-800">Notes</span>
     <textarea name="notes" placeholder="Internal notes..." class="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl text-xs font-bold outline-none focus:ring-4 focus:ring-indigo-500/10 min-h-[72px]"></textarea>
 </label>
