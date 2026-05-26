@@ -166,6 +166,7 @@ SENSITIVE_TEXT_PATTERNS = [
     re.compile(r'("?(?:temporary_)?password"?\s*[:=]\s*)("[^"]*"|[^\s,;}\]]+)', re.IGNORECASE),
     re.compile(r'("?(?:secret|token|api_key|apikey|credential)"?\s*[:=]\s*)("[^"]*"|[^\s,;}\]]+)', re.IGNORECASE),
     re.compile(r'(\bPass\s*:\s*)([^\s|]+)', re.IGNORECASE),
+    re.compile(r'(\bPASSWORD\s*[-:]\s*)([^\r\n]+)', re.IGNORECASE),
 ]
 
 
@@ -956,7 +957,7 @@ def action_report(report_id):
         db.session.commit()
         success, message, sent_count = send_report_email(
             title=subject,
-            report_body=report_body_for_current_user(r.report_data),
+            report_body=r.report_data,
             sender_email=sender,
             recipient_list=emails,
             custom_message=custom_message,
