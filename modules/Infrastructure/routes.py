@@ -1538,8 +1538,9 @@ def ps_single(value):
     return str(value or "").replace("'", "''")
 
 
-def build_software_install_script(package, install_scope="all", user_logins=None):
+def build_software_install_script(package, install_scope="all", user_logins=None, operation="install"):
     package_url = package.get("external_url") or software_package_public_url(package["id"])
+    operation = operation if operation in ("install", "uninstall") else "install"
     user_logins = [
         str(item).strip()
         for item in (user_logins or [])
@@ -1547,7 +1548,9 @@ def build_software_install_script(package, install_scope="all", user_logins=None
     ][:100]
     user_csv = ",".join(user_logins)
     selected_command = package.get("install_command") or ""
-    if install_scope == "users" and package.get("user_install_command"):
+    if operation == "uninstall":
+        selected_command = package.get("uninstall_command") or ""
+    elif install_scope == "users" and package.get("user_install_command"):
         selected_command = package.get("user_install_command") or selected_command
     placeholders = {
         "{file}": "$PackageFile",
@@ -1575,6 +1578,7 @@ $PackageUrl = '{ps_single(package_url)}'
 $PackageOriginalFilename = '{ps_single(package.get("original_filename") or "")}'
 $ExpectedSha256 = '{ps_single(package.get("sha256"))}'.ToLowerInvariant()
 $PackageType = '{ps_single(package.get("package_type"))}'.ToLowerInvariant()
+$SoftwareOperation = '{ps_single(operation)}'.ToLowerInvariant()
 $InstallScope = '{ps_single(install_scope)}'.ToLowerInvariant()
 $TargetUsersCsv = '{ps_single(user_csv)}'
 $TargetUsers = @($TargetUsersCsv -split ',' | ForEach-Object {{ $_.Trim() }} | Where-Object {{ $_ }})
@@ -1612,11 +1616,24 @@ function Test-WinHUBDetection {{
 }}
 
 try {{
-    Write-Host "[WinHUB] Installing $PackageName $PackageVersion"
-    Write-Host "[WinHUB] Install scope: $InstallScope"
+    Write-Host "[WinHUB] Software operation: $SoftwareOperation"
+    Write-Host "[WinHUB] Package: $PackageName $PackageVersion"
+    Write-Host "[WinHUB] Scope: $InstallScope"
     if ($InstallScope -eq 'users') {{
         if ($TargetUsers.Count -eq 0) {{ throw "Specific users scope requires at least one user login." }}
         Write-Host "[WinHUB] Target users: $($TargetUsers -join ', ')"
+    }}
+    if ($SoftwareOperation -eq 'uninstall') {{
+        if ([string]::IsNullOrWhiteSpace($InstallCommand)) {{ throw "Uninstall command is empty." }}
+        Write-Host "[WinHUB] Running uninstall command"
+        Invoke-Expression $InstallCommand
+        $ExitCode = if ($null -ne $LASTEXITCODE) {{ [int]$LASTEXITCODE }} else {{ 0 }}
+        Write-Host "[WinHUB] Uninstaller exit code: $ExitCode"
+        if ($ExpectedExitCodes -notcontains $ExitCode) {{
+            throw "Uninstaller returned unexpected exit code $ExitCode. Expected: $($ExpectedExitCodes -join ', ')"
+        }}
+        Write-Host "[WinHUB] Software uninstall completed."
+        exit 0
     }}
     if (Test-WinHUBDetection -Type $DetectionType -Value $DetectionValue) {{
         Write-Host "[WinHUB] Detection rule already matches. Nothing to install."
@@ -1750,7 +1767,12 @@ def run_software_install():
     install_scope = str(data.get("install_scope") or "all").strip().lower()
     if install_scope not in ("all", "users"):
         return jsonify({"success": False, "message": "Unsupported install scope"}), 400
-    if install_scope == "users" and not package.get("user_install_command"):
+    operation = str(data.get("operation") or "install").strip().lower()
+    if operation not in ("install", "uninstall"):
+        return jsonify({"success": False, "message": "Unsupported software operation"}), 400
+    if operation == "uninstall" and not package.get("uninstall_command"):
+        return jsonify({"success": False, "message": "This software package has no uninstall command"}), 400
+    if operation == "install" and install_scope == "users" and not package.get("user_install_command"):
         return jsonify({"success": False, "message": "This software package has no specific-user install recipe"}), 400
     raw_user_logins = data.get("user_logins") or []
     if isinstance(raw_user_logins, str):
@@ -1763,10 +1785,11 @@ def run_software_install():
     if install_scope == "users" and not user_logins:
         return jsonify({"success": False, "message": "Specify at least one user login"}), 400
 
-    script = build_software_install_script(package, install_scope=install_scope, user_logins=user_logins)
+    script = build_software_install_script(package, install_scope=install_scope, user_logins=user_logins, operation=operation)
     payload = {"script": script}
     scope_title = "users" if install_scope == "users" else "all users"
-    title = f"Install Software: {package.get('name')} {package.get('version')} ({scope_title})"
+    verb = "Uninstall" if operation == "uninstall" else "Install"
+    title = f"{verb} Software: {package.get('name')} {package.get('version')} ({scope_title})"
     job_id, task_ids = dispatch_infrastructure_task(
         session.get("user_id"),
         "run_script",
@@ -1775,7 +1798,7 @@ def run_software_install():
         title,
         created_by=current_actor_label(),
     )
-    write_infra_audit("Software Install Dispatch", "software_package", package["id"], {"targets": len(target_ids), "target_mode": target_mode, "install_scope": install_scope, "user_logins": user_logins})
+    write_infra_audit("Software Dispatch", "software_package", package["id"], {"operation": operation, "targets": len(target_ids), "target_mode": target_mode, "install_scope": install_scope, "user_logins": user_logins})
     db.session.commit()
     return jsonify({"success": True, "job_id": job_id, "tasks": len(task_ids), "targets": len(target_ids)})
 

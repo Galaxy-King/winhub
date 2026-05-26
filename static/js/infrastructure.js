@@ -1726,7 +1726,32 @@ function renderSoftwareInstallPanel() {
     if (hint) hint.innerText = pkg ? `${softwarePackageLabel(pkg)} / ${pkg.vendor || 'Unknown vendor'}` : 'Select a package from the library.';
     const scope = document.getElementById('softwareInstallScope');
     if (scope && pkg && !pkg.user_install_command && scope.value === 'users') scope.value = 'all';
+    renderSoftwareOperation();
     renderSoftwareInstallScope();
+}
+
+function renderSoftwareOperation() {
+    const pkg = getSoftwarePackage();
+    const operation = document.getElementById('softwareOperation')?.value || 'install';
+    const scope = document.getElementById('softwareInstallScope');
+    const runButton = document.getElementById('softwareRunButton');
+    if (scope) {
+        scope.options[0].text = operation === 'uninstall'
+            ? 'Uninstall machine-wide / all users'
+            : 'Install for all users / machine-wide';
+        scope.options[1].text = operation === 'uninstall'
+            ? 'Uninstall for specific users'
+            : 'Install for specific users';
+    }
+    if (runButton) {
+        runButton.innerText = operation === 'uninstall' ? 'Uninstall Selected Package' : 'Install Selected Package';
+        runButton.className = operation === 'uninstall'
+            ? 'w-full py-3 rounded-xl bg-rose-600 text-white text-[10px] font-black uppercase hover:bg-rose-700 shadow-lg shadow-rose-200 transition-all'
+            : 'w-full py-3 rounded-xl bg-indigo-600 text-white text-[10px] font-black uppercase hover:bg-indigo-700 shadow-lg shadow-indigo-200 transition-all';
+    }
+    if (operation === 'uninstall' && pkg && !pkg.uninstall_command && runButton) {
+        runButton.innerText = 'No Uninstall Command';
+    }
 }
 
 function renderSoftwareInstallScope() {
@@ -1900,17 +1925,21 @@ async function runSoftwareInstall() {
     if (!packageId || !pkg) return alert('Select a software package first.');
     const mode = document.getElementById('softwareInstallTargetMode')?.value || 'selected';
     const selectedIds = Array.from(softwareSelectedHostIds);
+    const operation = document.getElementById('softwareOperation')?.value || 'install';
     const installScope = document.getElementById('softwareInstallScope')?.value || 'all';
     const userLoginsRaw = document.getElementById('softwareUserLogins')?.value || '';
     const userLogins = userLoginsRaw.split(/[\n,;]+/).map(item => item.trim()).filter(Boolean);
     if (mode === 'selected' && selectedIds.length === 0) return alert('Check at least one node first.');
-    if (installScope === 'users') {
+    if (operation === 'uninstall' && !pkg.uninstall_command) return alert('This package has no uninstall command. Edit the package and add one first.');
+    if (operation === 'install' && installScope === 'users') {
         if (!pkg.user_install_command) return alert('This package has no specific-user install recipe. Edit the package and add one first.');
         if (userLogins.length === 0) return alert('Specify at least one user login.');
     }
-    if (!confirm(`Dispatch ${softwarePackageLabel(pkg)} installation?`)) return;
+    if (installScope === 'users' && userLogins.length === 0) return alert('Specify at least one user login.');
+    if (!confirm(`Dispatch ${operation} for ${softwarePackageLabel(pkg)}?`)) return;
     const payload = {
         package_id: packageId,
+        operation,
         target_mode: mode,
         target_ids: mode === 'selected' ? selectedIds : [],
         group_id: document.getElementById('softwareInstallGroupSelect')?.value || '',
