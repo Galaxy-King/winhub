@@ -6,6 +6,7 @@ ENV_FILE="${ENV_FILE:-/etc/winhub/winhub.env}"
 BACKUP_SCRIPT="${APP_DIR}/deploy/debian/backup_winhub.sh"
 HEALTHCHECK_SCRIPT="${APP_DIR}/deploy/debian/healthcheck_winhub.sh"
 MIGRATE_SCRIPT="${APP_DIR}/deploy/debian/migrate_winhub.sh"
+RENDER_NGINX_SCRIPT="${APP_DIR}/deploy/debian/render_nginx_config.sh"
 RELEASE_REF="${1:-}"
 RELEASE_ARCHIVE=""
 export APP_DIR ENV_FILE
@@ -83,9 +84,10 @@ if [[ -f "${APP_DIR}/alembic.ini" && -d "${APP_DIR}/migrations/versions" ]]; the
 fi
 
 install -m 0644 "${APP_DIR}/deploy/debian/winhub.service" /etc/systemd/system/winhub.service
-install -m 0644 "${APP_DIR}/deploy/debian/nginx-winhub.conf" /etc/nginx/sites-available/winhub
+ENV_FILE="${ENV_FILE}" APP_DIR="${APP_DIR}" bash "${RENDER_NGINX_SCRIPT}" /etc/nginx/sites-available/winhub
 ln -sfn /etc/nginx/sites-available/winhub /etc/nginx/sites-enabled/winhub
 install -m 0644 "${APP_DIR}/deploy/debian/winhub.logrotate" /etc/logrotate.d/winhub
+chmod 0755 "${APP_DIR}/deploy/debian/backup_winhub.sh" "${APP_DIR}/deploy/debian/healthcheck_winhub.sh" "${APP_DIR}/deploy/debian/migrate_winhub.sh" "${APP_DIR}/deploy/debian/render_nginx_config.sh" "${APP_DIR}/deploy/debian/restore_winhub.sh" "${APP_DIR}/deploy/debian/rollback_winhub.sh" "${APP_DIR}/deploy/debian/update_winhub.sh"
 
 chown -R winhub:winhub "${APP_DIR}" /var/lib/winhub /var/log/winhub
 chown -R root:winhub /etc/winhub

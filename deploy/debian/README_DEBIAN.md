@@ -7,6 +7,7 @@ Recommended target:
 - Nginx on `443`
 - WinHUB Debian backend bound to `127.0.0.1:8443` over local HTTP
 - External users and agents connect to `https://SERVER_IP`
+- Optional agent-only public listener controlled by `AGENT_PUBLIC_PORT`
 
 ## 1. Copy project
 
@@ -41,6 +42,7 @@ The Debian service starts:
 ```
 
 Nginx terminates TLS on `443` and proxies to the local backend on `127.0.0.1:8443`.
+By default agents also use `443`, so existing deployments keep working.
 
 ## 3. PostgreSQL
 
@@ -84,6 +86,49 @@ Put different values into:
 SECRET_KEY=
 AGENT_API_KEY=
 AGENT_TASK_HMAC_SECRET=
+```
+
+## Agent public port
+
+By default:
+
+```ini
+AGENT_PUBLIC_PORT=443
+```
+
+With this value, agents and the web UI both use the main HTTPS listener:
+
+```text
+https://SERVER_IP
+```
+
+For a server where agents must enter through a separate public port, set for example:
+
+```ini
+AGENT_PUBLIC_PORT=55555
+```
+
+Then run the update script or regenerate nginx manually:
+
+```bash
+sudo /opt/winhub/deploy/debian/render_nginx_config.sh
+sudo nginx -t
+sudo systemctl reload nginx
+```
+
+When `AGENT_PUBLIC_PORT` is not `443`, the generated listener exposes only:
+
+- `/api/agent/`
+- `/api/public/agent-packages/`
+- `/api/public/software-packages/`
+- `/api/health`
+
+Everything else on that port returns `404`, so the web UI is not available through the agent-only port. Configure agents with:
+
+```json
+{
+  "ServerUrl": "https://SERVER_IP:55555"
+}
 ```
 
 ## 5. Certificates for IP-based access
