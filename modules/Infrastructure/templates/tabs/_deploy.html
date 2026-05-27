@@ -304,41 +304,189 @@ $StaticPassword = "{{ "{{secret:local_admin_password}}" }}"
 	                        </div>
 	                    </div>
 
-	                    <div id="guideContentEn" class="grid grid-cols-1 lg:grid-cols-2 gap-5">
+	                    <div id="guideContentEn" class="space-y-5">
 	                        <section class="bg-white border border-slate-200 rounded-2xl p-6 shadow-sm">
-	                            <h4 class="text-[11px] font-black text-indigo-700 uppercase tracking-widest mb-3">Template Types</h4>
-	                            <p class="text-sm font-bold text-slate-600 leading-relaxed">Action Script runs PowerShell, Bash, or shell code on selected nodes. Metric Item stores the result as a host metric for dashboards and triggers. Report Template formats aggregated task results and email reports; it is not executed directly on hosts.</p>
+	                            <h4 class="text-[11px] font-black text-indigo-700 uppercase tracking-widest mb-3">How Templates Work</h4>
+	                            <div class="grid grid-cols-1 lg:grid-cols-3 gap-4 text-sm font-bold text-slate-600 leading-relaxed">
+	                                <p><span class="text-slate-900">Action Script</span> runs code on selected endpoints. For Windows agents this is PowerShell. For Linux/macOS-style agents or shell targets, use Bash/SH where supported by the agent.</p>
+	                                <p><span class="text-slate-900">Metric Item</span> runs like an action, but the result is stored as a host metric and can be used by dashboards and trigger rules.</p>
+	                                <p><span class="text-slate-900">Report Template</span> does not run on endpoints. It runs on the WinHUB server after tasks finish and formats aggregated task results for review or email.</p>
+	                            </div>
 	                        </section>
-	                        <section class="bg-white border border-slate-200 rounded-2xl p-6 shadow-sm">
-	                            <h4 class="text-[11px] font-black text-indigo-700 uppercase tracking-widest mb-3">Variables</h4>
-	                            <p class="text-sm font-bold text-slate-600 leading-relaxed">Use placeholders like <span class="font-mono text-slate-900">{{ "{{admin_username}}" }}</span>. WinHUB detects them and asks for values before execution. API clients pass values in the <span class="font-mono text-slate-900">variables</span> object.</p>
+
+	                        <section class="grid grid-cols-1 lg:grid-cols-2 gap-5">
+	                            <div class="bg-white border border-slate-200 rounded-2xl p-6 shadow-sm">
+	                                <h4 class="text-[11px] font-black text-indigo-700 uppercase tracking-widest mb-3">Variables And Secrets</h4>
+	                                <p class="text-sm font-bold text-slate-600 leading-relaxed">Use <span class="font-mono text-slate-900">{{ "{{variable_name}}" }}</span> for operator-provided values. WinHUB detects placeholders and asks for values before execution. Use <span class="font-mono text-slate-900">{{ "{{secret:name}}" }}</span> for values stored in Template Secrets; secret values are encrypted at rest and are injected only when the task is dispatched.</p>
+	                                <pre class="mt-4 bg-slate-950 text-emerald-200 rounded-2xl p-4 text-xs overflow-x-auto"><code>{% raw %}$User = "{{user_login}}"
+$Password = "{{secret:temporary_password}}"
+$VpnName = "{{vpn_name}}"{% endraw %}</code></pre>
+	                            </div>
+	                            <div class="bg-white border border-slate-200 rounded-2xl p-6 shadow-sm">
+	                                <h4 class="text-[11px] font-black text-indigo-700 uppercase tracking-widest mb-3">Sensitive Output Masking</h4>
+	                                <p class="text-sm font-bold text-slate-600 leading-relaxed">Reports are stored with the original body so secure email can include real secrets. Users without <span class="font-mono text-slate-900">view_sensitive_reports</span> see masked values in the UI. Avoid saving masked report text over the original. Password-like fields are masked by names and patterns such as <span class="font-mono text-slate-900">password</span>, <span class="font-mono text-slate-900">temporary_password</span>, <span class="font-mono text-slate-900">secret</span>, <span class="font-mono text-slate-900">token</span>, <span class="font-mono text-slate-900">Pass:</span>, and <span class="font-mono text-slate-900">PASSWORD -</span>.</p>
+	                            </div>
 	                        </section>
+
 	                        <section class="bg-white border border-slate-200 rounded-2xl p-6 shadow-sm">
-	                            <h4 class="text-[11px] font-black text-indigo-700 uppercase tracking-widest mb-3">Code Rules</h4>
-	                            <p class="text-sm font-bold text-slate-600 leading-relaxed">Write idempotent scripts when possible. Return clear text or JSON. Avoid interactive prompts because agents run unattended. Use UTF-8 output. For Windows commands, prefer PowerShell cmdlets and explicit error handling.</p>
+	                            <h4 class="text-[11px] font-black text-indigo-700 uppercase tracking-widest mb-3">Action Script Output</h4>
+	                            <p class="text-sm font-bold text-slate-600 leading-relaxed">Return clear text for simple tasks. Return compact JSON when a Report Template must group, filter, or build emails. The server tries to parse each endpoint result as JSON and exposes it as <span class="font-mono text-slate-900">result.data</span>; plain text is exposed as <span class="font-mono text-slate-900">result.log</span>.</p>
+	                            <pre class="mt-4 bg-slate-950 text-emerald-200 rounded-2xl p-4 text-xs overflow-x-auto"><code>{% raw %}$result = @{
+    winhub_report_type = "terminal_access_letters"
+    hostname = $env:COMPUTERNAME
+    users = @(
+        @{ username = "rhein"; status = "success"; password = "..." }
+    )
+}
+Write-Output ($result | ConvertTo-Json -Depth 8 -Compress){% endraw %}</code></pre>
 	                        </section>
+
+	                        <section class="grid grid-cols-1 lg:grid-cols-2 gap-5">
+	                            <div class="bg-white border border-slate-200 rounded-2xl p-6 shadow-sm">
+	                                <h4 class="text-[11px] font-black text-indigo-700 uppercase tracking-widest mb-3">Report Templates</h4>
+	                                <p class="text-sm font-bold text-slate-600 leading-relaxed">Report templates use Jinja syntax and receive <span class="font-mono text-slate-900">results</span> and <span class="font-mono text-slate-900">job_title</span>. Each result has <span class="font-mono text-slate-900">host</span>, <span class="font-mono text-slate-900">status</span>, <span class="font-mono text-slate-900">data</span>, and <span class="font-mono text-slate-900">log</span>. Select a Report Template in Post-Execution before running an action.</p>
+	                                <pre class="mt-4 bg-slate-950 text-emerald-200 rounded-2xl p-4 text-xs overflow-x-auto"><code>{% raw %}{% for result in results %}
+{{ result.host }} - {{ result.status }}
+{{ result.data.message or result.log }}
+{% endfor %}{% endraw %}</code></pre>
+	                            </div>
+	                            <div class="bg-white border border-slate-200 rounded-2xl p-6 shadow-sm">
+	                                <h4 class="text-[11px] font-black text-indigo-700 uppercase tracking-widest mb-3">Split Reports</h4>
+	                                <p class="text-sm font-bold text-slate-600 leading-relaxed">A report template can create several Reports from one task run. Wrap each report body in <span class="font-mono text-slate-900">[[WINHUB_REPORT title="..."]]</span> and <span class="font-mono text-slate-900">[[/WINHUB_REPORT]]</span>. This is useful for one letter per user, one report per customer, or one report per application.</p>
+	                                <pre class="mt-4 bg-slate-950 text-emerald-200 rounded-2xl p-4 text-xs overflow-x-auto"><code>{% raw %}{% for username in usernames %}
+[[WINHUB_REPORT title="Access letter - {{ username }}"]]
+Hello, {{ username }}.
+Your personal data goes here.
+[[/WINHUB_REPORT]]
+{% endfor %}{% endraw %}</code></pre>
+	                            </div>
+	                        </section>
+
 	                        <section class="bg-white border border-slate-200 rounded-2xl p-6 shadow-sm">
-	                            <h4 class="text-[11px] font-black text-indigo-700 uppercase tracking-widest mb-3">Sharing & Migration</h4>
-	                            <p class="text-sm font-bold text-slate-600 leading-relaxed">Enable Share with Team to make a template available to operators with access to target groups. Use Export/Import in the Template Library to move templates between WinHUB servers.</p>
+	                            <h4 class="text-[11px] font-black text-indigo-700 uppercase tracking-widest mb-3">Windows Agent Execution Rules</h4>
+	                            <div class="grid grid-cols-1 lg:grid-cols-2 gap-4 text-sm font-bold text-slate-600 leading-relaxed">
+	                                <ul class="space-y-2">
+	                                    <li>Use PowerShell 5.1-compatible syntax unless you know all targets have newer PowerShell.</li>
+	                                    <li>Agents run unattended, usually as a service account/SYSTEM, so no UI prompts, confirmations, or interactive installers.</li>
+	                                    <li>Set <span class="font-mono text-slate-900">$ErrorActionPreference = "Stop"</span> for predictable failures and wrap risky blocks in <span class="font-mono text-slate-900">try/catch</span>.</li>
+	                                    <li>Use UTF-8 console output when returning Ukrainian/Russian/English text.</li>
+	                                </ul>
+	                                <ul class="space-y-2">
+	                                    <li>Prefer idempotent scripts: repeated execution should not break existing state.</li>
+	                                    <li>Use localized-safe SIDs for Windows groups when possible, for example Administrators <span class="font-mono text-slate-900">S-1-5-32-544</span> and Remote Desktop Users <span class="font-mono text-slate-900">S-1-5-32-555</span>.</li>
+	                                    <li>Use full paths for files and installers. Clean temporary files after use.</li>
+	                                    <li>Return JSON only as the final output when a report template must parse it.</li>
+	                                </ul>
+	                            </div>
+	                        </section>
+
+	                        <section class="grid grid-cols-1 lg:grid-cols-2 gap-5">
+	                            <div class="bg-white border border-slate-200 rounded-2xl p-6 shadow-sm">
+	                                <h4 class="text-[11px] font-black text-indigo-700 uppercase tracking-widest mb-3">Do Not Do This</h4>
+	                                <ul class="text-sm font-bold text-slate-600 leading-relaxed space-y-2">
+	                                    <li>Do not use <span class="font-mono text-slate-900">Read-Host</span>, GUI installers, or prompts waiting for user input.</li>
+	                                    <li>Do not print permanent passwords or tokens unless the report/email workflow requires it.</li>
+	                                    <li>Do not run destructive commands without explicit target checks.</li>
+	                                    <li>Do not depend on current working directory; agents may run from service/system paths.</li>
+	                                </ul>
+	                            </div>
+	                            <div class="bg-white border border-slate-200 rounded-2xl p-6 shadow-sm">
+	                                <h4 class="text-[11px] font-black text-indigo-700 uppercase tracking-widest mb-3">Sharing And Permissions</h4>
+	                                <p class="text-sm font-bold text-slate-600 leading-relaxed">Use Share with Team only for templates that are safe for operators. Operators also need access to target endpoint groups and <span class="font-mono text-slate-900">run_tasks</span>. Reports use separate permissions: <span class="font-mono text-slate-900">view_reports</span>, <span class="font-mono text-slate-900">send_reports</span>, <span class="font-mono text-slate-900">edit_reports</span>, <span class="font-mono text-slate-900">delete_reports</span>, and <span class="font-mono text-slate-900">view_sensitive_reports</span>.</p>
+	                            </div>
 	                        </section>
 	                    </div>
 
-	                    <div id="guideContentUa" class="hidden grid grid-cols-1 lg:grid-cols-2 gap-5">
+	                    <div id="guideContentUa" class="hidden space-y-5">
 	                        <section class="bg-white border border-slate-200 rounded-2xl p-6 shadow-sm">
-	                            <h4 class="text-[11px] font-black text-indigo-700 uppercase tracking-widest mb-3">Типи шаблонів</h4>
-	                            <p class="text-sm font-bold text-slate-600 leading-relaxed">Action Script запускає PowerShell, Bash або shell-код на вибраних вузлах. Metric Item зберігає результат як метрику хоста для dashboard і trigger-ів. Report Template форматує зведені результати задач і email-звіти; напряму на хостах він не виконується.</p>
+	                            <h4 class="text-[11px] font-black text-indigo-700 uppercase tracking-widest mb-3">Як працюють шаблони</h4>
+	                            <div class="grid grid-cols-1 lg:grid-cols-3 gap-4 text-sm font-bold text-slate-600 leading-relaxed">
+	                                <p><span class="text-slate-900">Action Script</span> запускає код на вибраних endpoint-ах. Для Windows Agent це PowerShell. Для Linux/macOS-style агентів або shell-цілей використовується Bash/SH, якщо це підтримує агент.</p>
+	                                <p><span class="text-slate-900">Metric Item</span> запускається як action, але результат зберігається як метрика хоста і може використовуватися в dashboard та trigger rules.</p>
+	                                <p><span class="text-slate-900">Report Template</span> не виконується на endpoint-ах. Він виконується на сервері WinHUB після завершення задач і форматує результат для перегляду або email.</p>
+	                            </div>
 	                        </section>
-	                        <section class="bg-white border border-slate-200 rounded-2xl p-6 shadow-sm">
-	                            <h4 class="text-[11px] font-black text-indigo-700 uppercase tracking-widest mb-3">Змінні</h4>
-	                            <p class="text-sm font-bold text-slate-600 leading-relaxed">Використовуй плейсхолдери на кшталт <span class="font-mono text-slate-900">{{ "{{admin_username}}" }}</span>. WinHUB знайде їх і попросить значення перед запуском. API-клієнти передають значення в об’єкті <span class="font-mono text-slate-900">variables</span>.</p>
+
+	                        <section class="grid grid-cols-1 lg:grid-cols-2 gap-5">
+	                            <div class="bg-white border border-slate-200 rounded-2xl p-6 shadow-sm">
+	                                <h4 class="text-[11px] font-black text-indigo-700 uppercase tracking-widest mb-3">Змінні і Secrets</h4>
+	                                <p class="text-sm font-bold text-slate-600 leading-relaxed">Використовуй <span class="font-mono text-slate-900">{{ "{{variable_name}}" }}</span> для значень, які вводить оператор перед запуском. Використовуй <span class="font-mono text-slate-900">{{ "{{secret:name}}" }}</span> для значень із Template Secrets; вони зашифровані в сховищі і підставляються тільки під час dispatch задачі.</p>
+	                                <pre class="mt-4 bg-slate-950 text-emerald-200 rounded-2xl p-4 text-xs overflow-x-auto"><code>{% raw %}$User = "{{user_login}}"
+$Password = "{{secret:temporary_password}}"
+$VpnName = "{{vpn_name}}"{% endraw %}</code></pre>
+	                            </div>
+	                            <div class="bg-white border border-slate-200 rounded-2xl p-6 shadow-sm">
+	                                <h4 class="text-[11px] font-black text-indigo-700 uppercase tracking-widest mb-3">Приховування паролів</h4>
+	                                <p class="text-sm font-bold text-slate-600 leading-relaxed">Reports зберігаються з оригінальним тілом, щоб secure email міг відправити реальні секрети. Користувачі без права <span class="font-mono text-slate-900">view_sensitive_reports</span> бачать замасковані значення в UI. Маскуються назви і патерни: <span class="font-mono text-slate-900">password</span>, <span class="font-mono text-slate-900">temporary_password</span>, <span class="font-mono text-slate-900">secret</span>, <span class="font-mono text-slate-900">token</span>, <span class="font-mono text-slate-900">Pass:</span>, <span class="font-mono text-slate-900">PASSWORD -</span>.</p>
+	                            </div>
 	                        </section>
+
 	                        <section class="bg-white border border-slate-200 rounded-2xl p-6 shadow-sm">
-	                            <h4 class="text-[11px] font-black text-indigo-700 uppercase tracking-widest mb-3">Правила коду</h4>
-	                            <p class="text-sm font-bold text-slate-600 leading-relaxed">Пиши скрипти так, щоб їх можна було безпечно запускати повторно. Повертай зрозумілий текст або JSON. Не використовуй інтерактивні prompt-и, бо агент працює без участі користувача. Для Windows-команд краще використовувати PowerShell cmdlets і явну обробку помилок.</p>
+	                            <h4 class="text-[11px] font-black text-indigo-700 uppercase tracking-widest mb-3">Що повертати зі скрипта</h4>
+	                            <p class="text-sm font-bold text-slate-600 leading-relaxed">Для простих задач повертай зрозумілий текст. Якщо Report Template має групувати, фільтрувати або формувати листи, повертай компактний JSON. Сервер пробує розпарсити результат кожного endpoint-а як JSON і передає його як <span class="font-mono text-slate-900">result.data</span>; звичайний текст доступний як <span class="font-mono text-slate-900">result.log</span>.</p>
+	                            <pre class="mt-4 bg-slate-950 text-emerald-200 rounded-2xl p-4 text-xs overflow-x-auto"><code>{% raw %}$result = @{
+    winhub_report_type = "terminal_access_letters"
+    hostname = $env:COMPUTERNAME
+    users = @(
+        @{ username = "rhein"; status = "success"; password = "..." }
+    )
+}
+Write-Output ($result | ConvertTo-Json -Depth 8 -Compress){% endraw %}</code></pre>
 	                        </section>
+
+	                        <section class="grid grid-cols-1 lg:grid-cols-2 gap-5">
+	                            <div class="bg-white border border-slate-200 rounded-2xl p-6 shadow-sm">
+	                                <h4 class="text-[11px] font-black text-indigo-700 uppercase tracking-widest mb-3">Report Templates</h4>
+	                                <p class="text-sm font-bold text-slate-600 leading-relaxed">Report templates використовують Jinja-синтаксис і отримують <span class="font-mono text-slate-900">results</span> та <span class="font-mono text-slate-900">job_title</span>. Кожен result має <span class="font-mono text-slate-900">host</span>, <span class="font-mono text-slate-900">status</span>, <span class="font-mono text-slate-900">data</span>, <span class="font-mono text-slate-900">log</span>. Обирай Report Template у Post-Execution перед запуском action.</p>
+	                                <pre class="mt-4 bg-slate-950 text-emerald-200 rounded-2xl p-4 text-xs overflow-x-auto"><code>{% raw %}{% for result in results %}
+{{ result.host }} - {{ result.status }}
+{{ result.data.message or result.log }}
+{% endfor %}{% endraw %}</code></pre>
+	                            </div>
+	                            <div class="bg-white border border-slate-200 rounded-2xl p-6 shadow-sm">
+	                                <h4 class="text-[11px] font-black text-indigo-700 uppercase tracking-widest mb-3">Окремі Reports з одного запуску</h4>
+	                                <p class="text-sm font-bold text-slate-600 leading-relaxed">Report Template може створити декілька Reports з одного запуску. Обгорни кожне тіло в <span class="font-mono text-slate-900">[[WINHUB_REPORT title="..."]]</span> і <span class="font-mono text-slate-900">[[/WINHUB_REPORT]]</span>. Це зручно для окремого листа на кожного користувача, клієнта або сервіс.</p>
+	                                <pre class="mt-4 bg-slate-950 text-emerald-200 rounded-2xl p-4 text-xs overflow-x-auto"><code>{% raw %}{% for username in usernames %}
+[[WINHUB_REPORT title="Access letter - {{ username }}"]]
+Привіт, {{ username }}.
+Тут персональний текст.
+[[/WINHUB_REPORT]]
+{% endfor %}{% endraw %}</code></pre>
+	                            </div>
+	                        </section>
+
 	                        <section class="bg-white border border-slate-200 rounded-2xl p-6 shadow-sm">
-	                            <h4 class="text-[11px] font-black text-indigo-700 uppercase tracking-widest mb-3">Поширення і міграція</h4>
-	                            <p class="text-sm font-bold text-slate-600 leading-relaxed">Увімкни Share with Team, щоб шаблон бачили оператори з доступом до потрібних груп. Export/Import у Template Library дозволяє переносити шаблони між WinHUB-серверами.</p>
+	                            <h4 class="text-[11px] font-black text-indigo-700 uppercase tracking-widest mb-3">Правила виконання Windows Agent</h4>
+	                            <div class="grid grid-cols-1 lg:grid-cols-2 gap-4 text-sm font-bold text-slate-600 leading-relaxed">
+	                                <ul class="space-y-2">
+	                                    <li>Пиши PowerShell сумісний із 5.1, якщо не впевнений, що всі цілі мають новіший PowerShell.</li>
+	                                    <li>Агент працює без участі користувача, часто як service/SYSTEM, тому не використовуй prompt-и, GUI-вікна, confirmations або інтерактивні installers.</li>
+	                                    <li>Став <span class="font-mono text-slate-900">$ErrorActionPreference = "Stop"</span> і обробляй ризикові блоки через <span class="font-mono text-slate-900">try/catch</span>.</li>
+	                                    <li>Для кирилиці і нормальних reports виставляй UTF-8 console output.</li>
+	                                </ul>
+	                                <ul class="space-y-2">
+	                                    <li>Пиши idempotent scripts: повторний запуск не має ламати вже налаштований стан.</li>
+	                                    <li>Для локалізованих Windows груп краще використовувати SID: Administrators <span class="font-mono text-slate-900">S-1-5-32-544</span>, Remote Desktop Users <span class="font-mono text-slate-900">S-1-5-32-555</span>.</li>
+	                                    <li>Використовуй повні шляхи до файлів та installer-ів. Тимчасові файли чисть після виконання.</li>
+	                                    <li>Якщо Report Template має парсити результат, JSON має бути фінальним і коректним output.</li>
+	                                </ul>
+	                            </div>
+	                        </section>
+
+	                        <section class="grid grid-cols-1 lg:grid-cols-2 gap-5">
+	                            <div class="bg-white border border-slate-200 rounded-2xl p-6 shadow-sm">
+	                                <h4 class="text-[11px] font-black text-indigo-700 uppercase tracking-widest mb-3">Чого не робити</h4>
+	                                <ul class="text-sm font-bold text-slate-600 leading-relaxed space-y-2">
+	                                    <li>Не використовуй <span class="font-mono text-slate-900">Read-Host</span>, GUI installer-и або команди, які чекають на введення.</li>
+	                                    <li>Не друкуй постійні паролі або токени, якщо цього не вимагає report/email workflow.</li>
+	                                    <li>Не запускай destructive commands без перевірки конкретного target path або target object.</li>
+	                                    <li>Не покладайся на current working directory; агент може стартувати з service/system paths.</li>
+	                                </ul>
+	                            </div>
+	                            <div class="bg-white border border-slate-200 rounded-2xl p-6 shadow-sm">
+	                                <h4 class="text-[11px] font-black text-indigo-700 uppercase tracking-widest mb-3">Sharing і permissions</h4>
+	                                <p class="text-sm font-bold text-slate-600 leading-relaxed">Вмикай Share with Team тільки для шаблонів, які безпечно давати операторам. Оператору також потрібен доступ до груп endpoint-ів і право <span class="font-mono text-slate-900">run_tasks</span>. Для reports є окремі права: <span class="font-mono text-slate-900">view_reports</span>, <span class="font-mono text-slate-900">send_reports</span>, <span class="font-mono text-slate-900">edit_reports</span>, <span class="font-mono text-slate-900">delete_reports</span>, <span class="font-mono text-slate-900">view_sensitive_reports</span>.</p>
+	                            </div>
 	                        </section>
 	                    </div>
 	                </div>
