@@ -57,7 +57,7 @@ def production_check():
     checks.append(("AGENT_ALLOW_REENROLL_EXISTING", not Config.AGENT_ALLOW_REENROLL_EXISTING, "keep false unless intentionally recovering agents"))
     checks.append(("SESSION_COOKIE_SECURE", bool(Config.SESSION_COOKIE_SECURE), "enable secure cookies when serving HTTPS"))
     checks.append(("SESSION_COOKIE_SAMESITE", Config.SESSION_COOKIE_SAMESITE in ("Strict", "Lax"), Config.SESSION_COOKIE_SAMESITE))
-    checks.append(("SESSION_IDLE_TIMEOUT_SECONDS", Config.SESSION_IDLE_TIMEOUT_SECONDS <= 1800, f"{Config.SESSION_IDLE_TIMEOUT_SECONDS}s"))
+    checks.append(("SESSION_IDLE_TIMEOUT_SECONDS", 0 < Config.SESSION_IDLE_TIMEOUT_SECONDS <= 21600, f"{Config.SESSION_IDLE_TIMEOUT_SECONDS}s"))
     checks.append(("DATA_DIR", os.path.isdir(Config.DATA_DIR), Config.DATA_DIR))
     return checks
 

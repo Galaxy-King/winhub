@@ -89,7 +89,7 @@ class Config:
     MAX_CONTENT_LENGTH = AGENT_PACKAGE_MAX_UPLOAD_MB * 1024 * 1024
     LATEST_AGENT_VERSION = clean_env_value(os.environ.get('LATEST_AGENT_VERSION')) or ''
     PRODUCTION_MODE = (clean_env_value(os.environ.get('WINHUB_ENV')) or '').lower() in ('prod', 'production')
-    SESSION_IDLE_TIMEOUT_SECONDS = int(os.environ.get('SESSION_IDLE_TIMEOUT_SECONDS', 900))
+    SESSION_IDLE_TIMEOUT_SECONDS = int(os.environ.get('SESSION_IDLE_TIMEOUT_SECONDS', 21600))
     SESSION_ABSOLUTE_TIMEOUT_SECONDS = int(os.environ.get('SESSION_ABSOLUTE_TIMEOUT_SECONDS', 0))
     SESSION_COOKIE_SECURE = (clean_env_value(os.environ.get('SESSION_COOKIE_SECURE')) or ('true' if PRODUCTION_MODE else 'false')).lower() in ('1', 'true', 'yes', 'on')
     SESSION_COOKIE_HTTPONLY = True
