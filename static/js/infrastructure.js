@@ -22,6 +22,7 @@ let allQueueJobs = [];
 let allReports = [];
 let smtpProfiles = [];
 let currentJobTasks = [];
+let currentViewedJobId = null;
 let currentJobStatusFilter = 'all';
 let currentViewedHostId = null;
 let currentViewedGroupId = null;
@@ -30,6 +31,7 @@ let currentReportId = null;
 
 let selectedTemplateId = null;
 let editingTemplateId = null;
+let currentTemplateVariables = [];
 let teleChart = null; 
 let diskChart = null;
 let currentHostStatus = 'all';
@@ -287,6 +289,7 @@ function updateVariablesUI() {
         return;
     }
 
+    currentTemplateVariables.forEach(v => vars.add(v));
     while ((match = regex.exec(scriptText)) !== null) {
         vars.add(match[1]);
     }
@@ -1096,7 +1099,7 @@ function confirmMultiHostSelection() {
 
 // --- WORKSPACE BUILDER ---
 function resetWorkspace(clearPersistedState = true) {
-    editingTemplateId = null; selectedTemplateId = null;
+    editingTemplateId = null; selectedTemplateId = null; currentTemplateVariables = [];
     if (clearPersistedState) localStorage.removeItem(infraStateKeys.template);
     
     ['depTitle', 'depCategory', 'depReportTemplate'].forEach(id => {
@@ -1107,6 +1110,12 @@ function resetWorkspace(clearPersistedState = true) {
     
     const builderTitle = document.getElementById('builderTitle');
     if(builderTitle) builderTitle.innerText = "Deployment Builder";
+    const saveTemplateBtn = document.getElementById('btnSaveTemplate');
+    if(saveTemplateBtn) {
+        saveTemplateBtn.disabled = false;
+        saveTemplateBtn.classList.remove('opacity-50', 'cursor-not-allowed');
+        saveTemplateBtn.title = '';
+    }
     
     const isAdmin = checkIsAdmin();
     const actionEl = document.getElementById('depAction');
@@ -1122,6 +1131,10 @@ function resetWorkspace(clearPersistedState = true) {
     if (autoEmailRecipients) autoEmailRecipients.value = '';
     const autoEmailUseGpg = document.getElementById('depAutoEmailUseGpg');
     if (autoEmailUseGpg) autoEmailUseGpg.checked = true;
+    ['depPolicyHideCode', 'depPolicyLockEdit', 'depPolicyLockDelete', 'depPolicyDisableRun'].forEach(id => {
+        const el = document.getElementById(id);
+        if(el) el.checked = false;
+    });
     
     if(actionEl) actionEl.value = 'run_script'; 
     
@@ -1156,6 +1169,7 @@ function loadTemplate(el) {
     const isAdmin = checkIsAdmin();
     selectedTemplateId = el.dataset.id;
     localStorage.setItem(infraStateKeys.template, selectedTemplateId);
+    try { currentTemplateVariables = JSON.parse(el.dataset.vars || '[]'); } catch(e) { currentTemplateVariables = []; }
     
     const titleEl = document.getElementById('depTitle');
     if(titleEl) titleEl.value = el.dataset.name;
@@ -1164,16 +1178,35 @@ function loadTemplate(el) {
 
     const tType = el.dataset.type || 'action';
 
+    const canViewCode = el.dataset.canViewCode !== 'false';
     try {
         const payload = JSON.parse(el.dataset.payload);
-        setPayloadValue(payload.script || el.dataset.payload);
+        setPayloadValue(canViewCode ? (payload.script || el.dataset.payload) : '');
     } catch(e) { setPayloadValue(el.dataset.payload); }
 
     const actEl = document.getElementById('depAction');
     if(actEl) actEl.value = el.dataset.action || 'run_script';
 
-    if (isAdmin) {
+    const canEditTemplate = el.dataset.canEdit !== 'false' && canViewCode;
+    if (isAdmin && canEditTemplate) {
         editingTemplateId = el.dataset.id;
+        const saveTemplateBtn = document.getElementById('btnSaveTemplate');
+        if(saveTemplateBtn) {
+            saveTemplateBtn.disabled = false;
+            saveTemplateBtn.classList.remove('opacity-50', 'cursor-not-allowed');
+            saveTemplateBtn.title = '';
+        }
+        try {
+            const policy = JSON.parse(el.dataset.policy || '{}');
+            const hide = document.getElementById('depPolicyHideCode');
+            const edit = document.getElementById('depPolicyLockEdit');
+            const del = document.getElementById('depPolicyLockDelete');
+            const run = document.getElementById('depPolicyDisableRun');
+            if(hide) hide.checked = !!policy.hide_code;
+            if(edit) edit.checked = !!policy.lock_edit;
+            if(del) del.checked = !!policy.lock_delete;
+            if(run) run.checked = !!policy.disable_run;
+        } catch(e) {}
         
         const chkAppr = document.getElementById('depIsApproved');
         if(chkAppr) chkAppr.checked = (el.dataset.approved === 'true');
@@ -1187,9 +1220,20 @@ function loadTemplate(el) {
         const bTitle = document.getElementById('builderTitle');
         if(bTitle) bTitle.innerText = "Editing: " + el.dataset.name;
     } else {
+        editingTemplateId = null;
+        if(el.dataset.canRun === 'false') return alert("This template is disabled by superadmin policy.");
         if(tType === 'report') return alert("You cannot deploy a report format. Please select an Action or Item.");
         const lblSel = document.getElementById('selectedTemplateLabel');
         if(lblSel) lblSel.innerText = "Ready to deploy: " + el.dataset.name;
+        if(!canViewCode && lblSel) lblSel.innerText = "Ready to deploy: " + el.dataset.name + " (code hidden by policy)";
+        const bTitle = document.getElementById('builderTitle');
+        if(bTitle) bTitle.innerText = "Deploy: " + el.dataset.name;
+        const saveTemplateBtn = document.getElementById('btnSaveTemplate');
+        if(isAdmin && saveTemplateBtn) {
+            saveTemplateBtn.disabled = true;
+            saveTemplateBtn.classList.add('opacity-50', 'cursor-not-allowed');
+            saveTemplateBtn.title = "Editing is locked or code is hidden by template policy.";
+        }
     }
     
     // Встановлюємо параметри Report та Auto-Email з payload шаблону
@@ -1352,9 +1396,17 @@ function toggleDeployTarget() {
 
 function buildTemplatePayloadForSave() {
     const action = document.getElementById('depAction')?.value || 'run_script';
+    const policy = {
+        hide_code: document.getElementById('depPolicyHideCode')?.checked || false,
+        lock_edit: document.getElementById('depPolicyLockEdit')?.checked || false,
+        lock_delete: document.getElementById('depPolicyLockDelete')?.checked || false,
+        disable_run: document.getElementById('depPolicyDisableRun')?.checked || false
+    };
     if (action === 'agent_update') {
         try {
-            return JSON.parse(getPayloadValue() || '{}');
+            const payload = JSON.parse(getPayloadValue() || '{}');
+            payload.__template_policy = policy;
+            return payload;
         } catch(e) {
             alert('Agent update template payload must be valid JSON.');
             throw e;
@@ -1366,7 +1418,8 @@ function buildTemplatePayloadForSave() {
         __auto_email_toggle: document.getElementById('depAutoEmailToggle')?.checked || false,
         __auto_email_sender: document.getElementById('depAutoEmailSender')?.value || '',
         __auto_email_recipients: document.getElementById('depAutoEmailRecipients')?.value || '',
-        __auto_email_use_gpg: document.getElementById('depAutoEmailUseGpg')?.checked !== false
+        __auto_email_use_gpg: document.getElementById('depAutoEmailUseGpg')?.checked !== false,
+        __template_policy: policy
     };
 }
 
@@ -2482,6 +2535,7 @@ function renderQueue() {
             actionBtn = `<td class="px-10 py-4 text-right">
                 <div class="flex justify-end gap-2">
                     ${infraPermissions.run_tasks && j.error > 0 ? `<button onclick="event.stopPropagation(); retryFailedJob('${j.job_id}')" class="p-3 bg-white border border-slate-200 text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 rounded-2xl transition-colors shadow-sm" title="Retry failed hosts"><svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path d="M4 4v6h6M20 20v-6h-6M5 19A9 9 0 0119 5l1 1M19 5A9 9 0 005 19l-1-1" stroke-width="2.3" stroke-linecap="round" stroke-linejoin="round"/></svg></button>` : ''}
+                    ${infraPermissions.run_tasks && j.pending > 0 && (j.success + j.error) > 0 ? `<button onclick="event.stopPropagation(); finalizeJobReport('${j.job_id}')" class="p-3 bg-white border border-slate-200 text-slate-400 hover:text-emerald-600 hover:bg-emerald-50 rounded-2xl transition-colors shadow-sm" title="Finalize report without pending hosts"><svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path d="M9 12l2 2 4-5M4 20h16M5 4h14v12H5z" stroke-width="2.3" stroke-linecap="round" stroke-linejoin="round"/></svg></button>` : ''}
                     ${infraPermissions.run_tasks && j.pending > 0 ? `<button onclick="event.stopPropagation(); cancelPendingJob('${j.job_id}')" class="p-3 bg-white border border-slate-200 text-slate-400 hover:text-amber-600 hover:bg-amber-50 rounded-2xl transition-colors shadow-sm" title="Cancel pending hosts"><svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path d="M10 10l4 4m0-4l-4 4M12 22a10 10 0 100-20 10 10 0 000 20z" stroke-width="2.3" stroke-linecap="round" stroke-linejoin="round"/></svg></button>` : ''}
                     ${infraPermissions.cleanup_tasks ? `<button onclick="event.stopPropagation(); deleteJob('${j.job_id}')" class="p-3 bg-white border border-slate-200 text-slate-400 hover:text-rose-500 hover:bg-rose-50 rounded-2xl transition-colors shadow-sm" title="Delete job"><svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" stroke-width="2.5"/></svg></button>` : ''}
                 </div>
@@ -2760,6 +2814,7 @@ async function viewTaskDetails(taskId) {
 function viewJobDetails(jobId) {
     const job = allQueueJobs.find(j => j.job_id === jobId);
     if(!job) return;
+    currentViewedJobId = jobId;
     currentJobTasks = job.tasks || [];
     currentJobStatusFilter = 'all';
     document.getElementById('jTitle').innerText = job.title || 'Job Details';
@@ -2773,6 +2828,7 @@ function normalizeJobTaskStatus(status) {
     const value = (status || 'Pending').toLowerCase();
     if (value === 'success') return 'success';
     if (value === 'error') return 'error';
+    if (value === 'cancelled' || value === 'canceled') return 'cancelled';
     if (value === 'pickedup' || value === 'picked_up' || value === 'running') return 'running';
     return 'pending';
 }
@@ -2781,6 +2837,7 @@ function jobStatusLabel(status) {
     const normalized = normalizeJobTaskStatus(status);
     if (normalized === 'success') return 'Success';
     if (normalized === 'error') return 'Error';
+    if (normalized === 'cancelled') return 'Cancelled';
     if (normalized === 'running') return 'Running';
     return 'Pending';
 }
@@ -2789,6 +2846,7 @@ function jobStatusBadgeClass(status) {
     const normalized = normalizeJobTaskStatus(status);
     if (normalized === 'success') return 'bg-emerald-50 text-emerald-700 border-emerald-100';
     if (normalized === 'error') return 'bg-rose-50 text-rose-700 border-rose-100';
+    if (normalized === 'cancelled') return 'bg-slate-50 text-slate-500 border-slate-200';
     if (normalized === 'running') return 'bg-indigo-50 text-indigo-700 border-indigo-100';
     return 'bg-amber-50 text-amber-700 border-amber-100';
 }
@@ -2799,14 +2857,15 @@ function renderJobStatusFilters() {
     const counts = currentJobTasks.reduce((acc, task) => {
         acc[normalizeJobTaskStatus(task.status)] += 1;
         return acc;
-    }, { all: currentJobTasks.length, pending: 0, running: 0, error: 0, success: 0 });
+    }, { all: currentJobTasks.length, pending: 0, running: 0, error: 0, success: 0, cancelled: 0 });
 
     const filters = [
         ['all', 'All', counts.all],
         ['pending', 'Pending', counts.pending],
         ['running', 'Running', counts.running],
         ['error', 'Errors', counts.error],
-        ['success', 'Success', counts.success]
+        ['success', 'Success', counts.success],
+        ['cancelled', 'Cancelled', counts.cancelled]
     ];
 
     wrap.innerHTML = filters.map(([key, label, count]) => {
@@ -2970,6 +3029,17 @@ async function cancelPendingJob(id) {
     const res = await fetch('/api/infrastructure/job/' + encodeURIComponent(id) + '/cancel-pending', { method: 'POST' });
     const data = await res.json().catch(() => ({}));
     if(!res.ok || !data.success) return alert(data.message || 'Cancel failed.');
+    loadQueue();
+}
+
+async function finalizeJobReport(id) {
+    if(!confirm("Finalize this job now? Pending/running hosts will be excluded and the report will include only successful and failed results.")) return;
+    const res = await fetch('/api/infrastructure/job/' + encodeURIComponent(id) + '/finalize-report', { method: 'POST' });
+    const data = await res.json().catch(() => ({}));
+    if(!res.ok || !data.success) return alert(data.message || 'Finalize failed.');
+    alert(`Report finalized. Included: ${data.included}, excluded pending/running: ${data.cancelled}.`);
+    closeModal('jobModal');
+    switchView('reports');
     loadQueue();
 }
 

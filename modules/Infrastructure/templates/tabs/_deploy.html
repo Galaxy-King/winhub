@@ -3,7 +3,7 @@
     <div class="grid grid-cols-1 lg:grid-cols-12 gap-8 items-start">
         
         <!-- Library (Left Column) -->
-        <div class="lg:col-span-3 bg-slate-50/80 rounded-[2.5rem] border border-slate-200 shadow-inner p-4 h-[calc(100vh-160px)] flex flex-col">
+        <div class="lg:col-span-3 bg-slate-50/80 rounded-[2.5rem] border border-slate-200 shadow-inner p-4 h-[calc(100vh-112px)] flex flex-col">
             <div class="p-4 mb-2 wh-blue-panel rounded-2xl">
                 <h3 class="text-[11px] font-black text-slate-500 uppercase tracking-[0.2em] mb-4">Template Library</h3>
                 
@@ -49,7 +49,7 @@
                         <div id="cat_{{ loop.index }}" class="mt-2 space-y-2 hidden">
                             {% for t in items %}
 	                            <div class="template-card group relative p-4 rounded-xl border border-slate-200 bg-white hover:shadow-md hover:border-indigo-300 cursor-pointer transition-all overflow-hidden" 
-	                                 data-id="{{ t.id }}" data-name="{{ t.name }}" data-category="{{ t.category }}" data-type="{{ t.type }}" data-action="{{ t.action_type }}" data-approved="{{ 'true' if t.is_approved else 'false' }}" data-payload="{{ t.payload | forceescape }}"
+	                                 data-id="{{ t.id }}" data-name="{{ t.name }}" data-category="{{ t.category }}" data-type="{{ t.type }}" data-action="{{ t.action_type }}" data-approved="{{ 'true' if t.is_approved else 'false' }}" data-can-view-code="{{ 'true' if t.can_view_code else 'false' }}" data-can-edit="{{ 'true' if t.can_edit else 'false' }}" data-can-delete="{{ 'true' if t.can_delete else 'false' }}" data-can-run="{{ 'true' if t.can_run else 'false' }}" data-policy="{{ t.policy | tojson | forceescape }}" data-vars="{{ t.variables | tojson | forceescape }}" data-payload="{{ t.payload | forceescape }}"
                                  onclick="loadTemplate(this)">
                                 
                                 <!-- Кольорова смужка зліва для індикації типу -->
@@ -76,12 +76,18 @@
                                     {% else %}
                                         <span class="text-[9px] font-black uppercase px-2 py-0.5 rounded bg-amber-50 text-amber-700 border border-amber-100">Private Draft</span>
                                     {% endif %}
+                                    {% if t.policy.hide_code %}
+                                        <span class="text-[9px] font-black uppercase px-2 py-0.5 rounded bg-slate-50 text-slate-600 border border-slate-200">Code Hidden</span>
+                                    {% endif %}
+                                    {% if t.policy.lock_edit or t.policy.lock_delete %}
+                                        <span class="text-[9px] font-black uppercase px-2 py-0.5 rounded bg-rose-50 text-rose-600 border border-rose-100">Locked</span>
+                                    {% endif %}
                                 </div>
 
-                                <button onclick="event.stopPropagation(); exportTemplate('{{ t.id }}')" class="absolute top-2 right-9 opacity-0 group-hover:opacity-100 text-slate-300 hover:text-indigo-500 transition-all {% if not permissions.manage_templates %}hidden{% endif %}" title="Export this template">
+                                <button onclick="event.stopPropagation(); exportTemplate('{{ t.id }}')" class="absolute top-2 right-9 opacity-0 group-hover:opacity-100 text-slate-300 hover:text-indigo-500 transition-all {% if not permissions.manage_templates or not t.can_view_code %}hidden{% endif %}" title="Export this template">
                                     <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 3v12m0 0l-4-4m4 4l4-4M4 17v2a2 2 0 002 2h12a2 2 0 002-2v-2"></path></svg>
                                 </button>
-                                <button onclick="event.stopPropagation(); deleteTemplate('{{ t.id }}')" class="absolute top-2 right-2 opacity-0 group-hover:opacity-100 text-slate-300 hover:text-rose-500 transition-all {% if not permissions.manage_templates %}hidden{% endif %}" title="Delete template">
+                                <button onclick="event.stopPropagation(); deleteTemplate('{{ t.id }}')" class="absolute top-2 right-2 opacity-0 group-hover:opacity-100 text-slate-300 hover:text-rose-500 transition-all {% if not permissions.manage_templates or not t.can_delete %}hidden{% endif %}" title="Delete template">
                                     <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 14l2-2m0 0l2-2m-2 2l-2-2m2 2l2 2m7-2a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>
                                 </button>
                             </div>
@@ -93,7 +99,7 @@
         </div>
 
         <!-- Builder (Right Column) -->
-        <div class="lg:col-span-9 bg-white rounded-[2.5rem] border border-slate-200 shadow-xl overflow-hidden min-h-[calc(100vh-160px)] flex flex-col">
+        <div class="lg:col-span-9 bg-white rounded-[2.5rem] border border-slate-200 shadow-xl overflow-hidden min-h-[calc(100vh-112px)] flex flex-col">
             
             <!-- Builder Header -->
             <div class="p-6 bg-slate-50/50 border-b border-slate-200 flex flex-col sm:flex-row justify-between items-center gap-4 shrink-0">
@@ -109,7 +115,7 @@
 	                        <button id="workspaceTabBuilder" onclick="switchWorkspaceTab('builder')" class="px-4 py-2 bg-white text-indigo-700 rounded-lg text-[10px] font-black uppercase shadow-sm">Builder</button>
 	                        <button id="workspaceTabGuide" onclick="switchWorkspaceTab('guide')" class="px-4 py-2 text-slate-500 rounded-lg text-[10px] font-black uppercase">Guide</button>
 	                    </div>
-	                    <label id="depIsApprovedWrapper" class="flex items-center gap-2 cursor-pointer bg-white px-3 py-2.5 rounded-xl border border-slate-200 hover:bg-slate-100 transition-all shadow-sm {% if not permissions.manage_templates %}hidden{% endif %}">
+                    <label id="depIsApprovedWrapper" class="flex items-center gap-2 cursor-pointer bg-white px-3 py-2.5 rounded-xl border border-slate-200 hover:bg-slate-100 transition-all shadow-sm {% if not permissions.manage_templates %}hidden{% endif %}">
                         <input type="checkbox" id="depIsApproved" class="w-4 h-4 text-indigo-600 rounded border-slate-300 focus:ring-indigo-500">
                         <span class="text-[10px] font-black text-slate-500 uppercase">Share with Team</span>
                     </label>
@@ -289,6 +295,27 @@ $StaticPassword = "{{ "{{secret:local_admin_password}}" }}"
 # Secrets are created in Template Secrets and are not sent by API clients.</code></pre>
                     </div>
                 </div>
+
+                {% if is_admin %}
+                <div id="templatePolicyBlock" class="grid grid-cols-1 md:grid-cols-4 gap-3 p-4 bg-slate-50 border border-slate-200 rounded-3xl">
+                    <label class="flex items-center gap-3 bg-white border border-slate-200 rounded-2xl px-4 py-3 cursor-pointer">
+                        <input type="checkbox" id="depPolicyHideCode" class="w-4 h-4 text-indigo-600 rounded border-slate-300">
+                        <span class="text-[10px] font-black uppercase text-slate-500">Hide Code</span>
+                    </label>
+                    <label class="flex items-center gap-3 bg-white border border-slate-200 rounded-2xl px-4 py-3 cursor-pointer">
+                        <input type="checkbox" id="depPolicyLockEdit" class="w-4 h-4 text-indigo-600 rounded border-slate-300">
+                        <span class="text-[10px] font-black uppercase text-slate-500">Lock Edit</span>
+                    </label>
+                    <label class="flex items-center gap-3 bg-white border border-slate-200 rounded-2xl px-4 py-3 cursor-pointer">
+                        <input type="checkbox" id="depPolicyLockDelete" class="w-4 h-4 text-indigo-600 rounded border-slate-300">
+                        <span class="text-[10px] font-black uppercase text-slate-500">Lock Delete</span>
+                    </label>
+                    <label class="flex items-center gap-3 bg-white border border-slate-200 rounded-2xl px-4 py-3 cursor-pointer">
+                        <input type="checkbox" id="depPolicyDisableRun" class="w-4 h-4 text-indigo-600 rounded border-slate-300">
+                        <span class="text-[10px] font-black uppercase text-slate-500">Disable Run</span>
+                    </label>
+                </div>
+                {% endif %}
 	                
 	            </div>
 	            <div id="workspaceGuidePanel" class="hidden p-8 flex-1 overflow-y-auto custom-scrollbar bg-slate-50/50">
