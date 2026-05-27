@@ -891,6 +891,10 @@ function openMultiHostModal() {
     if(availableHostsData.length === 0) initAvailableHostsData();
     const searchEl = document.getElementById('multiHostSearch');
     if(searchEl) searchEl.value = '';
+    const bulkEl = document.getElementById('multiHostBulkInput');
+    if(bulkEl) bulkEl.value = '';
+    const bulkStatus = document.getElementById('multiHostBulkStatus');
+    if(bulkStatus) bulkStatus.textContent = '';
     const currentSelectedStr = document.getElementById('depTargetHostIds')?.value || "[]";
     try {
         multiHostSelectedIds = new Set(JSON.parse(currentSelectedStr).map(String));
@@ -898,7 +902,19 @@ function openMultiHostModal() {
         multiHostSelectedIds = new Set();
     }
     renderMultiHostList('');
+    renderSelectedMultiHosts();
     openModal('selectMultipleHostsModal');
+}
+
+function getMultiHostById(hostId) {
+    const id = String(hostId);
+    return availableHostsData.find(h => String(h.id) === id);
+}
+
+function isMultiHostSelectable(host) {
+    if(!host) return false;
+    const approval = host.approval_status || 'Approved';
+    return approval === 'Approved' && !host.is_blocked;
 }
 
 function renderMultiHostList(query) {
@@ -947,21 +963,112 @@ function toggleAllMultiHosts() {
         toggleMultiHostSelection(cb.value, cb.checked, false);
     });
     updateMultiHostCount();
+    renderSelectedMultiHosts();
 }
 
 function toggleMultiHostSelection(hostId, checked, updateLabel = true) {
     const id = String(hostId);
-    if(checked) {
+    const host = getMultiHostById(id);
+    if(checked && isMultiHostSelectable(host)) {
         multiHostSelectedIds.add(id);
     } else {
         multiHostSelectedIds.delete(id);
     }
-    if(updateLabel) updateMultiHostCount();
+    if(updateLabel) {
+        updateMultiHostCount();
+        renderSelectedMultiHosts();
+    }
 }
 
 function updateMultiHostCount() {
     const label = document.getElementById('multiHostSelCount');
     if(label) label.innerText = multiHostSelectedIds.size;
+}
+
+function renderSelectedMultiHosts() {
+    updateMultiHostCount();
+    const container = document.getElementById('multiHostSelectedContainer');
+    if(!container) return;
+    const selectedHosts = Array.from(multiHostSelectedIds)
+        .map(id => getMultiHostById(id))
+        .filter(Boolean)
+        .sort((a, b) => String(a.name || a.id).localeCompare(String(b.name || b.id)));
+
+    container.innerHTML = selectedHosts.map(h => `
+        <div class="flex items-start justify-between gap-3 p-3 bg-white border border-slate-200 rounded-2xl shadow-sm">
+            <div class="min-w-0">
+                <div class="font-black text-slate-800 text-sm truncate">${escapeHtml(h.name || h.id)}</div>
+                <div class="text-[10px] text-slate-400 font-bold mt-1 truncate">${escapeHtml(h.ip || 'No IP')} / Agent ${escapeHtml(h.agent_version || 'unknown')}</div>
+            </div>
+            <button onclick="removeMultiHostSelection('${escapeHtml(String(h.id))}')" class="shrink-0 p-2 bg-slate-50 hover:bg-rose-50 text-slate-400 hover:text-rose-600 rounded-xl border border-slate-100 hover:border-rose-100 transition-colors" title="Remove endpoint">
+                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path d="M6 18L18 6M6 6l12 12" stroke-width="2.5" stroke-linecap="round"/></svg>
+            </button>
+        </div>
+    `).join('') || '<div class="h-full min-h-[180px] flex items-center justify-center text-center text-slate-400 text-sm font-bold p-8">No endpoints selected yet.</div>';
+}
+
+function removeMultiHostSelection(hostId) {
+    multiHostSelectedIds.delete(String(hostId));
+    const cb = Array.from(document.querySelectorAll('.multi-host-cb')).find(item => item.value === String(hostId));
+    if(cb) cb.checked = false;
+    renderSelectedMultiHosts();
+}
+
+function clearMultiHostSelection() {
+    multiHostSelectedIds.clear();
+    document.querySelectorAll('.multi-host-cb:checked').forEach(cb => { cb.checked = false; });
+    renderSelectedMultiHosts();
+}
+
+function normalizeBulkHostToken(value) {
+    return String(value || '').trim().toLowerCase();
+}
+
+function addBulkMultiHosts() {
+    const input = document.getElementById('multiHostBulkInput');
+    const status = document.getElementById('multiHostBulkStatus');
+    const raw = input?.value || '';
+    const tokens = raw.split(/[\s,;]+/).map(normalizeBulkHostToken).filter(Boolean);
+    const uniqueTokens = Array.from(new Set(tokens));
+    let added = 0;
+    const missing = [];
+    const blocked = [];
+
+    uniqueTokens.forEach(token => {
+        const matches = availableHostsData.filter(h => {
+            const names = [
+                h.id,
+                h.name,
+                h.hostname,
+                h.ip,
+                h.ip_address,
+                ...(Array.isArray(h.interface_ips) ? h.interface_ips : [])
+            ].map(normalizeBulkHostToken).filter(Boolean);
+            return names.includes(token);
+        });
+        const selectable = matches.filter(isMultiHostSelectable);
+        if(selectable.length > 0) {
+            selectable.forEach(host => {
+                const before = multiHostSelectedIds.size;
+                multiHostSelectedIds.add(String(host.id));
+                if(multiHostSelectedIds.size > before) added += 1;
+            });
+        } else if(matches.length > 0) {
+            blocked.push(token);
+        } else {
+            missing.push(token);
+        }
+    });
+
+    renderMultiHostList(document.getElementById('multiHostSearch')?.value || '');
+    renderSelectedMultiHosts();
+    if(status) {
+        const parts = [`Added ${added}`];
+        if(missing.length) parts.push(`not found: ${missing.slice(0, 8).join(', ')}${missing.length > 8 ? '...' : ''}`);
+        if(blocked.length) parts.push(`not selectable: ${blocked.slice(0, 8).join(', ')}${blocked.length > 8 ? '...' : ''}`);
+        status.textContent = parts.join(' | ');
+        status.className = missing.length || blocked.length ? 'text-[11px] font-bold text-amber-600 min-h-[1rem]' : 'text-[11px] font-bold text-emerald-600 min-h-[1rem]';
+    }
 }
 
 function confirmMultiHostSelection() {
