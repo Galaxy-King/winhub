@@ -144,6 +144,46 @@ def load_template_payload(template):
         return {"script": str(template.payload or "")}
 
 
+TEMPLATE_POLICY_KEY = "__template_policy"
+
+
+def template_policy(template_or_payload):
+    payload = template_or_payload if isinstance(template_or_payload, dict) else load_template_payload(template_or_payload)
+    policy = payload.get(TEMPLATE_POLICY_KEY, {}) if isinstance(payload, dict) else {}
+    return policy if isinstance(policy, dict) else {}
+
+
+def template_variable_names(template):
+    payload = load_template_payload(template)
+    values = []
+    if isinstance(payload, dict):
+        values = [str(value) for key, value in payload.items() if isinstance(value, str) and not str(key).startswith("__")]
+    else:
+        values = [str(payload or "")]
+    names = set()
+    for value in values:
+        names.update(VARIABLE_PATTERN.findall(value))
+    return sorted(names)
+
+
+def can_view_template_code(template):
+    if session.get("is_admin"):
+        return True
+    return not bool(template_policy(template).get("hide_code"))
+
+
+def can_edit_template(template):
+    if session.get("is_admin"):
+        return True
+    return can("manage_templates") and not bool(template_policy(template).get("lock_edit"))
+
+
+def can_delete_template(template):
+    if session.get("is_admin"):
+        return True
+    return can("manage_templates") and not bool(template_policy(template).get("lock_delete"))
+
+
 def load_template_secrets():
     if not os.path.exists(SECRETS_FILE):
         return {}
@@ -448,6 +488,8 @@ def can_use_template(template):
         return True
     if not template:
         return False
+    if bool(template_policy(template).get("disable_run")):
+        return False
     if getattr(template, "created_by", None) == session.get("username") and can("manage_templates"):
         return True
     return True
@@ -723,7 +765,16 @@ def index():
             
     templates = [{
         "id": t.id, "name": t.name, "category": getattr(t, 'category', 'General'), 
-        "action_type": t.action_type, "type": getattr(t, 'type', 'action'), "is_approved": t.is_approved, "payload": t.payload if t.payload else "{}"
+        "action_type": t.action_type,
+        "type": getattr(t, 'type', 'action'),
+        "is_approved": t.is_approved,
+        "payload": t.payload if (t.payload and can_view_template_code(t)) else "{}",
+        "policy": template_policy(t),
+        "can_view_code": can_view_template_code(t),
+        "can_edit": can_edit_template(t),
+        "can_delete": can_delete_template(t),
+        "can_run": can_use_template(t),
+        "variables": template_variable_names(t),
     } for t in templates_raw]
     template_categories = sorted({
         (template.get("category") or "General").strip() or "General"
@@ -1089,6 +1140,11 @@ def list_templates():
             "is_approved": bool(t.is_approved),
             "created_by": t.created_by,
             "created_at": to_kyiv_time(t.created_at),
+            "policy": template_policy(t),
+            "can_view_code": can_view_template_code(t),
+            "can_edit": can_edit_template(t),
+            "can_delete": can_delete_template(t),
+            "can_run": can_use_template(t),
         } for t in templates]
     })
 
@@ -1109,7 +1165,7 @@ def export_templates():
             "category": t.category,
             "action_type": t.action_type,
             "type": getattr(t, "type", "action"),
-            "payload": load_template_payload(t),
+            "payload": load_template_payload(t) if can_view_template_code(t) else {},
             "is_approved": bool(t.is_approved),
             "created_by": t.created_by,
             "created_at": t.created_at.isoformat() + "Z" if t.created_at else None,
@@ -1952,6 +2008,11 @@ def create_template():
     if tid:
         t = TaskTemplate.query.get(tid)
         if t:
+            if not can_edit_template(t):
+                return jsonify({"success": False, "message": "Template editing is locked by superadmin policy"}), 403
+            if not session.get("is_admin"):
+                payload_dict[TEMPLATE_POLICY_KEY] = template_policy(t)
+                payload_raw = json.dumps(payload_dict)
             t.name = data.get('name'); t.category = category; t.action_type = data.get('action')
             t.type = t_type; t.payload = payload_raw; t.is_approved = is_approved
     else:
@@ -1966,6 +2027,8 @@ def delete_template(tid):
     t = TaskTemplate.query.get(tid)
     if not t:
         return jsonify({"success": False, "message": "Template not found"}), 404
+    if not can_delete_template(t):
+        return jsonify({"success": False, "message": "Template deletion is locked by superadmin policy"}), 403
 
     try:
         ScheduledTask.query.filter_by(template_id=tid).delete(synchronize_session=False)
@@ -2339,6 +2402,38 @@ def cancel_pending_job(job_id):
     write_infra_audit("Cancel Pending Job Tasks", "job", job_id, {"cancelled": len(tasks)})
     db.session.commit()
     return jsonify({"success": True, "cancelled": len(tasks)})
+
+
+@infrastructure_bp.route('/api/infrastructure/job/<job_id>/finalize-report', methods=['POST'])
+def finalize_job_report(job_id):
+    denied = require_permission("run_tasks")
+    if denied: return denied
+    if not can_access_report(job_id):
+        return jsonify({"success": False, "message": "Permission denied"}), 403
+
+    completed_count = AgentTask.query.filter_by(job_id=job_id).filter(AgentTask.status.in_(["Success", "Error"])).count()
+    if completed_count == 0:
+        return jsonify({"success": False, "message": "No successful or failed tasks are available for report"}), 400
+
+    pending_tasks = AgentTask.query.filter_by(job_id=job_id).filter(
+        or_(
+            AgentTask.status.is_(None),
+            AgentTask.status.in_(["Pending", "PickedUp", "Running"])
+        )
+    ).all()
+    cancelled = 0
+    for task in pending_tasks:
+        if WinHubCore.can_manage_host(session.get("user_id"), task.endpoint_id):
+            task.status = "Cancelled"
+            task.result_log = "Excluded from finalized report before completion."
+            task.finished_at = datetime.utcnow()
+            cancelled += 1
+
+    db.session.commit()
+
+    WinHubCore.process_job_completion(job_id, include_statuses=["Success", "Error"], force=True)
+    write_infra_audit("Finalize Job Report", "job", job_id, {"cancelled_pending": cancelled, "included_completed": completed_count})
+    return jsonify({"success": True, "cancelled": cancelled, "included": completed_count})
 
 @infrastructure_bp.route('/api/infrastructure/job/<job_id>/retry-failed', methods=['POST'])
 def retry_failed_job(job_id):

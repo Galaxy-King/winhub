@@ -157,7 +157,7 @@ class WinHubCore:
             raise PermissionError("No authorized targets selected")
 
     @staticmethod
-    def process_job_completion(job_id: str, app=None):
+    def process_job_completion(job_id: str, app=None, include_statuses=None, force=False):
         """Збирає результати і формує звіт (з використанням кастомного шаблону, якщо він заданий)"""
         import json
         import re
@@ -169,11 +169,21 @@ class WinHubCore:
         except Exception:
             split_prefix = None
 
-        if AggregatedJob.query.get(job_id) or (split_prefix and AggregatedJob.query.filter(AggregatedJob.id.like(split_prefix)).first()):
+        existing_split = split_prefix and AggregatedJob.query.filter(AggregatedJob.id.like(split_prefix)).first()
+        if (AggregatedJob.query.get(job_id) or existing_split) and not force:
             return
-            
+        if force:
+            AggregatedJob.query.filter_by(id=job_id).delete(synchronize_session=False)
+            if split_prefix:
+                AggregatedJob.query.filter(AggregatedJob.id.like(split_prefix)).delete(synchronize_session=False)
+
         tasks = AgentTask.query.filter_by(job_id=job_id).all()
         if not tasks: return
+        if include_statuses:
+            allowed_statuses = {str(item).lower() for item in include_statuses}
+            tasks = [task for task in tasks if str(task.status or "Pending").lower() in allowed_statuses]
+        if not tasks:
+            return
 
         total = len(tasks)
         success = sum(1 for t in tasks if t.status == 'Success')
