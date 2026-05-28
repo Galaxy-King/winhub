@@ -3098,6 +3098,7 @@ async function viewHost(id) {
         const volumes = Array.isArray(hostInfo.volumes) ? hostInfo.volumes : [];
         const security = hostInfo.security || {};
         const encryption = d.encryption || {};
+        const bitlocker = security.bitlocker || {};
         const fmtBool = (v) => v === true ? 'Yes' : (v === false ? 'No' : '-');
         const fmtBytes = (gb) => Number.isFinite(Number(gb)) ? `${gb} GB` : '-';
         const encryptionClass = encryption.level === 'encrypted'
@@ -3136,6 +3137,12 @@ async function viewHost(id) {
                 <div class="flex justify-between gap-3"><span class="text-slate-400 font-bold">Defender</span><span class="text-slate-700">${security.defender_service_state || '-'}</span></div>
                 <div class="flex justify-between gap-3"><span class="text-slate-400 font-bold">VeraCrypt</span><span class="${security.veracrypt_detected ? 'text-emerald-600' : 'text-slate-500'} font-black">${fmtBool(security.veracrypt_detected)}</span></div>
                 <div class="flex justify-between gap-3"><span class="text-slate-400 font-bold">TrueCrypt</span><span class="${security.truecrypt_detected ? 'text-emerald-600' : 'text-slate-500'} font-black">${fmtBool(security.truecrypt_detected)}</span></div>
+                <div class="pt-2 border-t border-slate-100 grid grid-cols-2 gap-2 text-[10px]">
+                    <div><span class="text-slate-400 font-bold block">BitLocker Status</span><span class="text-slate-700 font-black uppercase">${escapeHtml(bitlocker.status || 'unknown')}</span></div>
+                    <div><span class="text-slate-400 font-bold block">Encrypted</span><span class="text-slate-700 font-black">${Number.isFinite(Number(bitlocker.encrypted_percentage)) && Number(bitlocker.encrypted_percentage) >= 0 ? Number(bitlocker.encrypted_percentage) + '%' : '-'}</span></div>
+                    <div><span class="text-slate-400 font-bold block">Protection</span><span class="text-slate-700 font-black uppercase">${escapeHtml(bitlocker.protection_status || 'unknown')}</span></div>
+                    <div><span class="text-slate-400 font-bold block">Conversion</span><span class="text-slate-700 font-black uppercase">${escapeHtml(bitlocker.conversion_status || 'unknown')}</span></div>
+                </div>
                 <div class="pt-2 border-t border-slate-100"><span class="text-slate-400 font-bold block mb-1">BitLocker</span><span class="font-mono text-[10px] text-slate-600 whitespace-pre-wrap break-words">${security.bitlocker_summary || '-'}</span></div>
             </div>
         `;

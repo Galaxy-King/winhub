@@ -28,7 +28,8 @@ namespace WinHUBAgent
     public record ResultPayload(string hw_id, string auth_token, string task_id, string status, string log);
     public record NetworkInterfaceInfo(string name, string description, string type, string status, string mac, string[] ipv4, string[] ipv6, string[] gateways, string[] dns_servers, bool dhcp_enabled, long speed_mbps);
     public record VolumeInfo(string name, string label, string format, string type, long total_gb, long free_gb, bool ready);
-    public record SecurityInventoryInfo(bool pending_reboot, string firewall_domain, string firewall_private, string firewall_public, string bitlocker_summary, string defender_service_state, bool veracrypt_detected, bool truecrypt_detected);
+    public record BitLockerInventoryInfo(string status, int encrypted_percentage, string protection_status, string conversion_status, string raw_summary);
+    public record SecurityInventoryInfo(bool pending_reboot, string firewall_domain, string firewall_private, string firewall_public, string bitlocker_summary, BitLockerInventoryInfo bitlocker, string defender_service_state, bool veracrypt_detected, bool truecrypt_detected);
     public record HostInventoryInfo(string machine_name, string fqdn, string domain_name, string user_domain_name, bool likely_domain_joined, string os_description, string os_architecture, string process_architecture, string timezone, int processor_count, ulong total_memory_mb, long uptime_seconds, string boot_time_utc, VolumeInfo[] volumes, SecurityInventoryInfo security);
 
     // НОВЕ: Модель для конфігурації
@@ -130,6 +131,9 @@ namespace WinHUBAgent
         [DllImport("kernel32.dll", SetLastError = true)]
         [return: MarshalAs(UnmanagedType.Bool)]
         private static extern bool GetSystemTimes(out FILETIME lpIdleTime, out FILETIME lpKernelTime, out FILETIME lpUserTime);
+
+        [DllImport("kernel32.dll")]
+        private static extern uint GetOEMCP();
 
         public Worker(ILogger<Worker> logger)
         {
@@ -1003,6 +1007,13 @@ try {
         {
             try
             {
+                Encoding outputEncoding = Encoding.UTF8;
+                try
+                {
+                    outputEncoding = Encoding.GetEncoding((int)GetOEMCP());
+                }
+                catch { }
+
                 var psi = new ProcessStartInfo
                 {
                     FileName = fileName,
@@ -1011,8 +1022,8 @@ try {
                     RedirectStandardError = true,
                     UseShellExecute = false,
                     CreateNoWindow = true,
-                    StandardOutputEncoding = Encoding.UTF8,
-                    StandardErrorEncoding = Encoding.UTF8
+                    StandardOutputEncoding = outputEncoding,
+                    StandardErrorEncoding = outputEncoding
                 };
 
                 using var process = Process.Start(psi);
@@ -1029,6 +1040,49 @@ try {
                 return output.Length > maxChars ? output.Substring(0, maxChars) + "\n[truncated]" : output;
             }
             catch { return "unavailable"; }
+        }
+
+        private static BitLockerInventoryInfo GetBitLockerInventory()
+        {
+            string raw = RunCommandSnapshot("manage-bde.exe", "-status C:", 8, 3000);
+            string lower = raw.ToLowerInvariant();
+            int encryptedPercentage = -1;
+
+            try
+            {
+                var percentMatch = System.Text.RegularExpressions.Regex.Match(
+                    raw,
+                    @"(?i)(percentage encrypted|encrypted percentage|зашифровано|зашифрован[а-я\s]*\(%\)|процент[а-я\s]*шифр)[^\d]*(\d+)",
+                    System.Text.RegularExpressions.RegexOptions.CultureInvariant
+                );
+                if (percentMatch.Success)
+                    int.TryParse(percentMatch.Groups[2].Value, out encryptedPercentage);
+            }
+            catch { }
+
+            string protection = "unknown";
+            if (lower.Contains("protection on") || lower.Contains("защита включена") || lower.Contains("захист увімк"))
+                protection = "on";
+            else if (lower.Contains("protection off") || lower.Contains("защита отключена") || lower.Contains("захист вимк"))
+                protection = "off";
+
+            string conversion = "unknown";
+            if (lower.Contains("fully encrypted") || lower.Contains("полностью зашифрован") || lower.Contains("повністю зашифр"))
+                conversion = "fully_encrypted";
+            else if (lower.Contains("fully decrypted") || lower.Contains("полностью расшифрован") || lower.Contains("повністю розшифр"))
+                conversion = "fully_decrypted";
+            else if (lower.Contains("encryption in progress") || lower.Contains("шифрование выполняется") || lower.Contains("шифрування виконується"))
+                conversion = "encryption_in_progress";
+
+            string status = "unknown";
+            if (encryptedPercentage == 100 || protection == "on" || conversion == "fully_encrypted")
+                status = "encrypted";
+            else if (encryptedPercentage > 0 || conversion == "encryption_in_progress")
+                status = "partial";
+            else if (encryptedPercentage == 0 || protection == "off" || conversion == "fully_decrypted")
+                status = "not_encrypted";
+
+            return new BitLockerInventoryInfo(status, encryptedPercentage, protection, conversion, raw);
         }
 
         private static bool ServiceOrDriverExists(string serviceName)
@@ -1080,12 +1134,15 @@ try {
             else if (defenderState.IndexOf("does not exist", StringComparison.OrdinalIgnoreCase) >= 0)
                 defenderState = "not_installed";
 
+            BitLockerInventoryInfo bitlocker = GetBitLockerInventory();
+
             return new SecurityInventoryInfo(
                 pendingReboot,
                 FirewallProfileState("DomainProfile"),
                 FirewallProfileState("StandardProfile"),
                 FirewallProfileState("PublicProfile"),
-                RunCommandSnapshot("manage-bde.exe", "-status", 8, 2000),
+                bitlocker.raw_summary,
+                bitlocker,
                 defenderState,
                 RegistryKeyExists(@"SOFTWARE\IDRIX\VeraCrypt") || InstalledSoftwareContains("VeraCrypt") || ServiceOrDriverExists("veracrypt"),
                 RegistryKeyExists(@"SOFTWARE\TrueCrypt") || InstalledSoftwareContains("TrueCrypt") || ServiceOrDriverExists("truecrypt")
