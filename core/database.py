@@ -226,6 +226,23 @@ class EndpointMetric(db.Model):
     
     endpoint = db.relationship('Endpoint', back_populates='metrics')
 
+class AgentUpdateRollout(db.Model):
+    __tablename__ = 'agent_update_rollouts'
+    id = db.Column(db.String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
+    package_id = db.Column(db.String(100), index=True)
+    package_url = db.Column(db.Text)
+    package_version = db.Column(db.String(50))
+    target_ids = db.Column(db.Text)
+    wave_size = db.Column(db.Integer, default=50)
+    wave_delay_seconds = db.Column(db.Integer, default=300)
+    next_wave_index = db.Column(db.Integer, default=1)
+    total_waves = db.Column(db.Integer, default=1)
+    status = db.Column(db.String(20), default="Running", index=True)
+    created_by = db.Column(db.String(100))
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    next_run_at = db.Column(db.DateTime, default=datetime.utcnow, index=True)
+    updated_at = db.Column(db.DateTime, default=datetime.utcnow)
+
 class TriggerRule(db.Model):
     __tablename__ = 'trigger_rules'
     id = db.Column(db.String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
