@@ -1357,6 +1357,37 @@ def agent_packages():
         return jsonify({"success": False, "message": f"Package upload failed: {e}"}), 500
 
 
+@infrastructure_bp.route('/api/infrastructure/agent-packages/<package_id>', methods=['DELETE'])
+def delete_agent_package(package_id):
+    denied = require_superadmin()
+    if denied: return denied
+
+    packages = load_agent_packages()
+    package = next((item for item in packages if item.get("id") == package_id), None)
+    if not package:
+        return jsonify({"success": False, "message": "Package not found"}), 404
+
+    filename = os.path.basename(str(package.get("filename") or ""))
+    if filename:
+        path = os.path.abspath(os.path.join(AGENT_PACKAGES_DIR, filename))
+        packages_dir = os.path.abspath(AGENT_PACKAGES_DIR)
+        if path.startswith(packages_dir + os.sep) and os.path.exists(path):
+            try:
+                os.remove(path)
+            except FileNotFoundError:
+                pass
+
+    packages = [item for item in packages if item.get("id") != package_id]
+    save_agent_packages(packages)
+    write_infra_audit("Agent Package Delete", "agent_package", package_id, {
+        "version": package.get("version"),
+        "filename": package.get("original_filename") or package.get("filename"),
+        "sha256": package.get("sha256"),
+    })
+    db.session.commit()
+    return jsonify({"success": True})
+
+
 def create_agent_update_wave(host_ids, package, created_by, wave_index, wave_total):
     job_id = str(uuid.uuid4())
     payload = {
