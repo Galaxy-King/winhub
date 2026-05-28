@@ -5,6 +5,7 @@ using System.Net.Http;
 using System.Net.NetworkInformation;
 using System.Net.Sockets;
 using System.Runtime.InteropServices;
+using System.Reflection;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Encodings.Web;
@@ -52,7 +53,11 @@ namespace WinHUBAgent
 
     public static class AgentBuildInfo
     {
-        public const string Version = "1.2.5";
+        public static readonly string Version =
+            typeof(AgentBuildInfo).Assembly
+                .GetCustomAttribute<AssemblyInformationalVersionAttribute>()?
+                .InformationalVersion
+                .Split('+')[0] ?? "0.0.0";
     }
 
     [JsonSerializable(typeof(EnrollPayload))]
