@@ -1712,7 +1712,10 @@ function renderFleetCenter() {
                         <div class="font-black text-slate-800 text-sm truncate">${escapeHtml(pkg.version)}</div>
                         <div class="text-[10px] font-bold text-slate-400 uppercase mt-1">${Math.round((pkg.size || 0) / 1024 / 1024 * 10) / 10} MB</div>
                     </div>
-                    <button onclick="navigator.clipboard.writeText('${escapeHtml(pkg.sha256)}')" class="px-3 py-1.5 rounded-xl bg-white border border-slate-200 text-[9px] font-black uppercase text-slate-500 hover:text-indigo-600">SHA</button>
+                    <div class="flex items-center gap-2 shrink-0">
+                        <button onclick="navigator.clipboard.writeText('${escapeHtml(pkg.sha256)}')" class="px-3 py-1.5 rounded-xl bg-white border border-slate-200 text-[9px] font-black uppercase text-slate-500 hover:text-indigo-600">SHA</button>
+                        ${window.WinhubIsAdmin ? `<button onclick="deleteAgentPackage('${escapeHtml(pkg.id)}', '${escapeHtml(pkg.version)}')" class="px-3 py-1.5 rounded-xl bg-white border border-rose-100 text-[9px] font-black uppercase text-rose-500 hover:bg-rose-50">Delete</button>` : ''}
+                    </div>
                 </div>
                 <div class="mt-2 text-[10px] font-mono text-slate-500 break-all">${escapeHtml(pkg.sha256 || '')}</div>
             </div>
@@ -1770,6 +1773,16 @@ async function uploadAgentPackage(event) {
         }, 1200);
     };
     xhr.send(formData);
+}
+
+async function deleteAgentPackage(packageId, version='') {
+    if (!packageId) return;
+    const label = version ? ` ${version}` : '';
+    if (!confirm(`Delete agent package${label}? Existing update tasks that already reference this package may no longer be able to download it.`)) return;
+    const res = await fetch('/api/infrastructure/agent-packages/' + encodeURIComponent(packageId), { method: 'DELETE' });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok || !data.success) return alert(data.message || 'Package delete failed.');
+    await loadFleetCenter();
 }
 
 async function runFleetUpdate(hostId=null) {
