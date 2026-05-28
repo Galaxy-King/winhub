@@ -175,6 +175,15 @@ class TelemetryHistory(db.Model):
     timestamp = db.Column(db.DateTime, default=datetime.utcnow, index=True)
     endpoint = db.relationship('Endpoint', back_populates='telemetry')
 
+class ConnectionIpHistory(db.Model):
+    __tablename__ = 'connection_ip_history'
+    id = db.Column(db.Integer, primary_key=True)
+    endpoint_id = db.Column(db.String(100), db.ForeignKey('endpoints.id', ondelete="CASCADE"), index=True)
+    ip_address = db.Column(EncryptedString)
+    source = db.Column(db.String(50), default="agent")
+    timestamp = db.Column(db.DateTime, default=datetime.utcnow, index=True)
+    endpoint = db.relationship('Endpoint')
+
 class TaskTemplate(db.Model):
     __tablename__ = 'task_templates'
     id = db.Column(db.String(36), primary_key=True, default=lambda: str(uuid.uuid4()))

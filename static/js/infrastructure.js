@@ -32,8 +32,9 @@ let currentReportId = null;
 let selectedTemplateId = null;
 let editingTemplateId = null;
 let currentTemplateVariables = [];
-let teleChart = null; 
+let teleChart = null;
 let diskChart = null;
+let activityChart = null;
 let currentHostStatus = 'all';
 let queueTypeFilter = 'ALL';
 const infraPermissions = window.WinhubPermissions || {};
@@ -203,21 +204,21 @@ async function fetchSmtpProfilesGlobally() {
         const data = await res.json();
         if (data.success) {
             smtpProfiles = data.profiles;
-            
+
             // Наповнюємо дропдаун в розділі Workspace
             const selDep = document.getElementById('depAutoEmailSender');
             if (selDep) {
                 const currentVal = selDep.value;
-                selDep.innerHTML = '<option value="">-- Select Sender Profile --</option>' + 
+                selDep.innerHTML = '<option value="">-- Select Sender Profile --</option>' +
                     smtpProfiles.map(p => `<option value="${p.email}">${p.email}</option>`).join('');
                 if (currentVal) selDep.value = currentVal;
             }
-            
+
             // Наповнюємо дропдаун в модалці Reports
             const selRep = document.getElementById('reportSenderEmail');
             if (selRep) {
                 const currentVal = selRep.value;
-                selRep.innerHTML = '<option value="">-- Select Sender Profile --</option>' + 
+                selRep.innerHTML = '<option value="">-- Select Sender Profile --</option>' +
                     smtpProfiles.map(p => `<option value="${p.email}">${p.email}</option>`).join('');
                 if (currentVal) selRep.value = currentVal;
             }
@@ -253,7 +254,7 @@ window.fetch = async function() {
             arguments[1].body = JSON.stringify(body);
         } catch(e) {}
     }
-    
+
     if (arguments[0] && arguments[0].includes('/api/infrastructure/tasks/create') && arguments[1] && arguments[1].method === 'POST') {
         try {
             let body = JSON.parse(arguments[1].body);
@@ -269,7 +270,7 @@ window.fetch = async function() {
             arguments[1].body = JSON.stringify(body);
         } catch(e) {}
     }
-    
+
     return originalFetch.apply(this, arguments);
 };
 
@@ -278,11 +279,11 @@ function updateVariablesUI() {
     const payload = document.getElementById('depPayload');
     if (!payload) return;
     const scriptText = getPayloadValue();
-    
+
     const regex = /\{\{\s*([a-zA-Z0-9_]+)\s*\}\}/g;
     let match;
     const vars = new Set();
-    
+
     const checkedType = document.querySelector('input[name="depTemplateType"]:checked');
     if (checkedType && checkedType.value === 'report') {
         document.getElementById('templateVariablesArea')?.classList.add('hidden');
@@ -300,12 +301,12 @@ function updateVariablesUI() {
 
     if (vars.size > 0) {
         varArea.classList.remove('hidden');
-        
+
         const currentValues = {};
         document.querySelectorAll('.tpl-var-input').forEach(inp => {
             currentValues[inp.dataset.var] = inp.value;
         });
-        
+
         varContainer.innerHTML = Array.from(vars).map(v => `
             <div>
                 <label class="text-[10px] font-black text-indigo-400 uppercase tracking-widest block mb-2 ml-2">${v}</label>
@@ -334,16 +335,16 @@ async function loadReports() {
 function renderReports() {
     const container = document.getElementById('reportsList');
     if(!container) return;
-    
+
     if(!allReports || allReports.length === 0) {
         container.innerHTML = `<div class="col-span-full py-20 text-center"><p class="text-slate-400 font-bold uppercase tracking-widest text-sm mb-2">No Reports Found</p><p class="text-slate-400 text-xs">Completed multi-host tasks will appear here.</p></div>`;
         return;
     }
-    
+
     container.innerHTML = allReports.map(r => {
         let statusCls = r.status === 'Waiting Review' ? 'bg-amber-100 text-amber-700 border-amber-200' : (r.status.startsWith('Sent') ? 'bg-indigo-100 text-indigo-700 border-indigo-200' : 'bg-slate-100 text-slate-500 border-slate-200');
         let dotColor = r.error > 0 ? 'bg-rose-500' : (r.success > 0 ? 'bg-emerald-500' : 'bg-slate-300');
-        
+
         return `
         <div class="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm hover:shadow-lg hover:border-indigo-300 transition-all flex flex-col sm:flex-row items-start sm:items-center justify-between cursor-pointer gap-4" onclick="viewReport('${r.id}')">
             <div class="flex items-center gap-4 w-full sm:w-auto">
@@ -369,25 +370,25 @@ function viewReport(id) {
     if(!r) return;
     currentReportId = id;
     window.currentReportId = id;
-    
+
     document.getElementById('vrTitle').innerText = r.title;
-    
+
     let statusCls = r.status === 'Waiting Review' ? 'bg-amber-100 text-amber-700 border-amber-200' : (r.status.startsWith('Sent') ? 'bg-indigo-100 text-indigo-700 border-indigo-200' : 'bg-slate-100 text-slate-500 border-slate-200');
     const stEl = document.getElementById('vrStatus');
     if(stEl) {
         stEl.innerText = r.status;
         stEl.className = `px-3 py-1 rounded-lg text-[10px] font-black uppercase tracking-widest border shadow-sm ${statusCls}`;
     }
-    
+
     const bodyEl = document.getElementById('vrBody');
     if(bodyEl) bodyEl.value = r.report_data || "";
-    
+
     const saveBtn = document.getElementById('btnSaveReportText');
-    if(saveBtn) { 
-        saveBtn.innerText = "Save Changes"; 
-        saveBtn.className = "px-6 py-3 bg-emerald-50 text-emerald-600 border border-emerald-200 hover:bg-emerald-100 rounded-2xl text-xs font-black uppercase transition-all shadow-sm"; 
+    if(saveBtn) {
+        saveBtn.innerText = "Save Changes";
+        saveBtn.className = "px-6 py-3 bg-emerald-50 text-emerald-600 border border-emerald-200 hover:bg-emerald-100 rounded-2xl text-xs font-black uppercase transition-all shadow-sm";
     }
-    
+
     openModal('reportViewModal');
 }
 
@@ -395,26 +396,26 @@ async function saveReportChanges() {
     const bodyEl = document.getElementById('vrBody');
     if(!bodyEl) return;
     const newText = bodyEl.value;
-    
+
     const btn = document.getElementById('btnSaveReportText');
     if(btn) btn.innerText = "Saving...";
-    
+
     try {
         await fetch(`/api/infrastructure/reports/${currentReportId}/action`, {
             method: 'POST', headers: {'Content-Type': 'application/json'},
             body: JSON.stringify({action: 'save', report_data: newText})
         });
-        
+
         const r = allReports.find(x => x.id === currentReportId);
         if(r) r.report_data = newText;
-        
-        if(btn) { 
-            btn.innerText = "Saved!"; 
+
+        if(btn) {
+            btn.innerText = "Saved!";
             btn.classList.replace('text-emerald-600', 'text-indigo-600');
             btn.classList.replace('bg-emerald-50', 'bg-indigo-50');
             btn.classList.replace('border-emerald-200', 'border-indigo-200');
-            setTimeout(() => { 
-                btn.innerText = "Save Changes"; 
+            setTimeout(() => {
+                btn.innerText = "Save Changes";
                 btn.classList.replace('text-indigo-600', 'text-emerald-600');
                 btn.classList.replace('bg-indigo-50', 'bg-emerald-50');
                 btn.classList.replace('border-indigo-200', 'border-emerald-200');
@@ -455,11 +456,11 @@ async function openReportEmailModal(id) {
     const modal = document.getElementById('reportEmailModal');
     if (modal) modal.dataset.reportId = resolvedId;
     await saveReportChanges();
-    
+
     const r = allReports.find(x => x.id === resolvedId);
     const subjInput = document.getElementById('reportEmailSubject');
     if(subjInput) subjInput.value = r ? r.title : 'WinHUB Report';
-    
+
     const senderSelect = document.getElementById('reportSenderEmail');
     if (senderSelect) {
         await fetchSmtpProfilesGlobally();
@@ -467,21 +468,21 @@ async function openReportEmailModal(id) {
             senderSelect.innerHTML = '<option value="">No SMTP profiles configured!</option>';
         }
     }
-    
+
     const input = document.getElementById('reportEmailInput');
     if(input) input.value = '';
-    
+
     const customMsg = document.getElementById('reportCustomMessage');
     if(customMsg) customMsg.value = '';
-    
+
     const btn = document.getElementById('btnSendReport');
-    if(btn) { 
-        btn.innerHTML = `<svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z"/></svg> Send Securely`; 
+    if(btn) {
+        btn.innerHTML = `<svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z"/></svg> Send Securely`;
         btn.disabled = false;
         btn.classList.remove('bg-emerald-600', 'hover:bg-emerald-700');
         btn.classList.add('bg-indigo-600', 'hover:bg-indigo-700');
     }
-    
+
     openModal('reportEmailModal');
 }
 
@@ -493,31 +494,31 @@ async function sendReportEmail() {
     }
     const email = document.getElementById('reportEmailInput').value;
     const sender = document.getElementById('reportSenderEmail').value;
-    
+
     const subjectInput = document.getElementById('reportEmailSubject');
     const customMsgInput = document.getElementById('reportCustomMessage');
     const gpgInput = document.getElementById('reportUseGpg');
-    
+
     const subject = subjectInput ? subjectInput.value : '';
     const customMsg = customMsgInput ? customMsgInput.value : '';
     const useGpg = gpgInput ? gpgInput.checked : false;
-    
+
     if (!email || !sender) {
         alert('Please select a sender profile and enter recipient email(s).');
         return;
     }
-    
+
     const btn = document.getElementById('btnSendReport');
     const origContent = btn.innerHTML;
     btn.innerHTML = '<svg class="animate-spin h-5 w-5 mx-auto text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg>';
-    
+
     try {
         const res = await fetch(`/api/infrastructure/reports/${reportId}/action`, {
             method: 'POST',
             headers: {'Content-Type': 'application/json'},
-            body: JSON.stringify({ 
-                action: 'send', 
-                sender: sender, 
+            body: JSON.stringify({
+                action: 'send',
+                sender: sender,
                 email: email,
                 subject: subject,
                 custom_message: customMsg,
@@ -566,9 +567,9 @@ async function saveSmtpProfile() {
     const host = document.getElementById('smtpHost').value;
     const port = document.getElementById('smtpPort').value;
     const password = document.getElementById('smtpPass').value;
-    
+
     if(!email || !host || !password) return alert("Fill all fields (Email, Host, App Password).");
-    
+
     try {
         await fetch('/api/infrastructure/smtp', {
             method: 'POST', headers: {'Content-Type': 'application/json'},
@@ -577,7 +578,7 @@ async function saveSmtpProfile() {
         document.getElementById('smtpEmail').value = '';
         document.getElementById('smtpHost').value = '';
         document.getElementById('smtpPass').value = '';
-        
+
         await fetchSmtpProfilesGlobally();
         renderSmtpList();
     } catch(e) { alert("Error saving SMTP profile."); }
@@ -667,12 +668,12 @@ const origCloseModal = window.closeModal;
 window.closeModal = function(id) {
     if (origCloseModal) origCloseModal(id);
     else document.getElementById(id)?.classList.add('hidden');
-    
+
     if (id === 'smtpManagerModal') fetchSmtpProfilesGlobally();
 };
 
 // --- CATEGORY MANAGER ---
-const defaultCategories = ["General", "Scheduled", "Metrics", "Reports"]; 
+const defaultCategories = ["General", "Scheduled", "Metrics", "Reports"];
 let customCategories = ["Maintenance", "Security", "Software"];
 try {
     const savedCats = localStorage.getItem('winhub_custom_categories');
@@ -688,7 +689,7 @@ function getAllCategories() {
 function renderCategoryListUI() {
     const listEl = document.getElementById('categoryListUI');
     const datalist = document.getElementById('catList');
-    
+
     const allCats = getAllCategories();
     if(datalist) datalist.innerHTML = '';
     if(listEl) listEl.innerHTML = '';
@@ -705,8 +706,8 @@ function renderCategoryListUI() {
             listEl.innerHTML += `
                 <div class="flex justify-between items-center p-4 bg-white rounded-2xl border border-slate-100 shadow-sm mb-2">
                     <span class="font-bold text-slate-700 text-sm">${cat}</span>
-                    ${!isDefault 
-                        ? `<button onclick="deleteCategoryUI('${cat}')" class="text-rose-400 hover:text-rose-600 hover:bg-rose-50 p-2 rounded-xl transition-colors"><svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"></path></svg></button>` 
+                    ${!isDefault
+                        ? `<button onclick="deleteCategoryUI('${cat}')" class="text-rose-400 hover:text-rose-600 hover:bg-rose-50 p-2 rounded-xl transition-colors"><svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"></path></svg></button>`
                         : `<span class="text-[8px] uppercase font-black text-slate-400 tracking-widest bg-slate-100 px-2 py-1 rounded">System</span>`}
                 </div>
             `;
@@ -740,14 +741,14 @@ function toggleCategory(catId, btn) {
     const el = document.getElementById(catId);
     if(!el) return;
     const chevron = btn.querySelector('.cat-chevron') || btn.querySelector('.sch-chevron') || btn.querySelector('.trg-chevron');
-    
+
     if (el.classList.contains('hidden')) {
-        el.classList.remove('hidden'); 
-        el.classList.add('block'); 
+        el.classList.remove('hidden');
+        el.classList.add('block');
         if(chevron) chevron.classList.add('rotate-180');
     } else {
-        el.classList.add('hidden'); 
-        el.classList.remove('block'); 
+        el.classList.add('hidden');
+        el.classList.remove('block');
         if(chevron) chevron.classList.remove('rotate-180');
     }
     saveOpenCategories();
@@ -805,20 +806,20 @@ function updateInfraNavArrows() {
 document.addEventListener('DOMContentLoaded', () => {
     try {
         if (!window.location.pathname.includes('/module/infrastructure')) return;
-        
+
         const defaultView = ['hosts', 'groups', 'software', 'queue', 'reports', 'deploy', 'scheduler', 'triggers']
             .find(v => document.getElementById('view-' + v)) || 'hosts';
         const saved = localStorage.getItem(infraStateKeys.view) || defaultView;
         switchView(document.getElementById('view-' + saved) ? saved : defaultView, false);
-        renderCategoryListUI(); 
+        renderCategoryListUI();
         restoreOpenCategories();
         updateInfraNavArrows();
         document.getElementById('infraNavScroller')?.addEventListener('scroll', updateInfraNavArrows);
         window.addEventListener('resize', updateInfraNavArrows);
-        
+
         fetchSmtpProfilesGlobally(); // ГЛОБАЛЬНЕ ЗАВАНТАЖЕННЯ ПОШТ
         initAvailableHostsData();
-        
+
         const hostSearchEl = document.getElementById('hostSearch');
         if(hostSearchEl) hostSearchEl.addEventListener('input', applyHostFilters);
 
@@ -827,7 +828,7 @@ document.addEventListener('DOMContentLoaded', () => {
         setGuideLanguage(guideLanguage);
         const payloadEl = document.getElementById('depPayload');
         if(payloadEl) payloadEl.addEventListener('input', updateVariablesUI);
-        
+
         // Перешкоджаємо перемиканню назви Terminal назад на Powershell
         const observer = new MutationObserver((mutations) => {
             mutations.forEach((m) => {
@@ -843,7 +844,7 @@ document.addEventListener('DOMContentLoaded', () => {
         const labelNode = document.getElementById('codeEditorLabel');
         if (hintNode) observer.observe(hintNode, { childList: true, characterData: true, subtree: true });
         if (labelNode) observer.observe(labelNode, { childList: true, characterData: true, subtree: true });
-        
+
     } catch(e) {
         console.error("Initialization error:", e);
     }
@@ -860,7 +861,7 @@ function switchView(view, save=true) {
             nav.classList.add('text-slate-500', 'border-transparent');
         }
     });
-    
+
     const target = document.getElementById('view-' + view);
     if (!target) return;
     const navBtn = document.getElementById('nav-' + (view === 'group-detail' ? 'groups' : view));
@@ -920,6 +921,18 @@ function isMultiHostSelectable(host) {
     return approval === 'Approved' && !host.is_blocked;
 }
 
+function multiHostStatusBadge(host) {
+    const isOnline = !!host?.is_online;
+    const title = host?.last_seen ? `Last seen: ${escapeHtml(host.last_seen)}` : 'No telemetry received yet';
+    const dotClass = isOnline ? 'bg-emerald-500 animate-pulse' : 'bg-slate-400';
+    const badgeClass = isOnline
+        ? 'bg-emerald-50 text-emerald-700 border-emerald-100'
+        : 'bg-slate-100 text-slate-500 border-slate-200';
+    return `<span title="${title}" class="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-lg border text-[9px] font-black uppercase ${badgeClass}">
+        <span class="w-1.5 h-1.5 rounded-full ${dotClass}"></span>${isOnline ? 'Live' : 'Offline'}
+    </span>`;
+}
+
 function renderMultiHostList(query) {
     const list = document.getElementById('multiHostListContainer');
     if(!list) return;
@@ -930,7 +943,7 @@ function renderMultiHostList(query) {
         const text = `${h.name || ''} ${h.ip || ''} ${h.os_type || ''} ${h.agent_version || ''}`.toLowerCase();
         return text.includes(q);
     });
-    
+
     list.innerHTML = filtered.map(h => {
         const hostId = String(h.id);
         const safeId = escapeHtml(hostId);
@@ -939,17 +952,18 @@ function renderMultiHostList(query) {
         const approval = h.approval_status || 'Approved';
         const approvalBadge = approval !== 'Approved' ? `<span class="ml-2 px-2 py-0.5 rounded bg-amber-50 text-amber-600 border border-amber-100 text-[9px] font-black uppercase">${approval}</span>` : '';
         const versionBadge = h.agent_outdated ? '<span class="ml-2 px-2 py-0.5 rounded bg-amber-50 text-amber-700 border border-amber-100 text-[9px] font-black uppercase">Outdated</span>' : '';
+        const statusBadge = multiHostStatusBadge(h);
         const disabled = approval !== 'Approved' || h.is_blocked ? 'disabled' : '';
         return `
         <label class="flex items-center gap-4 p-4 border-b border-slate-100 hover:bg-slate-50 cursor-pointer transition-colors group ${disabled ? 'opacity-60' : ''}">
             <input type="checkbox" value="${safeId}" ${isChecked} ${disabled} class="multi-host-cb w-5 h-5 text-indigo-600 rounded border-slate-300 focus:ring-indigo-500" onchange="toggleMultiHostSelection(this.value, this.checked)">
             <span class="min-w-0">
-                <span class="font-black text-slate-700 text-sm group-hover:text-indigo-600 transition-colors">${escapeHtml(h.name || hostId)}${blockedBadge}${approvalBadge}${versionBadge}</span>
-                <span class="block text-[10px] text-slate-400 font-bold mt-1">${escapeHtml(h.ip || 'No IP')} / ${escapeHtml(h.os_type || 'Unknown OS')} / Agent ${escapeHtml(h.agent_version || 'unknown')}</span>
+                <span class="flex flex-wrap items-center gap-2 font-black text-slate-700 text-sm group-hover:text-indigo-600 transition-colors">${escapeHtml(h.name || hostId)} ${statusBadge}${blockedBadge}${approvalBadge}${versionBadge}</span>
+                <span class="block text-[10px] text-slate-400 font-bold mt-1">${escapeHtml(h.ip || 'No IP')} / ${escapeHtml(h.os_type || 'Unknown OS')} / Agent ${escapeHtml(h.agent_version || 'unknown')} / Last seen ${escapeHtml(h.last_seen || '-')}</span>
             </span>
         </label>`;
     }).join('') || '<div class="p-10 text-center text-slate-400 font-bold">No endpoints match search</div>';
-    
+
     updateMultiHostCount();
 }
 
@@ -1000,8 +1014,8 @@ function renderSelectedMultiHosts() {
     container.innerHTML = selectedHosts.map(h => `
         <div class="flex items-start justify-between gap-3 p-3 bg-white border border-slate-200 rounded-2xl shadow-sm">
             <div class="min-w-0">
-                <div class="font-black text-slate-800 text-sm truncate">${escapeHtml(h.name || h.id)}</div>
-                <div class="text-[10px] text-slate-400 font-bold mt-1 truncate">${escapeHtml(h.ip || 'No IP')} / Agent ${escapeHtml(h.agent_version || 'unknown')}</div>
+                <div class="flex flex-wrap items-center gap-2 font-black text-slate-800 text-sm">${escapeHtml(h.name || h.id)} ${multiHostStatusBadge(h)}</div>
+                <div class="text-[10px] text-slate-400 font-bold mt-1 truncate">${escapeHtml(h.ip || 'No IP')} / Agent ${escapeHtml(h.agent_version || 'unknown')} / Last seen ${escapeHtml(h.last_seen || '-')}</div>
             </div>
             <button onclick="removeMultiHostSelection('${escapeHtml(String(h.id))}')" class="shrink-0 p-2 bg-slate-50 hover:bg-rose-50 text-slate-400 hover:text-rose-600 rounded-xl border border-slate-100 hover:border-rose-100 transition-colors" title="Remove endpoint">
                 <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path d="M6 18L18 6M6 6l12 12" stroke-width="2.5" stroke-linecap="round"/></svg>
@@ -1076,13 +1090,13 @@ function addBulkMultiHosts() {
 
 function confirmMultiHostSelection() {
     const selectedIds = Array.from(multiHostSelectedIds);
-    
+
     const hiddenInput = document.getElementById('depTargetHostIds');
     if(hiddenInput) hiddenInput.value = JSON.stringify(selectedIds);
-    
+
     const countLabel = document.getElementById('selectedHostsCount');
     if(countLabel) countLabel.innerText = selectedIds.length;
-    
+
     const labelEl = document.getElementById('selectedHostsLabel');
     if(labelEl) {
         if(selectedIds.length === 0) {
@@ -1093,7 +1107,7 @@ function confirmMultiHostSelection() {
             labelEl.classList.add('text-indigo-700', 'font-black');
         }
     }
-    
+
     closeModal('selectMultipleHostsModal');
 }
 
@@ -1101,13 +1115,13 @@ function confirmMultiHostSelection() {
 function resetWorkspace(clearPersistedState = true) {
     editingTemplateId = null; selectedTemplateId = null; currentTemplateVariables = [];
     if (clearPersistedState) localStorage.removeItem(infraStateKeys.template);
-    
+
     ['depTitle', 'depCategory', 'depReportTemplate'].forEach(id => {
         const el = document.getElementById(id);
         if(el) el.value = '';
     });
     setPayloadValue('');
-    
+
     const builderTitle = document.getElementById('builderTitle');
     if(builderTitle) builderTitle.innerText = "Deployment Builder";
     const saveTemplateBtn = document.getElementById('btnSaveTemplate');
@@ -1116,7 +1130,7 @@ function resetWorkspace(clearPersistedState = true) {
         saveTemplateBtn.classList.remove('opacity-50', 'cursor-not-allowed');
         saveTemplateBtn.title = '';
     }
-    
+
     const isAdmin = checkIsAdmin();
     const actionEl = document.getElementById('depAction');
     const approvedEl = document.getElementById('depIsApproved');
@@ -1135,9 +1149,9 @@ function resetWorkspace(clearPersistedState = true) {
         const el = document.getElementById(id);
         if(el) el.checked = false;
     });
-    
-    if(actionEl) actionEl.value = 'run_script'; 
-    
+
+    if(actionEl) actionEl.value = 'run_script';
+
     if(isAdmin) {
         const typeRadios = document.querySelectorAll('input[name="depTemplateType"]');
         if(typeRadios.length > 0) {
@@ -1157,7 +1171,7 @@ function resetWorkspace(clearPersistedState = true) {
     }
 
     document.querySelectorAll('.template-card').forEach(c => c.classList.remove('active'));
-    
+
     updateVariablesUI();
     toggleActionView();
 }
@@ -1165,12 +1179,12 @@ function resetWorkspace(clearPersistedState = true) {
 function loadTemplate(el) {
     resetWorkspace(false);
     el.classList.add('active');
-    
+
     const isAdmin = checkIsAdmin();
     selectedTemplateId = el.dataset.id;
     localStorage.setItem(infraStateKeys.template, selectedTemplateId);
     try { currentTemplateVariables = JSON.parse(el.dataset.vars || '[]'); } catch(e) { currentTemplateVariables = []; }
-    
+
     const titleEl = document.getElementById('depTitle');
     if(titleEl) titleEl.value = el.dataset.name;
     const catEl = document.getElementById('depCategory');
@@ -1207,10 +1221,10 @@ function loadTemplate(el) {
             if(del) del.checked = !!policy.lock_delete;
             if(run) run.checked = !!policy.disable_run;
         } catch(e) {}
-        
+
         const chkAppr = document.getElementById('depIsApproved');
         if(chkAppr) chkAppr.checked = (el.dataset.approved === 'true');
-        
+
         const typeRadios = document.querySelectorAll('input[name="depTemplateType"]');
         if(typeRadios.length > 0) {
             typeRadios.forEach(r => r.checked = (r.value === tType));
@@ -1235,7 +1249,7 @@ function loadTemplate(el) {
             saveTemplateBtn.title = "Editing is locked or code is hidden by template policy.";
         }
     }
-    
+
     // Встановлюємо параметри Report та Auto-Email з payload шаблону
     setTimeout(() => {
         let payload = {};
@@ -1246,13 +1260,13 @@ function loadTemplate(el) {
         }
         const rSelect = document.getElementById('depReportTemplate');
         if (rSelect) rSelect.value = payload.__report_template_id || '';
-        
+
         const aeToggle = document.getElementById('depAutoEmailToggle');
         const aeSettings = document.getElementById('depAutoEmailSettings');
         const aeSender = document.getElementById('depAutoEmailSender');
         const aeRecipients = document.getElementById('depAutoEmailRecipients');
         const aeUseGpg = document.getElementById('depAutoEmailUseGpg');
-        
+
         if (aeToggle) {
             aeToggle.checked = !!payload.__auto_email_toggle;
             if (aeSettings) aeSettings.classList.toggle('hidden', !aeToggle.checked);
@@ -1296,9 +1310,9 @@ function restoreWorkspaceState() {
 
 function toggleCodeEditorMode() {
     const checkedRadio = document.querySelector('input[name="depTemplateType"]:checked');
-    if(!checkedRadio) return; 
+    if(!checkedRadio) return;
     syncPayloadTextarea();
-    
+
     const type = checkedRadio.value;
     const lblTitle = document.getElementById('lblDepTitle');
     const lblCategory = document.getElementById('lblDepCategory');
@@ -1315,17 +1329,17 @@ function toggleCodeEditorMode() {
         if(settingsBlock) settingsBlock.classList.add('hidden');
         if(label) label.innerText = "Jinja2 Email / Report Format";
         if(hint) hint.innerText = "HTML / Text Template";
-        
+
         if(payload) {
             payload.classList.remove('text-emerald-400', 'bg-[#0f172a]', 'border-slate-800');
-            payload.classList.add('text-sky-700', 'bg-sky-50', 'border-sky-200'); 
+            payload.classList.add('text-sky-700', 'bg-sky-50', 'border-sky-200');
             if(!payload.value || payload.value.includes('Write-Output')) {
                 payload.value = "Звіт виконання задачі: {{" + " job_title " + "}}\n=================================\n\n{%" + " for res in results " + "%}\nHost: {{" + " res.host " + "}}\nStatus: {{" + " res.status " + "}}\nData: {{" + " res.data " + "}}\n\n{%" + " endfor " + "%}";
             }
         }
         if(payload) setPayloadValue(payload.value);
         if(btnDeploy) btnDeploy.classList.add('hidden');
-        
+
     } else if (type === 'metric') {
         setEditorMode('powershell');
         if(lblTitle) lblTitle.innerText = "Metric Item Name (e.g. CPU Load)";
@@ -1333,7 +1347,7 @@ function toggleCodeEditorMode() {
         if(settingsBlock) settingsBlock.classList.remove('hidden');
         if(label) label.innerText = "Execution Script / Code Content";
         if(hint) hint.innerText = "Must output JSON data";
-        
+
         if(payload) {
             payload.classList.remove('text-sky-700', 'bg-sky-50', 'border-sky-200');
             payload.classList.add('text-emerald-400', 'bg-[#0f172a]', 'border-slate-800');
@@ -1341,7 +1355,7 @@ function toggleCodeEditorMode() {
         }
         if(payload) setPayloadValue(payload.value);
         if(btnDeploy) btnDeploy.classList.remove('hidden');
-        
+
     } else {
         setEditorMode('powershell');
         if(lblTitle) lblTitle.innerText = "Action Script Name";
@@ -1349,7 +1363,7 @@ function toggleCodeEditorMode() {
         if(settingsBlock) settingsBlock.classList.remove('hidden');
         if(label) label.innerText = "Execution Script / Code Content";
         if(hint) hint.innerText = "Terminal (PS/Bash/SH)";
-        
+
         if(payload) {
             payload.classList.remove('text-sky-700', 'bg-sky-50', 'border-sky-200');
             payload.classList.add('text-emerald-400', 'bg-[#0f172a]', 'border-slate-800');
@@ -1358,7 +1372,7 @@ function toggleCodeEditorMode() {
         if(payload) setPayloadValue(payload.value);
         if(btnDeploy) btnDeploy.classList.remove('hidden');
     }
-    
+
     updateVariablesUI();
     toggleActionView();
     refreshPayloadEditor();
@@ -1367,19 +1381,19 @@ function toggleCodeEditorMode() {
 function toggleActionView() {
     const actionEl = document.getElementById('depAction');
     if (!actionEl) return;
-    
+
     const isAdmin = checkIsAdmin();
     const isScriptMode = actionEl.value === 'run_script';
-    
+
     const payArea = document.getElementById('payloadArea');
     const tplArea = document.getElementById('templateInfoArea');
-    
+
     if (isAdmin) {
         if(payArea) payArea.classList.toggle('hidden', !isScriptMode);
         if(tplArea) tplArea.classList.toggle('hidden', isScriptMode);
     } else {
-        if(payArea) payArea.classList.add('hidden'); 
-        if(tplArea) tplArea.classList.remove('hidden'); 
+        if(payArea) payArea.classList.add('hidden');
+        if(tplArea) tplArea.classList.remove('hidden');
     }
     refreshPayloadEditor();
 }
@@ -1427,21 +1441,21 @@ async function saveAsTemplate() {
     const name = document.getElementById('depTitle').value;
     const category = document.getElementById('depCategory').value || 'General';
     if(!name) return alert("Title is required");
-    
+
     let tType = 'action';
     const checkedRadio = document.querySelector('input[name="depTemplateType"]:checked');
     if(checkedRadio) tType = checkedRadio.value;
 
-    const data = { 
-        id: editingTemplateId, 
-        name, 
-        category, 
-        action: document.getElementById('depAction')?.value || 'run_script', 
+    const data = {
+        id: editingTemplateId,
+        name,
+        category,
+        action: document.getElementById('depAction')?.value || 'run_script',
         type: tType,
-        payload: buildTemplatePayloadForSave(), 
+        payload: buildTemplatePayloadForSave(),
         is_approved: document.getElementById('depIsApproved')?.checked || false
     };
-    
+
     try {
         const res = await fetch('/api/infrastructure/templates', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(data) });
         if(res.ok) window.location.reload();
@@ -1650,13 +1664,19 @@ function renderFleetCenter() {
 
     const search = (document.getElementById('fleetSearch')?.value || '').trim().toLowerCase();
     const statusFilter = document.getElementById('fleetStatusFilter')?.value || 'all';
-    const groupFilter = document.getElementById('fleetGroupFilter')?.value || 'all';
+    const groupFilters = Array.from(document.querySelectorAll('#fleetGroupFilters input[type="checkbox"]:checked')).map(cb => String(cb.value));
     const hosts = (fleetCenterData.hosts || []).filter(host => {
         const health = host.health || {};
+        const encryption = host.encryption || {};
         const groupText = (host.groups || []).map(group => group.name).join(' ');
-        const haystack = [host.hostname, host.ip, host.os, host.agent_version, host.identity_fingerprint, groupText, health.status, ...(health.reasons || [])].join(' ').toLowerCase();
+        const haystack = [host.hostname, host.ip, host.os, host.agent_version, host.identity_fingerprint, groupText, health.status, encryption.status, ...(encryption.methods || []), ...(health.reasons || [])].join(' ').toLowerCase();
         const matchSearch = !search || haystack.includes(search);
-        const matchGroup = groupFilter === 'all' || (host.groups || []).some(group => String(group.id) === String(groupFilter));
+        const hostGroupIds = (host.groups || []).map(group => String(group.id));
+        const wantsUngrouped = groupFilters.includes('ungrouped');
+        const selectedGroupIds = groupFilters.filter(value => value !== 'ungrouped');
+        const matchGroup = groupFilters.length === 0
+            || (wantsUngrouped && hostGroupIds.length === 0 && selectedGroupIds.length === 0)
+            || (selectedGroupIds.length > 0 && selectedGroupIds.every(groupId => hostGroupIds.includes(groupId)) && !wantsUngrouped);
         let matchStatus = true;
         if (statusFilter === 'outdated') matchStatus = !!health.outdated;
         else if (statusFilter === 'current') matchStatus = !health.outdated;
@@ -1678,6 +1698,11 @@ function renderFleetCenter() {
             ? 'bg-emerald-50 text-emerald-700 border-emerald-100'
             : (health.status === 'Warning' ? 'bg-amber-50 text-amber-700 border-amber-100' : 'bg-rose-50 text-rose-700 border-rose-100');
         const versionClass = health.outdated ? 'bg-amber-50 text-amber-700 border-amber-100' : 'bg-slate-100 text-slate-600 border-slate-200';
+        const encryption = host.encryption || {};
+        const encryptionClass = encryption.level === 'encrypted'
+            ? 'bg-emerald-50 text-emerald-700 border-emerald-100'
+            : (encryption.level === 'partial' ? 'bg-amber-50 text-amber-700 border-amber-100' : (encryption.level === 'none' ? 'bg-rose-50 text-rose-700 border-rose-100' : 'bg-slate-100 text-slate-500 border-slate-200'));
+        const encryptionTitle = (encryption.methods || []).join(', ') || 'No encryption method detected';
         const groups = (host.groups || []).map(group => `<span class="px-2 py-1 rounded-lg bg-slate-100 text-slate-500 border border-slate-200 text-[9px] font-black uppercase">${escapeHtml(group.name)}</span>`).join('');
         const healthReasons = (health.reasons || []).map(escapeHtml).join(', ') || 'online, current version, approved, unblocked';
         const checked = fleetSelectedHostIds.has(host.id) ? 'checked' : '';
@@ -1694,6 +1719,7 @@ function renderFleetCenter() {
                 <span title="${healthReasons}" class="px-3 py-1 rounded-xl border text-[10px] font-black uppercase ${healthClass}">${health.score || 0}% ${escapeHtml(health.status || 'Unknown')}</span>
                 <div class="text-[10px] font-bold text-slate-400 mt-1">${healthReasons}</div>
             </td>
+            <td class="px-6 py-4"><span title="${escapeHtml(encryptionTitle)}" class="px-3 py-1 rounded-xl border text-[10px] font-black uppercase ${encryptionClass}">${escapeHtml(encryption.status || 'Unknown')}</span></td>
             <td class="px-6 py-4"><div class="flex flex-wrap gap-1.5">${groups || '<span class="text-xs font-bold text-slate-300">No group</span>'}</div></td>
             <td class="px-6 py-4 font-bold text-slate-500">${escapeHtml(host.ip || '-')}</td>
             <td class="px-6 py-4 text-right text-xs font-bold text-slate-400">${escapeHtml(host.last_seen || '-')}</td>
@@ -1701,7 +1727,7 @@ function renderFleetCenter() {
                 <button onclick="runFleetUpdate('${escapeHtml(host.id)}')" class="px-3 py-2 rounded-xl bg-white border border-slate-200 text-[10px] font-black uppercase text-slate-500 hover:text-indigo-600 hover:bg-indigo-50 transition-all">Update</button>
             </td>
         </tr>`;
-    }).join('') || '<tr><td colspan="8" class="p-12 text-center text-slate-300 font-black">No fleet hosts match filters.</td></tr>';
+    }).join('') || '<tr><td colspan="9" class="p-12 text-center text-slate-300 font-black">No fleet hosts match filters.</td></tr>';
     updateFleetSelectedCount();
 
     if (packagesBox) {
@@ -2246,22 +2272,22 @@ async function runSoftwareInstall() {
 
 async function submitDeployment() {
     const btn = document.getElementById('btnDeploy');
-    const oldText = btn.innerText; 
+    const oldText = btn.innerText;
     btn.disabled = true; btn.innerText = "Dispatching...";
-    
+
     const action = document.getElementById('depAction').value;
     const targetType = document.getElementById('depType').value;
     const reportTemplateId = document.getElementById('depReportTemplate')?.value || null;
-    
+
     const tplVars = {};
     document.querySelectorAll('.tpl-var-input').forEach(inp => {
         tplVars[inp.dataset.var] = inp.value;
     });
-    
+
     const data = {
         title: document.getElementById('depTitle').value || "Manual Action",
         target_type: targetType,
-        action, 
+        action,
         template_id: selectedTemplateId,
         report_template_id: reportTemplateId,
         variables: tplVars,
@@ -2270,7 +2296,7 @@ async function submitDeployment() {
         auto_email_recipients: document.getElementById('depAutoEmailRecipients')?.value || '',
         auto_email_use_gpg: document.getElementById('depAutoEmailUseGpg')?.checked !== false
     };
-    
+
     if (targetType === 'hosts') {
         try {
             data.target_ids = JSON.parse(document.getElementById('depTargetHostIds').value);
@@ -2279,7 +2305,7 @@ async function submitDeployment() {
     } else {
         data.target_id = document.getElementById('depTargetGroup').value;
     }
-    
+
     if (action === 'run_script') {
         data.payload = { script: getPayloadValue() };
         const checkedRadio = document.querySelector('input[name="depTemplateType"]:checked');
@@ -2306,7 +2332,7 @@ function switchHostTab(tab) {
 
     const activeContent = document.getElementById('htab_' + tab);
     const activeBtn = document.getElementById('htabBtn_' + tab);
-    
+
     if(activeContent) {
         activeContent.classList.remove('hidden');
         if(tab !== 'info') activeContent.classList.add('flex');
@@ -2425,18 +2451,22 @@ async function loadTelemetry(hostId, days) {
 
     const tLoading = document.getElementById('telemetryLoading');
     const dLoading = document.getElementById('diskLoading');
-    
+    const aLoading = document.getElementById('activityLoading');
+
     if(tLoading) { tLoading.innerText = "Loading metrics..."; tLoading.classList.remove('hidden'); }
     if(dLoading) { dLoading.innerText = "Loading disk metrics..."; dLoading.classList.remove('hidden'); }
+    if(aLoading) { aLoading.innerText = "Loading activity timeline..."; aLoading.classList.remove('hidden'); }
+    loadIpHistory(hostId, Math.max(days, 30));
 
     try {
         const res = await fetch(`/api/infrastructure/host/${hostId}/telemetry?days=${days}`);
         const json = await res.json();
-        
+
         if(json.success && Array.isArray(json.data) && json.data.length > 0) {
             if(tLoading) tLoading.classList.add('hidden');
             if(dLoading) dLoading.classList.add('hidden');
-            
+            if(aLoading) aLoading.classList.add('hidden');
+
             const labels = json.data.map(d => d.time);
             const cpu = json.data.map(d => d.cpu);
             const ram = json.data.map(d => d.ram);
@@ -2461,15 +2491,127 @@ async function loadTelemetry(hostId, days) {
                     options: { responsive: true, maintainAspectRatio: false, interaction: { mode: 'index', intersect: false }, scales: { y: { beginAtZero: true } }, plugins: { legend: { position: 'top' } } }
                 });
             }
+
+            renderActivityChart(json.data);
         } else {
             if(tLoading) { tLoading.innerText = "No telemetry data recorded for this period."; tLoading.classList.remove('hidden'); }
             if(dLoading) { dLoading.innerText = "No disk data recorded for this period."; dLoading.classList.remove('hidden'); }
+            if(aLoading) { aLoading.innerText = "No activity data recorded for this period."; aLoading.classList.remove('hidden'); }
             if(teleChart) teleChart.destroy();
             if(diskChart) diskChart.destroy();
+            if(activityChart) activityChart.destroy();
         }
     } catch(e) {
         if(tLoading) { tLoading.innerText = "Failed to load telemetry."; tLoading.classList.remove('hidden'); }
         if(dLoading) { dLoading.innerText = "Failed to load disk telemetry."; dLoading.classList.remove('hidden'); }
+        if(aLoading) { aLoading.innerText = "Failed to load activity timeline."; aLoading.classList.remove('hidden'); }
+    }
+}
+
+function buildActivityPoints(records) {
+    const points = [];
+    const sorted = (records || [])
+        .map(row => ({...row, date: row.timestamp ? new Date(row.timestamp) : null}))
+        .filter(row => row.date && !Number.isNaN(row.date.getTime()))
+        .sort((a, b) => a.date - b.date);
+    if(sorted.length === 0) return points;
+
+    const medianGapMs = (() => {
+        const gaps = [];
+        for(let i = 1; i < sorted.length; i++) {
+            const gap = sorted[i].date - sorted[i - 1].date;
+            if(gap > 0) gaps.push(gap);
+        }
+        if(!gaps.length) return 120000;
+        gaps.sort((a, b) => a - b);
+        return gaps[Math.floor(gaps.length / 2)];
+    })();
+    const offlineGapMs = Math.max(5 * 60 * 1000, medianGapMs * 3);
+
+    points.push({x: sorted[0].time, y: 1});
+    for(let i = 1; i < sorted.length; i++) {
+        const previous = sorted[i - 1];
+        const current = sorted[i];
+        const gap = current.date - previous.date;
+        if(gap > offlineGapMs) {
+            points.push({x: previous.time, y: 1});
+            points.push({x: previous.time + ' +gap', y: 0});
+            points.push({x: current.time, y: 0});
+        }
+        points.push({x: current.time, y: 1});
+    }
+    return points;
+}
+
+function renderActivityChart(records) {
+    if(activityChart) { activityChart.destroy(); activityChart = null; }
+    const ctxActivity = document.getElementById('activityChart');
+    if(!ctxActivity || typeof Chart === 'undefined') return;
+
+    const points = buildActivityPoints(records);
+    activityChart = new Chart(ctxActivity.getContext('2d'), {
+        type: 'line',
+        data: {
+            labels: points.map(point => point.x),
+            datasets: [{
+                label: 'Agent Activity',
+                data: points.map(point => point.y),
+                borderColor: '#059669',
+                backgroundColor: '#10b98122',
+                fill: true,
+                stepped: true,
+                tension: 0,
+                pointRadius: 2
+            }]
+        },
+        options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            scales: {
+                y: {
+                    min: 0,
+                    max: 1,
+                    ticks: {
+                        stepSize: 1,
+                        callback: value => value === 1 ? 'Online' : 'Offline'
+                    }
+                }
+            },
+            plugins: {
+                legend: { display: false },
+                tooltip: {
+                    callbacks: {
+                        label: context => context.raw === 1 ? 'Online' : 'Offline'
+                    }
+                }
+            }
+        }
+    });
+}
+
+async function loadIpHistory(hostId, days = 30) {
+    const box = document.getElementById('ipHistoryList');
+    if(!box) return;
+    box.innerHTML = '<div class="p-6 text-center text-slate-400 font-bold">Loading connection history...</div>';
+    try {
+        const res = await fetch(`/api/infrastructure/host/${hostId}/ip-history?days=${days}`);
+        const json = await res.json();
+        const rows = Array.isArray(json.data) ? json.data : [];
+        if(!json.success || rows.length === 0) {
+            box.innerHTML = '<div class="p-6 text-center text-slate-400 font-bold">No connection IP changes recorded yet.</div>';
+            return;
+        }
+        box.innerHTML = rows.map(row => `
+            <div class="p-4 flex items-center justify-between gap-4 hover:bg-slate-50">
+                <div>
+                    <div class="font-mono text-slate-800 font-black">${escapeHtml(row.ip || '-')}</div>
+                    <div class="text-[10px] font-bold text-slate-400 uppercase mt-1">${escapeHtml(row.source || 'agent')}</div>
+                </div>
+                <div class="text-[10px] font-bold text-slate-400 text-right">${escapeHtml(row.time || '-')}</div>
+            </div>
+        `).join('');
+    } catch(e) {
+        box.innerHTML = '<div class="p-6 text-center text-rose-400 font-bold">Failed to load connection history.</div>';
     }
 }
 
@@ -2493,7 +2635,7 @@ async function loadQueue() {
         const data = await res.json();
         if (!data.success) return;
         allQueueJobs = data.jobs;
-        
+
         const users = new Set(allQueueJobs.map(j => j.created_by));
         const uSelect = document.getElementById('qFilterUser');
         if(uSelect && uSelect.options.length <= 1) {
@@ -2512,17 +2654,17 @@ async function loadQueue() {
 function renderQueue() {
     const tbody = document.getElementById('queueBody');
     if(!tbody) return;
-    
+
     const searchEl = document.getElementById('queueSearch');
     const q = (searchEl ? searchEl.value : '').toLowerCase();
-    
+
     const uFilterEl = document.getElementById('qFilterUser');
     const uFilter = uFilterEl ? uFilterEl.value : '';
-    
+
     const filtered = allQueueJobs.filter(j => {
         const titleLower = (j.title || '').toLowerCase();
         const matchSearch = titleLower.includes(q) || (j.target_summary || '').toLowerCase().includes(q) || (j.status || '').toLowerCase().includes(q);
-        
+
         let matchUser = true;
         if(uFilter !== '') {
             if(uFilter === 'System') matchUser = !j.created_by || j.created_by === 'System';
@@ -2533,10 +2675,10 @@ function renderQueue() {
         if(queueTypeFilter === 'Auto') matchType = titleLower.startsWith('[auto] ');
         else if(queueTypeFilter === 'Auto-Fix') matchType = titleLower.startsWith('[auto-fix]');
         else if(queueTypeFilter === 'Manual') matchType = !titleLower.startsWith('[auto]') && !titleLower.startsWith('[auto-fix]');
-        
+
         return matchSearch && matchUser && matchType;
     });
-    
+
     tbody.innerHTML = filtered.map(j => {
         const statusStr = j.status || 'Pending';
         let cls = statusStr === 'Pending' ? 'bg-amber-100 text-amber-700' : (statusStr === 'Success' ? 'bg-emerald-100 text-emerald-700' : 'bg-rose-100 text-rose-700');
@@ -2554,7 +2696,7 @@ function renderQueue() {
                 </div>
             </td>`;
         }
-        
+
         return `<tr class="hover:bg-slate-50/80 cursor-pointer transition-colors" onclick="viewJobDetails('${j.job_id}')">
                 <td class="px-10 py-5 font-black text-slate-800 text-lg">
                     ${j.title || 'Untitled'}
@@ -2571,13 +2713,13 @@ function renderQueue() {
 // --- TRIGGERS LOGIC ---
 function openTriggerModal() {
     ['trgId', 'trgName', 'trgValue'].forEach(id => { const el = document.getElementById(id); if(el) el.value = ''; });
-    
+
     const trgGroup = document.getElementById('trgGroup'); if(trgGroup) trgGroup.value = 'all';
     const trgMetric = document.getElementById('trgMetric'); if(trgMetric && trgMetric.options.length > 0) trgMetric.selectedIndex = 0;
     const trgOp = document.getElementById('trgOperator'); if(trgOp) trgOp.value = '==';
     const trgAct = document.getElementById('trgAction'); if(trgAct && trgAct.options.length > 0) trgAct.selectedIndex = 0;
     const trgActive = document.getElementById('trgActive'); if(trgActive) trgActive.checked = true;
-    
+
     const title = document.getElementById('trgModalTitle'); if(title) title.innerText = 'New Trigger';
     openModal('triggerModal');
 }
@@ -2586,24 +2728,24 @@ function editTrigger(id, name, target_group_id, metric, op, val, action_id, acti
     const elId = document.getElementById('trgId'); if(elId) elId.value = id;
     const elName = document.getElementById('trgName'); if(elName) elName.value = name;
     const elGroup = document.getElementById('trgGroup'); if(elGroup) elGroup.value = target_group_id || 'all';
-    
+
     const metricSelect = document.getElementById('trgMetric');
     if(metricSelect) {
         for(let i=0; i<metricSelect.options.length; i++) {
             if(metricSelect.options[i].value === metric) metricSelect.selectedIndex = i;
         }
     }
-    
+
     const elOp = document.getElementById('trgOperator'); if(elOp) elOp.value = op;
     const elVal = document.getElementById('trgValue'); if(elVal) elVal.value = val;
-    
+
     const actionSelect = document.getElementById('trgAction');
     if(actionSelect) {
         for(let i=0; i<actionSelect.options.length; i++) {
             if(actionSelect.options[i].value === action_id) actionSelect.selectedIndex = i;
         }
     }
-    
+
     const elAct = document.getElementById('trgActive'); if(elAct) elAct.checked = (active === 'True');
     const title = document.getElementById('trgModalTitle'); if(title) title.innerText = 'Edit Trigger';
     openModal('triggerModal');
@@ -2620,11 +2762,11 @@ async function saveTrigger() {
         action_template_id: document.getElementById('trgAction')?.value,
         is_active: document.getElementById('trgActive')?.checked
     };
-    
+
     if(!data.name || !data.metric_name || !data.threshold_value || !data.action_template_id) {
         return alert("Please fill in all trigger details.");
     }
-    
+
     try {
         const res = await fetch('/api/infrastructure/triggers', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(data) });
         if(res.ok) window.location.reload();
@@ -2646,10 +2788,10 @@ function toggleSchType() {
     const checked = document.querySelector('input[name="schType"]:checked');
     if(!checked) return;
     const type = checked.value;
-    
+
     const uiOnce = document.getElementById('schUiOnce');
     const uiRec = document.getElementById('schUiRecurring');
-    
+
     if(uiOnce) uiOnce.classList.toggle('hidden', type !== 'once');
     if(uiRec) uiRec.classList.toggle('hidden', type !== 'recurring');
 }
@@ -2658,7 +2800,7 @@ function buildCronString() {
     const checked = document.querySelector('input[name="schType"]:checked');
     if(!checked) return null;
     const type = checked.value;
-    
+
     if (type === 'once') {
         const d = document.getElementById('schDate')?.value;
         const t = document.getElementById('schTimeOnce')?.value;
@@ -2711,17 +2853,17 @@ function openScheduleModal() {
     const elName = document.getElementById('schName'); if(elName) elName.value = '';
     const elCat = document.getElementById('schCategory'); if(elCat) elCat.value = 'Scheduled';
     const elAct = document.getElementById('schActive'); if(elAct) elAct.checked = true;
-    
+
     const rOnce = document.querySelector('input[name="schType"][value="once"]');
     if(rOnce) rOnce.checked = true;
-    
+
     const elDate = document.getElementById('schDate');
     if(elDate) {
         const now = new Date();
         elDate.value = now.toISOString().split('T')[0];
     }
     toggleSchType();
-    
+
     const title = document.getElementById('schModalTitle'); if(title) title.innerText = 'New Schedule';
     openModal('scheduleModal');
 }
@@ -2732,12 +2874,12 @@ function editSchedule(id, name, cat, cron, type, active) {
     const elCat = document.getElementById('schCategory'); if(elCat) elCat.value = cat;
     const elType = document.getElementById('schTargetType'); if(elType) elType.value = type;
     const elAct = document.getElementById('schActive'); if(elAct) elAct.checked = (active === 'True');
-    
-    const elHost = document.getElementById('schTargetHost'); if(elHost) elHost.classList.toggle('hidden', type !== 'host'); 
+
+    const elHost = document.getElementById('schTargetHost'); if(elHost) elHost.classList.toggle('hidden', type !== 'host');
     const elGroup = document.getElementById('schTargetGroup'); if(elGroup) elGroup.classList.toggle('hidden', type !== 'group');
-    
+
     parseCronToUI(cron);
-    
+
     const title = document.getElementById('schModalTitle'); if(title) title.innerText = 'Edit Schedule';
     openModal('scheduleModal');
 }
@@ -2757,7 +2899,7 @@ async function saveSchedule() {
         is_active: document.getElementById('schActive')?.checked
     };
     if(!data.name) return alert("Job Name is required");
-    
+
     try {
         const res = await fetch('/api/infrastructure/schedule', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(data) });
         if(res.ok) window.location.reload();
@@ -2773,9 +2915,9 @@ async function deleteSchedule(id) {
 }
 
 // БАЗОВІ ФУНКЦІЇ ВЗАЄМОДІЇ
-function openModal(id) { 
+function openModal(id) {
     const el = document.getElementById(id);
-    if(el) el.classList.remove('hidden'); 
+    if(el) el.classList.remove('hidden');
     else console.error("Modal not found: ", id);
 }
 
@@ -2797,7 +2939,7 @@ function applyHostFilters() {
     const q = sEl ? sEl.value.toLowerCase() : '';
     const gEl = document.getElementById('hostGroupFilter');
     const g = gEl ? gEl.value : 'all';
-    
+
     document.querySelectorAll('.host-row').forEach(row => {
         const t = row.innerText.toLowerCase();
         const stat = row.dataset.status;
@@ -2922,7 +3064,7 @@ async function viewHost(id) {
         const result = await res.json();
         if (!result.success) return;
         const d = result.data;
-        
+
         document.getElementById('mName').innerText = d.hostname || "Unknown";
         if(document.getElementById('confName')) document.getElementById('confName').innerText = d.hostname || "Unknown";
         document.getElementById('mId').innerText = 'ID: ' + d.id;
@@ -2934,13 +3076,13 @@ async function viewHost(id) {
         const approval = d.approval_status || 'Approved';
         document.getElementById('mApprovalStatus').innerHTML = approval === 'Approved' ? '<span class="text-emerald-500 font-black uppercase tracking-widest text-[10px]">Approved</span>' : (approval === 'Pending' ? '<span class="text-amber-500 font-black uppercase tracking-widest text-[10px]">Pending</span>' : '<span class="text-rose-500 font-black uppercase tracking-widest text-[10px]">Rejected</span>');
         document.getElementById('mAccessStatus').innerHTML = d.is_blocked ? '<span class="text-rose-500 font-black uppercase tracking-widest text-[10px]">Blocked</span>' : '<span class="text-emerald-500 font-black uppercase tracking-widest text-[10px]">Allowed</span>';
-        
+
         let iconHtml = '<svg class="w-8 h-8" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9.75 17L9 20l-1 1h8l-1-1-.75-3M3 13h18M5 17h14a2 2 0 002-2V5a2 2 0 00-2 2v10a2 2 0 002 2z"></path></svg>';
         if (d.os_type === "Windows") iconHtml = '<svg class="w-8 h-8 text-blue-500" fill="currentColor" viewBox="0 0 24 24"><path d="M0 3.449L9.75 2.1v9.418H0m10.949-9.602L24 0v11.4H10.949M0 12.6h9.75v9.451L0 20.67m10.949-8.07H24V24l-13.051-1.754"/></svg>';
         else if (d.os_type === "macOS") iconHtml = '<svg class="w-8 h-8 text-slate-800" fill="currentColor" viewBox="0 0 24 24"><path d="M12 20.8c-1.3 0-3.3-.9-5.1-.9-2.2 0-4.1 1.2-5.1 3.1-1.1 1.9-2.8 6.7-1.1 9.7 1.3 2.1 3.1 4.5 5.5 4.6 2.3.1 3.2-1.3 5.9-1.3s3.4 1.4 5.9 1.3c2.5-.1 4-2.2 5.3-4.3 1.5-2.2 2.1-4.4 2.1-4.5-.1-.1-4.2-1.6-4.3-4.8-.1-2.7 2.2-4 2.3-4.1-1.3-1.9-3.2-2.1-4-2.2-1.8-.2-3.8 1.1-5.1 1.1s-3-1.2-4.8-1.1zM15.4 6.7c1-1.3 1.8-3 1.6-4.7-1.5.1-3.3 1-4.4 2.3-.9 1.1-1.8 2.9-1.6 4.6 1.7.1 3.4-.9 4.4-2.2z"/></svg>';
         else if (d.os_type === "Linux") iconHtml = '<svg class="w-8 h-8 text-amber-500" fill="currentColor" viewBox="0 0 24 24"><path d="M21.1 14.8c-.8 0-1.4.6-1.4 1.4 0 .8.6 1.4 1.4 1.4.8 0 1.4-.6 1.4-1.4 0-.8-.6-1.4-1.4-1.4zm-18.2 0c-.8 0-1.4.6-1.4 1.4 0 .8.6 1.4 1.4 1.4.8 0 1.4-.6 1.4-1.4 0-.8-.6-1.4-1.4-1.4zm10.7-3.6c-1.1-1-2.6-1.5-4-1.4h-.2c-1.4-.1-2.9.4-4 1.4-1.9 1.8-2.6 4.7-2.6 8.3 0 2.2.8 4.2 2.3 5.7 1.2 1.2 2.7 1.8 4.3 1.8s3.1-.6 4.3-1.8c1.5-1.5 2.3-3.5 2.3-5.7.1-3.6-.6-6.5-2.4-8.3zm-5.4 11c-.5 0-.9-.4-.9-.9s.4-.9.9-.9.9.4.9.9-.4.9-.9.9zm3.5 0c-.5 0-.9-.4-.9-.9s.4-.9.9-.9.9.4.9.9-.4.9-.9.9z"/></svg>';
         document.getElementById('mOsIcon').innerHTML = iconHtml;
-        
+
         document.getElementById('mGroups').innerHTML = d.groups.map(g => `<span class="bg-indigo-50 text-indigo-600 px-3 py-1.5 rounded-xl text-xs font-bold border border-indigo-100 shadow-sm uppercase">${g.name}</span>`).join('') || '<span class="text-slate-400 italic text-sm">Ungrouped</span>';
         const networkInfo = Array.isArray(d.network_info) ? d.network_info : [];
         document.getElementById('mNetworkInfo').innerHTML = networkInfo.map(n => `
@@ -2955,8 +3097,12 @@ async function viewHost(id) {
         const hostInfo = d.host_info || {};
         const volumes = Array.isArray(hostInfo.volumes) ? hostInfo.volumes : [];
         const security = hostInfo.security || {};
+        const encryption = d.encryption || {};
         const fmtBool = (v) => v === true ? 'Yes' : (v === false ? 'No' : '-');
         const fmtBytes = (gb) => Number.isFinite(Number(gb)) ? `${gb} GB` : '-';
+        const encryptionClass = encryption.level === 'encrypted'
+            ? 'bg-emerald-50 text-emerald-700 border-emerald-100'
+            : (encryption.level === 'partial' ? 'bg-amber-50 text-amber-700 border-amber-100' : (encryption.level === 'none' ? 'bg-rose-50 text-rose-700 border-rose-100' : 'bg-slate-100 text-slate-500 border-slate-200'));
         document.getElementById('mHostInfo').innerHTML = `
             <div class="bg-white border border-slate-200 rounded-2xl p-3 space-y-2">
                 <div class="flex justify-between gap-3"><span class="text-slate-400 font-bold">FQDN</span><span class="text-slate-700 font-mono text-right break-all">${hostInfo.fqdn || '-'}</span></div>
@@ -2981,19 +3127,23 @@ async function viewHost(id) {
         `;
         document.getElementById('mSecurityInfo').innerHTML = `
             <div class="bg-white border border-slate-200 rounded-2xl p-3 space-y-2">
+                <div class="flex justify-between gap-3 items-center"><span class="text-slate-400 font-bold">Encryption</span><span class="px-3 py-1 rounded-xl border text-[10px] font-black uppercase ${encryptionClass}">${escapeHtml(encryption.status || 'Unknown')}</span></div>
+                <div class="flex justify-between gap-3"><span class="text-slate-400 font-bold">Methods</span><span class="text-slate-700 text-right">${(encryption.methods || []).map(escapeHtml).join(', ') || '-'}</span></div>
                 <div class="flex justify-between gap-3"><span class="text-slate-400 font-bold">Pending Reboot</span><span class="${security.pending_reboot ? 'text-amber-600' : 'text-emerald-600'} font-black">${fmtBool(security.pending_reboot)}</span></div>
                 <div class="flex justify-between gap-3"><span class="text-slate-400 font-bold">Firewall Domain</span><span class="text-slate-700">${security.firewall_domain || '-'}</span></div>
                 <div class="flex justify-between gap-3"><span class="text-slate-400 font-bold">Firewall Private</span><span class="text-slate-700">${security.firewall_private || '-'}</span></div>
                 <div class="flex justify-between gap-3"><span class="text-slate-400 font-bold">Firewall Public</span><span class="text-slate-700">${security.firewall_public || '-'}</span></div>
                 <div class="flex justify-between gap-3"><span class="text-slate-400 font-bold">Defender</span><span class="text-slate-700">${security.defender_service_state || '-'}</span></div>
+                <div class="flex justify-between gap-3"><span class="text-slate-400 font-bold">VeraCrypt</span><span class="${security.veracrypt_detected ? 'text-emerald-600' : 'text-slate-500'} font-black">${fmtBool(security.veracrypt_detected)}</span></div>
+                <div class="flex justify-between gap-3"><span class="text-slate-400 font-bold">TrueCrypt</span><span class="${security.truecrypt_detected ? 'text-emerald-600' : 'text-slate-500'} font-black">${fmtBool(security.truecrypt_detected)}</span></div>
                 <div class="pt-2 border-t border-slate-100"><span class="text-slate-400 font-bold block mb-1">BitLocker</span><span class="font-mono text-[10px] text-slate-600 whitespace-pre-wrap break-words">${security.bitlocker_summary || '-'}</span></div>
             </div>
         `;
-        
+
         if (document.getElementById('btnBlockHost')) document.getElementById('btnBlockHost').innerText = d.is_blocked ? "Unblock Host" : "Block Host";
         if (document.getElementById('btnApproveHost')) document.getElementById('btnApproveHost').classList.toggle('hidden', approval === 'Approved');
         if (document.getElementById('btnRejectHost')) document.getElementById('btnRejectHost').classList.toggle('hidden', approval === 'Rejected');
-        
+
         document.getElementById('mHistory').innerHTML = d.history.map(h => `<div class="p-4 bg-white border border-slate-200 rounded-2xl flex justify-between items-center cursor-pointer hover:border-indigo-300 hover:shadow-md transition-all shadow-sm" onclick="viewTaskDetails('${h.id}')"><div><p class="font-black text-slate-800 text-sm">${h.title}</p><p class="text-[10px] text-slate-400 uppercase tracking-widest mt-1">By ${h.by} • ${h.date}</p></div><span class="px-3 py-1 rounded-lg text-[10px] font-black uppercase tracking-widest ${h.status === 'Success' ? 'bg-emerald-100 text-emerald-700' : (h.status === 'Error' ? 'bg-rose-100 text-rose-700' : 'bg-amber-100 text-amber-700')}">${h.status}</span></div>`).join('') || '<p class="text-slate-400 italic text-sm">No task history</p>';
     } catch(e) { console.error("Error loading host data", e); }
 }
@@ -3061,10 +3211,10 @@ async function openGroupFullView(id) {
     const res = await fetch('/api/infrastructure/group/' + id);
     const data = await res.json();
     if(!data.success) return;
-    
+
     document.getElementById('gdPageName').innerText = data.data.name;
     currentGroupNonMembers = data.data.non_members;
-    
+
     document.getElementById('groupHostsBody').innerHTML = data.data.members.map(m => `
         <tr class="hover:bg-slate-50/80 transition-colors">
             <td class="px-10 py-5 font-black text-slate-700 text-lg cursor-pointer" onclick="viewHost('${m.id}')">${m.hostname}</td>
@@ -3074,7 +3224,7 @@ async function openGroupFullView(id) {
             </td>
             ${infraPermissions.manage_groups ? `<td class="px-10 py-5 text-right"><button onclick="removeHostFromGroup('${m.id}')" class="px-4 py-2 bg-white text-rose-500 border border-slate-200 hover:bg-rose-50 rounded-xl text-xs font-black uppercase transition-all shadow-sm">Remove</button></td>` : ''}
         </tr>`).join('') || '<tr><td colspan="3" class="p-16 text-center text-slate-300 font-black uppercase tracking-widest text-sm">No hosts in this group</td></tr>';
-    
+
     switchView('group-detail');
 }
 
@@ -3105,14 +3255,14 @@ function renderAddHostList(q) {
             <input type="checkbox" value="${m.id}" class="add-host-cb w-5 h-5 text-indigo-600 rounded border-slate-300 focus:ring-indigo-500" onchange="document.getElementById('selCount').innerText = document.querySelectorAll('.add-host-cb:checked').length">
             <span class="font-black text-slate-700 text-sm group-hover:text-indigo-600 transition-colors">${m.hostname}</span>
         </label>`).join('') || '<div class="p-10 text-center text-slate-400 font-bold">No available hosts found</div>';
-    
+
     const countEl = document.getElementById('selCount');
     if(countEl) countEl.innerText = "0";
 }
 
-function filterAddHostList() { 
+function filterAddHostList() {
     const el = document.getElementById('addHostSearch');
-    if(el) renderAddHostList(el.value.toLowerCase()); 
+    if(el) renderAddHostList(el.value.toLowerCase());
 }
 
 async function submitAddHostsToGroup() {
