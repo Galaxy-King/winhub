@@ -25,7 +25,11 @@ $publishArgs = @(
     "-c", "Release",
     "-r", "win-x64",
     "--self-contained", "true",
-    "-o", $publishDir
+    "-o", $publishDir,
+    "-p:Version=$Version",
+    "-p:AssemblyVersion=$Version.0",
+    "-p:FileVersion=$Version.0",
+    "-p:InformationalVersion=$Version"
 )
 
 if ($ManagedSingleFile) {
@@ -36,6 +40,9 @@ if ($ManagedSingleFile) {
 }
 
 dotnet @publishArgs
+if ($LASTEXITCODE -ne 0) {
+    throw "dotnet publish failed with exit code $LASTEXITCODE."
+}
 
 Get-ChildItem -LiteralPath $publishDir -Filter "*.pdb" -Force | Remove-Item -Force
 foreach ($runtimeConfigName in @("winhub_agent.conf", "winhub_agent.bootstrap.conf")) {
