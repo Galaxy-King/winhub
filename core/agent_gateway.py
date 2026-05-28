@@ -142,7 +142,7 @@ def adopt_duplicate_endpoint_identity(existing_endpoint, new_hw_id, raw_token, d
         hw_id=new_hw_id,
         hostname=adopted.hostname,
         ip_address=source_ip,
-        event_type=f"Adopted Existing Endpoint Identity ({old_id})"
+        event_type="Adopted Identity"
     ))
     db.session.add(ConnectionIpHistory(endpoint_id=new_hw_id, ip_address=source_ip, source="identity_adoption"))
     db.session.delete(existing_endpoint)
