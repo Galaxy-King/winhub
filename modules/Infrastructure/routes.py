@@ -17,7 +17,7 @@ from flask import Blueprint, request, jsonify, render_template, session, redirec
 from sqlalchemy import func, or_
 from werkzeug.utils import secure_filename
 
-from core.database import db, User, Endpoint, EndpointGroup, AgentTask, TaskTemplate, TelemetryHistory, ConnectionIpHistory, ScheduledTask, EndpointMetric, TriggerRule, AggregatedJob, ApiKey, RegistrationHistory, AuditLog
+from core.database import db, User, Endpoint, EndpointGroup, AgentTask, TaskTemplate, TelemetryHistory, ConnectionIpHistory, ScheduledTask, EndpointMetric, AgentUpdateRollout, TriggerRule, AggregatedJob, ApiKey, RegistrationHistory, AuditLog
 from core.sdk import WinHubCore
 from core.admin import send_notification_email
 from core.security import sec_manager
@@ -710,9 +710,13 @@ def auto_email_checker_thread(app):
                                     job.status = f'Sent ({sent_count}) {time_str}'
                                 else:
                                     job.status = 'Send Error'
-                                db.session.commit()
+                db.session.commit()
             except Exception as e:
                 pass
+            try:
+                process_due_agent_update_rollouts()
+            except Exception:
+                logging.getLogger("winhub").exception("Agent update rollout checker failed")
             time.sleep(5)
 
 @infrastructure_bp.before_request
@@ -1458,17 +1462,51 @@ def create_agent_update_wave(host_ids, package, created_by, wave_index, wave_tot
     return job_id
 
 
-def dispatch_agent_update_waves(app, waves, package_id, package_url, created_by, delay_seconds):
-    with app.app_context():
-        package = find_agent_package(package_id)
-        if not package:
-            return
-        package["download_url"] = package_url
-        total = len(waves)
-        for index, host_ids in enumerate(waves, start=1):
-            if index > 1 and delay_seconds > 0:
-                threading.Event().wait(delay_seconds)
-            create_agent_update_wave(host_ids, package, created_by, index, total)
+def process_due_agent_update_rollouts():
+    now = datetime.utcnow()
+    rollouts = AgentUpdateRollout.query.filter(
+        AgentUpdateRollout.status == "Running",
+        AgentUpdateRollout.next_run_at <= now
+    ).order_by(AgentUpdateRollout.created_at.asc()).all()
+    for rollout in rollouts:
+        try:
+            target_ids = json.loads(rollout.target_ids or "[]")
+            if not isinstance(target_ids, list) or not target_ids:
+                rollout.status = "Completed"
+                rollout.updated_at = now
+                continue
+
+            package = find_agent_package(rollout.package_id)
+            if not package:
+                package = {
+                    "id": rollout.package_id,
+                    "version": rollout.package_version,
+                    "download_url": rollout.package_url,
+                    "sha256": None,
+                }
+            package["download_url"] = rollout.package_url or package.get("download_url") or agent_package_public_url(package["id"])
+
+            wave_size = max(1, int(rollout.wave_size or 50))
+            index = max(1, int(rollout.next_wave_index or 1))
+            start = (index - 1) * wave_size
+            host_ids = target_ids[start:start + wave_size]
+            if not host_ids:
+                rollout.status = "Completed"
+                rollout.updated_at = now
+                continue
+
+            create_agent_update_wave(host_ids, package, rollout.created_by or "System", index, rollout.total_waves or 1)
+            rollout.next_wave_index = index + 1
+            rollout.updated_at = datetime.utcnow()
+            if rollout.next_wave_index > int(rollout.total_waves or 1):
+                rollout.status = "Completed"
+            else:
+                rollout.next_run_at = datetime.utcnow() + timedelta(seconds=max(0, int(rollout.wave_delay_seconds or 0)))
+        except Exception:
+            logging.getLogger("winhub").exception("Failed to process agent update rollout %s", rollout.id)
+            rollout.updated_at = datetime.utcnow()
+    if rollouts:
+        db.session.commit()
 
 
 @infrastructure_bp.route('/api/public/software-packages/<package_id>/download', methods=['GET'])
@@ -2040,18 +2078,26 @@ def run_fleet_update():
     wave_size = max(1, int(data.get("wave_size") or 50))
     wave_delay_seconds = max(0, int(data.get("wave_delay_seconds") or 0))
     waves = [target_ids[i:i + wave_size] for i in range(0, len(target_ids), wave_size)]
-    app = current_app._get_current_object()
     created_by = current_actor_label()
 
-    if len(waves) == 1:
-        job_id = create_agent_update_wave(waves[0], package, created_by, 1, 1)
-    else:
-        job_id = "wave-dispatch"
-        threading.Thread(
-            target=dispatch_agent_update_waves,
-            args=(app, waves, package["id"], package["download_url"], created_by, wave_delay_seconds),
-            daemon=True,
-        ).start()
+    rollout = AgentUpdateRollout(
+        package_id=package["id"],
+        package_url=package["download_url"],
+        package_version=package.get("version"),
+        target_ids=json.dumps(target_ids, ensure_ascii=False),
+        wave_size=wave_size,
+        wave_delay_seconds=wave_delay_seconds,
+        next_wave_index=1,
+        total_waves=len(waves),
+        status="Running",
+        created_by=created_by,
+        next_run_at=datetime.utcnow(),
+        updated_at=datetime.utcnow(),
+    )
+    db.session.add(rollout)
+    db.session.flush()
+    process_due_agent_update_rollouts()
+    job_id = rollout.id
 
     write_infra_audit("Fleet Agent Update", "agent_package", package["id"], {
         "version": package.get("version"),
@@ -2060,6 +2106,7 @@ def run_fleet_update():
         "wave_size": wave_size,
         "wave_delay_seconds": wave_delay_seconds,
         "target_mode": target_mode,
+        "rollout_id": rollout.id,
     })
     db.session.commit()
     return jsonify({
