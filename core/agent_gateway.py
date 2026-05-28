@@ -7,7 +7,7 @@ import hashlib
 import ipaddress
 from datetime import datetime
 from flask import Blueprint, request, jsonify
-from core.database import db, Endpoint, AgentTask, RegistrationHistory, TelemetryHistory, EndpointGroup, EndpointMetric, TriggerRule, User, TaskTemplate
+from core.database import db, Endpoint, AgentTask, RegistrationHistory, TelemetryHistory, ConnectionIpHistory, EndpointGroup, EndpointMetric, TriggerRule, User, TaskTemplate
 from core.security import sec_manager
 from core.sdk import WinHubCore
 from core.config import Config
@@ -31,6 +31,7 @@ def update_agent_connection(agent):
     current_ip = current_client_ip()
     changed = False
     if current_ip and current_ip != (agent.ip_address or ""):
+        db.session.add(ConnectionIpHistory(endpoint_id=agent.id, ip_address=current_ip, source="agent"))
         agent.ip_address = current_ip
         changed = True
     return changed
@@ -222,10 +223,13 @@ def enroll_agent():
             ip_address=source_ip,
             event_type="Rejected Duplicate" if duplicate_endpoint else "Pending Approval"
         ))
+        db.session.add(ConnectionIpHistory(endpoint_id=hw_id, ip_address=source_ip, source="enrollment"))
     else:
         previous_fingerprint = getattr(agent, "identity_fingerprint", None)
         agent.hostname = hostname
-        agent.ip_address = source_ip
+        if source_ip and source_ip != (agent.ip_address or ""):
+            db.session.add(ConnectionIpHistory(endpoint_id=agent.id, ip_address=source_ip, source="enrollment"))
+            agent.ip_address = source_ip
         agent.last_seen = datetime.utcnow()
         agent.last_enrollment_at = datetime.utcnow()
         agent.last_enrollment_ip = source_ip
@@ -393,6 +397,9 @@ def agent_telemetry():
     agent_version = str(data.get('agent_version') or '').strip()[:50]
     if agent_version:
         agent.agent_version = agent_version
+    host_inventory = data.get('host_info')
+    if isinstance(host_inventory, dict):
+        agent.host_info = json.dumps(host_inventory, ensure_ascii=False)
     update_agent_connection(agent)
 
     telemetry = TelemetryHistory(

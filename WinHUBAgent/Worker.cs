@@ -24,11 +24,11 @@ namespace WinHUBAgent
     // --- МОДЕЛІ ДАНИХ ---
     public record EnrollPayload(string global_token, string hw_id, string hostname, string os_version, string os_type, string agent_version, NetworkInterfaceInfo[] network_interfaces, HostInventoryInfo host_info);
     public record PollPayload(string hw_id, string auth_token, string agent_version);
-    public record TelemetryPayload(string hw_id, string auth_token, string agent_version, double cpu, double ram, double disk_c);
+    public record TelemetryPayload(string hw_id, string auth_token, string agent_version, double cpu, double ram, double disk_c, HostInventoryInfo? host_info);
     public record ResultPayload(string hw_id, string auth_token, string task_id, string status, string log);
     public record NetworkInterfaceInfo(string name, string description, string type, string status, string mac, string[] ipv4, string[] ipv6, string[] gateways, string[] dns_servers, bool dhcp_enabled, long speed_mbps);
     public record VolumeInfo(string name, string label, string format, string type, long total_gb, long free_gb, bool ready);
-    public record SecurityInventoryInfo(bool pending_reboot, string firewall_domain, string firewall_private, string firewall_public, string bitlocker_summary, string defender_service_state);
+    public record SecurityInventoryInfo(bool pending_reboot, string firewall_domain, string firewall_private, string firewall_public, string bitlocker_summary, string defender_service_state, bool veracrypt_detected, bool truecrypt_detected);
     public record HostInventoryInfo(string machine_name, string fqdn, string domain_name, string user_domain_name, bool likely_domain_joined, string os_description, string os_architecture, string process_architecture, string timezone, int processor_count, ulong total_memory_mb, long uptime_seconds, string boot_time_utc, VolumeInfo[] volumes, SecurityInventoryInfo security);
 
     // НОВЕ: Модель для конфігурації
@@ -95,6 +95,8 @@ namespace WinHUBAgent
         private string HardwareId = string.Empty;
         private string AuthToken = string.Empty;
         private string FriendlyOsName = string.Empty;
+        private DateTime _lastInventoryUtc = DateTime.MinValue;
+        private HostInventoryInfo? _cachedHostInventory;
 
         private ulong _prevSystemTime = 0;
         private ulong _prevIdleTime = 0;
@@ -301,7 +303,7 @@ namespace WinHUBAgent
                 var drive = DriveInfo.GetDrives().FirstOrDefault(d => d.Name.StartsWith("C", StringComparison.OrdinalIgnoreCase) && d.IsReady);
                 if (drive != null) diskCFree = (float)Math.Round(drive.AvailableFreeSpace / (1024.0 * 1024.0 * 1024.0), 2);
 
-                var payload = new TelemetryPayload(HardwareId, AuthToken, AgentBuildInfo.Version, Math.Round(cpuUsage, 2), ramUsage, diskCFree);
+                var payload = new TelemetryPayload(HardwareId, AuthToken, AgentBuildInfo.Version, Math.Round(cpuUsage, 2), ramUsage, diskCFree, GetCachedHostInventory(false));
                 string jsonString = JsonSerializer.Serialize(payload, AppJsonSerializerContext.Default.TelemetryPayload);
                 var content = new StringContent(jsonString, Encoding.UTF8, "application/json");
                 
@@ -330,7 +332,7 @@ namespace WinHUBAgent
                         await Task.Delay(TimeSpan.FromSeconds(30), stoppingToken);
                         continue;
                     }
-                    var payload = new EnrollPayload(enrollmentToken, HardwareId, Environment.MachineName, FriendlyOsName, "Windows", AgentBuildInfo.Version, GetNetworkInterfaces(), GetHostInventory());
+                    var payload = new EnrollPayload(enrollmentToken, HardwareId, Environment.MachineName, FriendlyOsName, "Windows", AgentBuildInfo.Version, GetNetworkInterfaces(), GetCachedHostInventory(true));
                     string jsonString = JsonSerializer.Serialize(payload, AppJsonSerializerContext.Default.EnrollPayload);
                     
                     var content = new StringContent(jsonString, Encoding.UTF8, "application/json");
@@ -1029,6 +1031,40 @@ try {
             catch { return "unavailable"; }
         }
 
+        private static bool ServiceOrDriverExists(string serviceName)
+        {
+            string output = RunCommandSnapshot("sc.exe", $"query {serviceName}", 5, 1200);
+            return output.IndexOf("SERVICE_NAME", StringComparison.OrdinalIgnoreCase) >= 0
+                || output.IndexOf("RUNNING", StringComparison.OrdinalIgnoreCase) >= 0
+                || output.IndexOf("STOPPED", StringComparison.OrdinalIgnoreCase) >= 0;
+        }
+
+        private static bool InstalledSoftwareContains(string productName)
+        {
+            string[] roots =
+            {
+                @"SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall",
+                @"SOFTWARE\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall"
+            };
+            foreach (string root in roots)
+            {
+                try
+                {
+                    using var key = Registry.LocalMachine.OpenSubKey(root);
+                    if (key == null) continue;
+                    foreach (string subName in key.GetSubKeyNames())
+                    {
+                        using var sub = key.OpenSubKey(subName);
+                        string display = Convert.ToString(sub?.GetValue("DisplayName")) ?? "";
+                        if (display.IndexOf(productName, StringComparison.OrdinalIgnoreCase) >= 0)
+                            return true;
+                    }
+                }
+                catch { }
+            }
+            return false;
+        }
+
         private SecurityInventoryInfo GetSecurityInventory()
         {
             bool pendingReboot =
@@ -1050,8 +1086,20 @@ try {
                 FirewallProfileState("StandardProfile"),
                 FirewallProfileState("PublicProfile"),
                 RunCommandSnapshot("manage-bde.exe", "-status", 8, 2000),
-                defenderState
+                defenderState,
+                RegistryKeyExists(@"SOFTWARE\IDRIX\VeraCrypt") || InstalledSoftwareContains("VeraCrypt") || ServiceOrDriverExists("veracrypt"),
+                RegistryKeyExists(@"SOFTWARE\TrueCrypt") || InstalledSoftwareContains("TrueCrypt") || ServiceOrDriverExists("truecrypt")
             );
+        }
+
+        private HostInventoryInfo GetCachedHostInventory(bool force)
+        {
+            if (!force && _cachedHostInventory != null && DateTime.UtcNow - _lastInventoryUtc < TimeSpan.FromMinutes(30))
+                return _cachedHostInventory;
+
+            _cachedHostInventory = GetHostInventory();
+            _lastInventoryUtc = DateTime.UtcNow;
+            return _cachedHostInventory;
         }
 
         private HostInventoryInfo GetHostInventory()

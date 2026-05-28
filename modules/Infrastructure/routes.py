@@ -17,7 +17,7 @@ from flask import Blueprint, request, jsonify, render_template, session, redirec
 from sqlalchemy import func, or_
 from werkzeug.utils import secure_filename
 
-from core.database import db, User, Endpoint, EndpointGroup, AgentTask, TaskTemplate, TelemetryHistory, ScheduledTask, EndpointMetric, TriggerRule, AggregatedJob, ApiKey, RegistrationHistory, AuditLog
+from core.database import db, User, Endpoint, EndpointGroup, AgentTask, TaskTemplate, TelemetryHistory, ConnectionIpHistory, ScheduledTask, EndpointMetric, TriggerRule, AggregatedJob, ApiKey, RegistrationHistory, AuditLog
 from core.sdk import WinHubCore
 from core.admin import send_notification_email
 from core.security import sec_manager
@@ -452,6 +452,44 @@ def endpoint_health_score(endpoint, latest_version=None):
         "outdated": outdated,
     }
 
+def encryption_status_from_host_info(host_info):
+    security = {}
+    if isinstance(host_info, dict):
+        security = host_info.get("security") or {}
+    bitlocker_text = str(security.get("bitlocker_summary") or "")
+    bitlocker_lower = bitlocker_text.lower()
+    bitlocker_on = (
+        "protection on" in bitlocker_lower
+        or "fully encrypted" in bitlocker_lower
+        or "percentage encrypted: 100" in bitlocker_lower
+    )
+    bitlocker_partial = (
+        "encryption in progress" in bitlocker_lower
+        or "percentage encrypted:" in bitlocker_lower and "percentage encrypted: 0" not in bitlocker_lower
+    )
+    veracrypt = bool(security.get("veracrypt_detected"))
+    truecrypt = bool(security.get("truecrypt_detected"))
+    if bitlocker_on or veracrypt or truecrypt:
+        status = "Encrypted"
+        level = "encrypted"
+    elif bitlocker_partial:
+        status = "Partial"
+        level = "partial"
+    elif bitlocker_text and bitlocker_text not in ("unavailable", "timeout"):
+        status = "Not encrypted"
+        level = "none"
+    else:
+        status = "Unknown"
+        level = "unknown"
+    methods = []
+    if bitlocker_on or bitlocker_partial:
+        methods.append("BitLocker")
+    if veracrypt:
+        methods.append("VeraCrypt")
+    if truecrypt:
+        methods.append("TrueCrypt")
+    return {"status": status, "level": level, "methods": methods}
+
 def annotate_endpoint_duplicates(agents):
     approved = [
         agent for agent in agents
@@ -725,6 +763,10 @@ def index():
         a.is_online = (a.last_seen and a.last_seen >= online_threshold)
         a.last_seen_str = to_kyiv_time(a.last_seen)
         a.agent_outdated = bool(Config.LATEST_AGENT_VERSION and (a.agent_version or "") != Config.LATEST_AGENT_VERSION)
+        try:
+            a.encryption = encryption_status_from_host_info(json.loads(a.host_info or "{}"))
+        except Exception:
+            a.encryption = {"status": "Unknown", "level": "unknown", "methods": []}
     annotate_endpoint_duplicates(agents)
 
     available_hosts = [{
@@ -736,6 +778,9 @@ def index():
         "approval_status": getattr(a, 'approval_status', 'Approved'),
         "agent_version": getattr(a, 'agent_version', '') or '',
         "agent_outdated": bool(Config.LATEST_AGENT_VERSION and (getattr(a, 'agent_version', '') or '') != Config.LATEST_AGENT_VERSION),
+        "is_online": bool(a.last_seen and a.last_seen >= online_threshold),
+        "last_seen": to_kyiv_time_short(a.last_seen),
+        "encryption": getattr(a, "encryption", {"status": "Unknown", "level": "unknown", "methods": []}),
     } for a in agents]
     pending_agents = [
         a for a in agents
@@ -1932,6 +1977,10 @@ def fleet_center():
     allowed_hosts.sort(key=lambda endpoint: ((endpoint.hostname or endpoint.id or "").lower()))
     for endpoint in allowed_hosts:
         health = endpoint_health_score(endpoint, latest_version)
+        try:
+            encryption = encryption_status_from_host_info(json.loads(endpoint.host_info or "{}"))
+        except Exception:
+            encryption = {"status": "Unknown", "level": "unknown", "methods": []}
         hosts.append({
             "id": endpoint.id,
             "hostname": endpoint.hostname or endpoint.id,
@@ -1942,6 +1991,7 @@ def fleet_center():
             "last_seen": to_kyiv_time_short(endpoint.last_seen),
             "groups": [{"id": group.id, "name": group.name} for group in endpoint.groups],
             "health": health,
+            "encryption": encryption,
         })
 
     packages = load_agent_packages()
@@ -2522,7 +2572,7 @@ def host_operations(host_id):
     except Exception:
         host_info = {}
     annotate_endpoint_duplicates(WinHubCore.get_allowed_hosts(session.get("user_id")))
-    return jsonify({"success": True, "data": {"id": agent.id, "hostname": agent.hostname, "os": agent.os_version, "ip": agent.ip_address, "os_type": getattr(agent, 'os_type', 'Windows'), "last_seen": to_kyiv_time(agent.last_seen), "first_seen": to_kyiv_time(getattr(agent, "first_seen", None)), "last_enrollment_at": to_kyiv_time(getattr(agent, "last_enrollment_at", None)), "last_enrollment_ip": getattr(agent, "last_enrollment_ip", None), "enrollment_attempts": int(getattr(agent, "enrollment_attempts", 0) or 0), "identity_fingerprint": getattr(agent, "identity_fingerprint", None), "duplicate_matches": getattr(agent, "duplicate_matches", []), "identity_warning": getattr(agent, "identity_warning", None), "is_blocked": agent.is_blocked, "approval_status": getattr(agent, "approval_status", "Approved"), "agent_version": getattr(agent, "agent_version", None), "network_info": network_info, "host_info": host_info, "groups": [{"id": g.id, "name": g.name} for g in agent.groups], "history": [{"id": h.id, "title": h.title, "status": h.status or "Pending", "date": to_kyiv_time_short(h.created_at), "by": h.created_by} for h in history]}})
+    return jsonify({"success": True, "data": {"id": agent.id, "hostname": agent.hostname, "os": agent.os_version, "ip": agent.ip_address, "os_type": getattr(agent, 'os_type', 'Windows'), "last_seen": to_kyiv_time(agent.last_seen), "first_seen": to_kyiv_time(getattr(agent, "first_seen", None)), "last_enrollment_at": to_kyiv_time(getattr(agent, "last_enrollment_at", None)), "last_enrollment_ip": getattr(agent, "last_enrollment_ip", None), "enrollment_attempts": int(getattr(agent, "enrollment_attempts", 0) or 0), "identity_fingerprint": getattr(agent, "identity_fingerprint", None), "duplicate_matches": getattr(agent, "duplicate_matches", []), "identity_warning": getattr(agent, "identity_warning", None), "is_blocked": agent.is_blocked, "approval_status": getattr(agent, "approval_status", "Approved"), "agent_version": getattr(agent, "agent_version", None), "network_info": network_info, "host_info": host_info, "encryption": encryption_status_from_host_info(host_info), "groups": [{"id": g.id, "name": g.name} for g in agent.groups], "history": [{"id": h.id, "title": h.title, "status": h.status or "Pending", "date": to_kyiv_time_short(h.created_at), "by": h.created_by} for h in history]}})
 
 @infrastructure_bp.route('/api/infrastructure/host/<host_id>/telemetry', methods=['GET'])
 def get_host_telemetry(host_id):
@@ -2533,7 +2583,30 @@ def get_host_telemetry(host_id):
     threshold = datetime.utcnow() - timedelta(days=days)
     records = TelemetryHistory.query.filter(TelemetryHistory.endpoint_id == host_id, TelemetryHistory.timestamp >= threshold).order_by(TelemetryHistory.timestamp.asc()).all()
     if len(records) > 100: records = records[::max(1, len(records) // 100)]
-    return jsonify({"success": True, "data": [{"time": to_kyiv_time_short(r.timestamp), "cpu": r.cpu_usage, "ram": r.ram_usage, "disk": r.disk_c_free} for r in records]})
+    return jsonify({"success": True, "data": [{
+        "time": to_kyiv_time_short(r.timestamp),
+        "timestamp": r.timestamp.replace(tzinfo=timezone.utc).isoformat() if r.timestamp else None,
+        "cpu": r.cpu_usage,
+        "ram": r.ram_usage,
+        "disk": r.disk_c_free
+    } for r in records]})
+
+@infrastructure_bp.route('/api/infrastructure/host/<host_id>/ip-history', methods=['GET'])
+def get_host_ip_history(host_id):
+    denied = require_permission("view_hosts")
+    if denied: return denied
+    if not WinHubCore.can_manage_host(session.get('user_id'), host_id): return jsonify({"success": False}), 403
+    days = int(request.args.get('days', 30))
+    threshold = datetime.utcnow() - timedelta(days=days)
+    records = ConnectionIpHistory.query.filter(
+        ConnectionIpHistory.endpoint_id == host_id,
+        ConnectionIpHistory.timestamp >= threshold
+    ).order_by(ConnectionIpHistory.timestamp.desc()).limit(200).all()
+    return jsonify({"success": True, "data": [{
+        "time": to_kyiv_time_short(r.timestamp),
+        "ip": r.ip_address,
+        "source": r.source or "agent",
+    } for r in records]})
 
 @infrastructure_bp.route('/api/infrastructure/host/<host_id>/metrics', methods=['GET'])
 def get_host_metrics(host_id):

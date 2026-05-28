@@ -124,6 +124,24 @@
                     <div id="diskLoading" class="absolute inset-0 flex items-center justify-center bg-white/80 font-bold text-slate-400 rounded-[2rem]">Loading disk metrics...</div>
                 </div>
             </div>
+
+            <div class="shrink-0">
+                <label class="text-[10px] font-black text-slate-400 uppercase tracking-widest block mb-4">Agent Activity Timeline</label>
+                <div class="bg-slate-50 rounded-[2rem] p-6 border border-slate-100 h-[220px] flex items-center justify-center relative shadow-inner">
+                    <canvas id="activityChart"></canvas>
+                    <div id="activityLoading" class="absolute inset-0 flex items-center justify-center bg-white/80 font-bold text-slate-400 rounded-[2rem]">Loading activity timeline...</div>
+                </div>
+                <p class="text-[11px] font-bold text-slate-400 mt-3">Online is inferred from telemetry heartbeats. Long gaps between heartbeats are shown as offline.</p>
+            </div>
+
+            <div class="shrink-0">
+                <label class="text-[10px] font-black text-slate-400 uppercase tracking-widest block mb-4">Connection IP History</label>
+                <div class="bg-white rounded-[2rem] border border-slate-200 shadow-sm overflow-hidden">
+                    <div id="ipHistoryList" class="divide-y divide-slate-100 text-xs">
+                        <div class="p-6 text-center text-slate-400 font-bold">Loading connection history...</div>
+                    </div>
+                </div>
+            </div>
         </div>
     </div>
 </div>
