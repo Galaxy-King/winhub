@@ -474,14 +474,16 @@ def annotate_endpoint_duplicates(agents):
             ):
                 reasons.append("identity")
             if reasons:
+                strong_match = "identity" in reasons or ("hostname" in reasons and "connection_ip" in reasons)
                 matches.append({
                     "id": approved_agent.id,
                     "hostname": approved_agent.hostname or approved_agent.id,
                     "agent_version": getattr(approved_agent, "agent_version", "") or "unknown",
                     "reasons": reasons,
+                    "strong_match": strong_match,
                 })
         agent.duplicate_matches = matches
-        agent.possible_duplicate = bool(matches)
+        agent.possible_duplicate = any(match.get("strong_match") for match in matches)
 
 def can_use_template(template):
     if session.get("is_admin"):
