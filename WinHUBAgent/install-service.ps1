@@ -35,5 +35,8 @@ New-Service `
     -Description "WinHUB endpoint agent service" `
     -StartupType Automatic | Out-Null
 
+sc.exe failure $ServiceName reset= 86400 actions= restart/60000/restart/60000/restart/60000 | Out-Null
+sc.exe failureflag $ServiceName 1 | Out-Null
+
 Start-Service -Name $ServiceName
 Write-Host "WinHUBAgent service installed and started."
