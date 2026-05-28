@@ -1,10 +1,15 @@
 param(
     [string]$Version = "1.2.0",
     [string]$OutputDir = ".\dist-agent",
-    [switch]$Aot
+    [switch]$Aot,
+    [switch]$ManagedSingleFile
 )
 
 $ErrorActionPreference = "Stop"
+
+if ($Aot -and $ManagedSingleFile) {
+    throw "Use either -Aot or -ManagedSingleFile, not both."
+}
 
 New-Item -ItemType Directory -Path $OutputDir -Force | Out-Null
 $publishDir = Join-Path $OutputDir "publish"
@@ -23,11 +28,11 @@ $publishArgs = @(
     "-o", $publishDir
 )
 
-if ($Aot) {
-    $publishArgs += "-p:PublishAot=true"
-} else {
+if ($ManagedSingleFile) {
     $publishArgs += "-p:PublishAot=false"
     $publishArgs += "-p:PublishSingleFile=true"
+} else {
+    $publishArgs += "-p:PublishAot=true"
 }
 
 dotnet @publishArgs
@@ -51,8 +56,8 @@ $manifest = [ordered]@{
     created_at_utc = (Get-Date).ToUniversalTime().ToString("o")
     agent_package = (Split-Path -Leaf $zipPath)
     agent_package_sha256 = $hash
-    publish_mode = $(if ($Aot) { "self-contained-aot" } else { "self-contained-single-file" })
-    aot = [bool]$Aot
+    publish_mode = $(if ($ManagedSingleFile) { "self-contained-single-file" } else { "self-contained-aot" })
+    aot = -not [bool]$ManagedSingleFile
     pdb_included = $false
 }
 $manifest | ConvertTo-Json | Set-Content -LiteralPath $manifestPath -Encoding UTF8

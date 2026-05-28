@@ -45,6 +45,12 @@ Package a release build:
 .\create-agent-release.ps1 -Version 1.2.0
 ```
 
+The release script builds NativeAOT by default. Use `-ManagedSingleFile` only when you explicitly need a non-AOT managed single-file package:
+
+```powershell
+.\create-agent-release.ps1 -Version 1.2.0 -ManagedSingleFile
+```
+
 ## Agent configs
 
 Use two config files:
