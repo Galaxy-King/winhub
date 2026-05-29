@@ -96,14 +96,38 @@ def find_approved_duplicate_endpoint(hw_id, hostname, source_ip, fingerprint):
             reasons.append("connection_ip")
         if fingerprint and getattr(endpoint, "identity_fingerprint", None) == fingerprint:
             reasons.append("identity")
-        if "identity" in reasons or ("hostname" in reasons and "connection_ip" in reasons):
+        if "identity" in reasons:
             return endpoint, reasons
+    return None, []
+
+
+def find_approved_endpoint_by_previous_token(previous_auth_token, previous_hw_id=None):
+    previous_auth_token = str(previous_auth_token or "").strip()
+    previous_hw_id = str(previous_hw_id or "").strip()
+    if not previous_auth_token:
+        return None, []
+
+    if previous_hw_id:
+        endpoint = Endpoint.query.get(previous_hw_id)
+        if (
+            endpoint
+            and getattr(endpoint, "approval_status", "Approved") == "Approved"
+            and endpoint.auth_token == previous_auth_token
+        ):
+            return endpoint, ["token_proof"]
+
+    endpoint = Endpoint.query.filter_by(
+        auth_token=previous_auth_token,
+        approval_status="Approved"
+    ).first()
+    if endpoint:
+        return endpoint, ["token_proof"]
     return None, []
 
 
 def should_adopt_duplicate_enrollment(reasons):
     reason_set = set(reasons or [])
-    return "identity" in reason_set or {"hostname", "connection_ip"}.issubset(reason_set)
+    return "identity" in reason_set or "token_proof" in reason_set
 
 
 def adopt_duplicate_endpoint_identity(existing_endpoint, new_hw_id, raw_token, data, source_ip, fingerprint, network_info, host_info, agent_version):
@@ -233,10 +257,15 @@ def enroll_agent():
     host_inventory = data.get('host_info', {})
     host_info = json.dumps(host_inventory if isinstance(host_inventory, dict) else {}, ensure_ascii=False)
     agent_version = str(data.get('agent_version') or '').strip()[:50]
+    previous_auth_token = str(data.get("previous_auth_token") or "").strip()
+    previous_hw_id = str(data.get("previous_hw_id") or "").strip()
 
     if not hw_id: return jsonify({"error": "Missing Hardware ID"}), 400
     fingerprint = agent_identity_fingerprint(hw_id, hostname, os_type, network_interfaces)
-    duplicate_endpoint, duplicate_reasons = find_approved_duplicate_endpoint(hw_id, hostname, source_ip, fingerprint)
+    token_proof_endpoint, token_proof_reasons = find_approved_endpoint_by_previous_token(previous_auth_token, previous_hw_id)
+    identity_duplicate_endpoint, identity_duplicate_reasons = find_approved_duplicate_endpoint(hw_id, hostname, source_ip, fingerprint)
+    duplicate_endpoint = token_proof_endpoint or identity_duplicate_endpoint
+    duplicate_reasons = token_proof_reasons or identity_duplicate_reasons
     raw_token = f"agt_{secrets.token_urlsafe(32)}"
 
     agent = Endpoint.query.get(hw_id)

@@ -22,7 +22,7 @@ using System.Linq;
 namespace WinHUBAgent
 {
     // --- МОДЕЛІ ДАНИХ ---
-    public record EnrollPayload(string global_token, string hw_id, string hostname, string os_version, string os_type, string agent_version, NetworkInterfaceInfo[] network_interfaces, HostInventoryInfo host_info);
+    public record EnrollPayload(string global_token, string hw_id, string hostname, string os_version, string os_type, string agent_version, NetworkInterfaceInfo[] network_interfaces, HostInventoryInfo host_info, string previous_auth_token, string previous_hw_id);
     public record PollPayload(string hw_id, string auth_token, string agent_version);
     public record TelemetryPayload(string hw_id, string auth_token, string agent_version, double cpu, double ram, double disk_c, HostInventoryInfo? host_info);
     public record ResultPayload(string hw_id, string auth_token, string task_id, string status, string log);
@@ -93,6 +93,7 @@ namespace WinHUBAgent
         private readonly string TokenFilePath;
         private readonly string SecretsFilePath;
         private readonly string UpdatesDirectory;
+        private readonly string HardwareIdFilePath;
         private string HardwareId = string.Empty;
         private string AuthToken = string.Empty;
         private string FriendlyOsName = string.Empty;
@@ -141,6 +142,7 @@ namespace WinHUBAgent
             TokenFilePath = Path.Combine(DataDirectory, "agent.token");
             SecretsFilePath = Path.Combine(DataDirectory, "agent.secrets");
             UpdatesDirectory = Path.Combine(DataDirectory, "updates");
+            HardwareIdFilePath = Path.Combine(DataDirectory, "agent.hwid");
             
             var handler = new HttpClientHandler
             {
@@ -230,7 +232,7 @@ namespace WinHUBAgent
             
             Directory.CreateDirectory(DataDirectory);
 
-            HardwareId = GetHardwareId();
+            HardwareId = GetOrCreateHardwareId();
             FriendlyOsName = GetFriendlyOsName();
             
             _logger.LogInformation($"Hardware ID: {HardwareId}");
@@ -322,7 +324,7 @@ namespace WinHUBAgent
             }
         }
 
-        private async Task EnrollAgentAsync(CancellationToken stoppingToken)
+        private async Task EnrollAgentAsync(CancellationToken stoppingToken, string previousAuthToken = "", string previousHwId = "")
         {
             while (!stoppingToken.IsCancellationRequested)
             {
@@ -336,7 +338,7 @@ namespace WinHUBAgent
                         await Task.Delay(TimeSpan.FromSeconds(30), stoppingToken);
                         continue;
                     }
-                    var payload = new EnrollPayload(enrollmentToken, HardwareId, Environment.MachineName, FriendlyOsName, "Windows", AgentBuildInfo.Version, GetNetworkInterfaces(), GetCachedHostInventory(true));
+                    var payload = new EnrollPayload(enrollmentToken, HardwareId, Environment.MachineName, FriendlyOsName, "Windows", AgentBuildInfo.Version, GetNetworkInterfaces(), GetCachedHostInventory(true), previousAuthToken, previousHwId);
                     string jsonString = JsonSerializer.Serialize(payload, AppJsonSerializerContext.Default.EnrollPayload);
                     
                     var content = new StringContent(jsonString, Encoding.UTF8, "application/json");
@@ -378,9 +380,10 @@ namespace WinHUBAgent
                 {
                     if (response.StatusCode == System.Net.HttpStatusCode.Forbidden || response.StatusCode == System.Net.HttpStatusCode.Unauthorized)
                     {
-                        if (File.Exists(TokenFilePath)) File.Delete(TokenFilePath);
-                        AuthToken = string.Empty;
-                        await EnrollAgentAsync(stoppingToken);
+                        string previousAuthToken = AuthToken;
+                        string previousHwId = HardwareId;
+                        _logger.LogWarning("Server rejected poll token. Attempting secure re-enrollment with previous token proof.");
+                        await EnrollAgentAsync(stoppingToken, previousAuthToken, previousHwId);
                     }
                     return;
                 }
@@ -880,6 +883,37 @@ try {
             using var sha = SHA256.Create();
             byte[] hash = sha.ComputeHash(Encoding.UTF8.GetBytes(source));
             return "WINHUB-" + Convert.ToHexString(hash).ToLowerInvariant();
+        }
+
+        private string GetOrCreateHardwareId()
+        {
+            try
+            {
+                if (File.Exists(HardwareIdFilePath))
+                {
+                    string saved = File.ReadAllText(HardwareIdFilePath).Trim();
+                    if (saved.StartsWith("WINHUB-", StringComparison.OrdinalIgnoreCase) || saved.StartsWith("HWID-FALLBACK-", StringComparison.OrdinalIgnoreCase))
+                    {
+                        return saved;
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning($"Failed to read persisted hardware ID: {ex.Message}");
+            }
+
+            string generated = GetHardwareId();
+            try
+            {
+                Directory.CreateDirectory(DataDirectory);
+                File.WriteAllText(HardwareIdFilePath, generated, Encoding.UTF8);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning($"Failed to persist hardware ID: {ex.Message}");
+            }
+            return generated;
         }
 
         private static string GetMachineGuid()

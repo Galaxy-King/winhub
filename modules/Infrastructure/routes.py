@@ -516,7 +516,7 @@ def annotate_endpoint_duplicates(agents):
             ):
                 reasons.append("identity")
             if reasons:
-                strong_match = "identity" in reasons or ("hostname" in reasons and "connection_ip" in reasons)
+                strong_match = "identity" in reasons
                 matches.append({
                     "id": approved_agent.id,
                     "hostname": approved_agent.hostname or approved_agent.id,
