@@ -348,9 +348,23 @@ namespace WinHUBAgent
                     {
                         var result = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
                         string newToken = result.RootElement.GetProperty("auth_token").GetString() ?? "";
-                        SaveToken(newToken);
-                        AuthToken = newToken;
-                        _logger.LogInformation("Enrollment successful.");
+                        string approvalStatus = result.RootElement.TryGetProperty("approval_status", out var approvalEl)
+                            ? approvalEl.GetString() ?? ""
+                            : "";
+                        bool hasPreviousTokenProof = !string.IsNullOrWhiteSpace(previousAuthToken);
+                        bool shouldReplaceToken = !hasPreviousTokenProof || approvalStatus.Equals("Approved", StringComparison.OrdinalIgnoreCase);
+
+                        if (shouldReplaceToken)
+                        {
+                            SaveToken(newToken);
+                            AuthToken = newToken;
+                        }
+                        else
+                        {
+                            _logger.LogWarning($"Enrollment returned {approvalStatus}. Preserving previous approved token for future identity proof.");
+                        }
+
+                        _logger.LogInformation($"Enrollment successful. Approval status: {approvalStatus}.");
                         break;
                     }
                     else
@@ -903,7 +917,7 @@ try {
                 _logger.LogWarning($"Failed to read persisted hardware ID: {ex.Message}");
             }
 
-            string generated = GetHardwareId();
+            string generated = GeneratePersistentHardwareId();
             try
             {
                 Directory.CreateDirectory(DataDirectory);
@@ -914,6 +928,21 @@ try {
                 _logger.LogWarning($"Failed to persist hardware ID: {ex.Message}");
             }
             return generated;
+        }
+
+        private static string GeneratePersistentHardwareId()
+        {
+            using var sha = SHA256.Create();
+            string source = string.Join("|", new[]
+            {
+                "winhub-agent-install-v1",
+                Guid.NewGuid().ToString("N"),
+                GetMachineGuid(),
+                Environment.MachineName,
+                DateTimeOffset.UtcNow.ToUnixTimeMilliseconds().ToString()
+            });
+            byte[] hash = sha.ComputeHash(Encoding.UTF8.GetBytes(source));
+            return "WINHUB-" + Convert.ToHexString(hash).ToLowerInvariant();
         }
 
         private static string GetMachineGuid()
