@@ -98,6 +98,13 @@ def endpoint_stable_identity_fingerprint(endpoint):
 
 
 def find_approved_duplicate_endpoint(hw_id, hostname, source_ip, fingerprint):
+    fingerprints = set()
+    if isinstance(fingerprint, (list, tuple, set)):
+        fingerprints.update(str(item).strip() for item in fingerprint if item)
+    elif fingerprint:
+        fingerprints.add(str(fingerprint).strip())
+    fingerprints.discard("")
+
     approved = Endpoint.query.filter(
         Endpoint.id != hw_id,
         Endpoint.approval_status == "Approved"
@@ -114,7 +121,7 @@ def find_approved_duplicate_endpoint(hw_id, hostname, source_ip, fingerprint):
         }
         endpoint_fingerprints.discard(None)
         endpoint_fingerprints.discard("")
-        if fingerprint and fingerprint in endpoint_fingerprints:
+        if fingerprints and fingerprints.intersection(endpoint_fingerprints):
             reasons.append("identity")
         if "identity" in reasons:
             return endpoint, reasons
@@ -403,7 +410,10 @@ def agent_poll():
             agent.id,
             agent.hostname,
             source_ip,
-            getattr(agent, "identity_fingerprint", None),
+            {
+                getattr(agent, "identity_fingerprint", None),
+                endpoint_stable_identity_fingerprint(agent),
+            },
         )
         if duplicate_endpoint and should_adopt_duplicate_enrollment(duplicate_reasons):
             existing_network_info = agent.network_info or "[]"
