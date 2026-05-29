@@ -21,6 +21,7 @@ try {
 let allQueueJobs = [];
 let allReports = [];
 let smtpProfiles = [];
+let scheduledReports = [];
 let currentJobTasks = [];
 let currentViewedJobId = null;
 let currentJobStatusFilter = 'all';
@@ -595,6 +596,169 @@ async function deleteSmtpProfile(email) {
         await fetchSmtpProfilesGlobally();
         renderSmtpList();
     } catch(e) { alert("Error deleting SMTP profile."); }
+}
+
+function renderScheduledReportSenderOptions() {
+    const select = document.getElementById('scheduledReportSender');
+    if (!select) return;
+    select.innerHTML = smtpProfiles.length
+        ? smtpProfiles.map(p => `<option value="${escapeHtml(p.email)}">${escapeHtml(p.email)}</option>`).join('')
+        : '<option value="">No SMTP profile configured</option>';
+}
+
+async function fetchScheduledReports() {
+    try {
+        const res = await fetch('/api/infrastructure/scheduled-reports');
+        const data = await res.json();
+        scheduledReports = data.success ? (data.reports || []) : [];
+    } catch(e) {
+        scheduledReports = [];
+    }
+}
+
+function renderScheduledReportsList() {
+    const list = document.getElementById('scheduledReportsList');
+    if (!list) return;
+    list.innerHTML = scheduledReports.map(report => {
+        const enabledClass = report.enabled ? 'bg-emerald-50 text-emerald-700 border-emerald-100' : 'bg-slate-100 text-slate-500 border-slate-200';
+        const status = report.last_status || 'Never sent';
+        return `
+            <div class="bg-white border border-slate-200 rounded-3xl p-4 shadow-sm">
+                <div class="flex items-start justify-between gap-3">
+                    <div>
+                        <h4 class="font-black text-slate-900">${escapeHtml(report.name || 'Regular Report')}</h4>
+                        <p class="text-[10px] font-black text-slate-500 uppercase tracking-widest mt-1">${escapeHtml(report.frequency || 'daily')} / ${escapeHtml(report.period || 'day')} / ${escapeHtml(report.sender || '-')}</p>
+                    </div>
+                    <span class="px-2.5 py-1 rounded-lg border text-[9px] font-black uppercase ${enabledClass}">${report.enabled ? 'Enabled' : 'Paused'}</span>
+                </div>
+                <p class="text-xs font-bold text-slate-500 mt-3">${escapeHtml(status)}</p>
+                <div class="flex gap-2 mt-4">
+                    <button onclick="editScheduledReport('${escapeHtml(report.id)}')" class="px-3 py-2 bg-blue-600 text-white rounded-xl text-[10px] font-black uppercase">Edit</button>
+                    <button onclick="sendScheduledReportNow('${escapeHtml(report.id)}')" class="px-3 py-2 bg-white border border-blue-200 text-blue-700 rounded-xl text-[10px] font-black uppercase">Send</button>
+                    <button onclick="deleteScheduledReport('${escapeHtml(report.id)}')" class="px-3 py-2 bg-rose-50 text-rose-600 rounded-xl text-[10px] font-black uppercase">Delete</button>
+                </div>
+            </div>
+        `;
+    }).join('') || '<div class="p-6 text-center text-sm font-bold text-slate-400">No regular reports configured.</div>';
+}
+
+function getScheduledReportFormPayload() {
+    return {
+        id: document.getElementById('scheduledReportId')?.value || '',
+        name: document.getElementById('scheduledReportName')?.value || '',
+        sender: document.getElementById('scheduledReportSender')?.value || '',
+        recipients: document.getElementById('scheduledReportRecipients')?.value || '',
+        frequency: document.getElementById('scheduledReportFrequency')?.value || 'daily',
+        period: document.getElementById('scheduledReportPeriod')?.value || 'day',
+        hour: parseInt(document.getElementById('scheduledReportHour')?.value || '8', 10),
+        weekday: parseInt(document.getElementById('scheduledReportWeekday')?.value || '0', 10),
+        enabled: !!document.getElementById('scheduledReportEnabled')?.checked,
+        use_gpg: !!document.getElementById('scheduledReportUseGpg')?.checked,
+        report_types: Array.from(document.querySelectorAll('.scheduled-report-type:checked')).map(el => el.value)
+    };
+}
+
+function setScheduledReportForm(report = {}) {
+    document.getElementById('scheduledReportId').value = report.id || '';
+    document.getElementById('scheduledReportName').value = report.name || 'Daily Endpoint Summary';
+    document.getElementById('scheduledReportRecipients').value = report.recipients || '';
+    document.getElementById('scheduledReportFrequency').value = report.frequency || 'daily';
+    document.getElementById('scheduledReportPeriod').value = report.period || (report.frequency === 'weekly' ? 'week' : 'day');
+    document.getElementById('scheduledReportHour').value = report.hour ?? 8;
+    document.getElementById('scheduledReportWeekday').value = report.weekday ?? 0;
+    document.getElementById('scheduledReportEnabled').checked = report.enabled !== false;
+    document.getElementById('scheduledReportUseGpg').checked = !!report.use_gpg;
+    renderScheduledReportSenderOptions();
+    if (report.sender && document.getElementById('scheduledReportSender')) {
+        document.getElementById('scheduledReportSender').value = report.sender;
+    }
+    const selectedTypes = new Set(report.report_types || ['summary', 'tasks', 'audit']);
+    document.querySelectorAll('.scheduled-report-type').forEach(el => {
+        el.checked = selectedTypes.has(el.value);
+    });
+    toggleScheduledReportWeekday();
+}
+
+function resetScheduledReportForm() {
+    setScheduledReportForm({});
+}
+
+function toggleScheduledReportWeekday() {
+    const wrap = document.getElementById('scheduledReportWeekdayWrap');
+    const frequency = document.getElementById('scheduledReportFrequency')?.value || 'daily';
+    if (wrap) wrap.classList.toggle('hidden', frequency !== 'weekly');
+    const period = document.getElementById('scheduledReportPeriod');
+    if (period && frequency === 'weekly' && !period.dataset.userTouched) period.value = 'week';
+}
+
+async function openScheduledReportsManager() {
+    await fetchSmtpProfilesGlobally();
+    await fetchScheduledReports();
+    renderScheduledReportSenderOptions();
+    renderScheduledReportsList();
+    setScheduledReportForm(scheduledReports[0] || {});
+    openModal('scheduledReportsModal');
+}
+
+function editScheduledReport(id) {
+    const report = scheduledReports.find(item => item.id === id);
+    if (report) setScheduledReportForm(report);
+}
+
+async function saveScheduledReport() {
+    const payload = getScheduledReportFormPayload();
+    if (!payload.name || !payload.sender || !payload.recipients) {
+        return alert('Fill report name, SMTP sender, and recipients.');
+    }
+    try {
+        const res = await fetch('/api/infrastructure/scheduled-reports', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify(payload)
+        });
+        const data = await res.json();
+        if (!data.success) return alert(data.message || 'Failed to save regular report.');
+        await fetchScheduledReports();
+        renderScheduledReportsList();
+        setScheduledReportForm(data.report || {});
+    } catch(e) {
+        alert('Error saving regular report.');
+    }
+}
+
+async function deleteScheduledReport(id) {
+    if (!confirm('Delete this regular report?')) return;
+    try {
+        await fetch('/api/infrastructure/scheduled-reports/' + encodeURIComponent(id), { method: 'DELETE' });
+        await fetchScheduledReports();
+        renderScheduledReportsList();
+        resetScheduledReportForm();
+    } catch(e) {
+        alert('Error deleting regular report.');
+    }
+}
+
+async function sendScheduledReportNow(id = null) {
+    const targetId = id || document.getElementById('scheduledReportId')?.value;
+    if (!targetId) {
+        await saveScheduledReport();
+        const savedId = document.getElementById('scheduledReportId')?.value;
+        if (!savedId) return;
+        return sendScheduledReportNow(savedId);
+    }
+    try {
+        const res = await fetch('/api/infrastructure/scheduled-reports/' + encodeURIComponent(targetId) + '/send-now', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify(getScheduledReportFormPayload())
+        });
+        const data = await res.json();
+        alert(data.message || (data.success ? 'Report sent.' : 'Failed to send report.'));
+        await fetchScheduledReports();
+        renderScheduledReportsList();
+    } catch(e) {
+        alert('Error sending regular report.');
+    }
 }
 
 // Перезаписуємо closeModal, щоб при закритті вікна SMTP гарантовано оновлювати списки пошт
@@ -1737,7 +1901,7 @@ function renderFleetCenter() {
                 ${duplicateBadge}
             </td>
             <td class="px-6 py-4"><span class="px-3 py-1 rounded-xl border text-[10px] font-black uppercase ${versionClass}">${escapeHtml(host.agent_version || 'unknown')}</span></td>
-            <td class="px-6 py-4"><span class="px-3 py-1 rounded-xl border text-[10px] font-black uppercase ${keyClass}" title="Agent request signing key exchange">${keyLabel}</span></td>
+            <td class="px-6 py-4 whitespace-nowrap"><span class="inline-flex whitespace-nowrap px-3 py-1 rounded-xl border text-[10px] font-black uppercase ${keyClass}" title="Agent request signing key exchange">${keyLabel}</span></td>
             <td class="px-6 py-4">
                 <span title="${healthReasons}" class="px-3 py-1 rounded-xl border text-[10px] font-black uppercase ${healthClass}">${health.score || 0}% ${escapeHtml(health.status || 'Unknown')}</span>
                 <div class="text-[10px] font-bold text-slate-400 mt-1">${healthReasons}</div>

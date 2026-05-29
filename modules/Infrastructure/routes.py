@@ -30,6 +30,7 @@ infrastructure_bp = Blueprint('infrastructure', __name__, template_folder='templ
 kyiv_tz = ZoneInfo("Europe/Kyiv")
 
 SMTP_FILE = os.path.join(Config.DATA_DIR, "infra_smtp_profiles.json")
+SCHEDULED_REPORTS_FILE = os.path.join(Config.DATA_DIR, "infra_scheduled_reports.json")
 SECRETS_FILE = os.path.join(Config.DATA_DIR, "infra_template_secrets.json")
 AGENT_PACKAGES_FILE = os.path.join(Config.DATA_DIR, "infra_agent_packages.json")
 AGENT_PACKAGES_DIR = os.path.join(Config.DATA_DIR, "agent_packages")
@@ -50,6 +51,22 @@ def load_smtp_profiles():
 def save_smtp_profiles(data):
     with open(SMTP_FILE, 'w', encoding='utf-8') as f:
         json.dump(data, f, indent=4)
+
+def load_scheduled_reports():
+    if not os.path.exists(SCHEDULED_REPORTS_FILE):
+        return []
+    try:
+        with open(SCHEDULED_REPORTS_FILE, "r", encoding="utf-8") as f:
+            data = json.load(f)
+            return data if isinstance(data, list) else []
+    except Exception:
+        logging.getLogger("winhub").exception("Failed to load scheduled reports")
+        return []
+
+def save_scheduled_reports(reports):
+    os.makedirs(os.path.dirname(SCHEDULED_REPORTS_FILE), exist_ok=True)
+    with open(SCHEDULED_REPORTS_FILE, "w", encoding="utf-8") as f:
+        json.dump(reports, f, indent=2, ensure_ascii=False)
 
 def load_agent_packages():
     if not os.path.exists(AGENT_PACKAGES_FILE):
@@ -744,6 +761,205 @@ def perform_auto_email_send(report_id, title, report_body, sender_email, recipie
         logging.getLogger("winhub").error(f"[Auto-Email] {message}")
     return success, message, sent_count
 
+def scheduled_report_period(period):
+    now = datetime.now(kyiv_tz)
+    if period == "week":
+        start = now - timedelta(days=7)
+    else:
+        start = now - timedelta(days=1)
+    return (
+        start.astimezone(timezone.utc).replace(tzinfo=None),
+        now.astimezone(timezone.utc).replace(tzinfo=None),
+    )
+
+def scheduled_report_label(period):
+    return "Last 7 days" if period == "week" else "Last 24 hours"
+
+def compact_details(value, max_len=260):
+    if value is None:
+        return ""
+    text = str(value).replace("\n", " ").strip()
+    return text if len(text) <= max_len else text[:max_len - 3] + "..."
+
+def build_scheduled_report_body(report_types, since, until):
+    selected = set(report_types or [])
+    if not selected:
+        selected = {"summary", "tasks", "audit", "enrollments", "agent_updates"}
+    since_kyiv = since.replace(tzinfo=timezone.utc).astimezone(kyiv_tz)
+    until_kyiv = until.replace(tzinfo=timezone.utc).astimezone(kyiv_tz)
+
+    lines = [
+        "WinHUB Regular Report",
+        f"Period: {since_kyiv.strftime('%Y-%m-%d %H:%M')} - {until_kyiv.strftime('%Y-%m-%d %H:%M')} Kyiv",
+        f"Generated: {datetime.now(kyiv_tz).strftime('%Y-%m-%d %H:%M:%S')} Kyiv",
+        "",
+    ]
+
+    if "summary" in selected:
+        total = Endpoint.query.count()
+        approved = Endpoint.query.filter_by(approval_status="Approved").count()
+        pending = Endpoint.query.filter_by(approval_status="Pending").count()
+        rejected = Endpoint.query.filter_by(approval_status="Rejected").count()
+        signed = Endpoint.query.filter(Endpoint.public_key_pem.isnot(None), Endpoint.public_key_pem != "").count()
+        latest = latest_agent_package_version()
+        outdated = Endpoint.query.filter(Endpoint.approval_status == "Approved", Endpoint.agent_version != latest).count() if latest else 0
+        online_since = datetime.utcnow() - timedelta(minutes=5)
+        online = Endpoint.query.filter(Endpoint.last_seen >= online_since).count()
+        lines += [
+            "== Endpoint Summary ==",
+            f"Total endpoints: {total}",
+            f"Approved: {approved} | Pending: {pending} | Rejected: {rejected}",
+            f"Online now: {online}",
+            f"Signed identity keys: {signed}",
+            f"Latest agent: {latest or 'unknown'} | Outdated approved agents: {outdated}",
+            "",
+        ]
+
+    if "tasks" in selected:
+        tasks = AgentTask.query.filter(AgentTask.created_at >= since, AgentTask.created_at <= until).order_by(AgentTask.created_at.desc()).limit(200).all()
+        status_counts = {}
+        for task in tasks:
+            status_counts[task.status or "Unknown"] = status_counts.get(task.status or "Unknown", 0) + 1
+        lines += [
+            "== Execution Tasks ==",
+            f"Tasks in period: {len(tasks)}",
+            "Status counts: " + (", ".join(f"{k}: {v}" for k, v in sorted(status_counts.items())) or "none"),
+        ]
+        for task in tasks[:60]:
+            endpoint_name = task.endpoint.hostname if task.endpoint else task.endpoint_id
+            lines.append(f"- {task.created_at} | {task.status} | {endpoint_name} | {task.title} | by {task.created_by or 'System'}")
+        if len(tasks) > 60:
+            lines.append(f"... {len(tasks) - 60} more tasks omitted.")
+        lines.append("")
+
+    if "agent_updates" in selected:
+        updates = AgentTask.query.filter(
+            AgentTask.created_at >= since,
+            AgentTask.created_at <= until,
+            AgentTask.action_type == "agent_update",
+        ).order_by(AgentTask.created_at.desc()).limit(120).all()
+        lines += ["== Agent Updates ==", f"Update tasks in period: {len(updates)}"]
+        for task in updates[:60]:
+            endpoint_name = task.endpoint.hostname if task.endpoint else task.endpoint_id
+            lines.append(f"- {task.created_at} | {task.status} | {endpoint_name} | {task.title}")
+        if len(updates) > 60:
+            lines.append(f"... {len(updates) - 60} more update tasks omitted.")
+        lines.append("")
+
+    if "enrollments" in selected:
+        events = RegistrationHistory.query.filter(
+            RegistrationHistory.timestamp >= since,
+            RegistrationHistory.timestamp <= until,
+        ).order_by(RegistrationHistory.timestamp.desc()).limit(120).all()
+        lines += ["== Enrollment Events ==", f"Events in period: {len(events)}"]
+        for event in events[:80]:
+            lines.append(f"- {event.timestamp} | {event.hostname} | {event.event_type} | {event.ip_address or '-'}")
+        if len(events) > 80:
+            lines.append(f"... {len(events) - 80} more enrollment events omitted.")
+        lines.append("")
+
+    if "audit" in selected:
+        audit_logs = AuditLog.query.filter(
+            AuditLog.timestamp >= since,
+            AuditLog.timestamp <= until,
+        ).order_by(AuditLog.timestamp.desc()).limit(160).all()
+        lines += ["== Audit Logs ==", f"Audit records in period: {len(audit_logs)}"]
+        for item in audit_logs[:100]:
+            actor = item.actor_name or item.user or "System"
+            lines.append(f"- {item.timestamp} | {item.status or '-'} | {actor} | {item.module or '-'} | {item.action or '-'} | {item.target_type or '-'}:{item.target_id or '-'} | {compact_details(item.details)}")
+        if len(audit_logs) > 100:
+            lines.append(f"... {len(audit_logs) - 100} more audit records omitted.")
+        lines.append("")
+
+    return "\n".join(lines).strip() + "\n"
+
+def normalize_scheduled_report(data, existing=None):
+    existing = existing or {}
+    report_types = data.get("report_types") or data.get("types") or existing.get("report_types") or []
+    if not isinstance(report_types, list):
+        report_types = []
+    allowed_types = {"summary", "tasks", "audit", "enrollments", "agent_updates"}
+    report_types = [item for item in report_types if item in allowed_types] or ["summary", "tasks", "audit"]
+
+    frequency = data.get("frequency") or existing.get("frequency") or "daily"
+    if frequency not in ("daily", "weekly"):
+        frequency = "daily"
+    period = data.get("period") or existing.get("period") or ("week" if frequency == "weekly" else "day")
+    if period not in ("day", "week"):
+        period = "day"
+    try:
+        hour = int(data.get("hour", existing.get("hour", 8)))
+    except Exception:
+        hour = 8
+    hour = max(0, min(23, hour))
+    try:
+        weekday = int(data.get("weekday", existing.get("weekday", 0)))
+    except Exception:
+        weekday = 0
+    weekday = max(0, min(6, weekday))
+
+    return {
+        "id": existing.get("id") or data.get("id") or str(uuid.uuid4()),
+        "name": str(data.get("name") or existing.get("name") or "Infrastructure Regular Report").strip()[:120],
+        "enabled": bool(data.get("enabled", existing.get("enabled", True))),
+        "frequency": frequency,
+        "period": period,
+        "hour": hour,
+        "weekday": weekday,
+        "sender": str(data.get("sender") or existing.get("sender") or "").strip(),
+        "recipients": ", ".join(parse_recipients(data.get("recipients", existing.get("recipients", "")))),
+        "use_gpg": bool(data.get("use_gpg", existing.get("use_gpg", False))),
+        "report_types": report_types,
+        "last_run_key": existing.get("last_run_key"),
+        "last_run_at": existing.get("last_run_at"),
+        "last_status": existing.get("last_status"),
+    }
+
+def scheduled_report_due(report, now):
+    if not report.get("enabled"):
+        return False, None
+    if int(report.get("hour", 8)) > now.hour:
+        return False, None
+    if report.get("frequency") == "weekly":
+        if int(report.get("weekday", 0)) != now.weekday():
+            return False, None
+        run_key = f"{now.strftime('%G')}-W{now.strftime('%V')}"
+    else:
+        run_key = now.strftime("%Y-%m-%d")
+    return report.get("last_run_key") != run_key, run_key
+
+def send_scheduled_report(report):
+    since, until = scheduled_report_period(report.get("period"))
+    body = build_scheduled_report_body(report.get("report_types"), since, until)
+    title = f"{report.get('name') or 'Infrastructure Report'} ({scheduled_report_label(report.get('period'))})"
+    return send_report_email(
+        title=title,
+        report_body=body,
+        sender_email=report.get("sender"),
+        recipient_list=report.get("recipients"),
+        use_gpg=bool(report.get("use_gpg")),
+    )
+
+def process_due_scheduled_reports():
+    reports = load_scheduled_reports()
+    if not reports:
+        return
+    changed = False
+    now = datetime.now(kyiv_tz)
+    for report in reports:
+        due, run_key = scheduled_report_due(report, now)
+        if not due:
+            continue
+        success, message, sent_count = send_scheduled_report(report)
+        report["last_run_key"] = run_key
+        report["last_run_at"] = now.isoformat()
+        report["last_status"] = f"Sent to {sent_count}" if success else f"Error: {message}"
+        changed = True
+        if not success:
+            logging.getLogger("winhub").error("[Scheduled Reports] %s", message)
+    if changed:
+        save_scheduled_reports(reports)
+
 def auto_email_checker_thread(app):
     import time
     with app.app_context():
@@ -785,6 +1001,10 @@ def auto_email_checker_thread(app):
                 process_due_agent_update_rollouts()
             except Exception:
                 logging.getLogger("winhub").exception("Agent update rollout checker failed")
+            try:
+                process_due_scheduled_reports()
+            except Exception:
+                logging.getLogger("winhub").exception("Scheduled report checker failed")
             time.sleep(5)
 
 @infrastructure_bp.before_request
@@ -1058,6 +1278,76 @@ def manage_smtp():
             del profiles[email]
             save_smtp_profiles(profiles)
         return jsonify({"success": True})
+
+
+@infrastructure_bp.route('/api/infrastructure/scheduled-reports', methods=['GET', 'POST'])
+def manage_scheduled_reports():
+    if request.method == 'GET':
+        if not (can("send_reports") or can("manage_smtp")):
+            return jsonify({"success": False, "message": "Permission denied"}), 403
+        return jsonify({"success": True, "reports": load_scheduled_reports()})
+
+    denied = require_permission("manage_smtp")
+    if denied:
+        return denied
+
+    data = request.json or {}
+    reports = load_scheduled_reports()
+    report_id = data.get("id")
+    existing = None
+    if report_id:
+        existing = next((item for item in reports if item.get("id") == report_id), None)
+    report = normalize_scheduled_report(data, existing)
+    if not report.get("sender"):
+        return jsonify({"success": False, "message": "Sender SMTP profile is required."}), 400
+    if report.get("sender") not in load_smtp_profiles():
+        return jsonify({"success": False, "message": "Selected SMTP profile was not found."}), 400
+    if not parse_recipients(report.get("recipients")):
+        return jsonify({"success": False, "message": "At least one valid recipient email is required."}), 400
+
+    if existing:
+        reports = [report if item.get("id") == report["id"] else item for item in reports]
+    else:
+        reports.append(report)
+    save_scheduled_reports(reports)
+    write_infra_audit("scheduled_report_saved", "scheduled_report", report["id"], {"name": report["name"], "frequency": report["frequency"]})
+    db.session.commit()
+    return jsonify({"success": True, "report": report})
+
+
+@infrastructure_bp.route('/api/infrastructure/scheduled-reports/<report_id>', methods=['DELETE'])
+def delete_scheduled_report(report_id):
+    denied = require_permission("manage_smtp")
+    if denied:
+        return denied
+    reports = load_scheduled_reports()
+    next_reports = [item for item in reports if item.get("id") != report_id]
+    save_scheduled_reports(next_reports)
+    write_infra_audit("scheduled_report_deleted", "scheduled_report", report_id)
+    db.session.commit()
+    return jsonify({"success": True})
+
+
+@infrastructure_bp.route('/api/infrastructure/scheduled-reports/<report_id>/send-now', methods=['POST'])
+def send_scheduled_report_now(report_id):
+    denied = require_permission("manage_smtp")
+    if denied:
+        return denied
+    reports = load_scheduled_reports()
+    report = next((item for item in reports if item.get("id") == report_id), None)
+    if not report:
+        return jsonify({"success": False, "message": "Scheduled report was not found."}), 404
+    data = request.json or {}
+    if data:
+        report = normalize_scheduled_report({**report, **data}, report)
+    success, message, sent_count = send_scheduled_report(report)
+    report["last_run_at"] = datetime.now(kyiv_tz).isoformat()
+    report["last_status"] = f"Manual sent to {sent_count}" if success else f"Manual error: {message}"
+    reports = [report if item.get("id") == report_id else item for item in reports]
+    save_scheduled_reports(reports)
+    write_infra_audit("scheduled_report_send_now", "scheduled_report", report_id, {"success": success, "message": message})
+    db.session.commit()
+    return jsonify({"success": success, "message": message, "sent_count": sent_count})
 
 
 @infrastructure_bp.route('/api/infrastructure/secrets', methods=['GET', 'POST'])

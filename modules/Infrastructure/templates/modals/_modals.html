@@ -449,6 +449,91 @@
     </div>
 </div>
 
+<!-- REGULAR REPORTS MODAL -->
+<div id="scheduledReportsModal" class="fixed inset-0 z-[130] hidden flex items-center justify-center bg-slate-900/60 backdrop-blur-md p-4 animate-in fade-in">
+    <div class="bg-white w-full max-w-6xl rounded-[3rem] shadow-2xl border border-slate-200 flex flex-col max-h-[92vh] overflow-hidden">
+        <div class="p-7 border-b border-slate-100 bg-gradient-to-r from-blue-700 via-blue-600 to-indigo-600 text-white flex items-start justify-between gap-6 shrink-0">
+            <div>
+                <h2 class="text-2xl font-black uppercase tracking-tight">Regular Reports</h2>
+                <p class="text-xs font-bold text-blue-100 mt-2 uppercase tracking-widest">Daily, weekly, and manual log delivery</p>
+            </div>
+            <button onclick="closeModal('scheduledReportsModal')" class="p-3 bg-white/10 hover:bg-white/20 rounded-2xl text-white transition-colors"><svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path d="M6 18L18 6M6 6l12 12" stroke-width="2.5" stroke-linecap="round"/></svg></button>
+        </div>
+
+        <div class="grid grid-cols-1 lg:grid-cols-[0.9fr_1.2fr] min-h-0 flex-1">
+            <div class="border-r border-slate-100 bg-slate-50/70 p-5 overflow-y-auto custom-scrollbar">
+                <div id="scheduledReportsList" class="space-y-3"></div>
+            </div>
+            <div class="p-6 overflow-y-auto custom-scrollbar">
+                <input type="hidden" id="scheduledReportId">
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div class="md:col-span-2">
+                        <label class="text-[10px] font-black text-slate-700 uppercase tracking-widest block mb-2">Report Name</label>
+                        <input id="scheduledReportName" type="text" placeholder="Daily Endpoint Summary" class="w-full p-4 bg-slate-50 border border-slate-200 rounded-2xl text-sm font-bold outline-none focus:bg-white focus:ring-4 focus:ring-blue-500/10">
+                    </div>
+                    <div>
+                        <label class="text-[10px] font-black text-slate-700 uppercase tracking-widest block mb-2">SMTP Sender</label>
+                        <select id="scheduledReportSender" class="w-full p-4 bg-white border border-slate-200 rounded-2xl text-sm font-bold outline-none focus:ring-2 focus:ring-blue-500"></select>
+                    </div>
+                    <div>
+                        <label class="text-[10px] font-black text-slate-700 uppercase tracking-widest block mb-2">Recipients</label>
+                        <input id="scheduledReportRecipients" type="text" placeholder="ops@example.com, audit@example.com" class="w-full p-4 bg-slate-50 border border-slate-200 rounded-2xl text-sm font-bold outline-none focus:bg-white focus:ring-4 focus:ring-blue-500/10">
+                    </div>
+                    <div>
+                        <label class="text-[10px] font-black text-slate-700 uppercase tracking-widest block mb-2">Frequency</label>
+                        <select id="scheduledReportFrequency" onchange="toggleScheduledReportWeekday()" class="w-full p-4 bg-white border border-slate-200 rounded-2xl text-sm font-bold outline-none focus:ring-2 focus:ring-blue-500">
+                            <option value="daily">Daily</option>
+                            <option value="weekly">Weekly</option>
+                        </select>
+                    </div>
+                    <div>
+                        <label class="text-[10px] font-black text-slate-700 uppercase tracking-widest block mb-2">Report Period</label>
+                        <select id="scheduledReportPeriod" class="w-full p-4 bg-white border border-slate-200 rounded-2xl text-sm font-bold outline-none focus:ring-2 focus:ring-blue-500">
+                            <option value="day">Last 24 hours</option>
+                            <option value="week">Last 7 days</option>
+                        </select>
+                    </div>
+                    <div>
+                        <label class="text-[10px] font-black text-slate-700 uppercase tracking-widest block mb-2">Send Hour (Kyiv)</label>
+                        <input id="scheduledReportHour" type="number" min="0" max="23" value="8" class="w-full p-4 bg-slate-50 border border-slate-200 rounded-2xl text-sm font-bold outline-none focus:bg-white focus:ring-4 focus:ring-blue-500/10">
+                    </div>
+                    <div id="scheduledReportWeekdayWrap" class="hidden">
+                        <label class="text-[10px] font-black text-slate-700 uppercase tracking-widest block mb-2">Weekday</label>
+                        <select id="scheduledReportWeekday" class="w-full p-4 bg-white border border-slate-200 rounded-2xl text-sm font-bold outline-none focus:ring-2 focus:ring-blue-500">
+                            <option value="0">Monday</option>
+                            <option value="1">Tuesday</option>
+                            <option value="2">Wednesday</option>
+                            <option value="3">Thursday</option>
+                            <option value="4">Friday</option>
+                            <option value="5">Saturday</option>
+                            <option value="6">Sunday</option>
+                        </select>
+                    </div>
+                    <div class="md:col-span-2 bg-slate-50 border border-slate-200 rounded-3xl p-5">
+                        <label class="text-[10px] font-black text-slate-700 uppercase tracking-widest block mb-4">Included Sections</label>
+                        <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+                            <label class="flex items-center gap-3 p-3 bg-white rounded-2xl border border-slate-200 text-sm font-bold text-slate-700"><input type="checkbox" class="scheduled-report-type w-4 h-4 text-blue-600" value="summary" checked> Endpoint Summary</label>
+                            <label class="flex items-center gap-3 p-3 bg-white rounded-2xl border border-slate-200 text-sm font-bold text-slate-700"><input type="checkbox" class="scheduled-report-type w-4 h-4 text-blue-600" value="tasks" checked> Execution Tasks</label>
+                            <label class="flex items-center gap-3 p-3 bg-white rounded-2xl border border-slate-200 text-sm font-bold text-slate-700"><input type="checkbox" class="scheduled-report-type w-4 h-4 text-blue-600" value="agent_updates"> Agent Updates</label>
+                            <label class="flex items-center gap-3 p-3 bg-white rounded-2xl border border-slate-200 text-sm font-bold text-slate-700"><input type="checkbox" class="scheduled-report-type w-4 h-4 text-blue-600" value="enrollments"> Enrollments</label>
+                            <label class="flex items-center gap-3 p-3 bg-white rounded-2xl border border-slate-200 text-sm font-bold text-slate-700"><input type="checkbox" class="scheduled-report-type w-4 h-4 text-blue-600" value="audit" checked> Audit Logs</label>
+                        </div>
+                    </div>
+                    <div class="md:col-span-2 flex flex-wrap gap-3">
+                        <label class="flex items-center gap-3 px-4 py-3 bg-blue-50 border border-blue-100 rounded-2xl text-sm font-black text-blue-700"><input id="scheduledReportEnabled" type="checkbox" checked class="w-4 h-4 text-blue-600"> Enabled</label>
+                        <label class="flex items-center gap-3 px-4 py-3 bg-violet-50 border border-violet-100 rounded-2xl text-sm font-black text-violet-700"><input id="scheduledReportUseGpg" type="checkbox" class="w-4 h-4 text-violet-600"> Encrypt with GPG</label>
+                    </div>
+                </div>
+                <div class="flex flex-wrap justify-end gap-3 mt-6 pt-5 border-t border-slate-100">
+                    <button onclick="resetScheduledReportForm()" class="px-5 py-3 bg-slate-100 text-slate-700 rounded-2xl text-xs font-black uppercase">New</button>
+                    <button onclick="sendScheduledReportNow()" class="px-5 py-3 bg-white border border-blue-200 text-blue-700 rounded-2xl text-xs font-black uppercase">Send Once</button>
+                    <button onclick="saveScheduledReport()" class="px-6 py-3 bg-blue-600 hover:bg-blue-700 text-white rounded-2xl text-xs font-black uppercase shadow-lg shadow-blue-200">Save Report</button>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
 <!-- TEMPLATE SECRETS MODAL -->
 <div id="secretsManagerModal" class="fixed inset-0 z-[130] hidden flex items-center justify-center bg-slate-900/60 backdrop-blur-md p-4 animate-in fade-in">
     <div class="bg-white w-full max-w-2xl rounded-[3rem] shadow-2xl p-8 sm:p-10 border border-slate-200 flex flex-col max-h-[90vh]">
