@@ -75,12 +75,26 @@ def agent_identity_fingerprint(hw_id, hostname, os_type, network_interfaces):
                 if mac:
                     macs.append(mac)
     source = json.dumps({
-        "hw_id": hw_id,
-        "hostname": hostname,
+        "hostname": str(hostname or "").strip().upper(),
         "os_type": os_type,
         "macs": sorted(set(macs)),
     }, sort_keys=True, separators=(",", ":"))
     return hashlib.sha256(source.encode("utf-8")).hexdigest()
+
+
+def endpoint_stable_identity_fingerprint(endpoint):
+    try:
+        network_interfaces = json.loads(endpoint.network_info or "[]")
+        if not isinstance(network_interfaces, list):
+            network_interfaces = []
+    except Exception:
+        network_interfaces = []
+    return agent_identity_fingerprint(
+        None,
+        endpoint.hostname,
+        endpoint.os_type or "Windows",
+        network_interfaces,
+    )
 
 
 def find_approved_duplicate_endpoint(hw_id, hostname, source_ip, fingerprint):
@@ -94,7 +108,13 @@ def find_approved_duplicate_endpoint(hw_id, hostname, source_ip, fingerprint):
             reasons.append("hostname")
         if source_ip and endpoint.ip_address and source_ip == endpoint.ip_address:
             reasons.append("connection_ip")
-        if fingerprint and getattr(endpoint, "identity_fingerprint", None) == fingerprint:
+        endpoint_fingerprints = {
+            getattr(endpoint, "identity_fingerprint", None),
+            endpoint_stable_identity_fingerprint(endpoint),
+        }
+        endpoint_fingerprints.discard(None)
+        endpoint_fingerprints.discard("")
+        if fingerprint and fingerprint in endpoint_fingerprints:
             reasons.append("identity")
         if "identity" in reasons:
             return endpoint, reasons
@@ -353,6 +373,7 @@ def enroll_agent():
             agent.identity_fingerprint = fingerprint
         elif previous_fingerprint != fingerprint:
             agent.identity_warning = "Enrollment identity changed. Review hostname, IP and network interfaces before approval."
+            agent.identity_fingerprint = fingerprint
         if duplicate_endpoint and getattr(agent, "approval_status", "Pending") != "Approved":
             agent.approval_status = "Rejected"
             agent.identity_warning = (

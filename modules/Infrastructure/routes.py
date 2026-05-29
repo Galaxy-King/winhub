@@ -495,25 +495,53 @@ def encryption_status_from_host_info(host_info):
     return {"status": status, "level": level, "methods": methods}
 
 def annotate_endpoint_duplicates(agents):
+    def stable_identity_fingerprint(agent):
+        try:
+            network_interfaces = json.loads(agent.network_info or "[]")
+            if not isinstance(network_interfaces, list):
+                network_interfaces = []
+        except Exception:
+            network_interfaces = []
+        macs = []
+        for item in network_interfaces:
+            if isinstance(item, dict):
+                mac = str(item.get("mac") or "").strip().upper()
+                if mac:
+                    macs.append(mac)
+        source = json.dumps({
+            "hostname": str(agent.hostname or "").strip().upper(),
+            "os_type": getattr(agent, "os_type", None) or "Windows",
+            "macs": sorted(set(macs)),
+        }, sort_keys=True, separators=(",", ":"))
+        return hashlib.sha256(source.encode("utf-8")).hexdigest()
+
     approved = [
         agent for agent in agents
         if getattr(agent, "approval_status", "Approved") == "Approved"
     ]
     for agent in agents:
+        agent_fingerprints = {
+            getattr(agent, "identity_fingerprint", None),
+            stable_identity_fingerprint(agent),
+        }
+        agent_fingerprints.discard(None)
+        agent_fingerprints.discard("")
         matches = []
         for approved_agent in approved:
             if approved_agent.id == agent.id:
                 continue
+            approved_fingerprints = {
+                getattr(approved_agent, "identity_fingerprint", None),
+                stable_identity_fingerprint(approved_agent),
+            }
+            approved_fingerprints.discard(None)
+            approved_fingerprints.discard("")
             reasons = []
             if agent.hostname and approved_agent.hostname and agent.hostname == approved_agent.hostname:
                 reasons.append("hostname")
             if agent.ip_address and approved_agent.ip_address and agent.ip_address == approved_agent.ip_address:
                 reasons.append("connection_ip")
-            if (
-                getattr(agent, "identity_fingerprint", None)
-                and getattr(approved_agent, "identity_fingerprint", None)
-                and agent.identity_fingerprint == approved_agent.identity_fingerprint
-            ):
+            if agent_fingerprints and approved_fingerprints and agent_fingerprints.intersection(approved_fingerprints):
                 reasons.append("identity")
             if reasons:
                 strong_match = "identity" in reasons
