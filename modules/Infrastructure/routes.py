@@ -2,6 +2,7 @@ import os
 import json
 import uuid
 import hashlib
+import base64
 import logging
 import threading
 import smtplib
@@ -1531,8 +1532,36 @@ def delete_agent_package(package_id):
     return jsonify({"success": True})
 
 
+def agent_updater_bootstrap_script():
+    updater_path = os.path.abspath(os.path.join(
+        os.path.dirname(__file__),
+        "..",
+        "..",
+        "WinHUBAgent",
+        "update-service.ps1"
+    ))
+    with open(updater_path, "rb") as f:
+        updater_b64 = base64.b64encode(f.read()).decode("ascii")
+    return f"""$ErrorActionPreference = 'Stop'
+$InstallDir = "C:\\Program Files\\WinHUBAgent"
+$UpdaterPath = Join-Path $InstallDir "update-service.ps1"
+New-Item -ItemType Directory -Path $InstallDir -Force | Out-Null
+$bytes = [Convert]::FromBase64String("{updater_b64}")
+$content = [System.Text.Encoding]::UTF8.GetString($bytes)
+[System.IO.File]::WriteAllText($UpdaterPath, $content, (New-Object System.Text.UTF8Encoding($false)))
+Unblock-File -LiteralPath $UpdaterPath -ErrorAction SilentlyContinue
+Write-Output "[WinHUB] update-service.ps1 prepared at $UpdaterPath"
+"""
+
+
+def is_agent_updater_prepare_task(task):
+    return task.action_type == "run_script" and (task.title or "").startswith("Prepare Agent Updater")
+
+
 def create_agent_update_wave(host_ids, package, created_by, wave_index, wave_total):
     job_id = str(uuid.uuid4())
+    created_at = datetime.utcnow()
+    updater_script = agent_updater_bootstrap_script()
     payload = {
         "package_url": package.get("download_url") or agent_package_public_url(package["id"]),
         "package_sha256": package.get("sha256"),
@@ -1544,11 +1573,23 @@ def create_agent_update_wave(host_ids, package, created_by, wave_index, wave_tot
             id=str(uuid.uuid4()),
             job_id=job_id,
             endpoint_id=host_id,
+            title=f"Prepare Agent Updater - Wave {wave_index}/{wave_total}",
+            module_source="Infrastructure",
+            action_type="run_script",
+            payload=json.dumps({"script": updater_script}, ensure_ascii=False),
+            created_by=created_by,
+            created_at=created_at,
+        ))
+        db.session.add(AgentTask(
+            id=str(uuid.uuid4()),
+            job_id=job_id,
+            endpoint_id=host_id,
             title=title,
             module_source="Infrastructure",
             action_type="agent_update",
             payload=json.dumps(payload, ensure_ascii=False),
             created_by=created_by,
+            created_at=created_at + timedelta(seconds=1),
         ))
     db.session.commit()
     return job_id
@@ -2563,6 +2604,8 @@ def get_tasks():
         jid = t.job_id or t.id
         if jid not in jobs:
             jobs[jid] = {"job_id": jid, "title": t.title or "Untitled Task", "action": t.action_type, "created_at": to_kyiv_time(t.created_at), "created_by": t.created_by, "tasks": [], "total": 0, "success": 0, "error": 0, "pending": 0, "running": 0, "cancelled": 0}
+        if is_agent_updater_prepare_task(t):
+            continue
         jobs[jid]["tasks"].append({"task_id": t.id, "hostname": hostname, "status": t.status or "Pending"})
         jobs[jid]["total"] += 1
         
@@ -2577,6 +2620,8 @@ def get_tasks():
     for jid in job_ids:
         data = jobs.get(jid)
         if not data:
+            continue
+        if data["total"] == 0:
             continue
         data["target_summary"] = data["tasks"][0]["hostname"] if data["total"] == 1 else f"Group Deployment ({data['total']} hosts)"
         if data["error"] > 0: data["status"] = "Error"
