@@ -65,7 +65,7 @@
                     <td class="px-6 py-4 text-xs font-bold text-slate-600">{{ agent.agent_version or 'Unknown' }}</td>
                     <td class="px-6 py-4 text-xs">
                         <div class="font-black text-slate-700">{{ agent.enrollment_attempts or 0 }} attempts</div>
-                        <div class="text-[10px] text-slate-400 font-bold mt-1">{{ agent.last_enrollment_at | string if agent.last_enrollment_at else '-' }}</div>
+                        <div class="text-[10px] text-slate-400 font-bold mt-1">{{ agent.last_enrollment_str or '-' }}</div>
                     </td>
                     <td class="px-6 py-4 text-xs">
                         <div class="font-mono text-[10px] text-slate-500 break-all">{{ agent.identity_fingerprint or '-' }}</div>
@@ -120,13 +120,13 @@
                             <button onclick="viewHost('{{ pair.left.id }}')" class="text-left font-black text-slate-800 hover:text-indigo-600">{{ pair.left.hostname or pair.left.id }}</button>
                             <div class="text-[10px] font-mono text-slate-400 mt-1 break-all">{{ pair.left.id }}</div>
                             <div class="text-[10px] font-bold text-slate-500 mt-2">Agent: {{ pair.left.agent_version or 'Unknown' }} / IP: {{ pair.left.ip_address or '-' }}</div>
-                            <div class="text-[10px] font-bold text-slate-400 mt-1">Last seen: {{ pair.left.last_seen | string if pair.left.last_seen else '-' }}</div>
+                            <div class="text-[10px] font-bold text-slate-400 mt-1">Last seen: {{ pair.left.last_seen_str or '-' }}</div>
                         </td>
                         <td class="px-6 py-4">
                             <button onclick="viewHost('{{ pair.right.id }}')" class="text-left font-black text-slate-800 hover:text-indigo-600">{{ pair.right.hostname or pair.right.id }}</button>
                             <div class="text-[10px] font-mono text-slate-400 mt-1 break-all">{{ pair.right.id }}</div>
                             <div class="text-[10px] font-bold text-slate-500 mt-2">Agent: {{ pair.right.agent_version or 'Unknown' }} / IP: {{ pair.right.ip_address or '-' }}</div>
-                            <div class="text-[10px] font-bold text-slate-400 mt-1">Last seen: {{ pair.right.last_seen | string if pair.right.last_seen else '-' }}</div>
+                            <div class="text-[10px] font-bold text-slate-400 mt-1">Last seen: {{ pair.right.last_seen_str or '-' }}</div>
                         </td>
                         <td class="px-6 py-4">
                             <div class="inline-flex px-2.5 py-1 rounded-lg bg-rose-50 text-rose-700 border border-rose-100 text-[9px] font-black uppercase">{{ pair.reasons|join(', ') }}</div>
@@ -181,7 +181,7 @@
                         <td class="px-6 py-4 text-xs font-bold text-slate-600">{{ agent.agent_version or 'Unknown' }}</td>
                         <td class="px-6 py-4 text-xs">
                             <div class="font-black text-slate-700">{{ agent.enrollment_attempts or 0 }} attempts</div>
-                            <div class="text-[10px] text-slate-400 font-bold mt-1">{{ agent.last_enrollment_at | string if agent.last_enrollment_at else '-' }}</div>
+                            <div class="text-[10px] text-slate-400 font-bold mt-1">{{ agent.last_enrollment_str or '-' }}</div>
                         </td>
                         <td class="px-6 py-4 text-xs">
                             <div class="font-mono text-[10px] text-slate-500 break-all">{{ agent.identity_fingerprint or '-' }}</div>

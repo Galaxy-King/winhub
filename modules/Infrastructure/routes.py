@@ -73,6 +73,9 @@ def find_agent_package(package_id):
     return None
 
 def agent_package_public_url(package_id):
+    path = url_for("infrastructure.download_agent_package_public", package_id=package_id)
+    if getattr(Config, "AGENT_PUBLIC_BASE_URL", ""):
+        return f"{Config.AGENT_PUBLIC_BASE_URL}{path}"
     return url_for("infrastructure.download_agent_package_public", package_id=package_id, _external=True)
 
 def latest_agent_package_version():
@@ -830,6 +833,7 @@ def index():
     for a in agents: 
         a.is_online = (a.last_seen and a.last_seen >= online_threshold)
         a.last_seen_str = to_kyiv_time(a.last_seen)
+        a.last_enrollment_str = to_kyiv_time(getattr(a, "last_enrollment_at", None))
         a.agent_outdated = bool(Config.LATEST_AGENT_VERSION and (a.agent_version or "") != Config.LATEST_AGENT_VERSION)
         try:
             a.encryption = encryption_status_from_host_info(json.loads(a.host_info or "{}"))
