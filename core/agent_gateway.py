@@ -395,7 +395,12 @@ def enroll_agent():
     if getattr(agent, "approval_status", "Approved") == "Approved":
         ensure_default_groups_and_assign(agent, os_type)
     db.session.commit()
-    return jsonify({"status": "success", "auth_token": raw_token})
+    return jsonify({
+        "status": "success",
+        "auth_token": raw_token,
+        "approval_status": getattr(agent, "approval_status", "Pending"),
+        "adopted_identity": bool(adopted_identity),
+    })
 
 @agent_gateway_bp.route('/poll', methods=['POST'])
 def agent_poll():
