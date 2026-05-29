@@ -1669,7 +1669,8 @@ function renderFleetCenter() {
         const health = host.health || {};
         const encryption = host.encryption || {};
         const groupText = (host.groups || []).map(group => group.name).join(' ');
-        const haystack = [host.hostname, host.ip, host.os, host.agent_version, host.identity_fingerprint, groupText, health.status, encryption.status, ...(encryption.methods || []), ...(health.reasons || [])].join(' ').toLowerCase();
+        const duplicateText = host.possible_duplicate ? 'duplicate identity approved duplicate' : '';
+        const haystack = [host.hostname, host.ip, host.os, host.agent_version, host.identity_fingerprint, duplicateText, groupText, health.status, encryption.status, ...(encryption.methods || []), ...(health.reasons || [])].join(' ').toLowerCase();
         const matchSearch = !search || haystack.includes(search);
         const hostGroupIds = (host.groups || []).map(group => String(group.id));
         const wantsUngrouped = groupFilters.includes('ungrouped');
@@ -1682,6 +1683,7 @@ function renderFleetCenter() {
         else if (statusFilter === 'current') matchStatus = !health.outdated;
         else if (statusFilter === 'offline') matchStatus = !health.online;
         else if (statusFilter === 'warning') matchStatus = ['Warning', 'Critical'].includes(health.status);
+        else if (statusFilter === 'duplicate') matchStatus = !!host.possible_duplicate;
         return matchSearch && matchGroup && matchStatus;
     }).sort((a, b) => {
         const av = fleetSortValue(a, fleetSortState.key);
@@ -1706,13 +1708,19 @@ function renderFleetCenter() {
         const groups = (host.groups || []).map(group => `<span class="px-2 py-1 rounded-lg bg-slate-100 text-slate-500 border border-slate-200 text-[9px] font-black uppercase">${escapeHtml(group.name)}</span>`).join('');
         const healthReasons = (health.reasons || []).map(escapeHtml).join(', ') || 'online, current version, approved, unblocked';
         const checked = fleetSelectedHostIds.has(host.id) ? 'checked' : '';
-        return `<tr>
+        const duplicateMatches = (host.duplicate_matches || []).filter(match => match.strong_match);
+        const duplicateSummary = duplicateMatches.map(match => `${match.hostname || match.id} / ${match.agent_version || 'unknown'} / ${(match.reasons || []).join(', ')}`).join(' | ');
+        const duplicateBadge = host.possible_duplicate
+            ? `<div class="mt-2 inline-flex px-2.5 py-1 rounded-lg bg-rose-50 text-rose-700 border border-rose-100 text-[9px] font-black uppercase" title="${escapeHtml(duplicateSummary || 'Same stable identity as another approved node')}">Duplicate identity</div>`
+            : '';
+        return `<tr class="${host.possible_duplicate ? 'bg-rose-50/35' : ''}">
             <td class="px-6 py-4">
                 <input type="checkbox" value="${escapeHtml(host.id)}" ${checked} onchange="toggleFleetHostSelection('${escapeHtml(host.id)}', this.checked)" class="fleet-host-cb w-4 h-4 rounded border-slate-300 text-indigo-600 focus:ring-indigo-500">
             </td>
             <td class="px-6 py-4">
                 <button onclick="viewHost('${escapeHtml(host.id)}')" class="font-black text-slate-800 hover:text-indigo-600 text-left">${escapeHtml(host.hostname)}</button>
                 <div class="text-[10px] font-bold text-slate-400 uppercase mt-1">${escapeHtml(host.os || 'Windows')}</div>
+                ${duplicateBadge}
             </td>
             <td class="px-6 py-4"><span class="px-3 py-1 rounded-xl border text-[10px] font-black uppercase ${versionClass}">${escapeHtml(host.agent_version || 'unknown')}</span></td>
             <td class="px-6 py-4">
