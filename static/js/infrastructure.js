@@ -41,6 +41,7 @@ const infraPermissions = window.WinhubPermissions || {};
 let payloadEditor = null;
 const infraStateKeys = {
     view: 'infra_vfinal_view',
+    nodeTab: 'infra_nodes_active_tab',
     categories: 'infra_open_categories',
     template: 'infra_selected_template'
 };
@@ -873,7 +874,7 @@ function switchView(view, save=true) {
     if(view === 'queue') loadQueue();
     if(view === 'reports') loadReports();
     if(view === 'deploy') refreshPayloadEditor();
-    if(view === 'hosts') loadFleetCenter();
+    if(view === 'hosts') switchNodeTab(localStorage.getItem(infraStateKeys.nodeTab) || 'approved', false);
     if(view === 'software') loadSoftwareRegistry();
 }
 
@@ -2353,19 +2354,23 @@ function switchHostTab(tab) {
     if(tab === 'telemetry' && currentViewedHostId) loadTelemetry(currentViewedHostId, 1);
 }
 
-function switchNodeTab(tab) {
+function switchNodeTab(tab, save = true) {
+    if (!['approved', 'review'].includes(tab)) tab = 'approved';
+    if (save) localStorage.setItem(infraStateKeys.nodeTab, tab);
     const panels = {
         approved: document.getElementById('nodesApprovedPanel'),
         pending: document.getElementById('nodesPendingPanel'),
+        duplicates: document.getElementById('nodesApprovedDuplicatesPanel'),
         rejected: document.getElementById('nodesRejectedPanel'),
     };
     const buttons = {
         approved: document.getElementById('nodeTab-approved'),
-        pending: document.getElementById('nodeTab-pending'),
-        rejected: document.getElementById('nodeTab-rejected'),
+        review: document.getElementById('nodeTab-review'),
     };
     Object.entries(panels).forEach(([key, panel]) => {
-        if (panel) panel.classList.toggle('hidden', tab !== key);
+        if (!panel) return;
+        const visible = tab === key || (tab === 'review' && ['pending', 'duplicates', 'rejected'].includes(key));
+        panel.classList.toggle('hidden', !visible);
     });
     Object.values(buttons).forEach(btn => {
         if (!btn) return;
@@ -2373,8 +2378,14 @@ function switchNodeTab(tab) {
     });
     const active = buttons[tab] || buttons.approved;
     if (active) active.className = "node-tab-btn px-5 py-2.5 rounded-xl text-xs font-black uppercase bg-slate-900 text-white shadow-sm";
-    if (tab === 'pending') updatePendingApprovalCount();
+    if (tab === 'review') updatePendingApprovalCount();
     if (tab === 'approved') loadFleetCenter();
+}
+
+function reloadKeepingNodeContext(tab = null) {
+    localStorage.setItem(infraStateKeys.view, 'hosts');
+    localStorage.setItem(infraStateKeys.nodeTab, tab || localStorage.getItem(infraStateKeys.nodeTab) || 'review');
+    location.reload();
 }
 
 function pendingApprovalSelection() {
@@ -3183,7 +3194,7 @@ async function setHostApprovalQuick(hostId, status) {
         headers: {'Content-Type': 'application/json'},
         body: JSON.stringify({status})
     });
-    location.reload();
+    reloadKeepingNodeContext(status === 'Approved' ? 'approved' : 'review');
 }
 async function deleteHostQuick(hostId) {
     if (!confirm('Delete this rejected host permanently?')) return;
@@ -3193,7 +3204,21 @@ async function deleteHostQuick(hostId) {
         alert(data.message || 'Failed to delete host.');
         return;
     }
-    location.reload();
+    reloadKeepingNodeContext('review');
+}
+async function mergeEndpointDuplicate(keepId, removeId) {
+    if (!confirm('Merge these duplicate endpoint records? The kept record will remain active, and groups, history, telemetry and tasks from the removed record will be moved into it.')) return;
+    const res = await fetch('/api/infrastructure/host/merge-duplicate', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({keep_id: keepId, remove_id: removeId})
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok || !data.success) {
+        alert(data.message || 'Failed to merge duplicate endpoint.');
+        return;
+    }
+    reloadKeepingNodeContext('review');
 }
 async function setHostApproval(status) {
     await fetch('/api/infrastructure/host/' + currentViewedHostId + '/approval', {
@@ -3202,7 +3227,7 @@ async function setHostApproval(status) {
         body: JSON.stringify({status})
     });
     closeModal('hostModal');
-    location.reload();
+    reloadKeepingNodeContext(status === 'Approved' ? 'approved' : 'review');
 }
 async function submitCreateGroup() { await fetch('/api/infrastructure/group', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({name: document.getElementById('cgName').value, description: document.getElementById('cgDesc').value}) }); location.reload(); }
 async function deleteJob(id) { if(confirm("Permanently delete this job and all its logs?")) { await fetch('/api/infrastructure/job/' + id, { method: 'DELETE' }); loadQueue(); } }
