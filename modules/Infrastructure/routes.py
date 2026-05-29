@@ -1000,10 +1000,12 @@ def auto_email_checker_thread(app):
             try:
                 process_due_agent_update_rollouts()
             except Exception:
+                db.session.rollback()
                 logging.getLogger("winhub").exception("Agent update rollout checker failed")
             try:
                 process_due_scheduled_reports()
             except Exception:
+                db.session.rollback()
                 logging.getLogger("winhub").exception("Scheduled report checker failed")
             time.sleep(5)
 
@@ -1852,6 +1854,13 @@ def is_agent_updater_prepare_task(task):
     return task.action_type == "run_script" and (task.title or "").startswith("Prepare Agent Updater")
 
 
+def existing_endpoint_id_set(host_ids):
+    cleaned = [str(item) for item in (host_ids or []) if str(item or "").strip()]
+    if not cleaned:
+        return set()
+    return {row[0] for row in db.session.query(Endpoint.id).filter(Endpoint.id.in_(cleaned)).all()}
+
+
 def create_agent_update_wave(host_ids, package, created_by, wave_index, wave_total):
     job_id = str(uuid.uuid4())
     created_at = datetime.utcnow()
@@ -1898,6 +1907,7 @@ def process_due_agent_update_rollouts():
     for rollout in rollouts:
         try:
             target_ids = json.loads(rollout.target_ids or "[]")
+            target_ids = list(dict.fromkeys([str(item) for item in target_ids if str(item or "").strip()])) if isinstance(target_ids, list) else []
             if not isinstance(target_ids, list) or not target_ids:
                 rollout.status = "Completed"
                 rollout.updated_at = now
@@ -1914,7 +1924,29 @@ def process_due_agent_update_rollouts():
             package["download_url"] = rollout.package_url or package.get("download_url") or agent_package_public_url(package["id"])
 
             wave_size = max(1, int(rollout.wave_size or 50))
+            existing_ids = existing_endpoint_id_set(target_ids)
+            missing_ids = [host_id for host_id in target_ids if host_id not in existing_ids]
+            if missing_ids:
+                logging.getLogger("winhub").warning(
+                    "Skipping %s missing endpoint(s) from agent update rollout %s: %s",
+                    len(missing_ids),
+                    rollout.id,
+                    ", ".join(missing_ids[:8]) + ("..." if len(missing_ids) > 8 else "")
+                )
+                target_ids = [host_id for host_id in target_ids if host_id in existing_ids]
+                rollout.target_ids = json.dumps(target_ids, ensure_ascii=False)
+            if not target_ids:
+                rollout.status = "Completed"
+                rollout.updated_at = now
+                continue
+
+            recalculated_total_waves = max(1, (len(target_ids) + wave_size - 1) // wave_size)
+            rollout.total_waves = recalculated_total_waves
             index = max(1, int(rollout.next_wave_index or 1))
+            if index > recalculated_total_waves:
+                rollout.status = "Completed"
+                rollout.updated_at = now
+                continue
             start = (index - 1) * wave_size
             host_ids = target_ids[start:start + wave_size]
             if not host_ids:
@@ -1922,16 +1954,16 @@ def process_due_agent_update_rollouts():
                 rollout.updated_at = now
                 continue
 
-            create_agent_update_wave(host_ids, package, rollout.created_by or "System", index, rollout.total_waves or 1)
+            create_agent_update_wave(host_ids, package, rollout.created_by or "System", index, recalculated_total_waves)
             rollout.next_wave_index = index + 1
             rollout.updated_at = datetime.utcnow()
-            if rollout.next_wave_index > int(rollout.total_waves or 1):
+            if rollout.next_wave_index > recalculated_total_waves:
                 rollout.status = "Completed"
             else:
                 rollout.next_run_at = datetime.utcnow() + timedelta(seconds=max(0, int(rollout.wave_delay_seconds or 0)))
         except Exception:
+            db.session.rollback()
             logging.getLogger("winhub").exception("Failed to process agent update rollout %s", rollout.id)
-            rollout.updated_at = datetime.utcnow()
     if rollouts:
         db.session.commit()
 
