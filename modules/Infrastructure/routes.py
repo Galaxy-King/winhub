@@ -495,6 +495,9 @@ def encryption_status_from_host_info(host_info):
     return {"status": status, "level": level, "methods": methods}
 
 def annotate_endpoint_duplicates(agents):
+    def normalized_hostname(agent):
+        return str(getattr(agent, "hostname", "") or "").strip().upper()
+
     def stable_identity_fingerprint(agent):
         try:
             network_interfaces = json.loads(agent.network_info or "[]")
@@ -515,36 +518,65 @@ def annotate_endpoint_duplicates(agents):
         }, sort_keys=True, separators=(",", ":"))
         return hashlib.sha256(source.encode("utf-8")).hexdigest()
 
+    def endpoint_signals(agent):
+        fingerprints = {
+            getattr(agent, "identity_fingerprint", None),
+            stable_identity_fingerprint(agent),
+        }
+        fingerprints.discard(None)
+        fingerprints.discard("")
+        return {
+            "fingerprints": fingerprints,
+            "hostname": normalized_hostname(agent),
+            "connection_ip": getattr(agent, "ip_address", None) or "",
+        }
+
     approved = [
         agent for agent in agents
         if getattr(agent, "approval_status", "Approved") == "Approved"
     ]
+    signals_by_id = {agent.id: endpoint_signals(agent) for agent in agents}
+    approved_by_fingerprint = {}
+    approved_by_hostname = {}
+    approved_by_id = {agent.id: agent for agent in approved}
+    for approved_agent in approved:
+        signals = signals_by_id.get(approved_agent.id, {})
+        for fingerprint in signals.get("fingerprints", set()):
+            approved_by_fingerprint.setdefault(fingerprint, []).append(approved_agent)
+        hostname = signals.get("hostname")
+        if hostname:
+            approved_by_hostname.setdefault(hostname, []).append(approved_agent)
+
     for agent in agents:
-        agent_fingerprints = {
-            getattr(agent, "identity_fingerprint", None),
-            stable_identity_fingerprint(agent),
-        }
-        agent_fingerprints.discard(None)
-        agent_fingerprints.discard("")
+        agent_signals = signals_by_id.get(agent.id, {})
+        agent_fingerprints = agent_signals.get("fingerprints", set())
+        candidate_ids = set()
+        candidates = []
+        for fingerprint in agent_fingerprints:
+            for candidate in approved_by_fingerprint.get(fingerprint, []):
+                if candidate.id not in candidate_ids and candidate.id != agent.id:
+                    candidates.append(candidate)
+                    candidate_ids.add(candidate.id)
+        hostname = agent_signals.get("hostname")
+        if hostname:
+            for candidate in approved_by_hostname.get(hostname, []):
+                if candidate.id not in candidate_ids and candidate.id != agent.id:
+                    candidates.append(candidate)
+                    candidate_ids.add(candidate.id)
+
         matches = []
-        for approved_agent in approved:
-            if approved_agent.id == agent.id:
-                continue
-            approved_fingerprints = {
-                getattr(approved_agent, "identity_fingerprint", None),
-                stable_identity_fingerprint(approved_agent),
-            }
-            approved_fingerprints.discard(None)
-            approved_fingerprints.discard("")
+        for approved_agent in candidates:
+            approved_signals = signals_by_id.get(approved_agent.id, {})
+            approved_fingerprints = approved_signals.get("fingerprints", set())
             reasons = []
-            if agent.hostname and approved_agent.hostname and agent.hostname == approved_agent.hostname:
+            if hostname and hostname == approved_signals.get("hostname"):
                 reasons.append("hostname")
-            if agent.ip_address and approved_agent.ip_address and agent.ip_address == approved_agent.ip_address:
+            if agent_signals.get("connection_ip") and agent_signals.get("connection_ip") == approved_signals.get("connection_ip"):
                 reasons.append("connection_ip")
             if agent_fingerprints and approved_fingerprints and agent_fingerprints.intersection(approved_fingerprints):
                 reasons.append("identity")
             if reasons:
-                strong_match = "identity" in reasons
+                strong_match = "identity" in reasons or "hostname" in reasons
                 matches.append({
                     "id": approved_agent.id,
                     "hostname": approved_agent.hostname or approved_agent.id,

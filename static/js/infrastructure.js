@@ -3081,6 +3081,18 @@ async function viewHost(id) {
         document.getElementById('mAgentVersion').innerText = d.agent_version || "Unknown";
         document.getElementById('mSeen').innerText = d.last_seen || "-";
         const identityWarning = d.identity_warning ? `<div class="p-3 bg-rose-50 border border-rose-100 rounded-2xl text-xs font-bold text-rose-700">${d.identity_warning}</div>` : '';
+        const identityDuplicates = (d.duplicate_matches || []).filter(match => match.strong_match);
+        const identityDuplicateWarning = identityDuplicates.length ? `
+            <div class="p-3 bg-rose-50 border border-rose-100 rounded-2xl text-xs font-bold text-rose-700">
+                <div class="font-black uppercase tracking-widest text-[10px] mb-2">Possible duplicate identity</div>
+                ${identityDuplicates.map(match => `
+                    <div class="mt-1">
+                        <button onclick="viewHost('${escapeHtml(match.id)}')" class="font-black underline decoration-rose-300 underline-offset-2 hover:text-rose-900">${escapeHtml(match.hostname || match.id)}</button>
+                        <span class="text-rose-500">/ ${escapeHtml(match.agent_version || 'unknown')} / ${(match.reasons || []).map(escapeHtml).join(', ')}</span>
+                    </div>
+                `).join('')}
+            </div>
+        ` : '';
         const approval = d.approval_status || 'Approved';
         document.getElementById('mApprovalStatus').innerHTML = approval === 'Approved' ? '<span class="text-emerald-500 font-black uppercase tracking-widest text-[10px]">Approved</span>' : (approval === 'Pending' ? '<span class="text-amber-500 font-black uppercase tracking-widest text-[10px]">Pending</span>' : '<span class="text-rose-500 font-black uppercase tracking-widest text-[10px]">Rejected</span>');
         document.getElementById('mAccessStatus').innerHTML = d.is_blocked ? '<span class="text-rose-500 font-black uppercase tracking-widest text-[10px]">Blocked</span>' : '<span class="text-emerald-500 font-black uppercase tracking-widest text-[10px]">Allowed</span>';
@@ -3126,6 +3138,7 @@ async function viewHost(id) {
                 <div class="flex justify-between gap-3"><span class="text-slate-400 font-bold">Attempts</span><span class="text-slate-700 font-black">${d.enrollment_attempts || 0}</span></div>
             </div>
             ${identityWarning}
+            ${identityDuplicateWarning}
             ${volumes.length ? volumes.map(v => `
                 <div class="bg-white border border-slate-200 rounded-2xl p-3">
                     <div class="font-black text-slate-700">${v.name || 'Volume'} ${v.label ? '/ ' + v.label : ''}</div>
