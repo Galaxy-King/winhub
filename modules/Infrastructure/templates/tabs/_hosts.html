@@ -54,7 +54,7 @@
             </thead>
 	            <tbody>
                 {% for agent in pending_agents %}
-                <tr class="hover:bg-slate-50 transition-colors">
+                <tr class="hover:bg-slate-50 transition-colors {% if agent.possible_duplicate %}bg-rose-50/35{% endif %}">
                     <td class="px-5 py-4">
                         <input type="checkbox" value="{{ agent.id }}" onchange="updatePendingApprovalCount()" class="pending-approval-cb w-4 h-4 rounded border-slate-300 text-emerald-600 focus:ring-emerald-500">
                     </td>
@@ -121,7 +121,7 @@
                 </thead>
                 <tbody>
                     {% for agent in rejected_agents %}
-                    <tr class="hover:bg-slate-50 transition-colors">
+                <tr class="hover:bg-slate-50 transition-colors {% if agent.possible_duplicate %}bg-rose-50/35{% endif %}">
                         <td class="px-6 py-4">
                             <button onclick="viewHost('{{ agent.id }}')" class="text-left font-black text-slate-800 hover:text-indigo-600">{{ agent.hostname or agent.id }}</button>
                             {% if agent.identity_warning %}<div class="text-[10px] text-rose-600 font-bold mt-1">{{ agent.identity_warning }}</div>{% endif %}

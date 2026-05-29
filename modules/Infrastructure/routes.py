@@ -2044,6 +2044,7 @@ def fleet_center():
         endpoint for endpoint in WinHubCore.get_allowed_hosts(session.get("user_id"))
         if getattr(endpoint, "approval_status", "Approved") == "Approved"
     ]
+    annotate_endpoint_duplicates(allowed_hosts)
     allowed_hosts.sort(key=lambda endpoint: ((endpoint.hostname or endpoint.id or "").lower()))
     for endpoint in allowed_hosts:
         health = endpoint_health_score(endpoint, latest_version)
@@ -2058,6 +2059,8 @@ def fleet_center():
             "os": endpoint.os_version or getattr(endpoint, "os_type", "Windows"),
             "agent_version": getattr(endpoint, "agent_version", "") or "",
             "identity_fingerprint": getattr(endpoint, "identity_fingerprint", "") or "",
+            "possible_duplicate": bool(getattr(endpoint, "possible_duplicate", False)),
+            "duplicate_matches": getattr(endpoint, "duplicate_matches", []),
             "last_seen": to_kyiv_time_short(endpoint.last_seen),
             "groups": [{"id": group.id, "name": group.name} for group in endpoint.groups],
             "health": health,
