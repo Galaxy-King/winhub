@@ -25,7 +25,7 @@ namespace WinHUBAgent
     public record EnrollPayload(string global_token, string hw_id, string hostname, string os_version, string os_type, string agent_version, NetworkInterfaceInfo[] network_interfaces, HostInventoryInfo host_info, string previous_auth_token, string previous_hw_id, string agent_public_key_pem, string agent_key_fingerprint, string signed_at, string signed_nonce, string signature);
     public record PollPayload(string hw_id, string auth_token, string agent_version, string agent_public_key_pem, string agent_key_fingerprint, string signed_at, string signed_nonce, string signature);
     public record TelemetryPayload(string hw_id, string auth_token, string agent_version, double cpu, double ram, double disk_c, HostInventoryInfo? host_info, string agent_public_key_pem, string agent_key_fingerprint, string signed_at, string signed_nonce, string signature);
-    public record ResultPayload(string hw_id, string auth_token, string task_id, string status, string log, string agent_public_key_pem, string agent_key_fingerprint, string signed_at, string signed_nonce, string signature);
+    public record ResultPayload(string hw_id, string auth_token, string agent_version, string task_id, string status, string log, string agent_public_key_pem, string agent_key_fingerprint, string signed_at, string signed_nonce, string signature);
     public record NetworkInterfaceInfo(string name, string description, string type, string status, string mac, string[] ipv4, string[] ipv6, string[] gateways, string[] dns_servers, bool dhcp_enabled, long speed_mbps);
     public record VolumeInfo(string name, string label, string format, string type, long total_gb, long free_gb, bool ready);
     public record BitLockerInventoryInfo(string status, int encrypted_percentage, string protection_status, string conversion_status, string raw_summary);
@@ -728,7 +728,7 @@ try {
             try
             {
                 var signature = CreateAgentSignature("/api/agent/result", AuthToken, AgentBuildInfo.Version);
-                var payload = new ResultPayload(HardwareId, AuthToken, taskId, status, TrimResultLog(log), AgentPublicKeyPem, AgentKeyFingerprint, signature.SignedAt, signature.Nonce, signature.Signature);
+                var payload = new ResultPayload(HardwareId, AuthToken, AgentBuildInfo.Version, taskId, status, TrimResultLog(log), AgentPublicKeyPem, AgentKeyFingerprint, signature.SignedAt, signature.Nonce, signature.Signature);
                 string jsonString = JsonSerializer.Serialize(payload, AppJsonSerializerContext.Default.ResultPayload);
                 var content = new StringContent(jsonString, Encoding.UTF8, "application/json");
                 await _httpClient.PostAsync($"{_config.ServerUrl}/api/agent/result", content, stoppingToken);
