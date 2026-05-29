@@ -22,10 +22,10 @@ using System.Linq;
 namespace WinHUBAgent
 {
     // --- МОДЕЛІ ДАНИХ ---
-    public record EnrollPayload(string global_token, string hw_id, string hostname, string os_version, string os_type, string agent_version, NetworkInterfaceInfo[] network_interfaces, HostInventoryInfo host_info, string previous_auth_token, string previous_hw_id);
-    public record PollPayload(string hw_id, string auth_token, string agent_version);
-    public record TelemetryPayload(string hw_id, string auth_token, string agent_version, double cpu, double ram, double disk_c, HostInventoryInfo? host_info);
-    public record ResultPayload(string hw_id, string auth_token, string task_id, string status, string log);
+    public record EnrollPayload(string global_token, string hw_id, string hostname, string os_version, string os_type, string agent_version, NetworkInterfaceInfo[] network_interfaces, HostInventoryInfo host_info, string previous_auth_token, string previous_hw_id, string agent_public_key_pem, string agent_key_fingerprint, string signed_at, string signed_nonce, string signature);
+    public record PollPayload(string hw_id, string auth_token, string agent_version, string agent_public_key_pem, string agent_key_fingerprint, string signed_at, string signed_nonce, string signature);
+    public record TelemetryPayload(string hw_id, string auth_token, string agent_version, double cpu, double ram, double disk_c, HostInventoryInfo? host_info, string agent_public_key_pem, string agent_key_fingerprint, string signed_at, string signed_nonce, string signature);
+    public record ResultPayload(string hw_id, string auth_token, string task_id, string status, string log, string agent_public_key_pem, string agent_key_fingerprint, string signed_at, string signed_nonce, string signature);
     public record NetworkInterfaceInfo(string name, string description, string type, string status, string mac, string[] ipv4, string[] ipv6, string[] gateways, string[] dns_servers, bool dhcp_enabled, long speed_mbps);
     public record VolumeInfo(string name, string label, string format, string type, long total_gb, long free_gb, bool ready);
     public record BitLockerInventoryInfo(string status, int encrypted_percentage, string protection_status, string conversion_status, string raw_summary);
@@ -94,9 +94,13 @@ namespace WinHUBAgent
         private readonly string SecretsFilePath;
         private readonly string UpdatesDirectory;
         private readonly string HardwareIdFilePath;
+        private readonly string AgentIdentityKeyFilePath;
         private string HardwareId = string.Empty;
         private string AuthToken = string.Empty;
         private string FriendlyOsName = string.Empty;
+        private RSA? AgentIdentityKey;
+        private string AgentPublicKeyPem = string.Empty;
+        private string AgentKeyFingerprint = string.Empty;
         private DateTime _lastInventoryUtc = DateTime.MinValue;
         private HostInventoryInfo? _cachedHostInventory;
 
@@ -143,6 +147,7 @@ namespace WinHUBAgent
             SecretsFilePath = Path.Combine(DataDirectory, "agent.secrets");
             UpdatesDirectory = Path.Combine(DataDirectory, "updates");
             HardwareIdFilePath = Path.Combine(DataDirectory, "agent.hwid");
+            AgentIdentityKeyFilePath = Path.Combine(DataDirectory, "agent_identity.key");
             
             var handler = new HttpClientHandler
             {
@@ -233,6 +238,7 @@ namespace WinHUBAgent
             Directory.CreateDirectory(DataDirectory);
 
             HardwareId = GetOrCreateHardwareId();
+            EnsureAgentIdentityKey();
             FriendlyOsName = GetFriendlyOsName();
             
             _logger.LogInformation($"Hardware ID: {HardwareId}");
@@ -309,7 +315,8 @@ namespace WinHUBAgent
                 var drive = DriveInfo.GetDrives().FirstOrDefault(d => d.Name.StartsWith("C", StringComparison.OrdinalIgnoreCase) && d.IsReady);
                 if (drive != null) diskCFree = (float)Math.Round(drive.AvailableFreeSpace / (1024.0 * 1024.0 * 1024.0), 2);
 
-                var payload = new TelemetryPayload(HardwareId, AuthToken, AgentBuildInfo.Version, Math.Round(cpuUsage, 2), ramUsage, diskCFree, GetCachedHostInventory(false));
+                var signature = CreateAgentSignature("/api/agent/telemetry", AuthToken, AgentBuildInfo.Version);
+                var payload = new TelemetryPayload(HardwareId, AuthToken, AgentBuildInfo.Version, Math.Round(cpuUsage, 2), ramUsage, diskCFree, GetCachedHostInventory(false), AgentPublicKeyPem, AgentKeyFingerprint, signature.SignedAt, signature.Nonce, signature.Signature);
                 string jsonString = JsonSerializer.Serialize(payload, AppJsonSerializerContext.Default.TelemetryPayload);
                 var content = new StringContent(jsonString, Encoding.UTF8, "application/json");
                 
@@ -338,7 +345,8 @@ namespace WinHUBAgent
                         await Task.Delay(TimeSpan.FromSeconds(30), stoppingToken);
                         continue;
                     }
-                    var payload = new EnrollPayload(enrollmentToken, HardwareId, Environment.MachineName, FriendlyOsName, "Windows", AgentBuildInfo.Version, GetNetworkInterfaces(), GetCachedHostInventory(true), previousAuthToken, previousHwId);
+                    var signature = CreateAgentSignature("/api/agent/enroll", previousAuthToken, AgentBuildInfo.Version);
+                    var payload = new EnrollPayload(enrollmentToken, HardwareId, Environment.MachineName, FriendlyOsName, "Windows", AgentBuildInfo.Version, GetNetworkInterfaces(), GetCachedHostInventory(true), previousAuthToken, previousHwId, AgentPublicKeyPem, AgentKeyFingerprint, signature.SignedAt, signature.Nonce, signature.Signature);
                     string jsonString = JsonSerializer.Serialize(payload, AppJsonSerializerContext.Default.EnrollPayload);
                     
                     var content = new StringContent(jsonString, Encoding.UTF8, "application/json");
@@ -385,7 +393,8 @@ namespace WinHUBAgent
         {
             try
             {
-                var payload = new PollPayload(HardwareId, AuthToken, AgentBuildInfo.Version);
+                var signature = CreateAgentSignature("/api/agent/poll", AuthToken, AgentBuildInfo.Version);
+                var payload = new PollPayload(HardwareId, AuthToken, AgentBuildInfo.Version, AgentPublicKeyPem, AgentKeyFingerprint, signature.SignedAt, signature.Nonce, signature.Signature);
                 string jsonString = JsonSerializer.Serialize(payload, AppJsonSerializerContext.Default.PollPayload);
                 var content = new StringContent(jsonString, Encoding.UTF8, "application/json");
                 
@@ -718,7 +727,8 @@ try {
         {
             try
             {
-                var payload = new ResultPayload(HardwareId, AuthToken, taskId, status, TrimResultLog(log));
+                var signature = CreateAgentSignature("/api/agent/result", AuthToken, AgentBuildInfo.Version);
+                var payload = new ResultPayload(HardwareId, AuthToken, taskId, status, TrimResultLog(log), AgentPublicKeyPem, AgentKeyFingerprint, signature.SignedAt, signature.Nonce, signature.Signature);
                 string jsonString = JsonSerializer.Serialize(payload, AppJsonSerializerContext.Default.ResultPayload);
                 var content = new StringContent(jsonString, Encoding.UTF8, "application/json");
                 await _httpClient.PostAsync($"{_config.ServerUrl}/api/agent/result", content, stoppingToken);
@@ -815,6 +825,80 @@ try {
             if (raw.Length <= maxBytes) return value;
             string trimmed = Encoding.UTF8.GetString(raw.Take(maxBytes).ToArray());
             return trimmed + $"\n\n[WinHUB Agent] Result log truncated to {maxBytes} bytes.";
+        }
+
+        private void EnsureAgentIdentityKey()
+        {
+            try
+            {
+                Directory.CreateDirectory(DataDirectory);
+                AgentIdentityKey = RSA.Create(3072);
+
+                if (File.Exists(AgentIdentityKeyFilePath))
+                {
+                    byte[] protectedKey = File.ReadAllBytes(AgentIdentityKeyFilePath);
+                    byte[] privateKey = ProtectedData.Unprotect(protectedKey, null, DataProtectionScope.LocalMachine);
+                    AgentIdentityKey.ImportPkcs8PrivateKey(privateKey, out _);
+                }
+                else
+                {
+                    byte[] privateKey = AgentIdentityKey.ExportPkcs8PrivateKey();
+                    byte[] protectedKey = ProtectedData.Protect(privateKey, null, DataProtectionScope.LocalMachine);
+                    File.WriteAllBytes(AgentIdentityKeyFilePath, protectedKey);
+                    _logger.LogInformation("Generated DPAPI-protected agent identity key.");
+                }
+
+                byte[] publicKey = AgentIdentityKey.ExportSubjectPublicKeyInfo();
+                AgentPublicKeyPem = ToPem("PUBLIC KEY", publicKey);
+                AgentKeyFingerprint = Convert.ToHexString(SHA256.HashData(publicKey)).ToLowerInvariant();
+                _logger.LogInformation($"Agent identity key fingerprint: {AgentKeyFingerprint}");
+            }
+            catch (Exception ex)
+            {
+                AgentIdentityKey = null;
+                AgentPublicKeyPem = "";
+                AgentKeyFingerprint = "";
+                _logger.LogError($"Failed to load or create agent identity key: {ex.Message}");
+            }
+        }
+
+        private (string SignedAt, string Nonce, string Signature) CreateAgentSignature(string path, string authToken, string agentVersion)
+        {
+            string signedAt = DateTimeOffset.UtcNow.ToUnixTimeSeconds().ToString();
+            string nonce = Guid.NewGuid().ToString("N");
+            if (AgentIdentityKey == null)
+            {
+                return (signedAt, nonce, "");
+            }
+
+            string canonical = BuildAgentSignatureMessage(path, HardwareId, authToken, agentVersion, signedAt, nonce);
+            byte[] signature = AgentIdentityKey.SignData(
+                Encoding.UTF8.GetBytes(canonical),
+                HashAlgorithmName.SHA256,
+                RSASignaturePadding.Pkcs1
+            );
+            return (signedAt, nonce, Convert.ToBase64String(signature));
+        }
+
+        private static string BuildAgentSignatureMessage(string path, string hwId, string authToken, string agentVersion, string signedAt, string nonce)
+        {
+            return string.Join("\n", new[]
+            {
+                path ?? "",
+                hwId ?? "",
+                authToken ?? "",
+                agentVersion ?? "",
+                signedAt ?? "",
+                nonce ?? ""
+            });
+        }
+
+        private static string ToPem(string label, byte[] derBytes)
+        {
+            string body = Convert.ToBase64String(derBytes);
+            var lines = Enumerable.Range(0, (body.Length + 63) / 64)
+                .Select(i => body.Substring(i * 64, Math.Min(64, body.Length - i * 64)));
+            return $"-----BEGIN {label}-----\n{string.Join("\n", lines)}\n-----END {label}-----";
         }
 
         private AgentSecrets LoadSecretStore()

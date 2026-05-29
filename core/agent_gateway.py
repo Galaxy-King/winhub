@@ -5,8 +5,13 @@ import logging
 import hmac
 import hashlib
 import ipaddress
+import base64
+import time
 from datetime import datetime
 from flask import Blueprint, request, jsonify
+from cryptography.exceptions import InvalidSignature
+from cryptography.hazmat.primitives import hashes, serialization
+from cryptography.hazmat.primitives.asymmetric import padding
 from core.database import db, Endpoint, AgentTask, RegistrationHistory, TelemetryHistory, ConnectionIpHistory, EndpointGroup, EndpointMetric, TriggerRule, User, TaskTemplate
 from core.security import sec_manager
 from core.sdk import WinHubCore
@@ -64,6 +69,119 @@ def sign_task_message(task_id, action, payload):
     }, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
     secret = str(Config.AGENT_TASK_HMAC_SECRET or Config.SECRET_KEY).encode("utf-8")
     return hmac.new(secret, body.encode("utf-8"), hashlib.sha256).hexdigest()
+
+
+def agent_key_fingerprint(public_key_pem):
+    try:
+        public_key = serialization.load_pem_public_key(str(public_key_pem or "").encode("utf-8"))
+        der = public_key.public_bytes(
+            encoding=serialization.Encoding.DER,
+            format=serialization.PublicFormat.SubjectPublicKeyInfo,
+        )
+        return hashlib.sha256(der).hexdigest()
+    except Exception:
+        return ""
+
+
+def canonical_agent_signature_message(path, hw_id, auth_token, agent_version, signed_at, nonce):
+    return "\n".join([
+        str(path or ""),
+        str(hw_id or ""),
+        str(auth_token or ""),
+        str(agent_version or ""),
+        str(signed_at or ""),
+        str(nonce or ""),
+    ])
+
+
+def verify_agent_signature(public_key_pem, data, path, auth_token):
+    signature = str(data.get("signature") or "").strip()
+    signed_at = str(data.get("signed_at") or "").strip()
+    nonce = str(data.get("signed_nonce") or "").strip()
+    if not signature or not signed_at or not nonce:
+        return False, "missing_signature"
+    try:
+        signed_ts = int(signed_at)
+        if abs(int(time.time()) - signed_ts) > 900:
+            return False, "signature_expired"
+    except Exception:
+        return False, "invalid_signature_timestamp"
+    try:
+        public_key = serialization.load_pem_public_key(str(public_key_pem or "").encode("utf-8"))
+        message = canonical_agent_signature_message(
+            path,
+            data.get("hw_id"),
+            auth_token,
+            data.get("agent_version"),
+            signed_at,
+            nonce,
+        )
+        public_key.verify(
+            base64.b64decode(signature),
+            message.encode("utf-8"),
+            padding.PKCS1v15(),
+            hashes.SHA256(),
+        )
+        return True, "ok"
+    except InvalidSignature:
+        return False, "invalid_signature"
+    except Exception:
+        return False, "invalid_public_key_or_signature"
+
+
+def bind_enrollment_public_key(agent, data):
+    provided_key = str(data.get("agent_public_key_pem") or "").strip()
+    provided_fingerprint = str(data.get("agent_key_fingerprint") or "").strip().lower()
+    if not provided_key:
+        return
+    calculated_fingerprint = agent_key_fingerprint(provided_key)
+    if not calculated_fingerprint:
+        agent.identity_warning = "Agent provided an invalid public identity key."
+        return
+    if provided_fingerprint and provided_fingerprint != calculated_fingerprint:
+        agent.identity_warning = "Agent public key fingerprint did not match the provided key."
+        return
+    signature_ok, signature_reason = verify_agent_signature(
+        provided_key,
+        data,
+        "/api/agent/enroll",
+        data.get("previous_auth_token") or "",
+    )
+    if not signature_ok:
+        agent.identity_warning = f"Agent public key proof failed during enrollment: {signature_reason}."
+        return
+    if not getattr(agent, "public_key_pem", None):
+        agent.public_key_pem = provided_key
+    elif agent.public_key_pem != provided_key:
+        agent.identity_warning = "Agent public identity key changed. Review endpoint identity before trusting this host."
+
+
+def verify_or_bind_agent_key(agent, data, path, auth_token):
+    provided_key = str(data.get("agent_public_key_pem") or "").strip()
+    stored_key = str(getattr(agent, "public_key_pem", None) or "").strip()
+    candidate_key = stored_key or provided_key
+    has_signature_fields = bool(data.get("signature") or data.get("signed_at") or data.get("signed_nonce"))
+    if not candidate_key:
+        return not getattr(Config, "AGENT_REQUIRE_SIGNED_REQUESTS", False), "missing_public_key"
+
+    ok, reason = verify_agent_signature(candidate_key, data, path, auth_token)
+    if not ok:
+        if stored_key and has_signature_fields:
+            return False, reason
+        return not getattr(Config, "AGENT_REQUIRE_SIGNED_REQUESTS", False), reason
+
+    if not stored_key and provided_key:
+        agent.public_key_pem = provided_key
+        db.session.add(RegistrationHistory(
+            hw_id=agent.id,
+            hostname=agent.hostname,
+            ip_address=current_client_ip(),
+            event_type="Agent Identity Key Enrolled",
+        ))
+    elif stored_key and provided_key and agent_key_fingerprint(stored_key) != agent_key_fingerprint(provided_key):
+        agent.identity_warning = "Agent request was signed by the stored key but advertised a different public key."
+
+    return True, "ok"
 
 
 def agent_identity_fingerprint(hw_id, hostname, os_type, network_interfaces):
@@ -394,6 +512,7 @@ def enroll_agent():
 
     if getattr(agent, "approval_status", "Approved") == "Approved":
         ensure_default_groups_and_assign(agent, os_type)
+    bind_enrollment_public_key(agent, data)
     db.session.commit()
     return jsonify({
         "status": "success",
@@ -409,6 +528,9 @@ def agent_poll():
 
     if not agent or agent.is_blocked or agent.auth_token != data.get('auth_token'):
         return jsonify({"status": "error"}), 403
+    signature_ok, signature_reason = verify_or_bind_agent_key(agent, data, "/api/agent/poll", data.get("auth_token"))
+    if not signature_ok:
+        return jsonify({"status": "error", "message": signature_reason}), 403
     if getattr(agent, "approval_status", "Approved") != "Approved":
         source_ip = current_client_ip() or agent.ip_address
         duplicate_endpoint, duplicate_reasons = find_approved_duplicate_endpoint(
@@ -513,6 +635,9 @@ def agent_result():
 
     if not agent or agent.is_blocked or agent.auth_token != data.get('auth_token'):
         return jsonify({"status": "error"}), 403
+    signature_ok, signature_reason = verify_or_bind_agent_key(agent, data, "/api/agent/result", data.get("auth_token"))
+    if not signature_ok:
+        return jsonify({"status": "error", "message": signature_reason}), 403
     update_agent_connection(agent)
 
     task = AgentTask.query.filter_by(id=data.get('task_id'), endpoint_id=agent.id).first()
@@ -571,6 +696,9 @@ def agent_telemetry():
 
     if not agent or agent.is_blocked or agent.auth_token != data.get('auth_token'):
         return jsonify({"status": "error"}), 403
+    signature_ok, signature_reason = verify_or_bind_agent_key(agent, data, "/api/agent/telemetry", data.get("auth_token"))
+    if not signature_ok:
+        return jsonify({"status": "error", "message": signature_reason}), 403
 
     agent_version = str(data.get('agent_version') or '').strip()[:50]
     if agent_version:
