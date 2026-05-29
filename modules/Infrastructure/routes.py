@@ -858,6 +858,29 @@ def index():
         a for a in agents
         if getattr(a, "approval_status", "Approved") == "Rejected"
     ]
+    agent_by_id = {a.id: a for a in agents}
+    approved_duplicate_pairs = []
+    seen_duplicate_pairs = set()
+    for agent in agents:
+        if getattr(agent, "approval_status", "Approved") != "Approved":
+            continue
+        for duplicate in getattr(agent, "duplicate_matches", []):
+            if not duplicate.get("strong_match"):
+                continue
+            duplicate_id = duplicate.get("id")
+            duplicate_agent = agent_by_id.get(duplicate_id)
+            if not duplicate_agent or getattr(duplicate_agent, "approval_status", "Approved") != "Approved":
+                continue
+            pair_key = tuple(sorted([agent.id, duplicate_id]))
+            if pair_key in seen_duplicate_pairs:
+                continue
+            seen_duplicate_pairs.add(pair_key)
+            approved_duplicate_pairs.append({
+                "left": agent,
+                "right": duplicate_agent,
+                "reasons": duplicate.get("reasons", []),
+            })
+    stats["review"] = len(pending_agents) + len(rejected_agents) + len(approved_duplicate_pairs)
         
     is_admin = session.get('is_admin')
     permissions = user_permissions(User.query.get(user_id), "Infrastructure")
@@ -920,6 +943,7 @@ def index():
                            available_hosts=available_hosts,
                            pending_agents=pending_agents,
                            rejected_agents=rejected_agents,
+                           approved_duplicate_pairs=approved_duplicate_pairs,
                            scheduled_tasks=scheduled_tasks, trigger_rules=trigger_rules, stats=stats,
                            username=session.get('username'), is_admin=is_admin, permissions=permissions)
 
@@ -2830,6 +2854,78 @@ def bulk_update_host_approval():
         status="Success"
     )
     return jsonify({"success": True, "count": len(agents)})
+
+@infrastructure_bp.route('/api/infrastructure/host/merge-duplicate', methods=['POST'])
+def merge_duplicate_host():
+    denied = require_permission("manage_hosts")
+    if denied: return denied
+    payload = request.json or {}
+    keep_id = str(payload.get("keep_id") or "").strip()
+    remove_id = str(payload.get("remove_id") or "").strip()
+    if not keep_id or not remove_id or keep_id == remove_id:
+        return jsonify({"success": False, "message": "Select two different endpoint records"}), 400
+
+    keep = Endpoint.query.get(keep_id)
+    remove = Endpoint.query.get(remove_id)
+    if not keep or not remove:
+        return jsonify({"success": False, "message": "Endpoint record not found"}), 404
+    if not WinHubCore.can_manage_host(session.get("user_id"), keep_id) or not WinHubCore.can_manage_host(session.get("user_id"), remove_id):
+        return jsonify({"success": False, "message": "Access denied"}), 403
+
+    allowed_hosts = WinHubCore.get_allowed_hosts(session.get("user_id"))
+    annotate_endpoint_duplicates(allowed_hosts)
+    keep_matches = getattr(keep, "duplicate_matches", [])
+    if not any(match.get("id") == remove_id and match.get("strong_match") for match in keep_matches):
+        return jsonify({"success": False, "message": "These endpoint records are not marked as a strong duplicate"}), 400
+
+    for group in list(remove.groups):
+        if group not in keep.groups:
+            keep.groups.append(group)
+
+    moved_tasks = AgentTask.query.filter_by(endpoint_id=remove_id).update({"endpoint_id": keep_id}, synchronize_session=False)
+    moved_telemetry = TelemetryHistory.query.filter_by(endpoint_id=remove_id).update({"endpoint_id": keep_id}, synchronize_session=False)
+    moved_metrics = EndpointMetric.query.filter_by(endpoint_id=remove_id).update({"endpoint_id": keep_id}, synchronize_session=False)
+    moved_ips = ConnectionIpHistory.query.filter_by(endpoint_id=remove_id).update({"endpoint_id": keep_id}, synchronize_session=False)
+    moved_registration = RegistrationHistory.query.filter_by(hw_id=remove_id).update({"hw_id": keep_id}, synchronize_session=False)
+
+    if remove.first_seen and (not keep.first_seen or remove.first_seen < keep.first_seen):
+        keep.first_seen = remove.first_seen
+    keep.enrollment_attempts = max(int(keep.enrollment_attempts or 0), int(remove.enrollment_attempts or 0))
+    keep.identity_warning = None
+    keep.approval_status = "Approved"
+    keep.is_blocked = False
+
+    db.session.add(RegistrationHistory(
+        hw_id=keep.id,
+        hostname=keep.hostname,
+        ip_address=keep.ip_address,
+        event_type="Merged Duplicate"
+    ))
+    removed_summary = {
+        "id": remove.id,
+        "hostname": remove.hostname,
+        "agent_version": remove.agent_version,
+        "last_seen": remove.last_seen.isoformat() if remove.last_seen else None,
+    }
+    db.session.delete(remove)
+    db.session.commit()
+    WinHubCore.audit(
+        user_id=session.get("user_id"),
+        module="Infrastructure",
+        action="Merge Endpoint Duplicate",
+        details={
+            "keep_id": keep_id,
+            "remove_id": remove_id,
+            "removed": removed_summary,
+            "moved_tasks": moved_tasks,
+            "moved_telemetry": moved_telemetry,
+            "moved_metrics": moved_metrics,
+            "moved_connection_ips": moved_ips,
+            "moved_registration": moved_registration,
+        },
+        status="Success"
+    )
+    return jsonify({"success": True, "keep_id": keep_id, "removed_id": remove_id})
 
 @infrastructure_bp.route('/api/infrastructure/group', methods=['POST'])
 def create_group():

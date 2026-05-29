@@ -14,13 +14,9 @@
     {% if permissions.manage_hosts %}
     <div class="wh-soft-panel bg-white p-2 rounded-2xl border border-slate-200 shadow-sm flex gap-2 w-fit">
         <button onclick="switchNodeTab('approved')" id="nodeTab-approved" class="node-tab-btn px-5 py-2.5 rounded-xl text-xs font-black uppercase bg-slate-900 text-white shadow-sm">Nodes</button>
-        <button onclick="switchNodeTab('pending')" id="nodeTab-pending" class="node-tab-btn px-5 py-2.5 rounded-xl text-xs font-black uppercase text-slate-500 hover:text-amber-700">
-            Pending Approval
-            {% if pending_agents %}<span class="ml-2 bg-amber-100 text-amber-700 px-2 py-0.5 rounded-lg">{{ pending_agents|length }}</span>{% endif %}
-        </button>
-        <button onclick="switchNodeTab('rejected')" id="nodeTab-rejected" class="node-tab-btn px-5 py-2.5 rounded-xl text-xs font-black uppercase text-slate-500 hover:text-rose-700">
-            Rejected Hosts
-            {% if rejected_agents %}<span class="ml-2 bg-rose-100 text-rose-700 px-2 py-0.5 rounded-lg">{{ rejected_agents|length }}</span>{% endif %}
+        <button onclick="switchNodeTab('review')" id="nodeTab-review" class="node-tab-btn px-5 py-2.5 rounded-xl text-xs font-black uppercase text-slate-500 hover:text-rose-700">
+            Review Center
+            {% if stats.review %}<span class="ml-2 bg-rose-100 text-rose-700 px-2 py-0.5 rounded-lg">{{ stats.review }}</span>{% endif %}
         </button>
     </div>
     {% endif %}
@@ -95,6 +91,58 @@
                 {% endfor %}
             </tbody>
         </table>
+        </div>
+    </div>
+    {% endif %}
+
+    {% if permissions.manage_hosts %}
+    <div id="nodesApprovedDuplicatesPanel" class="hidden bg-white rounded-[2rem] border border-slate-200 shadow-sm overflow-hidden">
+        <div class="px-5 py-4 bg-rose-50/60 border-b border-rose-100 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+            <div>
+                <p class="text-xs font-black text-rose-800 uppercase tracking-widest">Identity Duplicates</p>
+                <p class="text-[11px] font-bold text-rose-700/70 mt-1">Approved nodes that look like the same endpoint. Pick the actual record to keep.</p>
+            </div>
+        </div>
+        <div class="overflow-x-auto">
+            <table class="w-full text-left min-w-[1080px] infra-separated-table px-2">
+                <thead class="bg-rose-50/70 border-b border-rose-100 text-[10px] font-black text-rose-700 uppercase tracking-widest">
+                    <tr>
+                        <th class="px-6 py-4">First Record</th>
+                        <th class="px-6 py-4">Second Record</th>
+                        <th class="px-6 py-4">Matched By</th>
+                        <th class="px-6 py-4 text-right">Resolve</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for pair in approved_duplicate_pairs %}
+                    <tr class="hover:bg-rose-50/30 transition-colors bg-rose-50/20">
+                        <td class="px-6 py-4">
+                            <button onclick="viewHost('{{ pair.left.id }}')" class="text-left font-black text-slate-800 hover:text-indigo-600">{{ pair.left.hostname or pair.left.id }}</button>
+                            <div class="text-[10px] font-mono text-slate-400 mt-1 break-all">{{ pair.left.id }}</div>
+                            <div class="text-[10px] font-bold text-slate-500 mt-2">Agent: {{ pair.left.agent_version or 'Unknown' }} / IP: {{ pair.left.ip_address or '-' }}</div>
+                            <div class="text-[10px] font-bold text-slate-400 mt-1">Last seen: {{ pair.left.last_seen | string if pair.left.last_seen else '-' }}</div>
+                        </td>
+                        <td class="px-6 py-4">
+                            <button onclick="viewHost('{{ pair.right.id }}')" class="text-left font-black text-slate-800 hover:text-indigo-600">{{ pair.right.hostname or pair.right.id }}</button>
+                            <div class="text-[10px] font-mono text-slate-400 mt-1 break-all">{{ pair.right.id }}</div>
+                            <div class="text-[10px] font-bold text-slate-500 mt-2">Agent: {{ pair.right.agent_version or 'Unknown' }} / IP: {{ pair.right.ip_address or '-' }}</div>
+                            <div class="text-[10px] font-bold text-slate-400 mt-1">Last seen: {{ pair.right.last_seen | string if pair.right.last_seen else '-' }}</div>
+                        </td>
+                        <td class="px-6 py-4">
+                            <div class="inline-flex px-2.5 py-1 rounded-lg bg-rose-50 text-rose-700 border border-rose-100 text-[9px] font-black uppercase">{{ pair.reasons|join(', ') }}</div>
+                        </td>
+                        <td class="px-6 py-4">
+                            <div class="flex justify-end gap-2">
+                                <button onclick="mergeEndpointDuplicate('{{ pair.left.id }}', '{{ pair.right.id }}')" class="px-3 py-2 bg-emerald-600 text-white rounded-xl text-[10px] font-black uppercase hover:bg-emerald-700">Keep First</button>
+                                <button onclick="mergeEndpointDuplicate('{{ pair.right.id }}', '{{ pair.left.id }}')" class="px-3 py-2 bg-indigo-600 text-white rounded-xl text-[10px] font-black uppercase hover:bg-indigo-700">Keep Second</button>
+                            </div>
+                        </td>
+                    </tr>
+                    {% else %}
+                    <tr><td colspan="4" class="px-6 py-10 text-center text-slate-400 text-sm font-bold">No approved identity duplicates.</td></tr>
+                    {% endfor %}
+                </tbody>
+            </table>
         </div>
     </div>
     {% endif %}
