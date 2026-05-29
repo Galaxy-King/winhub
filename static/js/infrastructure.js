@@ -1657,6 +1657,16 @@ window.setFleetSort = function setFleetSort(key) {
     renderFleetCenter();
 };
 
+window.setFleetStatusFilter = function setFleetStatusFilter(status) {
+    const select = document.getElementById('fleetStatusFilter');
+    if (select) select.value = status || 'all';
+    document.querySelectorAll('.fleet-status-tab').forEach(btn => {
+        const active = btn.dataset.fleetStatus === (status || 'all');
+        btn.className = `fleet-status-tab px-4 py-2 rounded-xl text-[10px] font-black uppercase border transition-all ${active ? 'bg-slate-900 text-white border-slate-900 shadow-sm' : 'bg-white text-slate-700 border-slate-200 hover:bg-slate-50'}`;
+    });
+    renderFleetCenter();
+};
+
 function renderFleetCenter() {
     const body = document.getElementById('fleetHostsBody');
     const packagesBox = document.getElementById('agentPackageList');
@@ -1671,7 +1681,8 @@ function renderFleetCenter() {
         const encryption = host.encryption || {};
         const groupText = (host.groups || []).map(group => group.name).join(' ');
         const duplicateText = host.possible_duplicate ? 'duplicate identity approved duplicate' : '';
-        const haystack = [host.hostname, host.ip, host.os, host.agent_version, host.identity_fingerprint, duplicateText, groupText, health.status, encryption.status, ...(encryption.methods || []), ...(health.reasons || [])].join(' ').toLowerCase();
+        const keyText = host.agent_identity_key_enrolled ? 'signed key enrolled identity key ok' : 'missing key unsigned no key';
+        const haystack = [host.hostname, host.ip, host.os, host.agent_version, host.identity_fingerprint, duplicateText, keyText, groupText, health.status, encryption.status, ...(encryption.methods || []), ...(health.reasons || [])].join(' ').toLowerCase();
         const matchSearch = !search || haystack.includes(search);
         const hostGroupIds = (host.groups || []).map(group => String(group.id));
         const wantsUngrouped = groupFilters.includes('ungrouped');
@@ -1684,7 +1695,7 @@ function renderFleetCenter() {
         else if (statusFilter === 'current') matchStatus = !health.outdated;
         else if (statusFilter === 'offline') matchStatus = !health.online;
         else if (statusFilter === 'warning') matchStatus = ['Warning', 'Critical'].includes(health.status);
-        else if (statusFilter === 'duplicate') matchStatus = !!host.possible_duplicate;
+        else if (statusFilter === 'unsigned') matchStatus = !host.agent_identity_key_enrolled;
         return matchSearch && matchGroup && matchStatus;
     }).sort((a, b) => {
         const av = fleetSortValue(a, fleetSortState.key);
@@ -1708,6 +1719,8 @@ function renderFleetCenter() {
         const encryptionTitle = (encryption.methods || []).join(', ') || 'No encryption method detected';
         const groups = (host.groups || []).map(group => `<span class="px-2 py-1 rounded-lg bg-slate-100 text-slate-500 border border-slate-200 text-[9px] font-black uppercase">${escapeHtml(group.name)}</span>`).join('');
         const healthReasons = (health.reasons || []).map(escapeHtml).join(', ') || 'online, current version, approved, unblocked';
+        const keyClass = host.agent_identity_key_enrolled ? 'bg-emerald-50 text-emerald-700 border-emerald-100' : 'bg-violet-50 text-violet-700 border-violet-100';
+        const keyLabel = host.agent_identity_key_enrolled ? 'Key OK' : 'No key';
         const checked = fleetSelectedHostIds.has(host.id) ? 'checked' : '';
         const duplicateMatches = (host.duplicate_matches || []).filter(match => match.strong_match);
         const duplicateSummary = duplicateMatches.map(match => `${match.hostname || match.id} / ${match.agent_version || 'unknown'} / ${(match.reasons || []).join(', ')}`).join(' | ');
@@ -1724,6 +1737,7 @@ function renderFleetCenter() {
                 ${duplicateBadge}
             </td>
             <td class="px-6 py-4"><span class="px-3 py-1 rounded-xl border text-[10px] font-black uppercase ${versionClass}">${escapeHtml(host.agent_version || 'unknown')}</span></td>
+            <td class="px-6 py-4"><span class="px-3 py-1 rounded-xl border text-[10px] font-black uppercase ${keyClass}" title="Agent request signing key exchange">${keyLabel}</span></td>
             <td class="px-6 py-4">
                 <span title="${healthReasons}" class="px-3 py-1 rounded-xl border text-[10px] font-black uppercase ${healthClass}">${health.score || 0}% ${escapeHtml(health.status || 'Unknown')}</span>
                 <div class="text-[10px] font-bold text-slate-400 mt-1">${healthReasons}</div>
@@ -1736,7 +1750,7 @@ function renderFleetCenter() {
                 <button onclick="runFleetUpdate('${escapeHtml(host.id)}')" class="px-3 py-2 rounded-xl bg-white border border-slate-200 text-[10px] font-black uppercase text-slate-500 hover:text-indigo-600 hover:bg-indigo-50 transition-all">Update</button>
             </td>
         </tr>`;
-    }).join('') || '<tr><td colspan="9" class="p-12 text-center text-slate-300 font-black">No fleet hosts match filters.</td></tr>';
+    }).join('') || '<tr><td colspan="10" class="p-12 text-center text-slate-500 font-black">No fleet hosts match filters.</td></tr>';
     updateFleetSelectedCount();
 
     if (packagesBox) {
@@ -2359,9 +2373,7 @@ function switchNodeTab(tab, save = true) {
     if (save) localStorage.setItem(infraStateKeys.nodeTab, tab);
     const panels = {
         approved: document.getElementById('nodesApprovedPanel'),
-        pending: document.getElementById('nodesPendingPanel'),
-        duplicates: document.getElementById('nodesApprovedDuplicatesPanel'),
-        rejected: document.getElementById('nodesRejectedPanel'),
+        review: document.getElementById('nodesReviewPanel'),
     };
     const buttons = {
         approved: document.getElementById('nodeTab-approved'),
@@ -2369,8 +2381,7 @@ function switchNodeTab(tab, save = true) {
     };
     Object.entries(panels).forEach(([key, panel]) => {
         if (!panel) return;
-        const visible = tab === key || (tab === 'review' && ['pending', 'duplicates', 'rejected'].includes(key));
-        panel.classList.toggle('hidden', !visible);
+        panel.classList.toggle('hidden', tab !== key);
     });
     Object.values(buttons).forEach(btn => {
         if (!btn) return;
@@ -2378,8 +2389,29 @@ function switchNodeTab(tab, save = true) {
     });
     const active = buttons[tab] || buttons.approved;
     if (active) active.className = "node-tab-btn px-5 py-2.5 rounded-xl text-xs font-black uppercase bg-slate-900 text-white shadow-sm";
-    if (tab === 'review') updatePendingApprovalCount();
+    if (tab === 'review') switchReviewTab(localStorage.getItem('winhub_infra_review_tab') || 'pending', false);
     if (tab === 'approved') loadFleetCenter();
+}
+
+function switchReviewTab(tab, save = true) {
+    if (!['pending', 'duplicates', 'rejected'].includes(tab)) tab = 'pending';
+    if (save) localStorage.setItem('winhub_infra_review_tab', tab);
+    const panels = {
+        pending: document.getElementById('nodesPendingPanel'),
+        duplicates: document.getElementById('nodesApprovedDuplicatesPanel'),
+        rejected: document.getElementById('nodesRejectedPanel'),
+    };
+    Object.entries(panels).forEach(([key, panel]) => {
+        if (panel) panel.classList.toggle('hidden', key !== tab);
+    });
+    document.querySelectorAll('.review-tab-btn').forEach(btn => {
+        btn.className = "review-tab-btn px-4 py-2 rounded-xl text-[10px] font-black uppercase text-slate-700 hover:text-rose-700";
+    });
+    const active = document.getElementById('reviewTab-' + tab);
+    if (active) active.className = "review-tab-btn px-4 py-2 rounded-xl text-[10px] font-black uppercase bg-slate-900 text-white shadow-sm";
+    updatePendingApprovalCount();
+    updateRejectedSelectionCount();
+    updateDuplicateSelectionCount();
 }
 
 function reloadKeepingNodeContext(tab = null) {
@@ -2403,6 +2435,85 @@ function toggleAllPendingApprovals(source) {
         cb.checked = source.checked;
     });
     updatePendingApprovalCount();
+}
+
+function rejectedSelection() {
+    return Array.from(document.querySelectorAll('.rejected-host-cb:checked')).map(cb => cb.value);
+}
+
+function updateRejectedSelectionCount() {
+    const counter = document.getElementById('rejectedSelectedCount');
+    if (counter) counter.innerText = rejectedSelection().length;
+}
+
+function toggleAllRejectedHosts(source) {
+    document.querySelectorAll('.rejected-host-cb').forEach(cb => {
+        cb.checked = source.checked;
+    });
+    updateRejectedSelectionCount();
+}
+
+async function approveSelectedRejected() {
+    const ids = rejectedSelection();
+    if (!ids.length) return alert('Select rejected hosts first.');
+    if (!confirm(`Approve ${ids.length} rejected hosts?`)) return;
+    for (const id of ids) {
+        await fetch('/api/infrastructure/host/' + encodeURIComponent(id) + '/approval', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({status: 'Approved'})
+        });
+    }
+    reloadKeepingNodeContext('review');
+}
+
+async function deleteSelectedRejected() {
+    const ids = rejectedSelection();
+    if (!ids.length) return alert('Select rejected hosts first.');
+    if (!confirm(`Delete ${ids.length} rejected hosts permanently?`)) return;
+    for (const id of ids) {
+        await fetch('/api/infrastructure/host/' + encodeURIComponent(id), { method: 'DELETE' });
+    }
+    reloadKeepingNodeContext('review');
+}
+
+function duplicateSelection() {
+    return Array.from(document.querySelectorAll('.duplicate-pair-cb:checked')).map(cb => cb.value);
+}
+
+function updateDuplicateSelectionCount() {
+    const counter = document.getElementById('duplicateSelectedCount');
+    if (counter) counter.innerText = duplicateSelection().length;
+}
+
+function toggleAllDuplicatePairs(source) {
+    document.querySelectorAll('.duplicate-pair-cb').forEach(cb => {
+        cb.checked = source.checked;
+    });
+    updateDuplicateSelectionCount();
+}
+
+async function mergeSelectedDuplicates(preference) {
+    const pairs = duplicateSelection();
+    if (!pairs.length) return alert('Select duplicate pairs first.');
+    const label = preference === 'second' ? 'second' : 'first';
+    if (!confirm(`Resolve ${pairs.length} duplicate pairs and keep the ${label} record in each selected row?`)) return;
+    for (const pair of pairs) {
+        const [first, second] = pair.split('|');
+        if (!first || !second) continue;
+        const keepId = preference === 'second' ? second : first;
+        const removeId = preference === 'second' ? first : second;
+        const res = await fetch('/api/infrastructure/host/merge-duplicate', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({keep_id: keepId, remove_id: removeId})
+        });
+        if (!res.ok) {
+            alert('One of the duplicate merges failed. Refreshing review center.');
+            break;
+        }
+    }
+    reloadKeepingNodeContext('review');
 }
 
 async function approveSelectedPending() {
@@ -3064,12 +3175,20 @@ function renderJobTaskRows() {
     const empty = `<tr><td colspan="3" class="p-16 text-center text-slate-300 font-black uppercase tracking-widest text-xs">No hosts in this status</td></tr>`;
     body.innerHTML = filteredTasks.map(t => {
         const statusStr = t.status || 'Pending';
+        const hostCell = t.endpoint_id
+            ? `<button onclick="viewHostFromJob('${escapeHtml(t.endpoint_id)}')" class="font-black text-slate-800 hover:text-indigo-600 text-left">${escapeHtml(t.hostname || 'Unknown')}</button>`
+            : `<span class="font-black text-slate-700">${escapeHtml(t.hostname || 'Unknown')}</span>`;
         return `<tr class="hover:bg-slate-50 transition-colors">
-            <td class="px-6 py-4 font-black text-slate-700 text-base">${t.hostname || 'Unknown'}</td>
+            <td class="px-6 py-4 text-base">${hostCell}</td>
             <td class="px-6 py-4 text-center"><span class="font-black uppercase tracking-widest text-[10px] px-3 py-1 rounded-lg border ${jobStatusBadgeClass(statusStr)}">${jobStatusLabel(statusStr)}</span></td>
             <td class="px-6 py-4 text-right"><button onclick="viewTaskDetails('${t.task_id}')" class="px-4 py-2 bg-white border border-slate-200 rounded-xl text-xs font-black uppercase text-indigo-600 hover:bg-indigo-50 transition-colors shadow-sm">View Log</button></td>
         </tr>`;
     }).join('') || empty;
+}
+
+function viewHostFromJob(endpointId) {
+    closeModal('jobModal');
+    viewHost(endpointId);
 }
 
 async function viewHost(id) {
@@ -3090,6 +3209,10 @@ async function viewHost(id) {
         document.getElementById('mIp').innerText = d.ip || "N/A";
         document.getElementById('mOs').innerText = d.os || "Unknown";
         document.getElementById('mAgentVersion').innerText = d.agent_version || "Unknown";
+        const keyEl = document.getElementById('mAgentKeyStatus');
+        if (keyEl) keyEl.innerHTML = d.agent_identity_key_enrolled
+            ? '<span class="text-emerald-600 font-black uppercase tracking-widest">Enrolled</span>'
+            : '<span class="text-violet-600 font-black uppercase tracking-widest">Missing</span>';
         document.getElementById('mSeen').innerText = d.last_seen || "-";
         const identityWarning = d.identity_warning ? `<div class="p-3 bg-rose-50 border border-rose-100 rounded-2xl text-xs font-bold text-rose-700">${d.identity_warning}</div>` : '';
         const identityDuplicates = (d.duplicate_matches || []).filter(match => match.strong_match);

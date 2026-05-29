@@ -829,6 +829,8 @@ def index():
         'blocked': sum(1 for a in agents if a.is_blocked),
         'pending': sum(1 for a in agents if getattr(a, "approval_status", "Approved") == "Pending"),
         'rejected': sum(1 for a in agents if getattr(a, "approval_status", "Approved") == "Rejected"),
+        'current': sum(1 for a in agents if Config.LATEST_AGENT_VERSION and (a.agent_version or "") == Config.LATEST_AGENT_VERSION),
+        'signed': sum(1 for a in agents if bool(getattr(a, "public_key_pem", None))),
     }
     
     for a in agents: 
@@ -851,6 +853,7 @@ def index():
         "approval_status": getattr(a, 'approval_status', 'Approved'),
         "agent_version": getattr(a, 'agent_version', '') or '',
         "agent_outdated": bool(Config.LATEST_AGENT_VERSION and (getattr(a, 'agent_version', '') or '') != Config.LATEST_AGENT_VERSION),
+        "agent_identity_key_enrolled": bool(getattr(a, "public_key_pem", None)),
         "is_online": bool(a.last_seen and a.last_seen >= online_threshold),
         "last_seen": to_kyiv_time_short(a.last_seen),
         "encryption": getattr(a, "encryption", {"status": "Unknown", "level": "unknown", "methods": []}),
@@ -974,9 +977,10 @@ def list_hosts():
             "is_online": bool(host.last_seen and host.last_seen >= online_threshold),
             "is_blocked": bool(host.is_blocked),
 	            "approval_status": getattr(host, "approval_status", "Approved"),
-	            "agent_version": getattr(host, "agent_version", None),
-	            "agent_outdated": bool(Config.LATEST_AGENT_VERSION and (getattr(host, "agent_version", "") or "") != Config.LATEST_AGENT_VERSION),
-	            "groups": [{"id": group.id, "name": group.name} for group in host.groups],
+            "agent_version": getattr(host, "agent_version", None),
+            "agent_outdated": bool(Config.LATEST_AGENT_VERSION and (getattr(host, "agent_version", "") or "") != Config.LATEST_AGENT_VERSION),
+            "agent_identity_key_enrolled": bool(getattr(host, "public_key_pem", None)),
+            "groups": [{"id": group.id, "name": group.name} for group in host.groups],
 	        } for host in hosts]
 	    })
 
@@ -2159,6 +2163,7 @@ def fleet_center():
             "ip": endpoint.ip_address or "",
             "os": endpoint.os_version or getattr(endpoint, "os_type", "Windows"),
             "agent_version": getattr(endpoint, "agent_version", "") or "",
+            "agent_identity_key_enrolled": bool(getattr(endpoint, "public_key_pem", None)),
             "identity_fingerprint": getattr(endpoint, "identity_fingerprint", "") or "",
             "possible_duplicate": bool(getattr(endpoint, "possible_duplicate", False)),
             "duplicate_matches": getattr(endpoint, "duplicate_matches", []),
@@ -2606,7 +2611,7 @@ def get_tasks():
             jobs[jid] = {"job_id": jid, "title": t.title or "Untitled Task", "action": t.action_type, "created_at": to_kyiv_time(t.created_at), "created_by": t.created_by, "tasks": [], "total": 0, "success": 0, "error": 0, "pending": 0, "running": 0, "cancelled": 0}
         if is_agent_updater_prepare_task(t):
             continue
-        jobs[jid]["tasks"].append({"task_id": t.id, "hostname": hostname, "status": t.status or "Pending"})
+        jobs[jid]["tasks"].append({"task_id": t.id, "endpoint_id": t.endpoint_id, "hostname": hostname, "status": t.status or "Pending"})
         jobs[jid]["total"] += 1
         
         status_norm = (t.status or "Pending").capitalize()
@@ -2759,7 +2764,7 @@ def host_operations(host_id):
     except Exception:
         host_info = {}
     annotate_endpoint_duplicates(WinHubCore.get_allowed_hosts(session.get("user_id")))
-    return jsonify({"success": True, "data": {"id": agent.id, "hostname": agent.hostname, "os": agent.os_version, "ip": agent.ip_address, "os_type": getattr(agent, 'os_type', 'Windows'), "last_seen": to_kyiv_time(agent.last_seen), "first_seen": to_kyiv_time(getattr(agent, "first_seen", None)), "last_enrollment_at": to_kyiv_time(getattr(agent, "last_enrollment_at", None)), "last_enrollment_ip": getattr(agent, "last_enrollment_ip", None), "enrollment_attempts": int(getattr(agent, "enrollment_attempts", 0) or 0), "identity_fingerprint": getattr(agent, "identity_fingerprint", None), "duplicate_matches": getattr(agent, "duplicate_matches", []), "identity_warning": getattr(agent, "identity_warning", None), "is_blocked": agent.is_blocked, "approval_status": getattr(agent, "approval_status", "Approved"), "agent_version": getattr(agent, "agent_version", None), "network_info": network_info, "host_info": host_info, "encryption": encryption_status_from_host_info(host_info), "groups": [{"id": g.id, "name": g.name} for g in agent.groups], "history": [{"id": h.id, "title": h.title, "status": h.status or "Pending", "date": to_kyiv_time_short(h.created_at), "by": h.created_by} for h in history]}})
+    return jsonify({"success": True, "data": {"id": agent.id, "hostname": agent.hostname, "os": agent.os_version, "ip": agent.ip_address, "os_type": getattr(agent, 'os_type', 'Windows'), "last_seen": to_kyiv_time(agent.last_seen), "first_seen": to_kyiv_time(getattr(agent, "first_seen", None)), "last_enrollment_at": to_kyiv_time(getattr(agent, "last_enrollment_at", None)), "last_enrollment_ip": getattr(agent, "last_enrollment_ip", None), "enrollment_attempts": int(getattr(agent, "enrollment_attempts", 0) or 0), "identity_fingerprint": getattr(agent, "identity_fingerprint", None), "agent_identity_key_enrolled": bool(getattr(agent, "public_key_pem", None)), "duplicate_matches": getattr(agent, "duplicate_matches", []), "identity_warning": getattr(agent, "identity_warning", None), "is_blocked": agent.is_blocked, "approval_status": getattr(agent, "approval_status", "Approved"), "agent_version": getattr(agent, "agent_version", None), "network_info": network_info, "host_info": host_info, "encryption": encryption_status_from_host_info(host_info), "groups": [{"id": g.id, "name": g.name} for g in agent.groups], "history": [{"id": h.id, "title": h.title, "status": h.status or "Pending", "date": to_kyiv_time_short(h.created_at), "by": h.created_by} for h in history]}})
 
 @infrastructure_bp.route('/api/infrastructure/host/<host_id>/telemetry', methods=['GET'])
 def get_host_telemetry(host_id):
