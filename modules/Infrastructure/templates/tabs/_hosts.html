@@ -5,9 +5,10 @@
             <h3 class="text-lg font-black uppercase tracking-tight">Nodes Control Center</h3>
             <p class="text-xs font-bold mt-1">Endpoint inventory, approval state, connectivity and group membership.</p>
         </div>
-        <div class="grid grid-cols-3 gap-3 text-center">
+        <div class="grid grid-cols-2 sm:grid-cols-4 gap-3 text-center">
             <div class="px-4 py-2 bg-white/10 border border-white/20 rounded-xl"><p class="text-[9px] font-black uppercase text-white/60">Total</p><p class="text-lg font-black text-white">{{ stats.total }}</p></div>
             <div class="px-4 py-2 bg-white/10 border border-white/20 rounded-xl"><p class="text-[9px] font-black uppercase text-white/60">Online</p><p class="text-lg font-black text-emerald-200">{{ stats.online }}</p></div>
+            <div class="px-4 py-2 bg-white/10 border border-white/20 rounded-xl"><p class="text-[9px] font-black uppercase text-white/60">Signed</p><p class="text-lg font-black text-violet-100">{{ stats.signed }}</p></div>
             <div class="px-4 py-2 bg-white/10 border border-white/20 rounded-xl"><p class="text-[9px] font-black uppercase text-white/60">Pending</p><p class="text-lg font-black text-amber-200">{{ stats.pending }}</p></div>
         </div>
     </div>
@@ -22,7 +23,14 @@
     {% endif %}
 
     {% if permissions.manage_hosts %}
-    <div id="nodesPendingPanel" class="hidden bg-white rounded-[2rem] border border-slate-200 shadow-sm overflow-hidden">
+    <div id="nodesReviewPanel" class="hidden space-y-4">
+        <div class="wh-soft-panel bg-white p-2 rounded-2xl border border-slate-200 shadow-sm flex flex-wrap gap-2 w-fit">
+            <button onclick="switchReviewTab('pending')" id="reviewTab-pending" class="review-tab-btn px-4 py-2 rounded-xl text-[10px] font-black uppercase bg-amber-600 text-white shadow-sm">Pending Approval <span class="ml-1 text-white/80">{{ pending_agents|length }}</span></button>
+            <button onclick="switchReviewTab('duplicates')" id="reviewTab-duplicates" class="review-tab-btn px-4 py-2 rounded-xl text-[10px] font-black uppercase text-slate-700 hover:text-rose-700">Identity Duplicates <span class="ml-1 text-slate-500">{{ approved_duplicate_pairs|length }}</span></button>
+            <button onclick="switchReviewTab('rejected')" id="reviewTab-rejected" class="review-tab-btn px-4 py-2 rounded-xl text-[10px] font-black uppercase text-slate-700 hover:text-rose-700">Rejected Hosts <span class="ml-1 text-slate-500">{{ rejected_agents|length }}</span></button>
+        </div>
+
+    <div id="nodesPendingPanel" class="review-subpanel bg-white rounded-[2rem] border border-slate-200 shadow-sm overflow-hidden">
         <div class="px-5 py-4 bg-amber-50/50 border-b border-amber-100 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
             <div>
                 <p class="text-xs font-black text-amber-800 uppercase tracking-widest">Pending Approval Center</p>
@@ -93,20 +101,25 @@
         </table>
         </div>
     </div>
-    {% endif %}
 
-    {% if permissions.manage_hosts %}
-    <div id="nodesApprovedDuplicatesPanel" class="hidden bg-white rounded-[2rem] border border-slate-200 shadow-sm overflow-hidden">
+    <div id="nodesApprovedDuplicatesPanel" class="review-subpanel hidden bg-white rounded-[2rem] border border-slate-200 shadow-sm overflow-hidden">
         <div class="px-5 py-4 bg-rose-50/60 border-b border-rose-100 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
             <div>
                 <p class="text-xs font-black text-rose-800 uppercase tracking-widest">Identity Duplicates</p>
-                <p class="text-[11px] font-bold text-rose-700/70 mt-1">Approved nodes that look like the same endpoint. Pick the actual record to keep.</p>
+                <p class="text-[11px] font-bold text-rose-700/80 mt-1"><span id="duplicateSelectedCount">0</span> selected. Approved nodes that look like the same endpoint. Pick the actual record to keep.</p>
+            </div>
+            <div class="flex flex-wrap gap-2">
+                <button onclick="mergeSelectedDuplicates('first')" class="px-4 py-2 bg-white text-emerald-700 border border-emerald-100 rounded-xl text-[10px] font-black uppercase hover:bg-emerald-50">Keep First Selected</button>
+                <button onclick="mergeSelectedDuplicates('second')" class="px-4 py-2 bg-indigo-600 text-white rounded-xl text-[10px] font-black uppercase hover:bg-indigo-700">Keep Second Selected</button>
             </div>
         </div>
         <div class="overflow-x-auto">
             <table class="w-full text-left min-w-[1080px] infra-separated-table px-2">
                 <thead class="bg-rose-50/70 border-b border-rose-100 text-[10px] font-black text-rose-700 uppercase tracking-widest">
                     <tr>
+                        <th class="px-5 py-4 w-12">
+                            <input type="checkbox" onchange="toggleAllDuplicatePairs(this)" class="w-4 h-4 rounded border-rose-200 text-rose-600 focus:ring-rose-500">
+                        </th>
                         <th class="px-6 py-4">First Record</th>
                         <th class="px-6 py-4">Second Record</th>
                         <th class="px-6 py-4">Matched By</th>
@@ -116,6 +129,9 @@
                 <tbody>
                     {% for pair in approved_duplicate_pairs %}
                     <tr class="hover:bg-rose-50/30 transition-colors bg-rose-50/20">
+                        <td class="px-5 py-4">
+                            <input type="checkbox" value="{{ pair.left.id }}|{{ pair.right.id }}" onchange="updateDuplicateSelectionCount()" class="duplicate-pair-cb w-4 h-4 rounded border-slate-300 text-rose-600 focus:ring-rose-500">
+                        </td>
                         <td class="px-6 py-4">
                             <button onclick="viewHost('{{ pair.left.id }}')" class="text-left font-black text-slate-800 hover:text-indigo-600">{{ pair.left.hostname or pair.left.id }}</button>
                             <div class="text-[10px] font-mono text-slate-400 mt-1 break-all">{{ pair.left.id }}</div>
@@ -139,26 +155,31 @@
                         </td>
                     </tr>
                     {% else %}
-                    <tr><td colspan="4" class="px-6 py-10 text-center text-slate-400 text-sm font-bold">No approved identity duplicates.</td></tr>
+                    <tr><td colspan="5" class="px-6 py-10 text-center text-slate-500 text-sm font-bold">No approved identity duplicates.</td></tr>
                     {% endfor %}
                 </tbody>
             </table>
         </div>
     </div>
-    {% endif %}
 
-    {% if permissions.manage_hosts %}
-    <div id="nodesRejectedPanel" class="hidden bg-white rounded-[2rem] border border-slate-200 shadow-sm overflow-hidden">
+    <div id="nodesRejectedPanel" class="review-subpanel hidden bg-white rounded-[2rem] border border-slate-200 shadow-sm overflow-hidden">
         <div class="px-5 py-4 bg-rose-50/60 border-b border-rose-100 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
             <div>
                 <p class="text-xs font-black text-rose-800 uppercase tracking-widest">Rejected Hosts</p>
-                <p class="text-[11px] font-bold text-rose-700/70 mt-1">Hosts rejected during enrollment or review.</p>
+                <p class="text-[11px] font-bold text-rose-700/80 mt-1"><span id="rejectedSelectedCount">0</span> selected. Hosts rejected during enrollment or review.</p>
+            </div>
+            <div class="flex flex-wrap gap-2">
+                <button onclick="approveSelectedRejected()" class="px-4 py-2 bg-white text-emerald-700 border border-emerald-100 rounded-xl text-[10px] font-black uppercase hover:bg-emerald-50">Approve Selected</button>
+                <button onclick="deleteSelectedRejected()" class="px-4 py-2 bg-rose-600 text-white rounded-xl text-[10px] font-black uppercase hover:bg-rose-700">Delete Selected</button>
             </div>
         </div>
         <div class="overflow-x-auto">
             <table class="w-full text-left min-w-[920px] infra-separated-table px-2">
                 <thead class="bg-rose-50/70 border-b border-rose-100 text-[10px] font-black text-rose-700 uppercase tracking-widest">
                     <tr>
+                        <th class="px-5 py-4 w-12">
+                            <input type="checkbox" onchange="toggleAllRejectedHosts(this)" class="w-4 h-4 rounded border-rose-200 text-rose-600 focus:ring-rose-500">
+                        </th>
                         <th class="px-6 py-4">Hostname</th>
                         <th class="px-6 py-4">IP / OS</th>
                         <th class="px-6 py-4">Agent</th>
@@ -170,6 +191,9 @@
                 <tbody>
                     {% for agent in rejected_agents %}
                 <tr class="hover:bg-slate-50 transition-colors {% if agent.possible_duplicate %}bg-rose-50/35{% endif %}">
+                        <td class="px-5 py-4">
+                            <input type="checkbox" value="{{ agent.id }}" onchange="updateRejectedSelectionCount()" class="rejected-host-cb w-4 h-4 rounded border-slate-300 text-rose-600 focus:ring-rose-500">
+                        </td>
                         <td class="px-6 py-4">
                             <button onclick="viewHost('{{ agent.id }}')" class="text-left font-black text-slate-800 hover:text-indigo-600">{{ agent.hostname or agent.id }}</button>
                             {% if agent.identity_warning %}<div class="text-[10px] text-rose-600 font-bold mt-1">{{ agent.identity_warning }}</div>{% endif %}
@@ -204,11 +228,12 @@
                         </td>
                     </tr>
                     {% else %}
-                    <tr><td colspan="6" class="px-6 py-10 text-center text-slate-400 text-sm font-bold">No rejected hosts.</td></tr>
+                    <tr><td colspan="7" class="px-6 py-10 text-center text-slate-500 text-sm font-bold">No rejected hosts.</td></tr>
                     {% endfor %}
                 </tbody>
             </table>
         </div>
+    </div>
     </div>
     {% endif %}
 
