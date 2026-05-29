@@ -4,6 +4,8 @@ param(
 
 $ErrorActionPreference = "Stop"
 
+Unregister-ScheduledTask -TaskName "WinHUBAgent Watchdog" -Confirm:$false -ErrorAction SilentlyContinue
+
 $existing = Get-Service -Name $ServiceName -ErrorAction SilentlyContinue
 if ($existing) {
     Stop-Service -Name $ServiceName -ErrorAction SilentlyContinue

@@ -8,6 +8,28 @@ param(
 
 $ErrorActionPreference = "Stop"
 
+function Ensure-WinHUBAgentRecovery {
+    param(
+        [Parameter(Mandatory = $true)][string]$ServiceName
+    )
+
+    sc.exe failure $ServiceName reset= 86400 actions= restart/60000/restart/60000/restart/60000 | Out-Null
+    sc.exe failureflag $ServiceName 1 | Out-Null
+}
+
+function Ensure-WinHUBAgentWatchdog {
+    param(
+        [Parameter(Mandatory = $true)][string]$ServiceName
+    )
+
+    $taskName = "WinHUBAgent Watchdog"
+    $command = "`$svc = Get-Service -Name '$ServiceName' -ErrorAction SilentlyContinue; if (`$svc -and `$svc.Status -ne 'Running') { Start-Service -Name '$ServiceName' }"
+    $action = New-ScheduledTaskAction -Execute "powershell.exe" -Argument "-NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -Command $command"
+    $trigger = New-ScheduledTaskTrigger -Once -At (Get-Date).Date -RepetitionInterval (New-TimeSpan -Minutes 5) -RepetitionDuration (New-TimeSpan -Days 3650)
+    $settings = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -StartWhenAvailable -MultipleInstances IgnoreNew
+    Register-ScheduledTask -TaskName $taskName -Action $action -Trigger $trigger -Settings $settings -User "SYSTEM" -RunLevel Highest -Force | Out-Null
+}
+
 if (-not (Test-Path -LiteralPath $PackagePath)) {
     throw "Package was not found: $PackagePath"
 }
@@ -95,6 +117,9 @@ try {
     if (-not $existing) {
         & (Join-Path $InstallDir "install-service.ps1") -InstallDir $InstallDir -ServiceName $ServiceName
     } else {
+        Set-Service -Name $ServiceName -StartupType Automatic
+        Ensure-WinHUBAgentRecovery -ServiceName $ServiceName
+        Ensure-WinHUBAgentWatchdog -ServiceName $ServiceName
         Start-Service -Name $ServiceName
     }
 
