@@ -94,7 +94,7 @@ def canonical_agent_signature_message(path, hw_id, auth_token, agent_version, si
     ])
 
 
-def verify_agent_signature(public_key_pem, data, path, auth_token):
+def verify_agent_signature(public_key_pem, data, path, auth_token, agent_version_override=None):
     signature = str(data.get("signature") or "").strip()
     signed_at = str(data.get("signed_at") or "").strip()
     nonce = str(data.get("signed_nonce") or "").strip()
@@ -112,7 +112,7 @@ def verify_agent_signature(public_key_pem, data, path, auth_token):
             path,
             data.get("hw_id"),
             auth_token,
-            data.get("agent_version"),
+            agent_version_override if agent_version_override is not None else data.get("agent_version"),
             signed_at,
             nonce,
         )
@@ -166,6 +166,18 @@ def verify_or_bind_agent_key(agent, data, path, auth_token):
 
     ok, reason = verify_agent_signature(candidate_key, data, path, auth_token)
     if not ok:
+        if path == "/api/agent/result" and not data.get("agent_version") and getattr(agent, "agent_version", None):
+            ok, reason = verify_agent_signature(candidate_key, data, path, auth_token, getattr(agent, "agent_version", ""))
+            if ok:
+                if not stored_key and provided_key:
+                    agent.public_key_pem = provided_key
+                    db.session.add(RegistrationHistory(
+                        hw_id=agent.id,
+                        hostname=agent.hostname,
+                        ip_address=current_client_ip(),
+                        event_type="Agent Identity Key Enrolled",
+                    ))
+                return True, "ok"
         if stored_key and has_signature_fields:
             return False, reason
         return not getattr(Config, "AGENT_REQUIRE_SIGNED_REQUESTS", False), reason
