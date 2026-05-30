@@ -431,15 +431,16 @@ def endpoint_health_score(endpoint, latest_version=None):
         last_seen = last_seen.replace(tzinfo=None)
     online = bool(last_seen and last_seen >= now - timedelta(minutes=5))
     outdated = bool(latest_version and (getattr(endpoint, "agent_version", "") or "") != latest_version)
+    has_key = bool(getattr(endpoint, "public_key_pem", None))
 
     score = 100
     reasons = []
-    if not online:
-        score -= 35
-        reasons.append("offline")
     if outdated:
         score -= 20
         reasons.append("agent_outdated")
+    if not has_key:
+        score -= 15
+        reasons.append("missing_identity_key")
     if getattr(endpoint, "is_blocked", False):
         score -= 30
         reasons.append("blocked")
@@ -471,6 +472,7 @@ def endpoint_health_score(endpoint, latest_version=None):
         "reasons": reasons,
         "online": online,
         "outdated": outdated,
+        "signed_key": has_key,
     }
 
 def encryption_status_from_host_info(host_info):
