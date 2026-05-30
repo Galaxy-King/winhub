@@ -137,6 +137,13 @@ def to_kyiv_time_short(dt):
         dt = dt.replace(tzinfo=timezone.utc)
     return dt.astimezone(kyiv_tz).strftime('%H:%M %d.%m')
 
+def datetime_to_epoch_ms(dt):
+    if not dt:
+        return None
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=timezone.utc)
+    return int(dt.timestamp() * 1000)
+
 def can_access_report(report_id):
     if session.get('is_admin'):
         return True
@@ -521,6 +528,24 @@ def annotate_endpoint_duplicates(agents):
     def normalized_hostname(agent):
         return str(getattr(agent, "hostname", "") or "").strip().upper()
 
+    def host_domain_identity(agent):
+        try:
+            host_info = json.loads(agent.host_info or "{}")
+            if not isinstance(host_info, dict):
+                host_info = {}
+        except Exception:
+            host_info = {}
+        machine_name = str(host_info.get("machine_name") or "").strip()
+        user_domain = str(host_info.get("user_domain_name") or "").strip()
+        dns_domain = str(host_info.get("domain_name") or "").strip()
+        if user_domain and user_domain.upper() != machine_name.upper():
+            domain = user_domain
+        elif bool(host_info.get("likely_domain_joined")) and dns_domain:
+            domain = dns_domain
+        else:
+            domain = ""
+        return (domain or "WORKGROUP").upper()
+
     def stable_identity_fingerprint(agent):
         try:
             network_interfaces = json.loads(agent.network_info or "[]")
@@ -536,6 +561,7 @@ def annotate_endpoint_duplicates(agents):
                     macs.append(mac)
         source = json.dumps({
             "hostname": str(agent.hostname or "").strip().upper(),
+            "domain": host_domain_identity(agent),
             "os_type": getattr(agent, "os_type", None) or "Windows",
             "macs": sorted(set(macs)),
         }, sort_keys=True, separators=(",", ":"))
@@ -551,7 +577,7 @@ def annotate_endpoint_duplicates(agents):
         return {
             "fingerprints": fingerprints,
             "hostname": normalized_hostname(agent),
-            "connection_ip": getattr(agent, "ip_address", None) or "",
+            "domain": host_domain_identity(agent),
         }
 
     approved = [
@@ -594,8 +620,6 @@ def annotate_endpoint_duplicates(agents):
             reasons = []
             if hostname and hostname == approved_signals.get("hostname"):
                 reasons.append("hostname")
-            if agent_signals.get("connection_ip") and agent_signals.get("connection_ip") == approved_signals.get("connection_ip"):
-                reasons.append("connection_ip")
             if agent_fingerprints and approved_fingerprints and agent_fingerprints.intersection(approved_fingerprints):
                 reasons.append("identity")
             if reasons:
@@ -3104,6 +3128,93 @@ def host_operations(host_id):
     annotate_endpoint_duplicates(WinHubCore.get_allowed_hosts(session.get("user_id")))
     return jsonify({"success": True, "data": {"id": agent.id, "hostname": agent.hostname, "os": agent.os_version, "ip": agent.ip_address, "os_type": getattr(agent, 'os_type', 'Windows'), "last_seen": to_kyiv_time(agent.last_seen), "first_seen": to_kyiv_time(getattr(agent, "first_seen", None)), "last_enrollment_at": to_kyiv_time(getattr(agent, "last_enrollment_at", None)), "last_enrollment_ip": getattr(agent, "last_enrollment_ip", None), "enrollment_attempts": int(getattr(agent, "enrollment_attempts", 0) or 0), "identity_fingerprint": getattr(agent, "identity_fingerprint", None), "agent_identity_key_enrolled": bool(getattr(agent, "public_key_pem", None)), "duplicate_matches": getattr(agent, "duplicate_matches", []), "identity_warning": getattr(agent, "identity_warning", None), "is_blocked": agent.is_blocked, "approval_status": getattr(agent, "approval_status", "Approved"), "agent_version": getattr(agent, "agent_version", None), "network_info": network_info, "host_info": host_info, "encryption": encryption_status_from_host_info(host_info), "groups": [{"id": g.id, "name": g.name} for g in agent.groups], "history": [{"id": h.id, "title": h.title, "status": h.status or "Pending", "date": to_kyiv_time_short(h.created_at), "by": h.created_by} for h in history]}})
 
+def build_activity_segments(host_id, telemetry_records, threshold, end_time, fallback_ip=""):
+    records = sorted([r for r in telemetry_records if r.timestamp], key=lambda r: r.timestamp)
+    if not records:
+        return []
+
+    gaps = []
+    for index in range(1, len(records)):
+        gap = (records[index].timestamp - records[index - 1].timestamp).total_seconds()
+        if gap > 0:
+            gaps.append(gap)
+    gaps.sort()
+    expected_gap_seconds = gaps[len(gaps) // 2] if gaps else 120
+    expected_gap_seconds = max(30, min(expected_gap_seconds, 600))
+    offline_gap_seconds = max(300, expected_gap_seconds * 3)
+
+    previous_ip_record = ConnectionIpHistory.query.filter(
+        ConnectionIpHistory.endpoint_id == host_id,
+        ConnectionIpHistory.timestamp < threshold
+    ).order_by(ConnectionIpHistory.timestamp.desc()).first()
+    ip_records = ConnectionIpHistory.query.filter(
+        ConnectionIpHistory.endpoint_id == host_id,
+        ConnectionIpHistory.timestamp >= threshold,
+        ConnectionIpHistory.timestamp <= end_time
+    ).order_by(ConnectionIpHistory.timestamp.asc()).all()
+    ip_events = []
+    if previous_ip_record:
+        ip_events.append((threshold, previous_ip_record.ip_address or fallback_ip or "-"))
+    elif fallback_ip:
+        ip_events.append((threshold, fallback_ip))
+    for record in ip_records:
+        if record.timestamp:
+            ip_events.append((record.timestamp, record.ip_address or "-"))
+    ip_events.sort(key=lambda item: item[0])
+
+    def ip_at(moment):
+        current_ip = fallback_ip or "-"
+        for event_time, event_ip in ip_events:
+            if event_time <= moment:
+                current_ip = event_ip or current_ip
+            else:
+                break
+        return current_ip or "-"
+
+    def append_segment(segments, start, end, state, ip=None):
+        if not start or not end or end <= start:
+            return
+        duration_minutes = max(1, int(round((end - start).total_seconds() / 60)))
+        segments.append({
+            "start": to_kyiv_time(start),
+            "end": to_kyiv_time(end),
+            "start_ms": datetime_to_epoch_ms(start),
+            "end_ms": datetime_to_epoch_ms(end),
+            "state": state,
+            "ip": ip or "-",
+            "duration_minutes": duration_minutes,
+        })
+
+    def append_online_with_ip_splits(segments, start, end):
+        boundaries = [start]
+        for event_time, _event_ip in ip_events:
+            if start < event_time < end:
+                boundaries.append(event_time)
+        boundaries.append(end)
+        boundaries = sorted(set(boundaries))
+        for index in range(1, len(boundaries)):
+            piece_start = boundaries[index - 1]
+            piece_end = boundaries[index]
+            append_segment(segments, piece_start, piece_end, "online", ip_at(piece_start))
+
+    segments = []
+    cluster_start = records[0].timestamp
+    cluster_last = records[0].timestamp
+    for record in records[1:]:
+        gap = (record.timestamp - cluster_last).total_seconds()
+        if gap > offline_gap_seconds:
+            online_end = min(cluster_last + timedelta(seconds=expected_gap_seconds), record.timestamp)
+            append_online_with_ip_splits(segments, cluster_start, online_end)
+            append_segment(segments, online_end, record.timestamp, "offline")
+            cluster_start = record.timestamp
+        cluster_last = record.timestamp
+
+    final_online_end = min(cluster_last + timedelta(seconds=expected_gap_seconds), end_time)
+    append_online_with_ip_splits(segments, cluster_start, final_online_end)
+    if final_online_end < end_time:
+        append_segment(segments, final_online_end, end_time, "offline")
+    return segments
+
 @infrastructure_bp.route('/api/infrastructure/host/<host_id>/telemetry', methods=['GET'])
 def get_host_telemetry(host_id):
     denied = require_permission("view_hosts")
@@ -3111,7 +3222,10 @@ def get_host_telemetry(host_id):
     if not WinHubCore.can_manage_host(session.get('user_id'), host_id): return jsonify({"success": False}), 403
     days = int(request.args.get('days', 1))
     threshold = datetime.utcnow() - timedelta(days=days)
-    records = TelemetryHistory.query.filter(TelemetryHistory.endpoint_id == host_id, TelemetryHistory.timestamp >= threshold).order_by(TelemetryHistory.timestamp.asc()).all()
+    raw_records = TelemetryHistory.query.filter(TelemetryHistory.endpoint_id == host_id, TelemetryHistory.timestamp >= threshold).order_by(TelemetryHistory.timestamp.asc()).all()
+    agent = Endpoint.query.get(host_id)
+    activity_segments = build_activity_segments(host_id, raw_records, threshold, datetime.utcnow(), getattr(agent, "ip_address", "") if agent else "")
+    records = raw_records
     if len(records) > 100: records = records[::max(1, len(records) // 100)]
     return jsonify({"success": True, "data": [{
         "time": to_kyiv_time_short(r.timestamp),
@@ -3119,7 +3233,7 @@ def get_host_telemetry(host_id):
         "cpu": r.cpu_usage,
         "ram": r.ram_usage,
         "disk": r.disk_c_free
-    } for r in records]})
+    } for r in records], "activity_segments": activity_segments})
 
 @infrastructure_bp.route('/api/infrastructure/host/<host_id>/ip-history', methods=['GET'])
 def get_host_ip_history(host_id):
