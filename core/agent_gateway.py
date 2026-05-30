@@ -654,6 +654,16 @@ def agent_result():
 
     task = AgentTask.query.filter_by(id=data.get('task_id'), endpoint_id=agent.id).first()
     if task:
+        if task.status == "Cancelled":
+            db.session.commit()
+            pending_tasks = AgentTask.query.filter(
+                AgentTask.job_id == task.job_id,
+                AgentTask.status.in_(['Pending', 'PickedUp', 'Running'])
+            ).count()
+            if pending_tasks == 0:
+                WinHubCore.process_job_completion(task.job_id)
+            return jsonify({"status": "success", "message": "Task was already cancelled"})
+
         log_text = trim_result_log(data.get('log', ''))
         status = data.get('status')
         task.status = status if status in ("Success", "Error", "Cancelled") else "Error"

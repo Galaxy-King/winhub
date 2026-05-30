@@ -2992,15 +2992,29 @@ def cancel_pending_job(job_id):
     if denied: return denied
     if not can_access_report(job_id):
         return jsonify({"success": False, "message": "Permission denied"}), 403
-    tasks = AgentTask.query.filter_by(job_id=job_id).filter(or_(AgentTask.status.is_(None), AgentTask.status == "Pending")).all()
+    tasks = AgentTask.query.filter_by(job_id=job_id).filter(
+        or_(
+            AgentTask.status.is_(None),
+            AgentTask.status.in_(["Pending", "PickedUp", "Running"])
+        )
+    ).all()
+    cancelled = 0
     for task in tasks:
         if WinHubCore.can_manage_host(session.get("user_id"), task.endpoint_id):
+            previous_status = task.status or "Pending"
             task.status = "Cancelled"
-            task.result_log = "Cancelled before pickup."
+            task.result_log = f"Cancelled by operator while task status was {previous_status}. If the agent had already started the script, the local process may still finish, but WinHUB will keep this task cancelled."
             task.finished_at = datetime.utcnow()
-    write_infra_audit("Cancel Pending Job Tasks", "job", job_id, {"cancelled": len(tasks)})
+            cancelled += 1
+    write_infra_audit("Cancel Job Tasks", "job", job_id, {"cancelled": cancelled})
     db.session.commit()
-    return jsonify({"success": True, "cancelled": len(tasks)})
+    pending_tasks = AgentTask.query.filter(
+        AgentTask.job_id == job_id,
+        AgentTask.status.in_(["Pending", "PickedUp", "Running"])
+    ).count()
+    if pending_tasks == 0:
+        WinHubCore.process_job_completion(job_id, include_statuses=["Success", "Error", "Cancelled"], force=True)
+    return jsonify({"success": True, "cancelled": cancelled})
 
 
 @infrastructure_bp.route('/api/infrastructure/job/<job_id>/finalize-report', methods=['POST'])
