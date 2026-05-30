@@ -212,6 +212,18 @@ def agent_identity_fingerprint(hw_id, hostname, os_type, network_interfaces):
     return hashlib.sha256(source.encode("utf-8")).hexdigest()
 
 
+def agent_version_tuple(value):
+    parts = []
+    for part in str(value or "").strip().lstrip("vV").split("."):
+        digits = "".join(ch for ch in part if ch.isdigit())
+        parts.append(int(digits or 0))
+        if len(parts) >= 4:
+            break
+    while len(parts) < 4:
+        parts.append(0)
+    return tuple(parts)
+
+
 def endpoint_stable_identity_fingerprint(endpoint):
     try:
         network_interfaces = json.loads(endpoint.network_info or "[]")
@@ -255,6 +267,29 @@ def find_approved_duplicate_endpoint(hw_id, hostname, source_ip, fingerprint):
             reasons.append("identity")
         if "identity" in reasons:
             return endpoint, reasons
+    return None, []
+
+
+def find_approved_hostname_stale_endpoint(hw_id, hostname, agent_version):
+    hostname_key = str(hostname or "").strip().upper()
+    if not hostname_key:
+        return None, []
+    incoming_version = agent_version_tuple(agent_version)
+    approved = Endpoint.query.filter(
+        Endpoint.id != hw_id,
+        Endpoint.approval_status == "Approved",
+    ).all()
+    newest_match = None
+    newest_version = (0, 0, 0, 0)
+    for endpoint in approved:
+        if str(endpoint.hostname or "").strip().upper() != hostname_key:
+            continue
+        endpoint_version = agent_version_tuple(getattr(endpoint, "agent_version", "") or "")
+        if newest_match is None or endpoint_version > newest_version:
+            newest_match = endpoint
+            newest_version = endpoint_version
+    if newest_match and newest_version >= incoming_version:
+        return newest_match, ["hostname", "stale_agent_version"]
     return None, []
 
 
@@ -421,8 +456,9 @@ def enroll_agent():
     fingerprint = agent_identity_fingerprint(hw_id, hostname, os_type, network_interfaces)
     token_proof_endpoint, token_proof_reasons = find_approved_endpoint_by_previous_token(previous_auth_token, previous_hw_id)
     identity_duplicate_endpoint, identity_duplicate_reasons = find_approved_duplicate_endpoint(hw_id, hostname, source_ip, fingerprint)
-    duplicate_endpoint = token_proof_endpoint or identity_duplicate_endpoint
-    duplicate_reasons = token_proof_reasons or identity_duplicate_reasons
+    stale_hostname_endpoint, stale_hostname_reasons = find_approved_hostname_stale_endpoint(hw_id, hostname, agent_version)
+    duplicate_endpoint = token_proof_endpoint or identity_duplicate_endpoint or stale_hostname_endpoint
+    duplicate_reasons = token_proof_reasons or identity_duplicate_reasons or stale_hostname_reasons
     raw_token = f"agt_{secrets.token_urlsafe(32)}"
 
     agent = Endpoint.query.get(hw_id)
