@@ -2789,7 +2789,7 @@ async function loadTelemetry(hostId, days) {
                 });
             }
 
-            renderActivityChart(json.data);
+            renderActivityChart(json.activity_segments || []);
         } else {
             if(tLoading) { tLoading.innerText = "No telemetry data recorded for this period."; tLoading.classList.remove('hidden'); }
             if(dLoading) { dLoading.innerText = "No disk data recorded for this period."; dLoading.classList.remove('hidden'); }
@@ -2797,88 +2797,101 @@ async function loadTelemetry(hostId, days) {
             if(teleChart) teleChart.destroy();
             if(diskChart) diskChart.destroy();
             if(activityChart) activityChart.destroy();
+            renderActivitySegmentsList([]);
         }
     } catch(e) {
         if(tLoading) { tLoading.innerText = "Failed to load telemetry."; tLoading.classList.remove('hidden'); }
         if(dLoading) { dLoading.innerText = "Failed to load disk telemetry."; dLoading.classList.remove('hidden'); }
         if(aLoading) { aLoading.innerText = "Failed to load activity timeline."; aLoading.classList.remove('hidden'); }
+        renderActivitySegmentsList([]);
     }
 }
 
-function buildActivityPoints(records) {
-    const points = [];
-    const sorted = (records || [])
-        .map(row => ({...row, date: row.timestamp ? new Date(row.timestamp) : null}))
-        .filter(row => row.date && !Number.isNaN(row.date.getTime()))
-        .sort((a, b) => a.date - b.date);
-    if(sorted.length === 0) return points;
-
-    const medianGapMs = (() => {
-        const gaps = [];
-        for(let i = 1; i < sorted.length; i++) {
-            const gap = sorted[i].date - sorted[i - 1].date;
-            if(gap > 0) gaps.push(gap);
-        }
-        if(!gaps.length) return 120000;
-        gaps.sort((a, b) => a - b);
-        return gaps[Math.floor(gaps.length / 2)];
-    })();
-    const offlineGapMs = Math.max(5 * 60 * 1000, medianGapMs * 3);
-
-    points.push({x: sorted[0].time, y: 1});
-    for(let i = 1; i < sorted.length; i++) {
-        const previous = sorted[i - 1];
-        const current = sorted[i];
-        const gap = current.date - previous.date;
-        if(gap > offlineGapMs) {
-            points.push({x: previous.time, y: 1});
-            points.push({x: previous.time + ' +gap', y: 0});
-            points.push({x: current.time, y: 0});
-        }
-        points.push({x: current.time, y: 1});
-    }
-    return points;
+function formatActivityAxis(value) {
+    const date = new Date(value);
+    if(Number.isNaN(date.getTime())) return '';
+    return date.toLocaleString(undefined, { hour: '2-digit', minute: '2-digit', day: '2-digit', month: '2-digit' });
 }
 
-function renderActivityChart(records) {
+function renderActivitySegmentsList(segments) {
+    const list = document.getElementById('activitySegmentsList');
+    if(!list) return;
+    if(!Array.isArray(segments) || segments.length === 0) {
+        list.innerHTML = '<div class="p-4 text-center text-slate-400 font-bold">No activity segments for this period.</div>';
+        return;
+    }
+    list.innerHTML = segments.slice(-24).reverse().map(segment => {
+        const online = segment.state === 'online';
+        return `
+            <div class="flex items-center justify-between gap-4 p-3 border-b border-slate-100 last:border-b-0">
+                <div class="min-w-0">
+                    <div class="text-xs font-black ${online ? 'text-emerald-700' : 'text-slate-500'} uppercase">${online ? 'Online' : 'Offline'}</div>
+                    <div class="text-[11px] font-bold text-slate-500 mt-1">${escapeHtml(segment.start || '-')} - ${escapeHtml(segment.end || '-')}</div>
+                </div>
+                <div class="text-right shrink-0">
+                    <div class="font-mono text-xs font-black text-slate-800">${online ? escapeHtml(segment.ip || '-') : '-'}</div>
+                    <div class="text-[10px] font-black text-slate-400 uppercase mt-1">${Number(segment.duration_minutes || 0)} min</div>
+                </div>
+            </div>
+        `;
+    }).join('');
+}
+
+function renderActivityChart(segments) {
     if(activityChart) { activityChart.destroy(); activityChart = null; }
     const ctxActivity = document.getElementById('activityChart');
     if(!ctxActivity || typeof Chart === 'undefined') return;
 
-    const points = buildActivityPoints(records);
+    const validSegments = (segments || []).filter(segment => Number.isFinite(Number(segment.start_ms)) && Number.isFinite(Number(segment.end_ms)) && Number(segment.end_ms) > Number(segment.start_ms));
+    renderActivitySegmentsList(validSegments);
+    if(validSegments.length === 0) return;
+
     activityChart = new Chart(ctxActivity.getContext('2d'), {
-        type: 'line',
+        type: 'bar',
         data: {
-            labels: points.map(point => point.x),
             datasets: [{
-                label: 'Agent Activity',
-                data: points.map(point => point.y),
-                borderColor: '#059669',
-                backgroundColor: '#10b98122',
-                fill: true,
-                stepped: true,
-                tension: 0,
-                pointRadius: 2
+                label: 'Activity',
+                data: validSegments.map(segment => ({
+                    x: [Number(segment.start_ms), Number(segment.end_ms)],
+                    y: 'Activity',
+                    state: segment.state,
+                    ip: segment.ip,
+                    start: segment.start,
+                    end: segment.end,
+                    duration: segment.duration_minutes
+                })),
+                backgroundColor: context => context.raw && context.raw.state === 'online' ? '#10b981' : '#cbd5e1',
+                borderColor: context => context.raw && context.raw.state === 'online' ? '#047857' : '#94a3b8',
+                borderWidth: 1,
+                borderRadius: 8,
+                barThickness: 34
             }]
         },
         options: {
+            indexAxis: 'y',
             responsive: true,
             maintainAspectRatio: false,
             scales: {
+                x: {
+                    type: 'linear',
+                    ticks: { callback: value => formatActivityAxis(value), maxRotation: 0 },
+                    grid: { color: '#e2e8f0' }
+                },
                 y: {
-                    min: 0,
-                    max: 1,
-                    ticks: {
-                        stepSize: 1,
-                        callback: value => value === 1 ? 'Online' : 'Offline'
-                    }
+                    grid: { display: false },
+                    ticks: { color: '#334155', font: { weight: '700' } }
                 }
             },
             plugins: {
                 legend: { display: false },
                 tooltip: {
                     callbacks: {
-                        label: context => context.raw === 1 ? 'Online' : 'Offline'
+                        label: context => {
+                            const item = context.raw || {};
+                            const state = item.state === 'online' ? 'Online' : 'Offline';
+                            const ip = item.state === 'online' ? ` | IP: ${item.ip || '-'}` : '';
+                            return `${state}${ip} | ${item.start || '-'} - ${item.end || '-'} | ${item.duration || 0} min`;
+                        }
                     }
                 }
             }

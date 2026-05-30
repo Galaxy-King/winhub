@@ -132,7 +132,8 @@
                     <canvas id="activityChart"></canvas>
                     <div id="activityLoading" class="absolute inset-0 flex items-center justify-center bg-white/80 font-bold text-slate-400 rounded-[2rem]">Loading activity timeline...</div>
                 </div>
-                <p class="text-[11px] font-bold text-slate-400 mt-3">Online is inferred from telemetry heartbeats. Long gaps between heartbeats are shown as offline.</p>
+                <p class="text-[11px] font-bold text-slate-500 mt-3">Online/offline periods are inferred from telemetry heartbeats and split by recorded Connection IP changes.</p>
+                <div id="activitySegmentsList" class="mt-4 bg-white border border-slate-200 rounded-2xl max-h-72 overflow-y-auto shadow-sm"></div>
             </div>
 
             <div class="shrink-0">

@@ -196,7 +196,24 @@ def verify_or_bind_agent_key(agent, data, path, auth_token):
     return True, "ok"
 
 
-def agent_identity_fingerprint(hw_id, hostname, os_type, network_interfaces):
+def host_domain_identity(host_info):
+    if not isinstance(host_info, dict):
+        host_info = {}
+    machine_name = str(host_info.get("machine_name") or "").strip()
+    user_domain = str(host_info.get("user_domain_name") or "").strip()
+    dns_domain = str(host_info.get("domain_name") or "").strip()
+    if user_domain and user_domain.upper() != machine_name.upper():
+        domain = user_domain
+    elif bool(host_info.get("likely_domain_joined")) and dns_domain:
+        domain = dns_domain
+    else:
+        domain = ""
+    if not domain:
+        domain = "WORKGROUP"
+    return domain.upper()
+
+
+def agent_identity_fingerprint(hw_id, hostname, os_type, network_interfaces, host_info=None):
     macs = []
     if isinstance(network_interfaces, list):
         for item in network_interfaces:
@@ -206,6 +223,7 @@ def agent_identity_fingerprint(hw_id, hostname, os_type, network_interfaces):
                     macs.append(mac)
     source = json.dumps({
         "hostname": str(hostname or "").strip().upper(),
+        "domain": host_domain_identity(host_info),
         "os_type": os_type,
         "macs": sorted(set(macs)),
     }, sort_keys=True, separators=(",", ":"))
@@ -231,11 +249,18 @@ def endpoint_stable_identity_fingerprint(endpoint):
             network_interfaces = []
     except Exception:
         network_interfaces = []
+    try:
+        host_info = json.loads(endpoint.host_info or "{}")
+        if not isinstance(host_info, dict):
+            host_info = {}
+    except Exception:
+        host_info = {}
     return agent_identity_fingerprint(
         None,
         endpoint.hostname,
         endpoint.os_type or "Windows",
         network_interfaces,
+        host_info,
     )
 
 
@@ -255,8 +280,6 @@ def find_approved_duplicate_endpoint(hw_id, hostname, source_ip, fingerprint):
         reasons = []
         if hostname and endpoint.hostname and hostname == endpoint.hostname:
             reasons.append("hostname")
-        if source_ip and endpoint.ip_address and source_ip == endpoint.ip_address:
-            reasons.append("connection_ip")
         endpoint_fingerprints = {
             getattr(endpoint, "identity_fingerprint", None),
             endpoint_stable_identity_fingerprint(endpoint),
@@ -453,7 +476,7 @@ def enroll_agent():
     previous_hw_id = str(data.get("previous_hw_id") or "").strip()
 
     if not hw_id: return jsonify({"error": "Missing Hardware ID"}), 400
-    fingerprint = agent_identity_fingerprint(hw_id, hostname, os_type, network_interfaces)
+    fingerprint = agent_identity_fingerprint(hw_id, hostname, os_type, network_interfaces, host_inventory)
     token_proof_endpoint, token_proof_reasons = find_approved_endpoint_by_previous_token(previous_auth_token, previous_hw_id)
     identity_duplicate_endpoint, identity_duplicate_reasons = find_approved_duplicate_endpoint(hw_id, hostname, source_ip, fingerprint)
     stale_hostname_endpoint, stale_hostname_reasons = find_approved_hostname_stale_endpoint(hw_id, hostname, agent_version)
