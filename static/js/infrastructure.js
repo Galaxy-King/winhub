@@ -1758,7 +1758,7 @@ async function loadFleetCenter() {
         fleetSelectedHostIds = new Set(Array.from(fleetSelectedHostIds).filter(id => liveHostIds.has(id)));
         renderFleetCenter();
     } catch(e) {
-        body.innerHTML = '<tr><td colspan="8" class="p-12 text-center text-rose-400 font-black">Failed to load fleet data.</td></tr>';
+        body.innerHTML = '<tr><td colspan="10" class="p-12 text-center text-rose-400 font-black">Failed to load fleet data.</td></tr>';
     }
 }
 
@@ -1857,6 +1857,7 @@ function renderFleetCenter() {
         let matchStatus = true;
         if (statusFilter === 'outdated') matchStatus = !!health.outdated;
         else if (statusFilter === 'current') matchStatus = !health.outdated;
+        else if (statusFilter === 'offline') matchStatus = !health.online;
         else if (statusFilter === 'warning') matchStatus = ['Warning', 'Critical'].includes(health.status);
         else if (statusFilter === 'unsigned') matchStatus = !host.agent_identity_key_enrolled;
         return matchSearch && matchGroup && matchStatus;
@@ -1883,6 +1884,8 @@ function renderFleetCenter() {
         const groups = (host.groups || []).map(group => `<span class="px-2 py-1 rounded-lg bg-slate-100 text-slate-500 border border-slate-200 text-[9px] font-black uppercase">${escapeHtml(group.name)}</span>`).join('');
         const keyClass = host.agent_identity_key_enrolled ? 'text-emerald-700 bg-emerald-50 border-emerald-100' : 'text-violet-700 bg-violet-50 border-violet-100';
         const keyLabel = host.agent_identity_key_enrolled ? 'Key OK' : 'No key';
+        const onlineClass = health.online ? 'bg-emerald-50 text-emerald-700 border-emerald-100' : 'bg-slate-100 text-slate-600 border-slate-200';
+        const onlineLabel = health.online ? 'Online' : 'Offline';
         const healthReasons = (health.reasons || []).map(escapeHtml).join(', ') || 'current version, signed key, approved, unblocked';
         const checked = fleetSelectedHostIds.has(host.id) ? 'checked' : '';
         const duplicateMatches = (host.duplicate_matches || []).filter(match => match.strong_match);
@@ -1899,6 +1902,7 @@ function renderFleetCenter() {
                 <div class="text-[10px] font-bold text-slate-400 uppercase mt-1">${escapeHtml(host.os || 'Windows')}</div>
                 ${duplicateBadge}
             </td>
+            <td class="px-6 py-4"><span class="inline-flex whitespace-nowrap px-3 py-1 rounded-xl border text-[10px] font-black uppercase ${onlineClass}" title="Calculated from the last agent pulse">${onlineLabel}</span></td>
             <td class="px-6 py-4"><span class="px-3 py-1 rounded-xl border text-[10px] font-black uppercase ${versionClass}">${escapeHtml(host.agent_version || 'unknown')}</span></td>
             <td class="px-6 py-4">
                 <span title="${healthReasons}" class="px-3 py-1 rounded-xl border text-[10px] font-black uppercase ${healthClass}">${health.score || 0}% ${escapeHtml(health.status || 'Unknown')}</span>
@@ -1913,7 +1917,7 @@ function renderFleetCenter() {
                 <button onclick="runFleetUpdate('${escapeHtml(host.id)}')" class="px-3 py-2 rounded-xl bg-white border border-slate-200 text-[10px] font-black uppercase text-slate-500 hover:text-indigo-600 hover:bg-indigo-50 transition-all">Update</button>
             </td>
         </tr>`;
-    }).join('') || '<tr><td colspan="9" class="p-12 text-center text-slate-500 font-black">No fleet hosts match filters.</td></tr>';
+    }).join('') || '<tr><td colspan="10" class="p-12 text-center text-slate-500 font-black">No fleet hosts match filters.</td></tr>';
     updateFleetSelectedCount();
 
     if (packagesBox) {
