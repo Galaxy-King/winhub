@@ -1078,6 +1078,7 @@ def index():
         'pending': sum(1 for a in agents if getattr(a, "approval_status", "Approved") == "Pending"),
         'rejected': sum(1 for a in agents if getattr(a, "approval_status", "Approved") == "Rejected"),
         'current': sum(1 for a in agents if Config.LATEST_AGENT_VERSION and (a.agent_version or "") == Config.LATEST_AGENT_VERSION),
+        'outdated': sum(1 for a in agents if Config.LATEST_AGENT_VERSION and (a.agent_version or "") != Config.LATEST_AGENT_VERSION),
         'signed': sum(1 for a in agents if bool(getattr(a, "public_key_pem", None))),
     }
     
