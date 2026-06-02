@@ -585,6 +585,67 @@
         .shadow-2xl {
             box-shadow: 0 14px 34px rgba(0, 0, 0, 0.28), 0 0 18px rgba(34, 211, 238, 0.045) !important;
         }
+
+        .hover\:bg-white:hover,
+        .focus\:bg-white:focus,
+        .has-\[\:checked\]\:bg-white:has(:checked),
+        .group:hover .group-hover\:bg-white {
+            background:
+                linear-gradient(135deg, rgba(34, 211, 238, 0.18), rgba(59, 130, 246, 0.10)) !important;
+            color: #f0fbff !important;
+            border-color: rgba(34, 211, 238, 0.38) !important;
+        }
+
+        .hover\:bg-slate-100:hover,
+        .hover\:bg-slate-200\/50:hover,
+        .hover\:bg-indigo-50:hover,
+        .hover\:bg-white\/20:hover,
+        .hover\:bg-white\/10:hover {
+            background:
+                linear-gradient(135deg, rgba(34, 211, 238, 0.14), rgba(15, 23, 42, 0.88)) !important;
+            color: #f0fbff !important;
+            border-color: rgba(34, 211, 238, 0.34) !important;
+        }
+
+        #view-deploy .lg\:col-span-3,
+        #view-deploy .lg\:col-span-9,
+        #workspaceBuilderPanel,
+        #deploymentSettingsBlock > div > div,
+        #templateVariablesArea > div,
+        #depAutoEmailSettings {
+            background:
+                radial-gradient(circle at top left, rgba(34, 211, 238, 0.07), transparent 18rem),
+                linear-gradient(180deg, rgba(15, 23, 42, 0.98), rgba(9, 16, 29, 0.97)) !important;
+            color: #e8f6ff !important;
+            border-color: rgba(34, 211, 238, 0.22) !important;
+        }
+        #view-deploy h2,
+        #view-deploy h3,
+        #view-deploy h4,
+        #view-deploy label,
+        #view-deploy span,
+        #view-deploy p {
+            color: inherit;
+        }
+        #view-deploy .template-card {
+            background:
+                linear-gradient(135deg, rgba(15, 23, 42, 0.96), rgba(12, 27, 48, 0.92)) !important;
+            border-color: rgba(34, 211, 238, 0.20) !important;
+        }
+        #view-deploy .template-card:hover {
+            background:
+                linear-gradient(135deg, rgba(8, 47, 73, 0.92), rgba(15, 23, 42, 0.96)) !important;
+            border-color: rgba(34, 211, 238, 0.54) !important;
+            box-shadow: inset 3px 0 0 rgba(34, 211, 238, 0.85), 0 0 26px rgba(34, 211, 238, 0.12) !important;
+        }
+        #view-deploy input,
+        #view-deploy select,
+        #view-deploy textarea,
+        #view-deploy [onclick="openMultiHostModal()"] {
+            background-color: rgba(3, 10, 23, 0.86) !important;
+            color: #e8f6ff !important;
+            border-color: rgba(34, 211, 238, 0.24) !important;
+        }
     </style>
     {% block extra_head %}{% endblock %}
 </head>
