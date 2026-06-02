@@ -25,11 +25,11 @@
 	                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M15 19l-7-7 7-7"></path></svg>
 	                    </button>
 	                    <div id="adminTabsScroller" class="flex items-center gap-4 bg-slate-50 p-2 px-11 rounded-2xl border border-slate-200/60 overflow-x-auto shadow-inner w-full lg:w-auto scroll-smooth no-scrollbar">
-	                        <button onclick="switchTab('users')" id="tabUsers" class="active px-6 py-2.5 rounded-xl font-black text-xs uppercase tracking-wider transition-all whitespace-nowrap bg-white text-indigo-600 shadow-sm border border-slate-200/50">Users</button>
-	                        <button onclick="switchTab('api')" id="tabApi" class="text-slate-500 hover:text-slate-700 px-6 py-2.5 rounded-xl font-black text-xs uppercase tracking-wider transition-all whitespace-nowrap">API Keys</button>
-	                        <button onclick="switchTab('audit')" id="tabAudit" class="text-slate-500 hover:text-slate-700 px-6 py-2.5 rounded-xl font-black text-xs uppercase tracking-wider transition-all whitespace-nowrap">Audit Logs</button>
-	                        <button onclick="switchTab('system')" id="tabSystem" class="text-slate-500 hover:text-slate-700 px-6 py-2.5 rounded-xl font-black text-xs uppercase tracking-wider transition-all whitespace-nowrap">System Logs</button>
-	                        <button onclick="switchTab('gpg')" id="tabGpg" class="text-slate-500 hover:text-slate-700 px-6 py-2.5 rounded-xl font-black text-xs uppercase tracking-wider transition-all whitespace-nowrap">GPG Keys</button>
+	                        <button onclick="switchTab('users')" id="tabUsers" class="admin-tab-btn active px-6 py-2.5 rounded-xl font-black text-xs uppercase tracking-wider transition-all whitespace-nowrap bg-white text-indigo-600 shadow-sm border border-slate-200/50">Users</button>
+	                        <button onclick="switchTab('api')" id="tabApi" class="admin-tab-btn text-slate-500 hover:text-slate-700 px-6 py-2.5 rounded-xl font-black text-xs uppercase tracking-wider transition-all whitespace-nowrap">API Keys</button>
+	                        <button onclick="switchTab('audit')" id="tabAudit" class="admin-tab-btn text-slate-500 hover:text-slate-700 px-6 py-2.5 rounded-xl font-black text-xs uppercase tracking-wider transition-all whitespace-nowrap">Audit Logs</button>
+	                        <button onclick="switchTab('system')" id="tabSystem" class="admin-tab-btn text-slate-500 hover:text-slate-700 px-6 py-2.5 rounded-xl font-black text-xs uppercase tracking-wider transition-all whitespace-nowrap">System Logs</button>
+	                        <button onclick="switchTab('gpg')" id="tabGpg" class="admin-tab-btn text-slate-500 hover:text-slate-700 px-6 py-2.5 rounded-xl font-black text-xs uppercase tracking-wider transition-all whitespace-nowrap">GPG Keys</button>
 	                        
 	                        <div class="w-px h-6 bg-slate-300 mx-1 shrink-0"></div>
 	                        <div class="flex items-center gap-3 px-2 shrink-0">
@@ -608,11 +608,11 @@ $StaticPassword = "{{secret:local_admin_password}}"
         ['users', 'api', 'audit', 'system', 'gpg'].forEach(t => {
             document.getElementById('view' + t.charAt(0).toUpperCase() + t.slice(1)).classList.add('hidden');
             const btn = document.getElementById('tab' + t.charAt(0).toUpperCase() + t.slice(1));
-            btn.className = "text-slate-500 hover:text-slate-700 px-6 py-2.5 rounded-xl font-black text-xs uppercase tracking-wider transition-all whitespace-nowrap";
+            btn.className = "admin-tab-btn text-slate-500 hover:text-slate-700 px-6 py-2.5 rounded-xl font-black text-xs uppercase tracking-wider transition-all whitespace-nowrap";
         });
         document.getElementById('view' + tab.charAt(0).toUpperCase() + tab.slice(1)).classList.remove('hidden');
         const activeBtn = document.getElementById('tab' + tab.charAt(0).toUpperCase() + tab.slice(1));
-        activeBtn.className = "active px-6 py-2.5 rounded-xl font-black text-xs uppercase tracking-wider transition-all whitespace-nowrap bg-white text-indigo-600 shadow-sm border border-slate-200/50";
+        activeBtn.className = "admin-tab-btn active px-6 py-2.5 rounded-xl font-black text-xs uppercase tracking-wider transition-all whitespace-nowrap bg-white text-indigo-600 shadow-sm border border-slate-200/50";
         
         const btnCreateMain = document.getElementById('btnCreateMain');
         const btnApiHelp = document.getElementById('btnApiHelp');
