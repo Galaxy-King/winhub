@@ -456,6 +456,135 @@
         .rounded-2xl {
             border-radius: 0.75rem !important;
         }
+
+        /* Tactical contrast correction: keep the blue-space theme readable on dense data screens. */
+        .wh-soft-panel,
+        .template-card,
+        .modal-card,
+        article,
+        section .bg-white,
+        main .bg-white {
+            background:
+                radial-gradient(circle at top left, rgba(34, 211, 238, 0.08), transparent 18rem),
+                linear-gradient(180deg, rgba(18, 28, 48, 0.98), rgba(10, 18, 33, 0.96)) !important;
+            color: #e8f6ff !important;
+            border-color: rgba(34, 211, 238, 0.24) !important;
+        }
+
+        tbody,
+        tbody tr,
+        .host-row,
+        .infra-separated-table tbody tr {
+            background:
+                linear-gradient(90deg, rgba(15, 23, 42, 0.96), rgba(18, 28, 48, 0.94)) !important;
+            color: #e8f6ff !important;
+        }
+        .infra-separated-table tbody tr,
+        tbody tr {
+            border-top: 1px solid rgba(34, 211, 238, 0.16) !important;
+            border-bottom: 1px solid rgba(14, 165, 233, 0.10) !important;
+        }
+        .infra-separated-table tbody tr:hover,
+        tbody tr:hover,
+        .host-row:hover {
+            background:
+                linear-gradient(90deg, rgba(8, 47, 73, 0.88), rgba(15, 23, 42, 0.94)) !important;
+            box-shadow: inset 3px 0 0 rgba(34, 211, 238, 0.78), 0 0 24px rgba(34, 211, 238, 0.10) !important;
+        }
+
+        td,
+        th,
+        .host-row td,
+        .infra-separated-table td {
+            color: #e8f6ff !important;
+        }
+        .text-slate-300 { color: #cbd5e1 !important; }
+        .text-slate-400 { color: #a7bdd7 !important; }
+        .text-slate-500 { color: #9fb3cc !important; }
+        .text-slate-600,
+        .text-slate-700,
+        .text-slate-800,
+        .text-slate-900 {
+            color: #e8f6ff !important;
+        }
+
+        .bg-slate-50,
+        .bg-slate-50\/50,
+        .bg-slate-50\/80,
+        .bg-slate-100,
+        .bg-slate-200 {
+            background-color: rgba(8, 17, 31, 0.82) !important;
+            border-color: rgba(34, 211, 238, 0.18) !important;
+        }
+
+        .bg-indigo-50,
+        .bg-blue-50 {
+            background-color: rgba(14, 165, 233, 0.14) !important;
+            border-color: rgba(56, 189, 248, 0.38) !important;
+        }
+        .text-indigo-500,
+        .text-indigo-600,
+        .text-indigo-700,
+        .text-blue-500,
+        .text-blue-600,
+        .text-blue-700 {
+            color: #7dd3fc !important;
+        }
+
+        .bg-emerald-50,
+        .bg-emerald-100 {
+            background-color: rgba(16, 185, 129, 0.14) !important;
+            border-color: rgba(52, 211, 153, 0.38) !important;
+        }
+        .text-emerald-500,
+        .text-emerald-600,
+        .text-emerald-700 {
+            color: #6ee7b7 !important;
+        }
+
+        .bg-amber-50,
+        .bg-amber-100 {
+            background-color: rgba(245, 158, 11, 0.16) !important;
+            border-color: rgba(251, 191, 36, 0.42) !important;
+        }
+        .text-amber-500,
+        .text-amber-600,
+        .text-amber-700 {
+            color: #fcd34d !important;
+        }
+
+        .bg-rose-50,
+        .bg-rose-100 {
+            background-color: rgba(244, 63, 94, 0.15) !important;
+            border-color: rgba(251, 113, 133, 0.44) !important;
+        }
+        .text-rose-400,
+        .text-rose-500,
+        .text-rose-600,
+        .text-rose-700 {
+            color: #fb7185 !important;
+        }
+
+        .bg-violet-50,
+        .bg-purple-50 {
+            background-color: rgba(139, 92, 246, 0.15) !important;
+            border-color: rgba(167, 139, 250, 0.38) !important;
+        }
+        .text-violet-500,
+        .text-violet-600,
+        .text-purple-600,
+        .text-purple-700 {
+            color: #c4b5fd !important;
+        }
+
+        .shadow-sm,
+        .shadow,
+        .shadow-md,
+        .shadow-lg,
+        .shadow-xl,
+        .shadow-2xl {
+            box-shadow: 0 14px 34px rgba(0, 0, 0, 0.28), 0 0 18px rgba(34, 211, 238, 0.045) !important;
+        }
     </style>
     {% block extra_head %}{% endblock %}
 </head>
