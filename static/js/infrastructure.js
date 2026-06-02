@@ -348,7 +348,7 @@ function renderReports() {
         let dotColor = r.error > 0 ? 'bg-rose-500' : (r.success > 0 ? 'bg-emerald-500' : 'bg-slate-300');
 
         return `
-        <div class="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm hover:shadow-lg hover:border-indigo-300 transition-all flex flex-col sm:flex-row items-start sm:items-center justify-between cursor-pointer gap-4" onclick="viewReport('${r.id}')">
+        <div class="infra-report-card p-5 rounded-2xl border shadow-sm hover:shadow-lg transition-all flex flex-col sm:flex-row items-start sm:items-center justify-between cursor-pointer gap-4" onclick="viewReport('${r.id}')">
             <div class="flex items-center gap-4 w-full sm:w-auto">
                 <div class="w-1.5 h-12 rounded-full ${dotColor} shrink-0 shadow-sm"></div>
                 <div class="min-w-0">
@@ -2999,15 +2999,15 @@ function renderQueue() {
         if(infraPermissions.cleanup_tasks || infraPermissions.run_tasks) {
             actionBtn = `<td class="px-10 py-4 text-right">
                 <div class="flex justify-end gap-2">
-                    ${infraPermissions.run_tasks && j.error > 0 ? `<button onclick="event.stopPropagation(); retryFailedJob('${j.job_id}')" class="p-3 bg-white border border-slate-200 text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 rounded-2xl transition-colors shadow-sm" title="Retry failed hosts"><svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path d="M4 4v6h6M20 20v-6h-6M5 19A9 9 0 0119 5l1 1M19 5A9 9 0 005 19l-1-1" stroke-width="2.3" stroke-linecap="round" stroke-linejoin="round"/></svg></button>` : ''}
-                    ${infraPermissions.run_tasks && (j.pending + j.running) > 0 && (j.success + j.error) > 0 ? `<button onclick="event.stopPropagation(); finalizeJobReport('${j.job_id}')" class="p-3 bg-white border border-slate-200 text-slate-400 hover:text-emerald-600 hover:bg-emerald-50 rounded-2xl transition-colors shadow-sm" title="Finalize report without active hosts"><svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path d="M9 12l2 2 4-5M4 20h16M5 4h14v12H5z" stroke-width="2.3" stroke-linecap="round" stroke-linejoin="round"/></svg></button>` : ''}
-                    ${infraPermissions.run_tasks && (j.pending + j.running) > 0 ? `<button onclick="event.stopPropagation(); cancelPendingJob('${j.job_id}')" class="p-3 bg-white border border-slate-200 text-slate-400 hover:text-amber-600 hover:bg-amber-50 rounded-2xl transition-colors shadow-sm" title="Cancel pending/running hosts"><svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path d="M10 10l4 4m0-4l-4 4M12 22a10 10 0 100-20 10 10 0 000 20z" stroke-width="2.3" stroke-linecap="round" stroke-linejoin="round"/></svg></button>` : ''}
-                    ${infraPermissions.cleanup_tasks ? `<button onclick="event.stopPropagation(); deleteJob('${j.job_id}')" class="p-3 bg-white border border-slate-200 text-slate-400 hover:text-rose-500 hover:bg-rose-50 rounded-2xl transition-colors shadow-sm" title="Delete job"><svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" stroke-width="2.5"/></svg></button>` : ''}
+                    ${infraPermissions.run_tasks && j.error > 0 ? `<button onclick="event.stopPropagation(); retryFailedJob('${j.job_id}')" class="queue-action-btn p-3 border rounded-2xl transition-colors shadow-sm" title="Retry failed hosts"><svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path d="M4 4v6h6M20 20v-6h-6M5 19A9 9 0 0119 5l1 1M19 5A9 9 0 005 19l-1-1" stroke-width="2.3" stroke-linecap="round" stroke-linejoin="round"/></svg></button>` : ''}
+                    ${infraPermissions.run_tasks && (j.pending + j.running) > 0 && (j.success + j.error) > 0 ? `<button onclick="event.stopPropagation(); finalizeJobReport('${j.job_id}')" class="queue-action-btn p-3 border rounded-2xl transition-colors shadow-sm" title="Finalize report without active hosts"><svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path d="M9 12l2 2 4-5M4 20h16M5 4h14v12H5z" stroke-width="2.3" stroke-linecap="round" stroke-linejoin="round"/></svg></button>` : ''}
+                    ${infraPermissions.run_tasks && (j.pending + j.running) > 0 ? `<button onclick="event.stopPropagation(); cancelPendingJob('${j.job_id}')" class="queue-action-btn p-3 border rounded-2xl transition-colors shadow-sm" title="Cancel pending/running hosts"><svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path d="M10 10l4 4m0-4l-4 4M12 22a10 10 0 100-20 10 10 0 000 20z" stroke-width="2.3" stroke-linecap="round" stroke-linejoin="round"/></svg></button>` : ''}
+                    ${infraPermissions.cleanup_tasks ? `<button onclick="event.stopPropagation(); deleteJob('${j.job_id}')" class="queue-action-btn p-3 border rounded-2xl transition-colors shadow-sm" title="Delete job"><svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" stroke-width="2.5"/></svg></button>` : ''}
                 </div>
             </td>`;
         }
 
-        return `<tr class="hover:bg-slate-50/80 cursor-pointer transition-colors" onclick="viewJobDetails('${j.job_id}')">
+        return `<tr class="queue-job-row cursor-pointer transition-colors" onclick="viewJobDetails('${j.job_id}')">
                 <td class="px-10 py-5 font-black text-slate-800 text-lg">
                     ${j.title || 'Untitled'}
                     <div class="text-[10px] text-slate-400 uppercase tracking-widest mt-1">By: ${j.created_by || 'System'}</div>

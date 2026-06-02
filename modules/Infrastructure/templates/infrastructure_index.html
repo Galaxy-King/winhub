@@ -238,7 +238,7 @@
             <div class="max-w-[1600px] mx-auto w-full p-6 md:p-10 flex flex-col gap-8">
                 
                 <!-- HEADER ISLAND -->
-                <header class="bg-white rounded-[2.5rem] shadow-sm border border-slate-200 p-6 flex flex-col lg:flex-row items-center justify-between gap-6 shrink-0 transition-all">
+                <header class="infra-shell-header rounded-[2.5rem] shadow-sm border border-slate-200 p-6 flex flex-col lg:flex-row items-center justify-between gap-6 shrink-0 transition-all">
                     <div class="flex items-center gap-5 shrink-0">
                         <div class="w-14 h-14 bg-indigo-600 rounded-2xl flex items-center justify-center text-white shadow-lg shadow-indigo-200">
                             <svg class="w-8 h-8" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H7a2 2 0 01-2-2v-6a2 2 0 012-2m5-3v8m0-8a2 2 0 100 4 2 2 0 000-4z"/></svg>
@@ -442,6 +442,170 @@
         color: white !important;
         box-shadow: 0 12px 24px rgba(15, 61, 138, 0.18);
         border-color: rgba(117, 167, 247, 0.45);
+    }
+
+    /* Final Endpoint Management dark pass. Keep this after legacy light rules. */
+    .infra-shell-header {
+        background:
+            radial-gradient(circle at 0 0, rgba(34, 211, 238, 0.20), transparent 22rem),
+            radial-gradient(circle at 100% 0, rgba(59, 130, 246, 0.12), transparent 18rem),
+            linear-gradient(135deg, rgba(8, 17, 31, 0.99), rgba(13, 31, 58, 0.97)) !important;
+        color: #e8f6ff !important;
+        border-color: rgba(34, 211, 238, 0.38) !important;
+        box-shadow: 0 22px 58px rgba(0, 0, 0, 0.34), 0 0 30px rgba(34, 211, 238, 0.10) !important;
+    }
+    .infra-shell-header h2 {
+        color: #f6fdff !important;
+        text-shadow: 0 0 16px rgba(34, 211, 238, 0.18);
+    }
+    .infra-shell-header p {
+        color: #93e6ff !important;
+    }
+    .infra-shell-header .bg-indigo-600 {
+        background: linear-gradient(135deg, rgba(14, 165, 233, 0.95), rgba(37, 99, 235, 0.82)) !important;
+        border: 1px solid rgba(125, 211, 252, 0.55) !important;
+        box-shadow: 0 0 26px rgba(34, 211, 238, 0.18) !important;
+    }
+
+    #view-hosts,
+    #view-queue,
+    #view-reports,
+    #view-groups,
+    #view-software,
+    #view-scheduler,
+    #view-triggers,
+    #view-deploy {
+        color: #e8f6ff !important;
+    }
+    #view-hosts .text-slate-400,
+    #view-queue .text-slate-400,
+    #view-reports .text-slate-400,
+    #view-hosts .text-slate-500,
+    #view-queue .text-slate-500,
+    #view-reports .text-slate-500 {
+        color: #a8bfd8 !important;
+    }
+
+    #view-queue .wh-soft-panel,
+    #view-reports .wh-soft-panel,
+    #view-hosts .wh-soft-panel,
+    #view-software .wh-soft-panel,
+    #view-groups .wh-soft-panel,
+    #view-scheduler .bg-white,
+    #view-triggers .bg-white,
+    #view-deploy .bg-white,
+    #view-deploy .bg-slate-50,
+    #view-deploy .bg-slate-50\/50 {
+        background:
+            radial-gradient(circle at top left, rgba(34, 211, 238, 0.09), transparent 17rem),
+            linear-gradient(180deg, rgba(14, 24, 43, 0.98), rgba(6, 12, 24, 0.97)) !important;
+        color: #e8f6ff !important;
+        border-color: rgba(34, 211, 238, 0.28) !important;
+    }
+
+    .infra-report-card,
+    #reportsList > div,
+    #queueBody tr,
+    .infra-separated-table tbody tr,
+    .template-card,
+    .template-card.active {
+        background:
+            linear-gradient(90deg, rgba(15, 23, 42, 0.98), rgba(16, 35, 61, 0.94)) !important;
+        color: #e8f6ff !important;
+        border-color: rgba(34, 211, 238, 0.26) !important;
+        box-shadow: 0 14px 34px rgba(0, 0, 0, 0.28), 0 0 20px rgba(34, 211, 238, 0.06) !important;
+    }
+    .infra-report-card:hover,
+    #reportsList > div:hover,
+    #queueBody tr:hover,
+    .infra-separated-table tbody tr:hover,
+    .template-card:hover,
+    .template-card.active:hover {
+        background:
+            linear-gradient(90deg, rgba(8, 145, 178, 0.24), rgba(15, 23, 42, 0.97)) !important;
+        color: #f6fdff !important;
+        border-color: rgba(34, 211, 238, 0.58) !important;
+        box-shadow: inset 4px 0 0 rgba(34, 211, 238, 0.86), 0 0 28px rgba(34, 211, 238, 0.12) !important;
+    }
+    .infra-report-card *,
+    #reportsList > div *,
+    #queueBody tr *,
+    .infra-separated-table tbody tr *,
+    .template-card * {
+        color: inherit;
+    }
+    #queueBody tr td,
+    .infra-separated-table tbody td {
+        border-top-color: rgba(34, 211, 238, 0.20) !important;
+        border-bottom-color: rgba(34, 211, 238, 0.14) !important;
+    }
+    .infra-separated-table tbody td:first-child {
+        border-left-color: rgba(34, 211, 238, 0.20) !important;
+    }
+    .infra-separated-table tbody td:last-child {
+        border-right-color: rgba(34, 211, 238, 0.20) !important;
+    }
+
+    .node-tab-btn,
+    .review-tab-btn,
+    .q-type-btn,
+    .fleet-status-tab,
+    .tel-filter-btn,
+    .workspace-tab-btn {
+        background:
+            linear-gradient(135deg, rgba(8, 17, 31, 0.94), rgba(15, 23, 42, 0.88)) !important;
+        color: #bfefff !important;
+        border: 1px solid rgba(34, 211, 238, 0.30) !important;
+    }
+    .node-tab-btn.bg-slate-900,
+    .review-tab-btn.bg-slate-900,
+    .review-tab-btn.bg-amber-600,
+    .q-type-btn.bg-white,
+    .fleet-status-tab.bg-\[\#0f3d8a\],
+    .tel-filter-btn.bg-white,
+    .workspace-tab-btn.bg-white {
+        background:
+            radial-gradient(circle at 0 0, rgba(34, 211, 238, 0.30), transparent 7rem),
+            linear-gradient(135deg, rgba(14, 165, 233, 0.42), rgba(30, 64, 175, 0.30)) !important;
+        color: #ffffff !important;
+        border-color: rgba(125, 211, 252, 0.72) !important;
+        box-shadow: 0 0 22px rgba(34, 211, 238, 0.16) !important;
+    }
+    .review-tab-btn span,
+    .node-tab-btn span {
+        background: rgba(244, 63, 94, 0.20) !important;
+        color: #fecdd3 !important;
+        border: 1px solid rgba(251, 113, 133, 0.35);
+    }
+    .queue-action-btn,
+    #view-queue button.bg-white,
+    #view-reports button.bg-white {
+        background: rgba(7, 13, 26, 0.88) !important;
+        color: #bfefff !important;
+        border-color: rgba(34, 211, 238, 0.28) !important;
+    }
+    .queue-action-btn:hover,
+    #view-queue button.bg-white:hover,
+    #view-reports button.bg-white:hover {
+        background: rgba(8, 145, 178, 0.22) !important;
+        color: #ffffff !important;
+        border-color: rgba(34, 211, 238, 0.52) !important;
+    }
+    #view-queue input,
+    #view-queue select,
+    #view-reports input,
+    #view-reports select,
+    #view-deploy input,
+    #view-deploy select,
+    #view-deploy textarea {
+        background-color: rgba(3, 10, 23, 0.92) !important;
+        color: #e8f6ff !important;
+        border-color: rgba(34, 211, 238, 0.30) !important;
+    }
+    #view-queue input::placeholder,
+    #view-deploy input::placeholder,
+    #view-deploy textarea::placeholder {
+        color: rgba(168, 191, 216, 0.78) !important;
     }
 </style>
 
