@@ -646,6 +646,193 @@
             color: #e8f6ff !important;
             border-color: rgba(34, 211, 238, 0.24) !important;
         }
+
+        /* Final global readability pass for the dark/neon interface. */
+        main header.bg-white,
+        main .bg-white,
+        main .bg-slate-50,
+        main .bg-slate-50\/50,
+        main .bg-slate-50\/70,
+        main .bg-slate-50\/80,
+        main .bg-slate-100,
+        main .bg-slate-200 {
+            background:
+                radial-gradient(circle at top left, rgba(34, 211, 238, 0.085), transparent 18rem),
+                linear-gradient(180deg, rgba(15, 23, 42, 0.97), rgba(8, 14, 27, 0.96)) !important;
+            color: #e8f6ff !important;
+            border-color: rgba(34, 211, 238, 0.24) !important;
+        }
+        main .bg-white\/80 {
+            background: rgba(15, 23, 42, 0.88) !important;
+            color: #e8f6ff !important;
+            border-color: rgba(34, 211, 238, 0.24) !important;
+        }
+        main h1,
+        main h2,
+        main h3,
+        main h4,
+        main .font-black {
+            color: #f6fdff !important;
+        }
+        main p,
+        main label,
+        main .text-xs,
+        main .text-sm,
+        main .text-\[10px\],
+        main .text-\[11px\] {
+            color: #bdd3ec !important;
+        }
+        main .text-slate-300,
+        main .text-slate-400,
+        main .text-slate-500 {
+            color: #a8bfd8 !important;
+        }
+        main .text-slate-600,
+        main .text-slate-700,
+        main .text-slate-800,
+        main .text-slate-900 {
+            color: #e8f6ff !important;
+        }
+        main .bg-sky-50,
+        main .bg-sky-100 {
+            background-color: rgba(14, 165, 233, 0.16) !important;
+            border-color: rgba(56, 189, 248, 0.46) !important;
+        }
+        main .text-sky-500,
+        main .text-sky-600,
+        main .text-sky-700,
+        main .text-sky-800 {
+            color: #7dd3fc !important;
+        }
+        main .border-sky-100,
+        main .border-sky-200 {
+            border-color: rgba(56, 189, 248, 0.46) !important;
+        }
+        main .hover\:bg-white:hover,
+        main .hover\:bg-slate-50:hover,
+        main .hover\:bg-slate-50\/80:hover,
+        main .hover\:bg-slate-100:hover,
+        main .hover\:bg-slate-200:hover {
+            background:
+                linear-gradient(135deg, rgba(34, 211, 238, 0.16), rgba(59, 130, 246, 0.08)),
+                rgba(8, 47, 73, 0.86) !important;
+            color: #f6fdff !important;
+            border-color: rgba(34, 211, 238, 0.46) !important;
+        }
+        main tr:hover,
+        main .host-row:hover,
+        main label:hover,
+        main .template-card:hover {
+            background:
+                linear-gradient(90deg, rgba(14, 116, 144, 0.30), rgba(15, 23, 42, 0.94)) !important;
+            color: #f6fdff !important;
+            border-color: rgba(34, 211, 238, 0.48) !important;
+        }
+        main tr:hover td,
+        main tr:hover td *,
+        main .host-row:hover td,
+        main .host-row:hover td *,
+        main label:hover span,
+        main .template-card:hover * {
+            color: #f6fdff !important;
+        }
+
+        #view-hosts > .wh-soft-panel,
+        #view-hosts .review-subpanel,
+        #view-hosts #nodesApprovedPanel > .wh-soft-panel,
+        #view-hosts .fleet-status-tab,
+        #view-hosts .host-filter-btn {
+            background:
+                radial-gradient(circle at top left, rgba(34, 211, 238, 0.08), transparent 15rem),
+                linear-gradient(135deg, rgba(9, 16, 29, 0.98), rgba(12, 27, 48, 0.96)) !important;
+            color: #dff7ff !important;
+            border-color: rgba(34, 211, 238, 0.30) !important;
+        }
+        #view-hosts .node-tab-btn,
+        #view-hosts .review-tab-btn {
+            background:
+                linear-gradient(135deg, rgba(8, 17, 31, 0.92), rgba(15, 23, 42, 0.88)) !important;
+            color: #bfefff !important;
+            border: 1px solid rgba(34, 211, 238, 0.28) !important;
+            box-shadow: none !important;
+        }
+        #view-hosts .node-tab-btn.bg-slate-900,
+        #view-hosts .review-tab-btn.bg-amber-600,
+        #view-hosts .review-tab-btn.bg-rose-600,
+        #view-hosts .review-tab-btn.bg-slate-900 {
+            background:
+                radial-gradient(circle at 0 0, rgba(34, 211, 238, 0.30), transparent 7rem),
+                linear-gradient(135deg, rgba(14, 165, 233, 0.38), rgba(30, 64, 175, 0.28)) !important;
+            color: #ffffff !important;
+            border-color: rgba(125, 211, 252, 0.72) !important;
+            box-shadow: 0 0 22px rgba(34, 211, 238, 0.16) !important;
+        }
+        #view-hosts .host-row,
+        #view-hosts .infra-separated-table tbody tr {
+            background:
+                linear-gradient(90deg, rgba(13, 23, 42, 0.98), rgba(16, 35, 61, 0.94)) !important;
+        }
+        #view-hosts .host-row:hover,
+        #view-hosts .infra-separated-table tbody tr:hover {
+            background:
+                linear-gradient(90deg, rgba(8, 145, 178, 0.22), rgba(15, 23, 42, 0.96)) !important;
+            box-shadow:
+                inset 4px 0 0 rgba(34, 211, 238, 0.86),
+                0 0 28px rgba(34, 211, 238, 0.12) !important;
+        }
+
+        #view-deploy .template-card .bg-sky-50,
+        #view-deploy .template-card .bg-slate-50,
+        #view-deploy #templateInfoArea .bg-white,
+        #view-deploy #workspaceGuidePanel .bg-white,
+        #view-deploy #templatePolicyBlock,
+        #view-deploy #templatePolicyBlock label {
+            background:
+                linear-gradient(135deg, rgba(7, 13, 26, 0.94), rgba(13, 31, 58, 0.84)) !important;
+            color: #e8f6ff !important;
+            border-color: rgba(34, 211, 238, 0.28) !important;
+        }
+        #view-deploy .template-card .bg-sky-50 {
+            color: #7dd3fc !important;
+        }
+
+        #selectMultipleHostsModal .bg-white,
+        #selectMultipleHostsModal .bg-slate-50,
+        #selectMultipleHostsModal .bg-slate-50\/40,
+        #selectMultipleHostsModal .bg-slate-50\/50,
+        #selectMultipleHostsModal .bg-slate-50\/70 {
+            background:
+                radial-gradient(circle at top left, rgba(34, 211, 238, 0.08), transparent 17rem),
+                linear-gradient(180deg, rgba(13, 23, 42, 0.98), rgba(6, 12, 24, 0.97)) !important;
+            color: #e8f6ff !important;
+            border-color: rgba(34, 211, 238, 0.24) !important;
+        }
+        #selectMultipleHostsModal section,
+        #multiHostListContainer,
+        #multiHostSelectedContainer {
+            background:
+                linear-gradient(180deg, rgba(8, 17, 31, 0.92), rgba(5, 10, 20, 0.96)) !important;
+            color: #e8f6ff !important;
+        }
+        #selectMultipleHostsModal label,
+        #multiHostSelectedContainer > div {
+            background:
+                linear-gradient(135deg, rgba(15, 23, 42, 0.96), rgba(11, 31, 50, 0.90)) !important;
+            color: #e8f6ff !important;
+            border-color: rgba(34, 211, 238, 0.24) !important;
+        }
+        #selectMultipleHostsModal label:hover,
+        #multiHostSelectedContainer > div:hover {
+            background:
+                linear-gradient(135deg, rgba(8, 145, 178, 0.24), rgba(15, 23, 42, 0.96)) !important;
+            border-color: rgba(34, 211, 238, 0.48) !important;
+        }
+        #selectMultipleHostsModal input,
+        #selectMultipleHostsModal textarea {
+            background-color: rgba(3, 10, 23, 0.92) !important;
+            color: #e8f6ff !important;
+            border-color: rgba(34, 211, 238, 0.30) !important;
+        }
     </style>
     {% block extra_head %}{% endblock %}
 </head>
