@@ -116,6 +116,11 @@ def save_software_packages(packages):
     with open(SOFTWARE_PACKAGES_FILE, "w", encoding="utf-8") as f:
         json.dump(packages, f, indent=2, ensure_ascii=False)
 
+def endpoint_display_name(endpoint):
+    if not endpoint:
+        return "Unknown"
+    return (getattr(endpoint, "display_name", None) or getattr(endpoint, "hostname", None) or getattr(endpoint, "id", None) or "Unknown").strip()
+
 def find_software_package(package_id):
     for package in load_software_packages():
         if package.get("id") == package_id:
@@ -1095,7 +1100,9 @@ def index():
 
     available_hosts = [{
         "id": a.id,
-        "name": a.hostname or a.id,
+        "name": endpoint_display_name(a),
+        "display_name": getattr(a, "display_name", None) or "",
+        "hostname": a.hostname or a.id,
         "ip": a.ip_address or "",
         "os_type": getattr(a, 'os_type', 'Windows'),
         "is_blocked": bool(a.is_blocked),
@@ -1219,6 +1226,8 @@ def list_hosts():
         "hosts": [{
             "id": host.id,
             "hostname": host.hostname,
+            "display_name": getattr(host, "display_name", None) or "",
+            "name": endpoint_display_name(host),
             "ip": host.ip_address,
             "os": host.os_version,
             "os_type": getattr(host, "os_type", "Windows"),
@@ -2499,7 +2508,7 @@ def fleet_center():
         if getattr(endpoint, "approval_status", "Approved") == "Approved"
     ]
     annotate_endpoint_duplicates(allowed_hosts)
-    allowed_hosts.sort(key=lambda endpoint: ((endpoint.hostname or endpoint.id or "").lower()))
+    allowed_hosts.sort(key=lambda endpoint: (endpoint_display_name(endpoint).lower(), (endpoint.hostname or endpoint.id or "").lower()))
     for endpoint in allowed_hosts:
         health = endpoint_health_score(endpoint, latest_version)
         try:
@@ -2509,6 +2518,8 @@ def fleet_center():
         hosts.append({
             "id": endpoint.id,
             "hostname": endpoint.hostname or endpoint.id,
+            "display_name": getattr(endpoint, "display_name", None) or "",
+            "name": endpoint_display_name(endpoint),
             "ip": endpoint.ip_address or "",
             "os": endpoint.os_version or getattr(endpoint, "os_type", "Windows"),
             "agent_version": getattr(endpoint, "agent_version", "") or "",
@@ -2948,19 +2959,20 @@ def get_tasks():
     if not job_ids:
         return jsonify({"success": True, "jobs": []})
 
-    tasks = db.session.query(AgentTask, Endpoint.hostname).join(Endpoint).filter(
+    tasks = db.session.query(AgentTask, Endpoint.hostname, Endpoint.display_name).join(Endpoint).filter(
         AgentTask.endpoint_id.in_(allowed_hosts),
         AgentTask.job_id.in_(job_ids)
     ).order_by(AgentTask.created_at.desc()).all()
     
     jobs = {}
-    for t, hostname in tasks:
+    for t, hostname, display_name in tasks:
         jid = t.job_id or t.id
         if jid not in jobs:
             jobs[jid] = {"job_id": jid, "title": t.title or "Untitled Task", "action": t.action_type, "created_at": to_kyiv_time(t.created_at), "created_by": t.created_by, "tasks": [], "total": 0, "success": 0, "error": 0, "pending": 0, "running": 0, "cancelled": 0}
         if is_agent_updater_prepare_task(t):
             continue
-        jobs[jid]["tasks"].append({"task_id": t.id, "endpoint_id": t.endpoint_id, "hostname": hostname, "status": t.status or "Pending"})
+        display_label = (display_name or hostname or t.endpoint_id or "Unknown").strip()
+        jobs[jid]["tasks"].append({"task_id": t.id, "endpoint_id": t.endpoint_id, "hostname": hostname, "display_name": display_name or "", "name": display_label, "status": t.status or "Pending"})
         jobs[jid]["total"] += 1
         
         status_norm = (t.status or "Pending").capitalize()
@@ -2977,7 +2989,10 @@ def get_tasks():
             continue
         if data["total"] == 0:
             continue
-        data["target_summary"] = data["tasks"][0]["hostname"] if data["total"] == 1 else f"Group Deployment ({data['total']} hosts)"
+        if data["total"] == 1:
+            data["target_summary"] = data["tasks"][0].get("name") or data["tasks"][0].get("hostname") or "Unknown"
+        else:
+            data["target_summary"] = f"Group Deployment ({data['total']} hosts)"
         if data["error"] > 0: data["status"] = "Error"
         elif data["cancelled"] == data["total"]: data["status"] = "Cancelled"
         elif data["pending"] > 0 or data["running"] > 0: data["status"] = "Pending"
@@ -2994,7 +3009,8 @@ def get_single_task(task_id):
     if not task: return jsonify({"success": False}), 404
     if not WinHubCore.can_manage_host(session.get('user_id'), task.endpoint_id): return jsonify({"success": False}), 403
     task_log = task.result_log if task.result_log else "Waiting..."
-    return jsonify({"success": True, "data": {"id": task.id, "title": task.title or "Untitled", "status": task.status or "Pending", "log": report_body_for_current_user(task_log), "hostname": task.endpoint.hostname if task.endpoint else "Unknown"}})
+    endpoint_name = endpoint_display_name(task.endpoint) if task.endpoint else "Unknown"
+    return jsonify({"success": True, "data": {"id": task.id, "title": task.title or "Untitled", "status": task.status or "Pending", "log": report_body_for_current_user(task_log), "hostname": task.endpoint.hostname if task.endpoint else "Unknown", "display_name": getattr(task.endpoint, "display_name", None) if task.endpoint else "", "name": endpoint_name}})
 
 @infrastructure_bp.route('/api/infrastructure/tasks/cleanup', methods=['POST'])
 def cleanup_tasks():
@@ -3106,7 +3122,7 @@ def retry_failed_job(job_id):
 # ==========================================
 # API: GROUPS & HOSTS
 # ==========================================
-@infrastructure_bp.route('/api/infrastructure/host/<host_id>', methods=['GET', 'DELETE'])
+@infrastructure_bp.route('/api/infrastructure/host/<host_id>', methods=['GET', 'DELETE', 'PATCH'])
 def host_operations(host_id):
     if not WinHubCore.can_manage_host(session.get('user_id'), host_id): return jsonify({"success": False}), 403
     agent = Endpoint.query.get(host_id)
@@ -3115,6 +3131,27 @@ def host_operations(host_id):
         if denied: return denied
         db.session.delete(agent); db.session.commit()
         return jsonify({"success": True})
+    if request.method == 'PATCH':
+        denied = require_permission("manage_hosts")
+        if denied: return denied
+        data = request.get_json(force=True) or {}
+        display_name = str(data.get("display_name") or "").strip()
+        if len(display_name) > 120:
+            return jsonify({"success": False, "message": "Display Name must be 120 characters or less"}), 400
+        agent.display_name = display_name or None
+        write_infra_audit(
+            "Update Endpoint Display Name",
+            "endpoint",
+            agent.id,
+            {"hostname": agent.hostname, "display_name": agent.display_name}
+        )
+        db.session.commit()
+        return jsonify({
+            "success": True,
+            "display_name": agent.display_name or "",
+            "name": endpoint_display_name(agent),
+            "hostname": agent.hostname or agent.id,
+        })
     denied = require_permission("view_hosts")
     if denied: return denied
     history = AgentTask.query.filter_by(endpoint_id=host_id).order_by(AgentTask.created_at.desc()).limit(20).all()
@@ -3127,7 +3164,7 @@ def host_operations(host_id):
     except Exception:
         host_info = {}
     annotate_endpoint_duplicates(WinHubCore.get_allowed_hosts(session.get("user_id")))
-    return jsonify({"success": True, "data": {"id": agent.id, "hostname": agent.hostname, "os": agent.os_version, "ip": agent.ip_address, "os_type": getattr(agent, 'os_type', 'Windows'), "last_seen": to_kyiv_time(agent.last_seen), "first_seen": to_kyiv_time(getattr(agent, "first_seen", None)), "last_enrollment_at": to_kyiv_time(getattr(agent, "last_enrollment_at", None)), "last_enrollment_ip": getattr(agent, "last_enrollment_ip", None), "enrollment_attempts": int(getattr(agent, "enrollment_attempts", 0) or 0), "identity_fingerprint": getattr(agent, "identity_fingerprint", None), "agent_identity_key_enrolled": bool(getattr(agent, "public_key_pem", None)), "duplicate_matches": getattr(agent, "duplicate_matches", []), "identity_warning": getattr(agent, "identity_warning", None), "is_blocked": agent.is_blocked, "approval_status": getattr(agent, "approval_status", "Approved"), "agent_version": getattr(agent, "agent_version", None), "network_info": network_info, "host_info": host_info, "encryption": encryption_status_from_host_info(host_info), "groups": [{"id": g.id, "name": g.name} for g in agent.groups], "history": [{"id": h.id, "title": h.title, "status": h.status or "Pending", "date": to_kyiv_time_short(h.created_at), "by": h.created_by} for h in history]}})
+    return jsonify({"success": True, "data": {"id": agent.id, "hostname": agent.hostname, "display_name": getattr(agent, "display_name", None) or "", "name": endpoint_display_name(agent), "os": agent.os_version, "ip": agent.ip_address, "os_type": getattr(agent, 'os_type', 'Windows'), "last_seen": to_kyiv_time(agent.last_seen), "first_seen": to_kyiv_time(getattr(agent, "first_seen", None)), "last_enrollment_at": to_kyiv_time(getattr(agent, "last_enrollment_at", None)), "last_enrollment_ip": getattr(agent, "last_enrollment_ip", None), "enrollment_attempts": int(getattr(agent, "enrollment_attempts", 0) or 0), "identity_fingerprint": getattr(agent, "identity_fingerprint", None), "agent_identity_key_enrolled": bool(getattr(agent, "public_key_pem", None)), "duplicate_matches": getattr(agent, "duplicate_matches", []), "identity_warning": getattr(agent, "identity_warning", None), "is_blocked": agent.is_blocked, "approval_status": getattr(agent, "approval_status", "Approved"), "agent_version": getattr(agent, "agent_version", None), "network_info": network_info, "host_info": host_info, "encryption": encryption_status_from_host_info(host_info), "groups": [{"id": g.id, "name": g.name} for g in agent.groups], "history": [{"id": h.id, "title": h.title, "status": h.status or "Pending", "date": to_kyiv_time_short(h.created_at), "by": h.created_by} for h in history]}})
 
 def build_activity_segments(host_id, telemetry_records, threshold, end_time, fallback_ip=""):
     records = sorted([r for r in telemetry_records if r.timestamp], key=lambda r: r.timestamp)
@@ -3466,21 +3503,21 @@ def manage_group(group_id):
                 db.or_(Endpoint.approval_status == "Approved", Endpoint.approval_status.is_(None)),
                 ~Endpoint.id.in_(group_endpoint_ids)
             ).order_by(Endpoint.hostname, Endpoint.id)
-            non_members = [{"id": a.id, "hostname": a.hostname or a.id} for a in non_member_query.all()]
+            non_members = [{"id": a.id, "hostname": a.hostname or a.id, "display_name": getattr(a, "display_name", None) or "", "name": endpoint_display_name(a)} for a in non_member_query.all()]
         else:
             non_members = []
     else:
         group_endpoint_ids = [a.id for a in group.endpoints]
         members_source = group.endpoints
         non_members = [
-            {"id": a.id, "hostname": a.hostname or a.id}
+            {"id": a.id, "hostname": a.hostname or a.id, "display_name": getattr(a, "display_name", None) or "", "name": endpoint_display_name(a)}
             for a in Endpoint.query.filter(
                 db.or_(Endpoint.approval_status == "Approved", Endpoint.approval_status.is_(None))
             ).order_by(Endpoint.hostname, Endpoint.id).all()
             if a.id not in group_endpoint_ids
         ]
 
-    members = [{"id": a.id, "hostname": a.hostname, "ip": a.ip_address, "os_type": getattr(a, 'os_type', 'Windows')} for a in members_source]
+    members = [{"id": a.id, "hostname": a.hostname or a.id, "display_name": getattr(a, "display_name", None) or "", "name": endpoint_display_name(a), "ip": a.ip_address, "os_type": getattr(a, 'os_type', 'Windows')} for a in members_source]
     return jsonify({"success": True, "data": {"id": group.id, "name": group.name, "description": group.description, "members": members, "non_members": non_members}})
 
 @infrastructure_bp.route('/api/infrastructure/group/<group_id>/members', methods=['POST'])

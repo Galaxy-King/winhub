@@ -202,6 +202,8 @@ def ensure_endpoint_schema():
             statements.append("ALTER TABLE endpoints ADD COLUMN approval_status VARCHAR(20)")
         else:
             statements.append("ALTER TABLE endpoints ADD COLUMN approval_status VARCHAR(20)")
+    if "display_name" not in columns:
+        statements.append("ALTER TABLE endpoints ADD COLUMN display_name VARCHAR(120)")
     if "agent_version" not in columns:
         statements.append("ALTER TABLE endpoints ADD COLUMN agent_version VARCHAR(50)")
     if "network_info" not in columns:

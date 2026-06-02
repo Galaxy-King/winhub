@@ -59,12 +59,14 @@
             </thead>
 	            <tbody>
                 {% for agent in pending_agents %}
+                {% set visible_name = agent.display_name or agent.hostname or agent.id %}
                 <tr class="hover:bg-slate-50 transition-colors {% if agent.possible_duplicate %}bg-rose-50/35{% endif %}">
                     <td class="px-5 py-4">
                         <input type="checkbox" value="{{ agent.id }}" onchange="updatePendingApprovalCount()" class="pending-approval-cb w-4 h-4 rounded border-slate-300 text-emerald-600 focus:ring-emerald-500">
                     </td>
                     <td class="px-6 py-4">
-                        <button onclick="viewHost('{{ agent.id }}')" class="text-left font-black text-slate-800 hover:text-indigo-600">{{ agent.hostname or agent.id }}</button>
+                        <button onclick="viewHost('{{ agent.id }}')" class="text-left font-black text-slate-800 hover:text-indigo-600">{{ visible_name }}</button>
+                        {% if agent.display_name and agent.hostname %}<div class="display-hostname-line text-[10px] font-mono text-slate-400 mt-1">HOSTNAME: {{ agent.hostname }}</div>{% endif %}
                         {% if agent.identity_warning %}<div class="text-[10px] text-rose-600 font-bold mt-1">{{ agent.identity_warning }}</div>{% endif %}
                     </td>
                     <td class="px-6 py-4 text-xs">
@@ -129,18 +131,22 @@
                 </thead>
                 <tbody>
                     {% for pair in approved_duplicate_pairs %}
+                    {% set left_name = pair.left.display_name or pair.left.hostname or pair.left.id %}
+                    {% set right_name = pair.right.display_name or pair.right.hostname or pair.right.id %}
                     <tr class="hover:bg-rose-50/30 transition-colors bg-rose-50/20">
                         <td class="px-5 py-4">
                             <input type="checkbox" value="{{ pair.left.id }}|{{ pair.right.id }}" onchange="updateDuplicateSelectionCount()" class="duplicate-pair-cb w-4 h-4 rounded border-slate-300 text-rose-600 focus:ring-rose-500">
                         </td>
                         <td class="px-6 py-4">
-                            <button onclick="viewHost('{{ pair.left.id }}')" class="text-left font-black text-slate-800 hover:text-indigo-600">{{ pair.left.hostname or pair.left.id }}</button>
+                            <button onclick="viewHost('{{ pair.left.id }}')" class="text-left font-black text-slate-800 hover:text-indigo-600">{{ left_name }}</button>
+                            {% if pair.left.display_name and pair.left.hostname %}<div class="display-hostname-line text-[10px] font-mono text-slate-400 mt-1">HOSTNAME: {{ pair.left.hostname }}</div>{% endif %}
                             <div class="text-[10px] font-mono text-slate-400 mt-1 break-all">{{ pair.left.id }}</div>
                             <div class="text-[10px] font-bold text-slate-500 mt-2">Agent: {{ pair.left.agent_version or 'Unknown' }} / IP: {{ pair.left.ip_address or '-' }}</div>
                             <div class="text-[10px] font-bold text-slate-400 mt-1">Last seen: {{ pair.left.last_seen_str or '-' }}</div>
                         </td>
                         <td class="px-6 py-4">
-                            <button onclick="viewHost('{{ pair.right.id }}')" class="text-left font-black text-slate-800 hover:text-indigo-600">{{ pair.right.hostname or pair.right.id }}</button>
+                            <button onclick="viewHost('{{ pair.right.id }}')" class="text-left font-black text-slate-800 hover:text-indigo-600">{{ right_name }}</button>
+                            {% if pair.right.display_name and pair.right.hostname %}<div class="display-hostname-line text-[10px] font-mono text-slate-400 mt-1">HOSTNAME: {{ pair.right.hostname }}</div>{% endif %}
                             <div class="text-[10px] font-mono text-slate-400 mt-1 break-all">{{ pair.right.id }}</div>
                             <div class="text-[10px] font-bold text-slate-500 mt-2">Agent: {{ pair.right.agent_version or 'Unknown' }} / IP: {{ pair.right.ip_address or '-' }}</div>
                             <div class="text-[10px] font-bold text-slate-400 mt-1">Last seen: {{ pair.right.last_seen_str or '-' }}</div>
@@ -191,12 +197,14 @@
                 </thead>
                 <tbody>
                     {% for agent in rejected_agents %}
+                    {% set visible_name = agent.display_name or agent.hostname or agent.id %}
                 <tr class="hover:bg-slate-50 transition-colors {% if agent.possible_duplicate %}bg-rose-50/35{% endif %}">
                         <td class="px-5 py-4">
                             <input type="checkbox" value="{{ agent.id }}" onchange="updateRejectedSelectionCount()" class="rejected-host-cb w-4 h-4 rounded border-slate-300 text-rose-600 focus:ring-rose-500">
                         </td>
                         <td class="px-6 py-4">
-                            <button onclick="viewHost('{{ agent.id }}')" class="text-left font-black text-slate-800 hover:text-indigo-600">{{ agent.hostname or agent.id }}</button>
+                            <button onclick="viewHost('{{ agent.id }}')" class="text-left font-black text-slate-800 hover:text-indigo-600">{{ visible_name }}</button>
+                            {% if agent.display_name and agent.hostname %}<div class="display-hostname-line text-[10px] font-mono text-slate-400 mt-1">HOSTNAME: {{ agent.hostname }}</div>{% endif %}
                             {% if agent.identity_warning %}<div class="text-[10px] text-rose-600 font-bold mt-1">{{ agent.identity_warning }}</div>{% endif %}
                         </td>
                         <td class="px-6 py-4 text-xs">
@@ -275,6 +283,7 @@
             </thead>
 	            <tbody>
                 {% for agent in agents if (agent.approval_status or 'Approved') == 'Approved' %}
+                {% set visible_name = agent.display_name or agent.hostname or agent.id %}
                 <tr class="host-row hover:bg-slate-50/80 cursor-pointer transition-all" data-status="{{ 'online' if agent.is_online else 'offline' }}" data-approval="{{ agent.approval_status or 'Approved' }}" data-groups="{% for g in agent.groups %}{{ g.name }}{% if not loop.last %},{% endif %}{% endfor %}" onclick="viewHost('{{ agent.id }}')">
                     <td class="px-10 py-5 font-black text-slate-700 text-lg">
                         <div class="flex items-center gap-3">
@@ -287,8 +296,9 @@
                             {% else %}
                             <svg class="w-5 h-5 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9.75 17L9 20l-1 1h8l-1-1-.75-3M3 13h18M5 17h14a2 2 0 002-2V5a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z"></path></svg>
                             {% endif %}
-                            {{ agent.hostname }}
+                            <span>{{ visible_name }}</span>
                         </div>
+                        {% if agent.display_name and agent.hostname %}<div class="display-hostname-line ml-8 mt-1 text-[10px] font-mono text-slate-400">HOSTNAME: {{ agent.hostname }}</div>{% endif %}
                     </td>
                     <td class="px-10 py-5">
 	                        <div class="text-[10px] font-black uppercase tracking-widest text-slate-400 mb-1">{{ agent.os_type }}</div>

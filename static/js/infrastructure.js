@@ -26,6 +26,7 @@ let currentJobTasks = [];
 let currentViewedJobId = null;
 let currentJobStatusFilter = 'all';
 let currentViewedHostId = null;
+let currentViewedHostData = null;
 let currentViewedGroupId = null;
 let currentGroupNonMembers = [];
 let currentReportId = null;
@@ -1105,7 +1106,7 @@ function renderMultiHostList(query) {
     const q = query.toLowerCase();
 
     const filtered = availableHostsData.filter(h => {
-        const text = `${h.name || ''} ${h.ip || ''} ${h.os_type || ''} ${h.agent_version || ''}`.toLowerCase();
+        const text = `${h.name || ''} ${h.display_name || ''} ${h.hostname || ''} ${h.ip || ''} ${h.os_type || ''} ${h.agent_version || ''}`.toLowerCase();
         return text.includes(q);
     });
 
@@ -1123,7 +1124,8 @@ function renderMultiHostList(query) {
         <label class="flex items-center gap-4 p-4 border-b border-slate-100 hover:bg-slate-50 cursor-pointer transition-colors group ${disabled ? 'opacity-60' : ''}">
             <input type="checkbox" value="${safeId}" ${isChecked} ${disabled} class="multi-host-cb w-5 h-5 text-indigo-600 rounded border-slate-300 focus:ring-indigo-500" onchange="toggleMultiHostSelection(this.value, this.checked)">
             <span class="min-w-0">
-                <span class="flex flex-wrap items-center gap-2 font-black text-slate-700 text-sm group-hover:text-indigo-600 transition-colors">${escapeHtml(h.name || hostId)} ${statusBadge}${blockedBadge}${approvalBadge}${versionBadge}</span>
+                <span class="flex flex-wrap items-center gap-2 font-black text-slate-700 text-sm group-hover:text-indigo-600 transition-colors">${escapeHtml(endpointVisibleName(h))} ${statusBadge}${blockedBadge}${approvalBadge}${versionBadge}</span>
+                ${endpointHostnameLine(h)}
                 <span class="block text-[10px] text-slate-400 font-bold mt-1">${escapeHtml(h.ip || 'No IP')} / ${escapeHtml(h.os_type || 'Unknown OS')} / Agent ${escapeHtml(h.agent_version || 'unknown')} / Last seen ${escapeHtml(h.last_seen || '-')}</span>
             </span>
         </label>`;
@@ -1174,12 +1176,13 @@ function renderSelectedMultiHosts() {
     const selectedHosts = Array.from(multiHostSelectedIds)
         .map(id => getMultiHostById(id))
         .filter(Boolean)
-        .sort((a, b) => String(a.name || a.id).localeCompare(String(b.name || b.id)));
+        .sort((a, b) => String(endpointVisibleName(a)).localeCompare(String(endpointVisibleName(b))));
 
     container.innerHTML = selectedHosts.map(h => `
         <div class="flex items-start justify-between gap-3 p-3 bg-white border border-slate-200 rounded-2xl shadow-sm">
             <div class="min-w-0">
-                <div class="flex flex-wrap items-center gap-2 font-black text-slate-800 text-sm">${escapeHtml(h.name || h.id)} ${multiHostStatusBadge(h)}</div>
+                <div class="flex flex-wrap items-center gap-2 font-black text-slate-800 text-sm">${escapeHtml(endpointVisibleName(h))} ${multiHostStatusBadge(h)}</div>
+                ${endpointHostnameLine(h)}
                 <div class="text-[10px] text-slate-400 font-bold mt-1 truncate">${escapeHtml(h.ip || 'No IP')} / Agent ${escapeHtml(h.agent_version || 'unknown')} / Last seen ${escapeHtml(h.last_seen || '-')}</div>
             </div>
             <button onclick="removeMultiHostSelection('${escapeHtml(String(h.id))}')" class="shrink-0 p-2 bg-slate-50 hover:bg-rose-50 text-slate-400 hover:text-rose-600 rounded-xl border border-slate-100 hover:border-rose-100 transition-colors" title="Remove endpoint">
@@ -1187,6 +1190,16 @@ function renderSelectedMultiHosts() {
             </button>
         </div>
     `).join('') || '<div class="h-full min-h-[180px] flex items-center justify-center text-center text-slate-400 text-sm font-bold p-8">No endpoints selected yet.</div>';
+}
+
+function endpointVisibleName(host) {
+    if (!host) return 'Unknown';
+    return host.name || host.display_name || host.hostname || host.id || 'Unknown';
+}
+
+function endpointHostnameLine(host) {
+    if (!host || !host.display_name || !host.hostname) return '';
+    return `<span class="display-hostname-line block text-[10px] text-slate-400 font-mono mt-1">HOSTNAME: ${escapeHtml(host.hostname)}</span>`;
 }
 
 function removeMultiHostSelection(hostId) {
@@ -1808,6 +1821,7 @@ function fleetSortValue(host, key) {
     if (key === 'ip') return ipSortValue(host.ip);
     if (key === 'health') return Number(host.health?.score || 0);
     if (key === 'last_seen') return Date.parse(host.last_seen || '') || 0;
+    if (key === 'hostname') return endpointVisibleName(host).toLowerCase();
     return String(host[key] || '').toLowerCase();
 }
 
@@ -1846,7 +1860,7 @@ function renderFleetCenter() {
         const groupText = (host.groups || []).map(group => group.name).join(' ');
         const duplicateText = host.possible_duplicate ? 'duplicate identity approved duplicate' : '';
         const keyText = host.agent_identity_key_enrolled ? 'signed key enrolled identity key ok' : 'missing key unsigned no key';
-        const haystack = [host.hostname, host.ip, host.os, host.agent_version, host.identity_fingerprint, duplicateText, keyText, groupText, health.status, encryption.status, ...(encryption.methods || []), ...(health.reasons || [])].join(' ').toLowerCase();
+        const haystack = [host.name, host.display_name, host.hostname, host.ip, host.os, host.agent_version, host.identity_fingerprint, duplicateText, keyText, groupText, health.status, encryption.status, ...(encryption.methods || []), ...(health.reasons || [])].join(' ').toLowerCase();
         const matchSearch = !search || haystack.includes(search);
         const hostGroupIds = (host.groups || []).map(group => String(group.id));
         const wantsUngrouped = groupFilters.includes('ungrouped');
@@ -1898,7 +1912,8 @@ function renderFleetCenter() {
                 <input type="checkbox" value="${escapeHtml(host.id)}" ${checked} onchange="toggleFleetHostSelection('${escapeHtml(host.id)}', this.checked)" class="fleet-host-cb w-4 h-4 rounded border-slate-300 text-indigo-600 focus:ring-indigo-500">
             </td>
             <td class="px-6 py-4">
-                <button onclick="viewHost('${escapeHtml(host.id)}')" class="font-black text-slate-800 hover:text-indigo-600 text-left">${escapeHtml(host.hostname)}</button>
+                <button onclick="viewHost('${escapeHtml(host.id)}')" class="font-black text-slate-800 hover:text-indigo-600 text-left">${escapeHtml(endpointVisibleName(host))}</button>
+                ${endpointHostnameLine(host)}
                 <div class="text-[10px] font-bold text-slate-400 uppercase mt-1">${escapeHtml(host.os || 'Windows')}</div>
                 ${duplicateBadge}
             </td>
@@ -3269,7 +3284,7 @@ async function viewTaskDetails(taskId) {
     const d = result.data;
     document.getElementById('tTitle').innerText = d.title || 'Task Log';
     document.getElementById('tId').innerText = 'Task ID: ' + d.id;
-    document.getElementById('tHost').innerText = d.hostname || 'Unknown';
+    document.getElementById('tHost').innerText = d.name || d.hostname || 'Unknown';
     const statusStr = d.status || 'Pending';
     document.getElementById('tStatus').innerHTML = `<span class="uppercase tracking-widest text-[10px] bg-white px-3 py-1 rounded-xl shadow-sm border border-slate-100 font-black ${statusStr === 'Success' ? 'text-emerald-500' : (statusStr === 'Error' ? 'text-rose-500' : 'text-amber-500')}">${statusStr}</span>`;
     document.getElementById('tLog').innerText = d.log || "Waiting for agent pulse...";
@@ -3356,8 +3371,8 @@ function renderJobTaskRows() {
     body.innerHTML = filteredTasks.map(t => {
         const statusStr = t.status || 'Pending';
         const hostCell = t.endpoint_id
-            ? `<button onclick="viewHostFromJob('${escapeHtml(t.endpoint_id)}')" class="font-black text-slate-800 hover:text-indigo-600 text-left">${escapeHtml(t.hostname || 'Unknown')}</button>`
-            : `<span class="font-black text-slate-700">${escapeHtml(t.hostname || 'Unknown')}</span>`;
+            ? `<button onclick="viewHostFromJob('${escapeHtml(t.endpoint_id)}')" class="font-black text-slate-800 hover:text-indigo-600 text-left">${escapeHtml(t.name || t.display_name || t.hostname || 'Unknown')}</button>`
+            : `<span class="font-black text-slate-700">${escapeHtml(t.name || t.display_name || t.hostname || 'Unknown')}</span>`;
         return `<tr class="hover:bg-slate-50 transition-colors">
             <td class="px-6 py-4 text-base">${hostCell}</td>
             <td class="px-6 py-4 text-center"><span class="font-black uppercase tracking-widest text-[10px] px-3 py-1 rounded-lg border ${jobStatusBadgeClass(statusStr)}">${jobStatusLabel(statusStr)}</span></td>
@@ -3382,10 +3397,19 @@ async function viewHost(id) {
         const result = await res.json();
         if (!result.success) return;
         const d = result.data;
+        currentViewedHostData = d;
+        const visibleName = endpointVisibleName(d);
 
-        document.getElementById('mName').innerText = d.hostname || "Unknown";
-        if(document.getElementById('confName')) document.getElementById('confName').innerText = d.hostname || "Unknown";
+        document.getElementById('mName').innerText = visibleName;
+        const hostnameLine = document.getElementById('mHostname');
+        if (hostnameLine) {
+            hostnameLine.innerText = d.display_name && d.hostname ? `HOSTNAME: ${d.hostname}` : '';
+            hostnameLine.classList.toggle('hidden', !(d.display_name && d.hostname));
+        }
+        if(document.getElementById('confName')) document.getElementById('confName').innerText = visibleName;
         document.getElementById('mId').innerText = 'ID: ' + d.id;
+        const hostNameSpec = document.getElementById('mHostNameSpec');
+        if (hostNameSpec) hostNameSpec.innerText = d.hostname || "Unknown";
         document.getElementById('mIp').innerText = d.ip || "N/A";
         document.getElementById('mOs').innerText = d.os || "Unknown";
         document.getElementById('mAgentVersion').innerText = d.agent_version || "Unknown";
@@ -3490,6 +3514,73 @@ async function viewHost(id) {
     } catch(e) { console.error("Error loading host data", e); }
 }
 
+function updateVisibleHostLabels(hostId, name, hostname, displayName = '') {
+    const safeName = name || hostname || hostId || 'Unknown';
+    document.querySelectorAll(`button[onclick="viewHost('${hostId}')"]`).forEach(button => {
+        button.innerText = safeName;
+        const existingLine = button.nextElementSibling?.classList?.contains('display-hostname-line')
+            ? button.nextElementSibling
+            : null;
+        if (displayName && hostname) {
+            if (existingLine) {
+                existingLine.innerText = `HOSTNAME: ${hostname}`;
+            } else {
+                const line = document.createElement('div');
+                line.className = 'display-hostname-line text-[10px] font-mono text-slate-400 mt-1';
+                line.innerText = `HOSTNAME: ${hostname}`;
+                button.insertAdjacentElement('afterend', line);
+            }
+        } else if (existingLine) {
+            existingLine.remove();
+        }
+    });
+    if (currentViewedHostData && currentViewedHostData.id === hostId) {
+        currentViewedHostData.name = safeName;
+        currentViewedHostData.display_name = displayName || '';
+        currentViewedHostData.hostname = hostname || currentViewedHostData.hostname;
+    }
+    const fleetHost = (fleetCenterData.hosts || []).find(host => String(host.id) === String(hostId));
+    if (fleetHost) {
+        fleetHost.name = safeName;
+        fleetHost.display_name = displayName || '';
+        fleetHost.hostname = hostname || fleetHost.hostname;
+        renderFleetCenter();
+    }
+    const availableHost = availableHostsData.find(host => String(host.id) === String(hostId));
+    if (availableHost) {
+        availableHost.name = safeName;
+        availableHost.display_name = displayName || '';
+        availableHost.hostname = hostname || availableHost.hostname;
+    }
+}
+
+async function editCurrentHostDisplayName() {
+    if (!currentViewedHostId || !currentViewedHostData) return;
+    const currentAlias = currentViewedHostData.display_name || '';
+    const hostname = currentViewedHostData.hostname || currentViewedHostData.id || '';
+    const nextName = prompt(`Display Name for ${hostname}\\nLeave empty to show hostname.`, currentAlias);
+    if (nextName === null) return;
+    const res = await fetch('/api/infrastructure/host/' + encodeURIComponent(currentViewedHostId), {
+        method: 'PATCH',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({display_name: nextName})
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok || !data.success) {
+        alert(data.message || 'Failed to update Display Name.');
+        return;
+    }
+    updateVisibleHostLabels(currentViewedHostId, data.name, data.hostname, data.display_name);
+    const visibleName = data.name || data.hostname || currentViewedHostId;
+    document.getElementById('mName').innerText = visibleName;
+    const hostnameLine = document.getElementById('mHostname');
+    if (hostnameLine) {
+        hostnameLine.innerText = data.display_name && data.hostname ? `HOSTNAME: ${data.hostname}` : '';
+        hostnameLine.classList.toggle('hidden', !(data.display_name && data.hostname));
+    }
+    if (document.getElementById('confName')) document.getElementById('confName').innerText = visibleName;
+}
+
 async function toggleBlockHost() { await fetch('/api/infrastructure/host/' + currentViewedHostId + '/block', { method: 'POST' }); closeModal('hostModal'); location.reload(); }
 async function setHostApprovalQuick(hostId, status) {
     await fetch('/api/infrastructure/host/' + hostId + '/approval', {
@@ -3573,7 +3664,10 @@ async function openGroupFullView(id) {
 
     document.getElementById('groupHostsBody').innerHTML = data.data.members.map(m => `
         <tr class="hover:bg-slate-50/80 transition-colors">
-            <td class="px-10 py-5 font-black text-slate-700 text-lg cursor-pointer" onclick="viewHost('${m.id}')">${m.hostname}</td>
+            <td class="px-10 py-5 font-black text-slate-700 text-lg cursor-pointer" onclick="viewHost('${m.id}')">
+                ${escapeHtml(endpointVisibleName(m))}
+                ${endpointHostnameLine(m)}
+            </td>
             <td class="px-10 py-5">
                 <div class="text-[10px] font-black uppercase tracking-widest text-slate-400 mb-1">${m.os_type}</div>
                 <div class="text-sm font-bold text-slate-600">${m.ip}</div>
@@ -3605,11 +3699,14 @@ function openAddHostsToGroupModal() {
 function renderAddHostList(q) {
     const list = document.getElementById('availableHostsList');
     if(!list) return;
-    const filtered = currentGroupNonMembers.filter(m => m.hostname.toLowerCase().includes(q));
+    const filtered = currentGroupNonMembers.filter(m => `${m.name || ''} ${m.display_name || ''} ${m.hostname || ''}`.toLowerCase().includes(q));
     list.innerHTML = filtered.map(m => `
-        <label class="flex items-center gap-4 p-4 border-b border-slate-100 hover:bg-slate-50 cursor-pointer transition-colors group">
+        <label class="group-add-host-row flex items-center gap-4 p-4 border-b border-slate-100 hover:bg-slate-50 cursor-pointer transition-colors group">
             <input type="checkbox" value="${m.id}" class="add-host-cb w-5 h-5 text-indigo-600 rounded border-slate-300 focus:ring-indigo-500" onchange="document.getElementById('selCount').innerText = document.querySelectorAll('.add-host-cb:checked').length">
-            <span class="font-black text-slate-700 text-sm group-hover:text-indigo-600 transition-colors">${m.hostname}</span>
+            <span class="min-w-0">
+                <span class="font-black text-slate-700 text-sm group-hover:text-indigo-600 transition-colors">${escapeHtml(endpointVisibleName(m))}</span>
+                ${endpointHostnameLine(m)}
+            </span>
         </label>`).join('') || '<div class="p-10 text-center text-slate-400 font-bold">No available hosts found</div>';
 
     const countEl = document.getElementById('selCount');

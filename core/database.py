@@ -118,8 +118,9 @@ class EndpointGroup(db.Model):
 
 class Endpoint(db.Model):
     __tablename__ = 'endpoints'
-    id = db.Column(db.String(100), primary_key=True) 
+    id = db.Column(db.String(100), primary_key=True)
     hostname = db.Column(db.String(100))
+    display_name = db.Column(db.String(120))
     auth_token = db.Column(db.String(255))
     public_key_pem = db.Column(EncryptedText) 
     os_version = db.Column(db.String(100))
