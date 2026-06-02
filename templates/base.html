@@ -13,6 +13,10 @@
                         primary: '#0f3d8a',
                         'primary-dark': '#092b63',
                         sidebar: '#07152e',
+                        spacebg: '#070a13',
+                        panelbg: '#111827',
+                        plasma: '#22d3ee',
+                        kyber: '#38bdf8',
                     }
                 }
             }
@@ -256,6 +260,201 @@
         .rounded-3xl,
         .rounded-2xl {
             border-radius: 0.5rem !important;
+        }
+
+        /* WinHUB Tactical Interface: central visual-only sci-fi theme layer. */
+        :root {
+            --wh-space: #070a13;
+            --wh-space-2: #0a0f1f;
+            --wh-panel: #111827;
+            --wh-panel-2: #131c2f;
+            --wh-panel-soft: rgba(17, 24, 39, 0.92);
+            --wh-line: rgba(34, 211, 238, 0.20);
+            --wh-line-strong: rgba(56, 189, 248, 0.42);
+            --wh-cyan: #22d3ee;
+            --wh-blue: #38bdf8;
+            --wh-text: #e5f2ff;
+            --wh-muted: #94a3b8;
+            --wh-dim: #64748b;
+            --wh-shadow: 0 18px 44px rgba(0, 0, 0, 0.34);
+            --wh-shadow-soft: 0 12px 30px rgba(0, 0, 0, 0.24);
+        }
+
+        html,
+        body {
+            background:
+                radial-gradient(circle at 12% 0%, rgba(34, 211, 238, 0.12), transparent 24rem),
+                radial-gradient(circle at 82% 12%, rgba(56, 189, 248, 0.10), transparent 28rem),
+                linear-gradient(135deg, var(--wh-space) 0%, var(--wh-space-2) 52%, #08111f 100%) !important;
+            color: var(--wh-text) !important;
+        }
+
+        main.bg-slate-100,
+        body > .bg-slate-100,
+        body > .w-full.h-full.bg-slate-100,
+        .bg-slate-100 {
+            background:
+                radial-gradient(circle at 16% 0%, rgba(34, 211, 238, 0.10), transparent 24rem),
+                radial-gradient(circle at 84% 10%, rgba(56, 189, 248, 0.08), transparent 30rem),
+                linear-gradient(135deg, var(--wh-space) 0%, var(--wh-space-2) 56%, #08111f 100%) !important;
+            color: var(--wh-text) !important;
+        }
+
+        #mainSidebar {
+            background:
+                linear-gradient(180deg, #060914 0%, #081426 50%, #050812 100%) !important;
+            border-color: rgba(34, 211, 238, 0.22) !important;
+            box-shadow: 16px 0 42px rgba(0, 0, 0, 0.38) !important;
+        }
+        #mainSidebar .bg-primary,
+        #mainSidebar .bg-indigo-600,
+        #mainSidebar a.bg-primary {
+            background: linear-gradient(135deg, rgba(14, 165, 233, 0.30), rgba(34, 211, 238, 0.16)) !important;
+            border: 1px solid rgba(34, 211, 238, 0.36) !important;
+            color: #ecfeff !important;
+            box-shadow: 0 0 22px rgba(34, 211, 238, 0.14) !important;
+        }
+        #mainSidebar a:not(.bg-primary):hover {
+            background-color: rgba(34, 211, 238, 0.10) !important;
+            color: #f8feff !important;
+        }
+
+        main header,
+        main > div > div > header,
+        .bg-white,
+        .wh-soft-panel {
+            background:
+                linear-gradient(180deg, rgba(19, 28, 47, 0.96), rgba(15, 23, 42, 0.94)) !important;
+            border-color: var(--wh-line) !important;
+            box-shadow: var(--wh-shadow-soft) !important;
+            color: var(--wh-text) !important;
+        }
+
+        .bg-slate-50,
+        .bg-slate-50\/50,
+        .bg-slate-50\/80,
+        .bg-slate-100,
+        .bg-slate-200 {
+            background-color: rgba(15, 23, 42, 0.72) !important;
+        }
+
+        .wh-blue-panel {
+            background:
+                radial-gradient(circle at 0% 0%, rgba(34, 211, 238, 0.18), transparent 20rem),
+                linear-gradient(135deg, #08111f 0%, #0f2744 56%, #07101d 100%) !important;
+            border-color: rgba(34, 211, 238, 0.34) !important;
+            box-shadow: 0 0 26px rgba(34, 211, 238, 0.10), var(--wh-shadow) !important;
+        }
+
+        .border-slate-100,
+        .border-slate-200,
+        .border-slate-200\/50,
+        .border-slate-200\/60,
+        .border-slate-300,
+        .divide-slate-100 > :not([hidden]) ~ :not([hidden]) {
+            border-color: var(--wh-line) !important;
+        }
+
+        .text-slate-300,
+        .text-slate-400,
+        .text-slate-500,
+        .text-slate-600,
+        .text-slate-700,
+        .text-slate-800,
+        .text-slate-900 {
+            color: var(--wh-text) !important;
+        }
+        p,
+        label,
+        .text-xs,
+        .text-sm {
+            color: inherit;
+        }
+        .text-slate-400,
+        .text-slate-500 {
+            color: var(--wh-muted) !important;
+        }
+
+        input,
+        textarea,
+        select {
+            background-color: rgba(7, 13, 26, 0.86) !important;
+            border-color: rgba(34, 211, 238, 0.24) !important;
+            color: var(--wh-text) !important;
+            box-shadow: inset 0 1px 0 rgba(255,255,255,0.03) !important;
+        }
+        input::placeholder,
+        textarea::placeholder {
+            color: rgba(148, 163, 184, 0.78) !important;
+        }
+        input:focus,
+        textarea:focus,
+        select:focus {
+            border-color: var(--wh-cyan) !important;
+            box-shadow: 0 0 0 3px rgba(34, 211, 238, 0.14), 0 0 24px rgba(34, 211, 238, 0.10) !important;
+        }
+        select option {
+            background: #0d1220 !important;
+            color: #ecfeff !important;
+            border-bottom: 1px solid rgba(34, 211, 238, 0.16);
+        }
+
+        button,
+        a[role="button"],
+        input[type="button"],
+        input[type="submit"] {
+            transition: transform 120ms ease, filter 120ms ease, box-shadow 160ms ease, border-color 160ms ease !important;
+        }
+        button:hover,
+        a[role="button"]:hover,
+        input[type="button"]:hover,
+        input[type="submit"]:hover {
+            filter: brightness(1.08);
+        }
+        button:active,
+        a[role="button"]:active,
+        input[type="button"]:active,
+        input[type="submit"]:active {
+            transform: scale(0.98);
+            filter: brightness(0.92);
+        }
+
+        table thead,
+        thead,
+        .bg-slate-50\/50.border-b {
+            background: linear-gradient(180deg, rgba(17, 24, 39, 0.96), rgba(8, 17, 31, 0.96)) !important;
+            border-color: var(--wh-line) !important;
+            color: var(--wh-cyan) !important;
+        }
+        tbody tr,
+        .template-card,
+        article {
+            border-color: rgba(34, 211, 238, 0.16) !important;
+        }
+        tbody tr:hover,
+        .hover\:bg-slate-50:hover,
+        .hover\:bg-slate-50\/80:hover,
+        .hover\:bg-slate-100:hover {
+            background-color: rgba(34, 211, 238, 0.08) !important;
+        }
+
+        pre,
+        code,
+        .font-mono,
+        #systemLogOutput,
+        #terminalOutput,
+        #executionOutput,
+        textarea.font-mono {
+            background-color: rgba(0, 0, 0, 0.72) !important;
+            color: #67e8f9 !important;
+            border-color: rgba(34, 211, 238, 0.24) !important;
+        }
+
+        .rounded-\[3rem\],
+        .rounded-\[2\.5rem\],
+        .rounded-3xl,
+        .rounded-2xl {
+            border-radius: 0.75rem !important;
         }
     </style>
     {% block extra_head %}{% endblock %}
