@@ -721,7 +721,6 @@
         }
         main tr:hover,
         main .host-row:hover,
-        main label:hover,
         main .template-card:hover {
             background:
                 linear-gradient(90deg, rgba(14, 116, 144, 0.30), rgba(15, 23, 42, 0.94)) !important;
@@ -732,7 +731,6 @@
         main tr:hover td *,
         main .host-row:hover td,
         main .host-row:hover td *,
-        main label:hover span,
         main .template-card:hover * {
             color: #f6fdff !important;
         }
@@ -1058,7 +1056,6 @@
         .infra-report-card:hover,
         #reportsList > div:hover,
         .template-card:hover,
-        label:hover,
         .hover\:bg-white:hover,
         .hover\:bg-slate-50:hover,
         .hover\:bg-slate-50\/80:hover,
@@ -1078,14 +1075,16 @@
         .queue-job-row:hover *,
         .infra-report-card:hover *,
         #reportsList > div:hover *,
-        .template-card:hover *,
-        label:hover * {
+        .template-card:hover * {
             color: #f7fdff !important;
         }
 
         body .bg-blue-50,
+        body .bg-blue-100,
         body .bg-sky-50,
+        body .bg-sky-100,
         body .bg-indigo-50,
+        body .bg-indigo-100,
         body .bg-cyan-50 {
             background: linear-gradient(135deg, rgba(14, 165, 233, 0.20), rgba(7, 13, 26, 0.72)) !important;
             color: #7dd3fc !important;
@@ -1245,6 +1244,57 @@
                 linear-gradient(135deg, rgba(7, 13, 26, 0.96), rgba(8, 47, 73, 0.82)) !important;
             color: var(--wh-neon-text) !important;
             border-color: rgba(34, 211, 238, 0.34) !important;
+        }
+
+        .report-status-badge,
+        #vrStatus.report-status-badge,
+        .scheduled-status-badge {
+            color: #f8feff !important;
+            text-shadow: 0 1px 10px rgba(0, 0, 0, 0.28);
+            box-shadow: 0 0 18px rgba(34, 211, 238, 0.10) !important;
+        }
+        .report-status-sent,
+        .scheduled-status-sent {
+            background: linear-gradient(135deg, rgba(14, 165, 233, 0.44), rgba(34, 211, 238, 0.18)) !important;
+            border-color: rgba(125, 211, 252, 0.64) !important;
+            color: #dffaff !important;
+        }
+        .report-status-waiting,
+        .scheduled-status-waiting {
+            background: linear-gradient(135deg, rgba(245, 158, 11, 0.40), rgba(120, 53, 15, 0.42)) !important;
+            border-color: rgba(251, 191, 36, 0.66) !important;
+            color: #fff7d6 !important;
+        }
+        .report-status-default,
+        .scheduled-status-default {
+            background: linear-gradient(135deg, rgba(100, 116, 139, 0.34), rgba(15, 23, 42, 0.82)) !important;
+            border-color: rgba(148, 163, 184, 0.44) !important;
+            color: #dbeafe !important;
+        }
+
+        .software-package-row {
+            background:
+                linear-gradient(90deg, rgba(12, 21, 38, 0.98), rgba(13, 31, 58, 0.92)) !important;
+            color: var(--wh-neon-text) !important;
+            border-color: rgba(34, 211, 238, 0.20) !important;
+        }
+        .software-package-row:hover {
+            background:
+                linear-gradient(90deg, rgba(8, 145, 178, 0.26), rgba(15, 23, 42, 0.95)) !important;
+            color: #f7fdff !important;
+            border-color: rgba(34, 211, 238, 0.52) !important;
+            box-shadow: inset 4px 0 0 rgba(34, 211, 238, 0.78), 0 0 24px rgba(34, 211, 238, 0.11) !important;
+        }
+        .software-package-row-active {
+            background:
+                radial-gradient(circle at top left, rgba(52, 211, 153, 0.16), transparent 13rem),
+                linear-gradient(90deg, rgba(6, 78, 59, 0.62), rgba(8, 47, 73, 0.72)) !important;
+            border-color: rgba(52, 211, 153, 0.64) !important;
+            box-shadow: inset 4px 0 0 rgba(52, 211, 153, 0.88), 0 0 26px rgba(52, 211, 153, 0.12) !important;
+        }
+        .software-package-row *,
+        .software-package-row-active * {
+            color: inherit;
         }
 
         #reportViewModal .bg-white,

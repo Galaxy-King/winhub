@@ -344,7 +344,7 @@ function renderReports() {
     }
 
     container.innerHTML = allReports.map(r => {
-        let statusCls = r.status === 'Waiting Review' ? 'bg-amber-100 text-amber-700 border-amber-200' : (r.status.startsWith('Sent') ? 'bg-indigo-100 text-indigo-700 border-indigo-200' : 'bg-slate-100 text-slate-500 border-slate-200');
+        let statusCls = r.status === 'Waiting Review' ? 'report-status-badge report-status-waiting' : (r.status.startsWith('Sent') ? 'report-status-badge report-status-sent' : 'report-status-badge report-status-default');
         let dotColor = r.error > 0 ? 'bg-rose-500' : (r.success > 0 ? 'bg-emerald-500' : 'bg-slate-300');
 
         return `
@@ -375,7 +375,7 @@ function viewReport(id) {
 
     document.getElementById('vrTitle').innerText = r.title;
 
-    let statusCls = r.status === 'Waiting Review' ? 'bg-amber-100 text-amber-700 border-amber-200' : (r.status.startsWith('Sent') ? 'bg-indigo-100 text-indigo-700 border-indigo-200' : 'bg-slate-100 text-slate-500 border-slate-200');
+    let statusCls = r.status === 'Waiting Review' ? 'report-status-badge report-status-waiting' : (r.status.startsWith('Sent') ? 'report-status-badge report-status-sent' : 'report-status-badge report-status-default');
     const stEl = document.getElementById('vrStatus');
     if(stEl) {
         stEl.innerText = r.status;
@@ -2185,7 +2185,7 @@ function renderSoftwareRegistry() {
                 <button onclick="event.stopPropagation(); openSoftwareEditModal('${escapeHtml(pkg.id)}')" class="px-3 py-1.5 rounded-xl bg-white border border-slate-200 text-[9px] font-black uppercase text-slate-500 hover:text-indigo-600">Edit</button>
                 <button onclick="event.stopPropagation(); deleteSoftwarePackage('${escapeHtml(pkg.id)}')" class="px-3 py-1.5 rounded-xl bg-white border border-rose-100 text-[9px] font-black uppercase text-rose-500 hover:bg-rose-50">Delete</button>
             ` : '';
-            return `<div onclick="selectSoftwarePackage('${escapeHtml(pkg.id)}')" class="group grid grid-cols-12 gap-3 items-center px-4 py-3 border-t border-slate-200 ${active ? 'bg-indigo-50/70' : 'bg-white hover:bg-slate-50'} transition-all cursor-pointer">
+            return `<div onclick="selectSoftwarePackage('${escapeHtml(pkg.id)}')" class="software-package-row ${active ? 'software-package-row-active' : ''} group grid grid-cols-12 gap-3 items-center px-4 py-3 border-t border-slate-200 transition-all cursor-pointer">
                 <div class="col-span-12 xl:col-span-4 min-w-0">
                     <div class="font-black text-slate-800 text-sm truncate">${escapeHtml(softwarePackageLabel(pkg))}</div>
                     <div class="text-[10px] font-bold text-slate-500 uppercase mt-1 truncate">${escapeHtml(pkg.vendor || 'Unknown vendor')}</div>
