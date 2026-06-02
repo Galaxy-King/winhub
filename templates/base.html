@@ -1092,7 +1092,8 @@
         }
         body .bg-emerald-50,
         body .bg-emerald-100,
-        body .bg-green-50 {
+        body .bg-green-50,
+        body .bg-green-100 {
             background: linear-gradient(135deg, rgba(16, 185, 129, 0.18), rgba(7, 13, 26, 0.72)) !important;
             color: #86efac !important;
             border-color: rgba(52, 211, 153, 0.48) !important;
@@ -1100,24 +1101,35 @@
         body .bg-amber-50,
         body .bg-amber-100,
         body .bg-yellow-50,
-        body .bg-orange-50 {
+        body .bg-yellow-100,
+        body .bg-orange-50,
+        body .bg-orange-100 {
             background: linear-gradient(135deg, rgba(245, 158, 11, 0.20), rgba(7, 13, 26, 0.72)) !important;
             color: #fde68a !important;
             border-color: rgba(251, 191, 36, 0.50) !important;
         }
         body .bg-rose-50,
         body .bg-rose-100,
-        body .bg-red-50 {
+        body .bg-red-50,
+        body .bg-red-100 {
             background: linear-gradient(135deg, rgba(244, 63, 94, 0.18), rgba(7, 13, 26, 0.72)) !important;
             color: #fecdd3 !important;
             border-color: rgba(251, 113, 133, 0.52) !important;
         }
         body .bg-purple-50,
+        body .bg-purple-100,
         body .bg-violet-50,
-        body .bg-fuchsia-50 {
+        body .bg-violet-100,
+        body .bg-fuchsia-50,
+        body .bg-fuchsia-100 {
             background: linear-gradient(135deg, rgba(139, 92, 246, 0.18), rgba(7, 13, 26, 0.72)) !important;
             color: #ddd6fe !important;
             border-color: rgba(167, 139, 250, 0.48) !important;
+        }
+        body .bg-cyan-100 {
+            background: linear-gradient(135deg, rgba(6, 182, 212, 0.20), rgba(7, 13, 26, 0.72)) !important;
+            color: #a5f3fc !important;
+            border-color: rgba(103, 232, 249, 0.48) !important;
         }
 
         body .text-blue-500,
@@ -1271,6 +1283,49 @@
             border-color: rgba(148, 163, 184, 0.44) !important;
             color: #dbeafe !important;
         }
+        .audit-status-badge,
+        .audit-type-badge {
+            color: #f8feff !important;
+            text-shadow: 0 1px 10px rgba(0, 0, 0, 0.28);
+            box-shadow: 0 0 18px rgba(34, 211, 238, 0.08) !important;
+        }
+        .audit-status-success {
+            background: linear-gradient(135deg, rgba(16, 185, 129, 0.34), rgba(6, 78, 59, 0.42)) !important;
+            border-color: rgba(52, 211, 153, 0.62) !important;
+            color: #d1fae5 !important;
+        }
+        .audit-status-error {
+            background: linear-gradient(135deg, rgba(244, 63, 94, 0.34), rgba(76, 5, 25, 0.46)) !important;
+            border-color: rgba(251, 113, 133, 0.64) !important;
+            color: #ffe4e6 !important;
+        }
+        .audit-status-warning {
+            background: linear-gradient(135deg, rgba(245, 158, 11, 0.36), rgba(120, 53, 15, 0.42)) !important;
+            border-color: rgba(251, 191, 36, 0.64) !important;
+            color: #fff7d6 !important;
+        }
+        .audit-status-default,
+        .audit-type-default {
+            background: linear-gradient(135deg, rgba(100, 116, 139, 0.32), rgba(15, 23, 42, 0.82)) !important;
+            border-color: rgba(148, 163, 184, 0.42) !important;
+            color: #dbeafe !important;
+        }
+        .audit-type-audit {
+            background: linear-gradient(135deg, rgba(139, 92, 246, 0.34), rgba(46, 16, 101, 0.42)) !important;
+            border-color: rgba(167, 139, 250, 0.62) !important;
+            color: #ede9fe !important;
+        }
+        .audit-type-task {
+            background: linear-gradient(135deg, rgba(14, 165, 233, 0.34), rgba(12, 74, 110, 0.42)) !important;
+            border-color: rgba(125, 211, 252, 0.62) !important;
+            color: #e0f2fe !important;
+        }
+        .audit-type-registration,
+        .audit-type-module {
+            background: linear-gradient(135deg, rgba(6, 182, 212, 0.32), rgba(8, 47, 73, 0.44)) !important;
+            border-color: rgba(103, 232, 249, 0.60) !important;
+            color: #cffafe !important;
+        }
 
         .software-package-row {
             background:
@@ -1295,6 +1350,116 @@
         .software-package-row *,
         .software-package-row-active * {
             color: inherit;
+        }
+
+        .admin-control-shell header,
+        .history-audit-shell header,
+        .admin-control-shell #adminTabsScroller,
+        .history-audit-shell .bg-slate-50,
+        .admin-control-shell #viewUsers,
+        .admin-control-shell #viewApi,
+        .admin-control-shell #viewAudit,
+        .admin-control-shell #viewSystem,
+        .admin-control-shell #viewGpg > div,
+        .history-audit-shell .bg-white,
+        .history-audit-shell .bg-slate-50 {
+            background:
+                radial-gradient(circle at 0 0, rgba(34, 211, 238, 0.14), transparent 20rem),
+                radial-gradient(circle at 100% 0, rgba(52, 211, 153, 0.07), transparent 17rem),
+                linear-gradient(135deg, rgba(10, 18, 33, 0.99), rgba(12, 27, 48, 0.96)) !important;
+            color: var(--wh-neon-text) !important;
+            border-color: rgba(34, 211, 238, 0.34) !important;
+            box-shadow: var(--wh-neon-shadow) !important;
+        }
+        .admin-control-shell .bg-slate-50\/50,
+        .admin-control-shell .bg-slate-50,
+        .history-audit-shell .bg-slate-50\/50,
+        .history-audit-shell .bg-slate-50,
+        .admin-control-shell thead,
+        .history-audit-shell thead {
+            background:
+                linear-gradient(90deg, rgba(5, 12, 24, 0.98), rgba(10, 42, 64, 0.88)) !important;
+            color: #8eeaff !important;
+            border-color: rgba(34, 211, 238, 0.34) !important;
+        }
+        .admin-control-shell tbody tr,
+        .history-audit-shell tbody tr {
+            background:
+                linear-gradient(90deg, rgba(12, 21, 38, 0.98), rgba(13, 31, 58, 0.92)) !important;
+            color: var(--wh-neon-text) !important;
+            border-color: rgba(34, 211, 238, 0.22) !important;
+        }
+        .admin-control-shell tbody tr:hover,
+        .history-audit-shell tbody tr:hover {
+            background:
+                linear-gradient(90deg, rgba(8, 145, 178, 0.26), rgba(15, 23, 42, 0.95)) !important;
+            color: #f7fdff !important;
+            border-color: rgba(34, 211, 238, 0.52) !important;
+            box-shadow: inset 4px 0 0 rgba(34, 211, 238, 0.78), 0 0 24px rgba(34, 211, 238, 0.11) !important;
+        }
+        .admin-control-shell input,
+        .admin-control-shell select,
+        .admin-control-shell textarea,
+        .history-audit-shell input,
+        .history-audit-shell select,
+        .history-audit-shell textarea {
+            background-color: rgba(3, 10, 23, 0.92) !important;
+            color: var(--wh-neon-text) !important;
+            border-color: rgba(34, 211, 238, 0.34) !important;
+        }
+        .admin-control-shell button.bg-white,
+        .history-audit-shell button.bg-white,
+        .admin-control-shell .active.bg-white,
+        .history-audit-shell .active.bg-white {
+            background:
+                linear-gradient(135deg, rgba(14, 165, 233, 0.28), rgba(7, 13, 26, 0.88)) !important;
+            color: #eaf8ff !important;
+            border-color: rgba(125, 211, 252, 0.54) !important;
+        }
+        .admin-control-shell button:hover,
+        .history-audit-shell button:hover {
+            color: #f7fdff !important;
+            border-color: rgba(34, 211, 238, 0.58) !important;
+        }
+        .admin-control-shell h2,
+        .admin-control-shell h3,
+        .admin-control-shell h4,
+        .history-audit-shell h2,
+        .history-audit-shell h3,
+        .history-audit-shell h4 {
+            color: var(--wh-neon-heading) !important;
+        }
+        .admin-control-shell p,
+        .admin-control-shell span,
+        .admin-control-shell td,
+        .admin-control-shell th,
+        .history-audit-shell p,
+        .history-audit-shell span,
+        .history-audit-shell td,
+        .history-audit-shell th {
+            color: inherit;
+        }
+        #editModal > .bg-white,
+        #createModal > .bg-white,
+        #apiHelpModal > .bg-white,
+        #apiAccessModal > .bg-white,
+        #logModal > .bg-white {
+            background:
+                radial-gradient(circle at 0 0, rgba(34, 211, 238, 0.14), transparent 22rem),
+                linear-gradient(180deg, rgba(10, 18, 33, 0.99), rgba(5, 10, 20, 0.99)) !important;
+            color: var(--wh-neon-text) !important;
+            border: 1px solid rgba(34, 211, 238, 0.38) !important;
+            box-shadow: 0 30px 80px rgba(0, 0, 0, 0.58), 0 0 38px rgba(34, 211, 238, 0.10) !important;
+        }
+        #editModal .bg-slate-50,
+        #createModal .bg-slate-50,
+        #apiHelpModal .bg-slate-50,
+        #apiAccessModal .bg-slate-50,
+        #logModal .bg-slate-50 {
+            background:
+                linear-gradient(135deg, rgba(7, 13, 26, 0.96), rgba(8, 47, 73, 0.72)) !important;
+            color: var(--wh-neon-text) !important;
+            border-color: rgba(34, 211, 238, 0.30) !important;
         }
 
         #reportViewModal .bg-white,
