@@ -8,6 +8,7 @@ import ipaddress
 import base64
 import time
 from datetime import datetime
+from functools import lru_cache
 from flask import Blueprint, request, jsonify
 from cryptography.exceptions import InvalidSignature
 from cryptography.hazmat.primitives import hashes, serialization
@@ -71,14 +72,24 @@ def sign_task_message(task_id, action, payload):
     return hmac.new(secret, body.encode("utf-8"), hashlib.sha256).hexdigest()
 
 
+@lru_cache(maxsize=2048)
+def load_agent_public_key(public_key_pem):
+    return serialization.load_pem_public_key(str(public_key_pem or "").encode("utf-8"))
+
+
+@lru_cache(maxsize=2048)
+def agent_key_fingerprint_cached(public_key_pem):
+    public_key = load_agent_public_key(public_key_pem)
+    der = public_key.public_bytes(
+        encoding=serialization.Encoding.DER,
+        format=serialization.PublicFormat.SubjectPublicKeyInfo,
+    )
+    return hashlib.sha256(der).hexdigest()
+
+
 def agent_key_fingerprint(public_key_pem):
     try:
-        public_key = serialization.load_pem_public_key(str(public_key_pem or "").encode("utf-8"))
-        der = public_key.public_bytes(
-            encoding=serialization.Encoding.DER,
-            format=serialization.PublicFormat.SubjectPublicKeyInfo,
-        )
-        return hashlib.sha256(der).hexdigest()
+        return agent_key_fingerprint_cached(str(public_key_pem or ""))
     except Exception:
         return ""
 
@@ -107,7 +118,7 @@ def verify_agent_signature(public_key_pem, data, path, auth_token, agent_version
     except Exception:
         return False, "invalid_signature_timestamp"
     try:
-        public_key = serialization.load_pem_public_key(str(public_key_pem or "").encode("utf-8"))
+        public_key = load_agent_public_key(str(public_key_pem or ""))
         message = canonical_agent_signature_message(
             path,
             data.get("hw_id"),
