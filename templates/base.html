@@ -5,6 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     {% if csrf_token %}<meta name="csrf-token" content="{{ csrf_token }}">{% endif %}
     <title>{% block title %}WinHUB{% endblock %}</title>
+    <script src="https://cdn.tailwindcss.com"></script>
     <script>
         tailwind.config = {
             theme: {
@@ -22,8 +23,6 @@
             }
         }
     </script>
-    
-    <script src="https://cdn.tailwindcss.com"></script>
     
     <!-- ДОДАНО: Клієнтська бібліотека Socket.IO для WebSockets -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.7.4/socket.io.js"></script>
