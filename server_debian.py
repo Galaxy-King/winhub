@@ -41,8 +41,15 @@ hub.Hub.handle_error = custom_handle_error
 
 
 class QuietWSGILogger:
+    noisy_paths = (
+        "/api/agent/poll",
+        "/api/agent/telemetry",
+    )
+
     def write(self, message):
         if "Connection reset" in message or "Broken pipe" in message:
+            return
+        if any(f" {path} " in message for path in self.noisy_paths):
             return
         sys.stderr.write(message)
 

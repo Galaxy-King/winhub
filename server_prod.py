@@ -42,8 +42,15 @@ log = logging.getLogger("winhub.server")
 
 # Також придушуємо логи WSGI
 class QuietWSGILogger:
+    noisy_paths = (
+        "/api/agent/poll",
+        "/api/agent/telemetry",
+    )
+
     def write(self, message):
         if "SSLV3_ALERT_CERTIFICATE_UNKNOWN" in message or "SSLError" in message or "10053" in message: return
+        if any(f" {path} " in message for path in self.noisy_paths):
+            return
         sys.stderr.write(message)
     def flush(self):
         pass
