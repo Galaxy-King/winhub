@@ -420,6 +420,7 @@ function updateVariablesUI() {
 async function loadReports() {
     try {
         const res = await fetch('/api/infrastructure/reports/all');
+        if (!res.ok) throw new Error(`Reports request failed: ${res.status}`);
         const data = await res.json();
         if (data.success) {
             allReports = data.data;
@@ -461,7 +462,7 @@ function renderReports() {
     }).join('');
 }
 
-function viewReport(id) {
+async function viewReport(id) {
     const r = allReports.find(x => x.id === id);
     if(!r) return;
     currentReportId = id;
@@ -477,7 +478,7 @@ function viewReport(id) {
     }
 
     const bodyEl = document.getElementById('vrBody');
-    if(bodyEl) bodyEl.value = r.report_data || "";
+    if(bodyEl) bodyEl.value = r.report_data_loaded ? (r.report_data || "") : "Loading report body...";
 
     const saveBtn = document.getElementById('btnSaveReportText');
     if(saveBtn) {
@@ -486,6 +487,24 @@ function viewReport(id) {
     }
 
     openModal('reportViewModal');
+
+    if (!r.report_data_loaded) {
+        try {
+            const res = await fetch(`/api/infrastructure/reports/${id}`);
+            if (!res.ok) throw new Error(`Report body request failed: ${res.status}`);
+            const data = await res.json();
+            if (!data.success) throw new Error(data.message || 'Report body request failed');
+            Object.assign(r, data.data || {}, { report_data_loaded: true });
+            if (currentReportId === id && bodyEl) {
+                bodyEl.value = r.report_data || "";
+            }
+        } catch(e) {
+            console.error("Error loading report body", e);
+            if (currentReportId === id && bodyEl) {
+                bodyEl.value = "Failed to load report body.";
+            }
+        }
+    }
 }
 
 async function saveReportChanges() {

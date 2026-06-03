@@ -1828,15 +1828,47 @@ def delete_template_secret(name):
 def get_reports():
     denied = require_permission("view_reports")
     if denied: return denied
-    reports = AggregatedJob.query.order_by(AggregatedJob.created_at.desc()).limit(100).all()
+    reports = db.session.query(
+        AggregatedJob.id,
+        AggregatedJob.title,
+        AggregatedJob.status,
+        AggregatedJob.total_count,
+        AggregatedJob.success_count,
+        AggregatedJob.error_count,
+        AggregatedJob.created_at,
+    ).order_by(AggregatedJob.created_at.desc()).limit(100).all()
     if not session.get('is_admin'):
         reports = [r for r in reports if can_access_report(r.id)]
     data = [{
         "id": r.id, "title": r.title, "status": r.status,
         "total": r.total_count, "success": r.success_count, "error": r.error_count,
-        "created_at": to_kyiv_time(r.created_at), "report_data": report_body_for_current_user(r.report_data)
+        "created_at": to_kyiv_time(r.created_at), "has_body": True
     } for r in reports]
     return jsonify({"success": True, "data": data})
+
+@infrastructure_bp.route('/api/infrastructure/reports/<report_id>', methods=['GET'])
+def get_report(report_id):
+    denied = require_permission("view_reports")
+    if denied: return denied
+    r = AggregatedJob.query.get(report_id)
+    if not r:
+        return jsonify({"success": False, "message": "Report not found"}), 404
+    if not can_access_report(report_id):
+        return jsonify({"success": False, "message": "Access denied"}), 403
+
+    return jsonify({
+        "success": True,
+        "data": {
+            "id": r.id,
+            "title": r.title,
+            "status": r.status,
+            "total": r.total_count,
+            "success": r.success_count,
+            "error": r.error_count,
+            "created_at": to_kyiv_time(r.created_at),
+            "report_data": report_body_for_current_user(r.report_data),
+        }
+    })
 
 @infrastructure_bp.route('/api/infrastructure/reports/<report_id>/action', methods=['POST'])
 def action_report(report_id):
