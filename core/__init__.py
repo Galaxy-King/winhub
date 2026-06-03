@@ -231,6 +231,27 @@ def ensure_endpoint_schema():
         db.session.execute(text("UPDATE endpoints SET enrollment_attempts = 0 WHERE enrollment_attempts IS NULL"))
     db.session.commit()
 
+def ensure_performance_indexes():
+    inspector = inspect(db.engine)
+    tables = set(inspector.get_table_names())
+    if "agent_tasks" not in tables:
+        return
+
+    statements = [
+        "CREATE INDEX IF NOT EXISTS ix_agent_tasks_endpoint_status_created ON agent_tasks (endpoint_id, status, created_at)",
+        "CREATE INDEX IF NOT EXISTS ix_agent_tasks_job_status ON agent_tasks (job_id, status)",
+    ]
+    if "telemetry_history" in tables:
+        statements.append("CREATE INDEX IF NOT EXISTS ix_telemetry_endpoint_timestamp ON telemetry_history (endpoint_id, timestamp)")
+    if "connection_ip_history" in tables:
+        statements.append("CREATE INDEX IF NOT EXISTS ix_connection_ip_endpoint_timestamp ON connection_ip_history (endpoint_id, timestamp)")
+    if "aggregated_jobs" in tables:
+        statements.append("CREATE INDEX IF NOT EXISTS ix_aggregated_jobs_created_at ON aggregated_jobs (created_at)")
+
+    for statement in statements:
+        db.session.execute(text(statement))
+    db.session.commit()
+
 def ensure_audit_schema():
     inspector = inspect(db.engine)
     if "audit_logs" not in inspector.get_table_names():
@@ -576,6 +597,7 @@ def create_app():
             raise
         ensure_endpoint_schema()
         ensure_audit_schema()
+        ensure_performance_indexes()
         seed_default_os_groups()
         remove_default_agent_update_template()
         
