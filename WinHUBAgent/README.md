@@ -65,6 +65,8 @@ Runtime config:
   "ServerUrl": "https://192.168.37.223:8443",
   "GlobalApiKey": "",
   "PollIntervalSeconds": 30,
+  "PollJitterSeconds": 30,
+  "StartupSpreadSeconds": 120,
   "TaskHmacSecret": "",
   "DefaultTaskTimeoutSeconds": 1800,
   "MaxResultLogBytes": 262144,
@@ -73,6 +75,12 @@ Runtime config:
   "RequireTaskSignature": true
 }
 ```
+
+Polling cadence:
+
+- `PollIntervalSeconds` is the base polling interval.
+- `PollJitterSeconds` adds a random `0..N` second delay after every poll, preventing many agents from polling in the same second.
+- `StartupSpreadSeconds` adds a stable per-host startup delay before the first poll, so GPO deployments, service restarts, and mass updates do not create a synchronized request burst.
 
 Bootstrap config:
 

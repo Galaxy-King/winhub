@@ -38,6 +38,8 @@ namespace WinHUBAgent
         public string ServerUrl { get; set; } = "https://192.168.37.223:8443";
         public string GlobalApiKey { get; set; } = "";
         public int PollIntervalSeconds { get; set; } = 30;
+        public int PollJitterSeconds { get; set; } = 30;
+        public int StartupSpreadSeconds { get; set; } = 120;
         public string TaskHmacSecret { get; set; } = "";
         public int DefaultTaskTimeoutSeconds { get; set; } = 1800;
         public int MaxResultLogBytes { get; set; } = 262144;
@@ -81,7 +83,6 @@ namespace WinHUBAgent
     {
         private readonly ILogger<Worker> _logger;
         private readonly HttpClient _httpClient;
-        private readonly Random _random = new Random();
         private bool _signatureWarningLogged = false;
 
         // НОВЕ: Змінна для збереження конфігурації
@@ -243,14 +244,29 @@ namespace WinHUBAgent
             
             _logger.LogInformation($"Hardware ID: {HardwareId}");
             _logger.LogInformation($"OS Detected: {FriendlyOsName}");
-            
+
+            int pollIntervalSeconds = GetConfiguredPollIntervalSeconds();
+            int pollJitterSeconds = GetPollJitterSeconds();
+            int startupSpreadSeconds = GetStartupSpreadSeconds();
+            int startupDelaySeconds = GetStableDelaySeconds("startup-poll-spread-v1", startupSpreadSeconds + 1);
+            int telemetryDelaySeconds = GetStableDelaySeconds("startup-telemetry-spread-v1", 301);
+
+            _logger.LogInformation(
+                $"Polling cadence: base={pollIntervalSeconds}s, jitter=0-{pollJitterSeconds}s, startup_spread=0-{startupSpreadSeconds}s, startup_delay={startupDelaySeconds}s"
+            );
+
+            if (startupDelaySeconds > 0)
+            {
+                await Task.Delay(TimeSpan.FromSeconds(startupDelaySeconds), stoppingToken);
+            }
+
             if (!LoadToken())
             {
                 _logger.LogWarning("Initiating Enrollment...");
                 await EnrollAgentAsync(stoppingToken);
             }
 
-            DateTime lastTelemetrySent = DateTime.MinValue;
+            DateTime lastTelemetrySent = DateTime.UtcNow - TimeSpan.FromMinutes(5) + TimeSpan.FromSeconds(telemetryDelaySeconds);
 
             while (!stoppingToken.IsCancellationRequested)
             {
@@ -262,11 +278,40 @@ namespace WinHUBAgent
 
                 await PollServerAsync(stoppingToken);
 
-                // Використовуємо інтервал з конфігурації + джитер (розкид)
-                int jitter = _random.Next(-5, 16); 
-                int nextPoll = Math.Max(10, _config.PollIntervalSeconds + jitter);
+                int nextPoll = pollIntervalSeconds + NextRandomDelaySeconds(0, pollJitterSeconds);
                 await Task.Delay(TimeSpan.FromSeconds(nextPoll), stoppingToken);
             }
+        }
+
+        private int GetConfiguredPollIntervalSeconds()
+        {
+            return Math.Max(10, Math.Min(3600, _config.PollIntervalSeconds));
+        }
+
+        private int GetPollJitterSeconds()
+        {
+            return Math.Max(0, Math.Min(3600, _config.PollJitterSeconds));
+        }
+
+        private int GetStartupSpreadSeconds()
+        {
+            return Math.Max(0, Math.Min(3600, _config.StartupSpreadSeconds));
+        }
+
+        private int GetStableDelaySeconds(string purpose, int maxExclusive)
+        {
+            if (maxExclusive <= 1) return 0;
+
+            string seed = $"{HardwareId}|{Environment.MachineName}|{purpose}";
+            byte[] hash = SHA256.HashData(Encoding.UTF8.GetBytes(seed));
+            uint value = BitConverter.ToUInt32(hash, 0);
+            return (int)(value % (uint)maxExclusive);
+        }
+
+        private static int NextRandomDelaySeconds(int minInclusive, int maxInclusive)
+        {
+            if (maxInclusive <= minInclusive) return minInclusive;
+            return RandomNumberGenerator.GetInt32(minInclusive, maxInclusive + 1);
         }
 
         private float GetCpuUsage()
