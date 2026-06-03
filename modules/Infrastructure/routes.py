@@ -10,11 +10,12 @@ import ast
 import re
 import subprocess
 import tempfile
+import time
 from datetime import datetime, timedelta, timezone
 from email.mime.text import MIMEText
 from email.utils import parseaddr
 from zoneinfo import ZoneInfo
-from flask import Blueprint, request, jsonify, render_template, session, redirect, url_for, current_app, Response, send_from_directory
+from flask import Blueprint, request, jsonify, render_template, session, redirect, url_for, current_app, Response, send_from_directory, stream_with_context
 from sqlalchemy import func, or_
 from werkzeug.utils import secure_filename
 
@@ -434,6 +435,134 @@ def current_user():
 
 def can(permission_id):
     return has_permission(current_user(), "Infrastructure", permission_id)
+
+def infra_allowed_host_ids(user_id):
+    user = User.query.get(user_id)
+    if not user:
+        return []
+    if user.is_admin:
+        return [row[0] for row in db.session.query(Endpoint.id).all()]
+    return [host.id for host in WinHubCore.get_allowed_hosts(user_id)]
+
+def infra_live_state():
+    """Small, non-sensitive revision snapshot for browser live refresh."""
+    user_id = session.get("user_id")
+    allowed_host_ids = infra_allowed_host_ids(user_id)
+    empty_section = {"revision": "0", "count": 0, "latest": None}
+    if not allowed_host_ids:
+        return {
+            "nodes": empty_section,
+            "review": empty_section,
+            "queue": empty_section,
+            "reports": empty_section,
+        }
+
+    def row_revision(*parts):
+        raw = "|".join("" if part is None else str(part) for part in parts)
+        return hashlib.sha256(raw.encode("utf-8")).hexdigest()[:16]
+
+    endpoint_rows = db.session.query(
+        Endpoint.id,
+        Endpoint.hostname,
+        Endpoint.display_name,
+        Endpoint.approval_status,
+        Endpoint.agent_version,
+        Endpoint.public_key_pem.isnot(None).label("has_public_key"),
+        Endpoint.last_seen,
+        Endpoint.is_blocked,
+        Endpoint.identity_warning,
+    ).filter(Endpoint.id.in_(allowed_host_ids)).all()
+
+    endpoint_parts = []
+    review_parts = []
+    review_count = 0
+    latest_endpoint = None
+    for endpoint in endpoint_rows:
+        last_seen = endpoint.last_seen.isoformat() if endpoint.last_seen else ""
+        endpoint_parts.append(row_revision(
+            endpoint.id,
+            endpoint.hostname,
+            endpoint.display_name,
+            endpoint.approval_status,
+            endpoint.agent_version,
+            bool(endpoint.has_public_key),
+            last_seen,
+            endpoint.is_blocked,
+            endpoint.identity_warning,
+        ))
+        if endpoint.last_seen and (latest_endpoint is None or endpoint.last_seen > latest_endpoint):
+            latest_endpoint = endpoint.last_seen
+        approval = endpoint.approval_status or "Approved"
+        if approval != "Approved" or endpoint.identity_warning:
+            review_count += 1
+            review_parts.append(endpoint_parts[-1])
+
+    task_rows = db.session.query(
+        AgentTask.id,
+        AgentTask.job_id,
+        AgentTask.endpoint_id,
+        AgentTask.status,
+        AgentTask.created_at,
+        AgentTask.finished_at,
+    ).filter(AgentTask.endpoint_id.in_(allowed_host_ids)).order_by(AgentTask.created_at.desc()).limit(250).all()
+    task_parts = [
+        row_revision(
+            task.id,
+            task.job_id,
+            task.endpoint_id,
+            task.status,
+            task.created_at.isoformat() if task.created_at else "",
+            task.finished_at.isoformat() if task.finished_at else "",
+        )
+        for task in task_rows
+    ]
+    latest_task = max((task.created_at for task in task_rows if task.created_at), default=None)
+
+    reports = db.session.query(
+        AggregatedJob.id,
+        AggregatedJob.status,
+        AggregatedJob.total_count,
+        AggregatedJob.success_count,
+        AggregatedJob.error_count,
+        AggregatedJob.created_at,
+    ).order_by(AggregatedJob.created_at.desc()).limit(100).all()
+    if not session.get("is_admin"):
+        reports = [report for report in reports if can_access_report(report.id)]
+    report_parts = [
+        row_revision(
+            report.id,
+            report.status,
+            report.total_count,
+            report.success_count,
+            report.error_count,
+            report.created_at.isoformat() if report.created_at else "",
+        )
+        for report in reports
+    ]
+    latest_report = max((report.created_at for report in reports if report.created_at), default=None)
+
+    return {
+        "nodes": {
+            "revision": row_revision("nodes", len(endpoint_parts), *sorted(endpoint_parts)),
+            "count": len(endpoint_parts),
+            "latest": latest_endpoint.isoformat() if latest_endpoint else None,
+        },
+        "review": {
+            "revision": row_revision("review", review_count, *sorted(review_parts)),
+            "count": review_count,
+            "latest": latest_endpoint.isoformat() if latest_endpoint else None,
+        },
+        "queue": {
+            "revision": row_revision("queue", len(task_parts), *task_parts),
+            "count": len(task_parts),
+            "latest": latest_task.isoformat() if latest_task else None,
+        },
+        "reports": {
+            "revision": row_revision("reports", len(report_parts), *report_parts),
+            "count": len(report_parts),
+            "latest": latest_report.isoformat() if latest_report else None,
+        },
+    }
 
 def endpoint_health_score(endpoint, latest_version=None):
     now = datetime.utcnow()
@@ -1210,6 +1339,68 @@ def index():
                            approved_duplicate_pairs=approved_duplicate_pairs,
                            scheduled_tasks=scheduled_tasks, trigger_rules=trigger_rules, stats=stats,
                            username=session.get('username'), is_admin=is_admin, permissions=permissions)
+
+
+@infrastructure_bp.route('/api/infrastructure/live/state', methods=['GET'])
+def infrastructure_live_state_api():
+    denied = require_permission("view_hosts")
+    if denied:
+        return denied
+    return jsonify({"success": True, "state": infra_live_state()})
+
+
+@infrastructure_bp.route('/api/infrastructure/live/events', methods=['GET'])
+def infrastructure_live_events():
+    denied = require_permission("view_hosts")
+    if denied:
+        return denied
+
+    def event_payload(event_name, payload):
+        return f"event: {event_name}\ndata: {json.dumps(payload, separators=(',', ':'))}\n\n"
+
+    @stream_with_context
+    def generate():
+        previous_state = None
+        heartbeat_at = time.monotonic()
+        yield event_payload("connected", {"ok": True, "ts": datetime.utcnow().isoformat() + "Z"})
+        while True:
+            try:
+                state = infra_live_state()
+                if previous_state is None:
+                    previous_state = state
+                    yield event_payload("state", {"state": state})
+                else:
+                    changes = {
+                        section: state.get(section)
+                        for section in ("nodes", "review", "queue", "reports")
+                        if (state.get(section) or {}).get("revision") != (previous_state.get(section) or {}).get("revision")
+                    }
+                    if changes:
+                        previous_state = state
+                        yield event_payload("changed", {"changes": changes})
+
+                if time.monotonic() - heartbeat_at >= 25:
+                    heartbeat_at = time.monotonic()
+                    yield event_payload("heartbeat", {"ts": datetime.utcnow().isoformat() + "Z"})
+                db.session.remove()
+                time.sleep(5)
+            except GeneratorExit:
+                break
+            except Exception:
+                current_app.logger.exception("Infrastructure live event stream failed")
+                db.session.rollback()
+                db.session.remove()
+                yield event_payload("error", {"message": "live stream error"})
+                time.sleep(10)
+
+    return Response(
+        generate(),
+        mimetype="text/event-stream",
+        headers={
+            "Cache-Control": "no-store",
+            "X-Accel-Buffering": "no",
+        },
+    )
 
 
 @infrastructure_bp.route('/api/infrastructure/hosts', methods=['GET'])

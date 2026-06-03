@@ -40,6 +40,10 @@ let activityChart = null;
 let currentHostStatus = 'all';
 let queueTypeFilter = 'ALL';
 const infraPermissions = window.WinhubPermissions || {};
+let infraLiveSource = null;
+let infraLiveFallbackTimer = null;
+let infraLiveState = null;
+let infraLiveRefreshTimers = {};
 let payloadEditor = null;
 const infraStateKeys = {
     view: 'infra_vfinal_view',
@@ -51,6 +55,112 @@ let workspaceTab = 'builder';
 let guideLanguage = localStorage.getItem('infra_workspace_guide_lang') || 'en';
 let multiHostSelectedIds = new Set();
 let pendingTemplateImport = [];
+
+function currentInfraView() {
+    return localStorage.getItem(infraStateKeys.view) || 'hosts';
+}
+
+function hasReviewSelections() {
+    return pendingApprovalSelection().length > 0 || rejectedSelection().length > 0 || duplicateSelection().length > 0;
+}
+
+function scheduleInfraLiveRefresh(section, delay = 700) {
+    clearTimeout(infraLiveRefreshTimers[section]);
+    infraLiveRefreshTimers[section] = setTimeout(() => refreshInfraLiveSection(section), delay);
+}
+
+function refreshInfraLiveSection(section) {
+    const view = currentInfraView();
+    if (section === 'nodes') {
+        if (view === 'hosts' && !document.getElementById('nodesApprovedPanel')?.classList.contains('hidden')) {
+            loadFleetCenter();
+        }
+        return;
+    }
+    if (section === 'review') {
+        if (view === 'hosts' && !document.getElementById('nodesReviewPanel')?.classList.contains('hidden')) {
+            if (hasReviewSelections()) return;
+            reloadKeepingNodeContext('review');
+        }
+        return;
+    }
+    if (section === 'queue' && view === 'queue') {
+        loadQueue();
+        if (currentViewedJobId) {
+            setTimeout(() => {
+                const job = allQueueJobs.find(j => j.job_id === currentViewedJobId);
+                if (job) {
+                    currentJobTasks = job.tasks || [];
+                    renderJobStatusFilters();
+                    renderJobTaskRows();
+                }
+            }, 450);
+        }
+        return;
+    }
+    if (section === 'reports' && view === 'reports') {
+        loadReports();
+    }
+}
+
+function handleInfraLiveState(nextState, fromFallback = false) {
+    if (!nextState) return;
+    if (!infraLiveState) {
+        infraLiveState = nextState;
+        return;
+    }
+    ['nodes', 'review', 'queue', 'reports'].forEach(section => {
+        const previousRevision = infraLiveState?.[section]?.revision;
+        const nextRevision = nextState?.[section]?.revision;
+        if (nextRevision && previousRevision && nextRevision !== previousRevision) {
+            scheduleInfraLiveRefresh(section, fromFallback ? 250 : 700);
+        }
+    });
+    infraLiveState = nextState;
+}
+
+async function pollInfraLiveState() {
+    try {
+        const res = await fetch('/api/infrastructure/live/state');
+        const data = await res.json();
+        if (res.ok && data.success) handleInfraLiveState(data.state, true);
+    } catch (e) {
+        console.warn('WinHUB live fallback polling failed:', e);
+    }
+}
+
+function startInfraLiveFallback() {
+    if (infraLiveFallbackTimer) return;
+    infraLiveFallbackTimer = setInterval(pollInfraLiveState, 20000);
+}
+
+function startInfraLiveRefresh() {
+    if (!window.location.pathname.includes('/module/infrastructure')) return;
+    if (!window.EventSource) {
+        startInfraLiveFallback();
+        pollInfraLiveState();
+        return;
+    }
+    try {
+        infraLiveSource = new EventSource('/api/infrastructure/live/events');
+        infraLiveSource.addEventListener('state', (event) => {
+            const payload = JSON.parse(event.data || '{}');
+            handleInfraLiveState(payload.state);
+        });
+        infraLiveSource.addEventListener('changed', (event) => {
+            const payload = JSON.parse(event.data || '{}');
+            Object.keys(payload.changes || {}).forEach(section => scheduleInfraLiveRefresh(section));
+            infraLiveState = {...(infraLiveState || {}), ...(payload.changes || {})};
+        });
+        infraLiveSource.onerror = () => {
+            startInfraLiveFallback();
+        };
+    } catch (e) {
+        console.warn('WinHUB live refresh disabled:', e);
+        startInfraLiveFallback();
+        pollInfraLiveState();
+    }
+}
 
 function getPayloadValue() {
     if (payloadEditor) return payloadEditor.getValue();
@@ -1010,6 +1120,7 @@ document.addEventListener('DOMContentLoaded', () => {
         const labelNode = document.getElementById('codeEditorLabel');
         if (hintNode) observer.observe(hintNode, { childList: true, characterData: true, subtree: true });
         if (labelNode) observer.observe(labelNode, { childList: true, characterData: true, subtree: true });
+        startInfraLiveRefresh();
 
     } catch(e) {
         console.error("Initialization error:", e);
