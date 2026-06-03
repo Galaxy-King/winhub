@@ -55,6 +55,7 @@ ENDPOINT_LIST_COLUMNS = (
     Endpoint.display_name,
     Endpoint.os_version,
     Endpoint.os_type,
+    Endpoint.public_key_pem_plain,
     Endpoint.connection_ip,
     Endpoint.approval_status,
     Endpoint.agent_version,
@@ -73,7 +74,10 @@ def endpoint_has_public_key_map(endpoint_ids):
         return {}
     rows = db.session.query(
         Endpoint.id,
-        Endpoint.public_key_pem.isnot(None).label("has_public_key"),
+        or_(
+            Endpoint.public_key_pem_plain.isnot(None),
+            Endpoint.public_key_pem.isnot(None),
+        ).label("has_public_key"),
     ).filter(Endpoint.id.in_(endpoint_ids)).all()
     return {row.id: bool(row.has_public_key) for row in rows}
 
@@ -575,7 +579,10 @@ def infra_live_state():
         Endpoint.display_name,
         Endpoint.approval_status,
         Endpoint.agent_version,
-        Endpoint.public_key_pem.isnot(None).label("has_public_key"),
+        or_(
+            Endpoint.public_key_pem_plain.isnot(None),
+            Endpoint.public_key_pem.isnot(None),
+        ).label("has_public_key"),
         Endpoint.last_seen,
         Endpoint.is_blocked,
         Endpoint.identity_warning,
@@ -704,7 +711,9 @@ def endpoint_health_score(endpoint, latest_version=None):
     online = bool(last_seen and last_seen >= now - timedelta(minutes=5))
     outdated = bool(latest_version and (getattr(endpoint, "agent_version", "") or "") != latest_version)
     enrolled_flag = getattr(endpoint, "agent_identity_key_enrolled", None)
-    has_key = bool(enrolled_flag) if enrolled_flag is not None else bool(getattr(endpoint, "public_key_pem", None))
+    has_key = bool(enrolled_flag) if enrolled_flag is not None else bool(
+        getattr(endpoint, "public_key_pem_plain", None) or getattr(endpoint, "public_key_pem", None)
+    )
 
     score = 100
     reasons = []
@@ -1093,7 +1102,12 @@ def build_scheduled_report_body(report_types, since, until):
         approved = Endpoint.query.filter_by(approval_status="Approved").count()
         pending = Endpoint.query.filter_by(approval_status="Pending").count()
         rejected = Endpoint.query.filter_by(approval_status="Rejected").count()
-        signed = Endpoint.query.filter(Endpoint.public_key_pem.isnot(None), Endpoint.public_key_pem != "").count()
+        signed = Endpoint.query.filter(
+            or_(
+                Endpoint.public_key_pem_plain.isnot(None),
+                Endpoint.public_key_pem.isnot(None),
+            )
+        ).count()
         latest = latest_agent_package_version()
         outdated = Endpoint.query.filter(Endpoint.approval_status == "Approved", Endpoint.agent_version != latest).count() if latest else 0
         online_since = datetime.utcnow() - timedelta(minutes=5)
@@ -3511,7 +3525,15 @@ def host_operations(host_id):
         })
     denied = require_permission("view_hosts")
     if denied: return denied
-    history = AgentTask.query.filter_by(endpoint_id=host_id).order_by(AgentTask.created_at.desc()).limit(20).all()
+    history = AgentTask.query.options(
+        load_only(
+            AgentTask.id,
+            AgentTask.title,
+            AgentTask.status,
+            AgentTask.created_at,
+            AgentTask.created_by,
+        )
+    ).filter_by(endpoint_id=host_id).order_by(AgentTask.created_at.desc()).limit(20).all()
     try:
         network_info = json.loads(agent.network_info or "[]")
     except Exception:
@@ -3520,7 +3542,7 @@ def host_operations(host_id):
         host_info = json.loads(agent.host_info or "{}")
     except Exception:
         host_info = {}
-    return jsonify({"success": True, "data": {"id": agent.id, "hostname": agent.hostname, "display_name": getattr(agent, "display_name", None) or "", "name": endpoint_display_name(agent), "os": agent.os_version, "ip": getattr(agent, "connection_ip", None) or agent.ip_address, "os_type": getattr(agent, 'os_type', 'Windows'), "last_seen": to_kyiv_time(agent.last_seen), "first_seen": to_kyiv_time(getattr(agent, "first_seen", None)), "last_enrollment_at": to_kyiv_time(getattr(agent, "last_enrollment_at", None)), "last_enrollment_ip": getattr(agent, "last_enrollment_ip", None), "enrollment_attempts": int(getattr(agent, "enrollment_attempts", 0) or 0), "identity_fingerprint": getattr(agent, "identity_fingerprint", None), "agent_identity_key_enrolled": bool(getattr(agent, "public_key_pem", None)), "duplicate_matches": getattr(agent, "duplicate_matches", []), "identity_warning": getattr(agent, "identity_warning", None), "is_blocked": agent.is_blocked, "approval_status": getattr(agent, "approval_status", "Approved"), "agent_version": getattr(agent, "agent_version", None), "network_info": network_info, "host_info": host_info, "encryption": encryption_status_from_host_info(host_info), "groups": [{"id": g.id, "name": g.name} for g in agent.groups], "history": [{"id": h.id, "title": h.title, "status": h.status or "Pending", "date": to_kyiv_time_short(h.created_at), "by": h.created_by} for h in history]}})
+    return jsonify({"success": True, "data": {"id": agent.id, "hostname": agent.hostname, "display_name": getattr(agent, "display_name", None) or "", "name": endpoint_display_name(agent), "os": agent.os_version, "ip": getattr(agent, "connection_ip", None) or agent.ip_address, "os_type": getattr(agent, 'os_type', 'Windows'), "last_seen": to_kyiv_time(agent.last_seen), "first_seen": to_kyiv_time(getattr(agent, "first_seen", None)), "last_enrollment_at": to_kyiv_time(getattr(agent, "last_enrollment_at", None)), "last_enrollment_ip": getattr(agent, "last_enrollment_ip", None), "enrollment_attempts": int(getattr(agent, "enrollment_attempts", 0) or 0), "identity_fingerprint": getattr(agent, "identity_fingerprint", None), "agent_identity_key_enrolled": bool(getattr(agent, "public_key_pem_plain", None) or getattr(agent, "public_key_pem", None)), "duplicate_matches": getattr(agent, "duplicate_matches", []), "identity_warning": getattr(agent, "identity_warning", None), "is_blocked": agent.is_blocked, "approval_status": getattr(agent, "approval_status", "Approved"), "agent_version": getattr(agent, "agent_version", None), "network_info": network_info, "host_info": host_info, "encryption": encryption_status_from_host_info(host_info), "groups": [{"id": g.id, "name": g.name} for g in agent.groups], "history": [{"id": h.id, "title": h.title, "status": h.status or "Pending", "date": to_kyiv_time_short(h.created_at), "by": h.created_by} for h in history]}})
 
 def build_activity_segments(host_id, telemetry_records, threshold, end_time, fallback_ip=""):
     records = sorted([r for r in telemetry_records if r.timestamp], key=lambda r: r.timestamp)

@@ -34,12 +34,37 @@ pending_task_miss_cache_lock = Lock()
 
 POLL_AGENT_COLUMNS = (
     Endpoint.id,
+    Endpoint.hostname,
     Endpoint.auth_token,
     Endpoint.is_blocked,
     Endpoint.approval_status,
+    Endpoint.public_key_pem_plain,
     Endpoint.connection_ip,
     Endpoint.last_seen,
     Endpoint.agent_version,
+)
+
+REQUEST_AGENT_COLUMNS = POLL_AGENT_COLUMNS
+
+TASK_DELIVERY_COLUMNS = (
+    AgentTask.id,
+    AgentTask.job_id,
+    AgentTask.endpoint_id,
+    AgentTask.action_type,
+    AgentTask.payload,
+    AgentTask.status,
+    AgentTask.created_at,
+)
+
+TASK_RESULT_COLUMNS = (
+    AgentTask.id,
+    AgentTask.job_id,
+    AgentTask.endpoint_id,
+    AgentTask.title,
+    AgentTask.payload,
+    AgentTask.status,
+    AgentTask.created_at,
+    AgentTask.finished_at,
 )
 
 
@@ -47,6 +72,12 @@ def get_poll_agent(hw_id):
     if not hw_id:
         return None
     return Endpoint.query.options(load_only(*POLL_AGENT_COLUMNS)).filter(Endpoint.id == hw_id).first()
+
+
+def get_request_agent(hw_id):
+    if not hw_id:
+        return None
+    return Endpoint.query.options(load_only(*REQUEST_AGENT_COLUMNS)).filter(Endpoint.id == hw_id).first()
 
 def current_client_ip():
     forwarded = request.headers.get("X-Forwarded-For", "")
@@ -133,6 +164,25 @@ def agent_key_fingerprint(public_key_pem):
         return agent_key_fingerprint_cached(str(public_key_pem or ""))
     except Exception:
         return ""
+
+
+def get_agent_public_key(agent):
+    public_key = str(getattr(agent, "public_key_pem_plain", None) or "").strip()
+    if public_key:
+        return public_key
+
+    public_key = str(getattr(agent, "public_key_pem", None) or "").strip()
+    if public_key:
+        agent.public_key_pem_plain = public_key
+        setattr(agent, "_public_key_plain_backfilled", True)
+    return public_key
+
+
+def set_agent_public_key(agent, public_key):
+    public_key = str(public_key or "").strip()
+    agent.public_key_pem = public_key
+    agent.public_key_pem_plain = public_key
+    setattr(agent, "_public_key_plain_backfilled", False)
 
 
 def canonical_agent_signature_message(path, hw_id, auth_token, agent_version, signed_at, nonce):
@@ -232,7 +282,10 @@ def get_pending_task_for_agent(endpoint_id):
     if missed_at and now - missed_at <= PENDING_TASK_MISS_CACHE_TTL_SECONDS:
         return None
 
-    task = AgentTask.query.filter_by(endpoint_id=endpoint_id, status="Pending").order_by(AgentTask.created_at.asc()).first()
+    task = AgentTask.query.options(load_only(*TASK_DELIVERY_COLUMNS)).filter_by(
+        endpoint_id=endpoint_id,
+        status="Pending",
+    ).order_by(AgentTask.created_at.asc()).first()
     with pending_task_miss_cache_lock:
         if task:
             pending_task_miss_cache.pop(endpoint_id, None)
@@ -267,15 +320,16 @@ def bind_enrollment_public_key(agent, data):
     if not signature_ok:
         agent.identity_warning = f"Agent public key proof failed during enrollment: {signature_reason}."
         return
-    if not getattr(agent, "public_key_pem", None):
-        agent.public_key_pem = provided_key
-    elif agent.public_key_pem != provided_key:
+    stored_key = get_agent_public_key(agent)
+    if not stored_key:
+        set_agent_public_key(agent, provided_key)
+    elif stored_key != provided_key:
         agent.identity_warning = "Agent public identity key changed. Review endpoint identity before trusting this host."
 
 
 def verify_or_bind_agent_key(agent, data, path, auth_token):
     provided_key = str(data.get("agent_public_key_pem") or "").strip()
-    stored_key = str(getattr(agent, "public_key_pem", None) or "").strip()
+    stored_key = get_agent_public_key(agent)
     candidate_key = stored_key or provided_key
     has_signature_fields = bool(data.get("signature") or data.get("signed_at") or data.get("signed_nonce"))
     if not candidate_key:
@@ -287,7 +341,7 @@ def verify_or_bind_agent_key(agent, data, path, auth_token):
             ok, reason = verify_agent_signature(candidate_key, data, path, auth_token, getattr(agent, "agent_version", ""))
             if ok:
                 if not stored_key and provided_key:
-                    agent.public_key_pem = provided_key
+                    set_agent_public_key(agent, provided_key)
                     db.session.add(RegistrationHistory(
                         hw_id=agent.id,
                         hostname=agent.hostname,
@@ -300,7 +354,7 @@ def verify_or_bind_agent_key(agent, data, path, auth_token):
         return not getattr(Config, "AGENT_REQUIRE_SIGNED_REQUESTS", False), reason
 
     if not stored_key and provided_key:
-        agent.public_key_pem = provided_key
+        set_agent_public_key(agent, provided_key)
         db.session.add(RegistrationHistory(
             hw_id=agent.id,
             hostname=agent.hostname,
@@ -466,11 +520,13 @@ def adopt_duplicate_endpoint_identity(existing_endpoint, new_hw_id, raw_token, d
     old_id = existing_endpoint.id
     groups = list(existing_endpoint.groups)
     inherited_ip = source_ip or getattr(existing_endpoint, "connection_ip", None) or existing_endpoint.ip_address
+    inherited_public_key = get_agent_public_key(existing_endpoint)
     adopted = Endpoint(
         id=new_hw_id,
         hostname=data.get("hostname", existing_endpoint.hostname),
         auth_token=raw_token,
-        public_key_pem=existing_endpoint.public_key_pem,
+        public_key_pem=inherited_public_key,
+        public_key_pem_plain=inherited_public_key,
         os_version=data.get("os_version", existing_endpoint.os_version),
         os_type=data.get("os_type", existing_endpoint.os_type or "Windows"),
         connection_ip=inherited_ip,
@@ -776,7 +832,7 @@ def agent_poll():
         remember_poll_signature(agent, data, data.get("auth_token"))
 
     now = datetime.utcnow()
-    needs_commit = False
+    needs_commit = bool(getattr(agent, "_public_key_plain_backfilled", False))
     refresh_seen = not agent.last_seen or (now - agent.last_seen).total_seconds() > 60
     agent_version = str(data.get('agent_version') or '').strip()[:50]
     if refresh_seen and update_agent_connection(agent):
@@ -834,7 +890,7 @@ def agent_poll():
 @agent_gateway_bp.route('/result', methods=['POST'])
 def agent_result():
     data = request.json or {}
-    agent = Endpoint.query.get(data.get('hw_id'))
+    agent = get_request_agent(data.get('hw_id'))
 
     if not agent or agent.is_blocked or agent.auth_token != data.get('auth_token'):
         return jsonify({"status": "error"}), 403
@@ -843,7 +899,10 @@ def agent_result():
         return jsonify({"status": "error", "message": signature_reason}), 403
     update_agent_connection(agent)
 
-    task = AgentTask.query.filter_by(id=data.get('task_id'), endpoint_id=agent.id).first()
+    task = AgentTask.query.options(load_only(*TASK_RESULT_COLUMNS)).filter_by(
+        id=data.get('task_id'),
+        endpoint_id=agent.id,
+    ).first()
     if task:
         if task.status == "Cancelled":
             db.session.commit()
@@ -905,7 +964,7 @@ def agent_result():
 @agent_gateway_bp.route('/telemetry', methods=['POST'])
 def agent_telemetry():
     data = request.json or {}
-    agent = Endpoint.query.get(data.get('hw_id'))
+    agent = get_request_agent(data.get('hw_id'))
 
     if not agent or agent.is_blocked or agent.auth_token != data.get('auth_token'):
         return jsonify({"status": "error"}), 403
