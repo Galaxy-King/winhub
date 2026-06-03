@@ -1,0 +1,23 @@
+[Unit]
+Description=WinHUB agent API backend
+After=network-online.target postgresql.service winhub.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=winhub
+Group=winhub
+WorkingDirectory=/opt/winhub
+EnvironmentFile=/etc/winhub/winhub.env
+ExecStart=/bin/sh -c 'PORT="${AGENT_BACKEND_PORT:-8444}" WINHUB_ROLE=agent WINHUB_DISABLE_SCHEDULER=true exec /opt/winhub/venv/bin/python /opt/winhub/server_debian.py'
+Restart=always
+RestartSec=5
+KillSignal=SIGTERM
+TimeoutStopSec=30
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=full
+ReadWritePaths=/var/lib/winhub /var/log/winhub /etc/winhub/certs
+
+[Install]
+WantedBy=multi-user.target

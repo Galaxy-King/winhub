@@ -633,8 +633,10 @@ def create_app():
                 
         load_modules(global_app)
 
-        # Старт планувальника
-        scheduler.start()
-        reload_scheduler_jobs(global_app)
+        if Config.WINHUB_DISABLE_SCHEDULER:
+            log.info("WinHUB scheduler disabled for role=%s.", Config.WINHUB_ROLE)
+        else:
+            scheduler.start()
+            reload_scheduler_jobs(global_app)
 
     return global_app

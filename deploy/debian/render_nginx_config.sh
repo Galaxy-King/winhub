@@ -12,15 +12,39 @@ if [[ ! -f "${BASE_CONF}" ]]; then
 fi
 
 agent_public_port="443"
+web_backend_port="8443"
+agent_backend_port=""
 if [[ -f "${ENV_FILE}" ]]; then
   raw_port="$(awk -F= '/^[[:space:]]*AGENT_PUBLIC_PORT[[:space:]]*=/{print $2; exit}' "${ENV_FILE}" | tr -d " '\"\r" || true)"
   if [[ -n "${raw_port}" ]]; then
     agent_public_port="${raw_port}"
   fi
+  raw_web_port="$(awk -F= '/^[[:space:]]*PORT[[:space:]]*=/{print $2; exit}' "${ENV_FILE}" | tr -d " '\"\r" || true)"
+  if [[ -n "${raw_web_port}" ]]; then
+    web_backend_port="${raw_web_port}"
+  fi
+  raw_agent_backend_port="$(awk -F= '/^[[:space:]]*AGENT_BACKEND_PORT[[:space:]]*=/{print $2; exit}' "${ENV_FILE}" | tr -d " '\"\r" || true)"
+  if [[ -n "${raw_agent_backend_port}" ]]; then
+    agent_backend_port="${raw_agent_backend_port}"
+  fi
+fi
+
+if [[ -z "${agent_backend_port}" ]]; then
+  agent_backend_port="${web_backend_port}"
 fi
 
 if ! [[ "${agent_public_port}" =~ ^[0-9]+$ ]] || (( agent_public_port < 1 || agent_public_port > 65535 )); then
   echo "Invalid AGENT_PUBLIC_PORT: ${agent_public_port}" >&2
+  exit 1
+fi
+
+if ! [[ "${web_backend_port}" =~ ^[0-9]+$ ]] || (( web_backend_port < 1 || web_backend_port > 65535 )); then
+  echo "Invalid PORT: ${web_backend_port}" >&2
+  exit 1
+fi
+
+if ! [[ "${agent_backend_port}" =~ ^[0-9]+$ ]] || (( agent_backend_port < 1 || agent_backend_port > 65535 )); then
+  echo "Invalid AGENT_BACKEND_PORT: ${agent_backend_port}" >&2
   exit 1
 fi
 
@@ -29,10 +53,15 @@ if [[ "${agent_public_port}" == "80" ]]; then
   exit 1
 fi
 
-install -m 0644 "${BASE_CONF}" "${OUT_FILE}"
+sed \
+  -e "s#__WINHUB_WEB_BACKEND__#127.0.0.1:${web_backend_port}#g" \
+  -e "s#__WINHUB_AGENT_BACKEND__#127.0.0.1:${agent_backend_port}#g" \
+  "${BASE_CONF}" > "${OUT_FILE}"
+chmod 0644 "${OUT_FILE}"
 
 if [[ "${agent_public_port}" == "443" ]]; then
   echo "[WinHUB] Nginx agent public port is 443; using the main HTTPS listener for agents."
+  echo "[WinHUB] Web backend: 127.0.0.1:${web_backend_port}; agent backend: 127.0.0.1:${agent_backend_port}."
   exit 0
 fi
 
@@ -54,7 +83,7 @@ server {
     proxy_send_timeout 3600;
 
     location /api/agent/ {
-        proxy_pass http://127.0.0.1:8443;
+        proxy_pass http://127.0.0.1:${agent_backend_port};
         proxy_http_version 1.1;
         proxy_set_header Host \$host;
         proxy_set_header X-Real-IP \$remote_addr;
@@ -63,7 +92,7 @@ server {
     }
 
     location /api/public/agent-packages/ {
-        proxy_pass http://127.0.0.1:8443;
+        proxy_pass http://127.0.0.1:${agent_backend_port};
         proxy_http_version 1.1;
         proxy_set_header Host \$host;
         proxy_set_header X-Real-IP \$remote_addr;
@@ -72,7 +101,7 @@ server {
     }
 
     location /api/public/software-packages/ {
-        proxy_pass http://127.0.0.1:8443;
+        proxy_pass http://127.0.0.1:${agent_backend_port};
         proxy_http_version 1.1;
         proxy_set_header Host \$host;
         proxy_set_header X-Real-IP \$remote_addr;
@@ -81,7 +110,7 @@ server {
     }
 
     location = /api/health {
-        proxy_pass http://127.0.0.1:8443;
+        proxy_pass http://127.0.0.1:${agent_backend_port};
         proxy_http_version 1.1;
         proxy_set_header Host \$host;
         proxy_set_header X-Real-IP \$remote_addr;
@@ -96,3 +125,4 @@ server {
 EOF
 
 echo "[WinHUB] Added agent-only nginx listener on port ${agent_public_port}."
+echo "[WinHUB] Web backend: 127.0.0.1:${web_backend_port}; agent backend: 127.0.0.1:${agent_backend_port}."

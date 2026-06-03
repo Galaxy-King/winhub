@@ -68,6 +68,8 @@ class Config:
     SERVER_LOG_FILE = clean_env_value(os.environ.get('SERVER_LOG_FILE')) or os.path.join(DATA_DIR, 'logs', 'winhub_prod.log')
     SERVER_CERT_PATH = clean_env_value(os.environ.get('SERVER_CERT_PATH')) or os.path.join(BASE_DIR, 'certs', 'cert.pem')
     SERVER_KEY_PATH = clean_env_value(os.environ.get('SERVER_KEY_PATH')) or os.path.join(BASE_DIR, 'certs', 'key.pem')
+    WINHUB_ROLE = (clean_env_value(os.environ.get('WINHUB_ROLE')) or 'web').lower()
+    WINHUB_DISABLE_SCHEDULER = (clean_env_value(os.environ.get('WINHUB_DISABLE_SCHEDULER')) or 'false').lower() in ('1', 'true', 'yes', 'on')
     
     # ---------------------------------------------------------
     # НАЛАШТУВАННЯ БАЗИ ДАНИХ (ДЛЯ 5K ХОСТІВ - ТІЛЬКИ POSTGRESQL)

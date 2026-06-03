@@ -84,6 +84,7 @@ if [[ -f "${APP_DIR}/alembic.ini" && -d "${APP_DIR}/migrations/versions" ]]; the
 fi
 
 install -m 0644 "${APP_DIR}/deploy/debian/winhub.service" /etc/systemd/system/winhub.service
+install -m 0644 "${APP_DIR}/deploy/debian/winhub-agent.service" /etc/systemd/system/winhub-agent.service
 ENV_FILE="${ENV_FILE}" APP_DIR="${APP_DIR}" bash "${RENDER_NGINX_SCRIPT}" /etc/nginx/sites-available/winhub
 ln -sfn /etc/nginx/sites-available/winhub /etc/nginx/sites-enabled/winhub
 install -m 0644 "${APP_DIR}/deploy/debian/winhub.logrotate" /etc/logrotate.d/winhub
@@ -98,6 +99,14 @@ chmod 0640 /etc/winhub/certs/*.pem 2>/dev/null || true
 systemctl daemon-reload
 nginx -t
 systemctl restart winhub
+if awk -F= '/^[[:space:]]*AGENT_BACKEND_PORT[[:space:]]*=/{gsub(/[ \047"\r]/, "", $2); if ($2 != "") found=1} END{exit found ? 0 : 1}' "${ENV_FILE}"; then
+  systemctl enable --now winhub-agent
+  systemctl restart winhub-agent
+else
+  if systemctl is-active --quiet winhub-agent; then
+    systemctl stop winhub-agent
+  fi
+fi
 systemctl reload nginx
 
 if [[ -x "${HEALTHCHECK_SCRIPT}" ]]; then

@@ -52,6 +52,7 @@ if [[ ! -f "${ENV_DIR}/certs/cert.pem" || ! -f "${ENV_DIR}/certs/key.pem" ]]; th
 fi
 
 install -m 0644 "${APP_DIR}/deploy/debian/winhub.service" /etc/systemd/system/winhub.service
+install -m 0644 "${APP_DIR}/deploy/debian/winhub-agent.service" /etc/systemd/system/winhub-agent.service
 ENV_FILE="${ENV_DIR}/winhub.env" APP_DIR="${APP_DIR}" bash "${APP_DIR}/deploy/debian/render_nginx_config.sh" /etc/nginx/sites-available/winhub
 ln -sfn /etc/nginx/sites-available/winhub /etc/nginx/sites-enabled/winhub
 install -m 0644 "${APP_DIR}/deploy/debian/winhub.logrotate" /etc/logrotate.d/winhub
@@ -67,6 +68,10 @@ chmod 0640 "${ENV_DIR}/certs/"*.pem
 
 systemctl daemon-reload
 nginx -t
+
+if awk -F= '/^[[:space:]]*AGENT_BACKEND_PORT[[:space:]]*=/{gsub(/[ \047"\r]/, "", $2); if ($2 != "") found=1} END{exit found ? 0 : 1}' "${ENV_DIR}/winhub.env"; then
+  systemctl enable --now winhub-agent
+fi
 
 cat <<'EOF'
 
