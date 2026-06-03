@@ -1063,6 +1063,18 @@ def perform_auto_email_send(report_id, title, report_body, sender_email, recipie
         logging.getLogger("winhub").error(f"[Auto-Email] {message}")
     return success, message, sent_count
 
+
+def update_report_send_status(report_id, success, sent_count=0):
+    report = AggregatedJob.query.get(report_id)
+    if not report:
+        return
+    if success:
+        time_str = datetime.now(kyiv_tz).strftime("%H:%M")
+        report.status = f'Sent ({sent_count}) {time_str}'
+    else:
+        report.status = 'Send Error'
+    db.session.commit()
+
 def scheduled_report_period(period):
     now = datetime.now(kyiv_tz)
     if period == "week":
@@ -1318,23 +1330,24 @@ def auto_email_checker_thread(app):
                         auto_email_skip_cache.add(cache_key)
                         continue
 
+                    report_id = job.id
+                    report_title = job.title
+                    report_body = job.report_data
+
                     job.status = 'Sending...'
                     db.session.commit()
+                    db.session.remove()
 
                     success, message, sent_count = perform_auto_email_send(
-                        job.id,
-                        job.title,
-                        job.report_data,
+                        report_id,
+                        report_title,
+                        report_body,
                         sender,
                         recipients,
                         use_gpg,
                     )
 
-                    if success:
-                        time_str = datetime.now(kyiv_tz).strftime("%H:%M")
-                        job.status = f'Sent ({sent_count}) {time_str}'
-                    else:
-                        job.status = 'Send Error'
+                    update_report_send_status(report_id, success, sent_count)
                     auto_email_skip_cache.discard(cache_key)
 
                 if len(auto_email_skip_cache) > AUTO_EMAIL_SKIP_CACHE_LIMIT:
@@ -1906,25 +1919,23 @@ def action_report(report_id):
         subject = request.json.get('subject') or f"Report: {r.title}"
         custom_message = request.json.get('custom_message', '').strip()
         use_gpg = request.json.get('use_gpg', False)
-        
+        report_body = r.report_data
+
         r.status = 'Sending...'
         db.session.commit()
+        db.session.remove()
         success, message, sent_count = send_report_email(
             title=subject,
-            report_body=r.report_data,
+            report_body=report_body,
             sender_email=sender,
             recipient_list=emails,
             custom_message=custom_message,
             use_gpg=use_gpg
         )
-        if success:
-            time_str = datetime.now(kyiv_tz).strftime("%H:%M")
-            r.status = f'Sent ({sent_count}) {time_str}'
-            db.session.commit()
-            return jsonify({"success": True, "message": message, "sent": sent_count})
 
-        r.status = 'Send Error'
-        db.session.commit()
+        update_report_send_status(report_id, success, sent_count)
+        if success:
+            return jsonify({"success": True, "message": message, "sent": sent_count})
         return jsonify({"success": False, "message": message}), 400
         
     return jsonify({"success": True})
