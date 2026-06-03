@@ -11,6 +11,7 @@ from datetime import datetime
 from functools import lru_cache
 from threading import Lock
 from flask import Blueprint, request, jsonify
+from sqlalchemy.orm import load_only
 from cryptography.exceptions import InvalidSignature
 from cryptography.hazmat.primitives import hashes, serialization
 from cryptography.hazmat.primitives.asymmetric import padding
@@ -24,8 +25,27 @@ log = logging.getLogger("winhub.triggers")
 
 GLOBAL_ENROLLMENT_TOKEN = Config.AGENT_API_KEY
 POLL_SIGNATURE_CACHE_TTL_SECONDS = 120
+PENDING_TASK_MISS_CACHE_TTL_SECONDS = int(getattr(Config, "AGENT_PENDING_TASK_MISS_CACHE_SECONDS", 10))
 poll_signature_cache = {}
 poll_signature_cache_lock = Lock()
+pending_task_miss_cache = {}
+pending_task_miss_cache_lock = Lock()
+
+
+POLL_AGENT_COLUMNS = (
+    Endpoint.id,
+    Endpoint.auth_token,
+    Endpoint.is_blocked,
+    Endpoint.approval_status,
+    Endpoint.last_seen,
+    Endpoint.agent_version,
+)
+
+
+def get_poll_agent(hw_id):
+    if not hw_id:
+        return None
+    return Endpoint.query.options(load_only(*POLL_AGENT_COLUMNS)).filter(Endpoint.id == hw_id).first()
 
 def current_client_ip():
     forwarded = request.headers.get("X-Forwarded-For", "")
@@ -170,11 +190,9 @@ def agent_request_signature_timestamp_valid(data):
 
 
 def poll_signature_cache_key(agent, data, auth_token):
-    stored_key = str(getattr(agent, "public_key_pem", None) or "").strip()
     return (
         str(agent.id or ""),
         hashlib.sha256(str(auth_token or "").encode("utf-8")).hexdigest()[:16],
-        hashlib.sha256(stored_key.encode("utf-8")).hexdigest()[:16] if stored_key else "",
         str(data.get("agent_version") or "").strip()[:50],
     )
 
@@ -203,6 +221,27 @@ def verify_poll_signature_cached(agent, data, auth_token):
     if ok:
         remember_poll_signature(agent, data, auth_token)
     return ok, reason
+
+
+def get_pending_task_for_agent(endpoint_id):
+    now = time.monotonic()
+    with pending_task_miss_cache_lock:
+        missed_at = pending_task_miss_cache.get(endpoint_id)
+    if missed_at and now - missed_at <= PENDING_TASK_MISS_CACHE_TTL_SECONDS:
+        return None
+
+    task = AgentTask.query.filter_by(endpoint_id=endpoint_id, status="Pending").order_by(AgentTask.created_at.asc()).first()
+    with pending_task_miss_cache_lock:
+        if task:
+            pending_task_miss_cache.pop(endpoint_id, None)
+        else:
+            pending_task_miss_cache[endpoint_id] = now
+            if len(pending_task_miss_cache) > 4096:
+                cutoff = now - (PENDING_TASK_MISS_CACHE_TTL_SECONDS * 6)
+                stale_keys = [cache_key for cache_key, timestamp in pending_task_miss_cache.items() if timestamp < cutoff]
+                for cache_key in stale_keys:
+                    pending_task_miss_cache.pop(cache_key, None)
+    return task
 
 
 def bind_enrollment_public_key(agent, data):
@@ -671,7 +710,7 @@ def enroll_agent():
 @agent_gateway_bp.route('/poll', methods=['POST'])
 def agent_poll():
     data = request.json or {}
-    agent = Endpoint.query.get(data.get('hw_id'))
+    agent = get_poll_agent(data.get('hw_id'))
 
     if not agent or agent.is_blocked or agent.auth_token != data.get('auth_token'):
         return jsonify({"status": "error"}), 403
@@ -720,7 +759,7 @@ def agent_poll():
         db.session.commit()
         return jsonify({"status": "pending_approval", **agent_poll_timing("pending")}), 200
 
-    task = AgentTask.query.filter_by(endpoint_id=agent.id, status="Pending").order_by(AgentTask.created_at.asc()).first()
+    task = get_pending_task_for_agent(agent.id)
     signature_ok, signature_reason = (
         verify_or_bind_agent_key(agent, data, "/api/agent/poll", data.get("auth_token"))
         if task
@@ -733,14 +772,15 @@ def agent_poll():
 
     now = datetime.utcnow()
     needs_commit = False
+    refresh_seen = not agent.last_seen or (now - agent.last_seen).total_seconds() > 60
     agent_version = str(data.get('agent_version') or '').strip()[:50]
-    if update_agent_connection(agent):
+    if refresh_seen and update_agent_connection(agent):
         needs_commit = True
     if agent_version and agent_version != (agent.agent_version or ""):
         agent.agent_version = agent_version
         needs_commit = True
 
-    if not agent.last_seen or (now - agent.last_seen).total_seconds() > 60:
+    if refresh_seen:
         agent.last_seen = now
         needs_commit = True
 
