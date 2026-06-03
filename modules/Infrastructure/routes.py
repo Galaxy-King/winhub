@@ -477,8 +477,9 @@ def infra_live_state():
     review_parts = []
     review_count = 0
     latest_endpoint = None
+    online_since = datetime.utcnow() - timedelta(minutes=5)
     for endpoint in endpoint_rows:
-        last_seen = endpoint.last_seen.isoformat() if endpoint.last_seen else ""
+        is_online = bool(endpoint.last_seen and endpoint.last_seen >= online_since)
         endpoint_parts.append(row_revision(
             endpoint.id,
             endpoint.hostname,
@@ -486,7 +487,7 @@ def infra_live_state():
             endpoint.approval_status,
             endpoint.agent_version,
             bool(endpoint.has_public_key),
-            last_seen,
+            is_online,
             endpoint.is_blocked,
             endpoint.identity_warning,
         ))
@@ -3682,6 +3683,7 @@ def manage_group(group_id):
 
     denied = require_permission("view_groups")
     if denied: return denied
+    include_non_members = request.args.get("include_non_members") == "1"
     if not session.get('is_admin'):
         allowed_group_ids = {g.id for g in WinHubCore.get_allowed_groups(session.get('user_id'))}
         if group.id not in allowed_group_ids:
@@ -3689,8 +3691,9 @@ def manage_group(group_id):
         allowed_host_ids = {h.id for h in WinHubCore.get_allowed_hosts(session.get('user_id'))}
         members_source = [a for a in group.endpoints if a.id in allowed_host_ids]
         group_endpoint_ids = {a.id for a in group.endpoints}
-        if can("manage_groups"):
+        if include_non_members and can("manage_groups"):
             non_member_query = Endpoint.query.filter(
+                Endpoint.id.in_(allowed_host_ids),
                 db.or_(Endpoint.approval_status == "Approved", Endpoint.approval_status.is_(None)),
                 ~Endpoint.id.in_(group_endpoint_ids)
             ).order_by(Endpoint.hostname, Endpoint.id)
@@ -3700,13 +3703,16 @@ def manage_group(group_id):
     else:
         group_endpoint_ids = [a.id for a in group.endpoints]
         members_source = group.endpoints
-        non_members = [
-            {"id": a.id, "hostname": a.hostname or a.id, "display_name": getattr(a, "display_name", None) or "", "name": endpoint_display_name(a)}
-            for a in Endpoint.query.filter(
-                db.or_(Endpoint.approval_status == "Approved", Endpoint.approval_status.is_(None))
-            ).order_by(Endpoint.hostname, Endpoint.id).all()
-            if a.id not in group_endpoint_ids
-        ]
+        if include_non_members:
+            non_members = [
+                {"id": a.id, "hostname": a.hostname or a.id, "display_name": getattr(a, "display_name", None) or "", "name": endpoint_display_name(a)}
+                for a in Endpoint.query.filter(
+                    db.or_(Endpoint.approval_status == "Approved", Endpoint.approval_status.is_(None))
+                ).order_by(Endpoint.hostname, Endpoint.id).all()
+                if a.id not in group_endpoint_ids
+            ]
+        else:
+            non_members = []
 
     members = [{"id": a.id, "hostname": a.hostname or a.id, "display_name": getattr(a, "display_name", None) or "", "name": endpoint_display_name(a), "ip": a.ip_address, "os_type": getattr(a, 'os_type', 'Windows')} for a in members_source]
     return jsonify({"success": True, "data": {"id": group.id, "name": group.name, "description": group.description, "members": members, "non_members": non_members}})

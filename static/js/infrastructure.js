@@ -3767,12 +3767,13 @@ async function finalizeJobReport(id) {
 
 async function openGroupFullView(id) {
     currentViewedGroupId = id;
-    const res = await fetch('/api/infrastructure/group/' + id);
+    currentGroupNonMembers = [];
+    const res = await fetch('/api/infrastructure/group/' + encodeURIComponent(id));
     const data = await res.json();
     if(!data.success) return;
 
     document.getElementById('gdPageName').innerText = data.data.name;
-    currentGroupNonMembers = data.data.non_members;
+    currentGroupNonMembers = data.data.non_members || [];
 
     document.getElementById('groupHostsBody').innerHTML = data.data.members.map(m => `
         <tr class="hover:bg-slate-50/80 transition-colors">
@@ -3801,11 +3802,24 @@ function filterGroupHosts() {
 
 async function blockGroup(action) { if(confirm(`Are you sure you want to ${action} all hosts in this group?`)) { await fetch(`/api/infrastructure/group/${currentViewedGroupId}/block`, { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({action}) }); openGroupFullView(currentViewedGroupId); } }
 
-function openAddHostsToGroupModal() {
+async function openAddHostsToGroupModal() {
+    if (!currentViewedGroupId) return;
     const searchEl = document.getElementById('addHostSearch');
     if(searchEl) searchEl.value = '';
-    renderAddHostList('');
+    const list = document.getElementById('availableHostsList');
+    if (list) list.innerHTML = '<div class="p-10 text-center text-slate-400 font-bold">Loading available hosts...</div>';
     openModal('groupAddHostModal');
+    try {
+        const res = await fetch('/api/infrastructure/group/' + encodeURIComponent(currentViewedGroupId) + '?include_non_members=1');
+        const data = await res.json();
+        if (!res.ok || !data.success) throw new Error(data.message || 'Failed to load available hosts');
+        currentGroupNonMembers = data.data.non_members || [];
+    } catch (e) {
+        currentGroupNonMembers = [];
+        if (list) list.innerHTML = '<div class="p-10 text-center text-rose-400 font-bold">Failed to load available hosts.</div>';
+        return;
+    }
+    renderAddHostList('');
 }
 
 function renderAddHostList(q) {
