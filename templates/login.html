@@ -2,9 +2,112 @@
 
 {% block title %}Login - WinHUB{% endblock %}
 
+{% block extra_head %}
+<style>
+    body .login-shell {
+        background:
+            radial-gradient(circle at 15% 0%, rgba(34, 211, 238, 0.20), transparent 24rem),
+            radial-gradient(circle at 82% 12%, rgba(52, 211, 153, 0.12), transparent 26rem),
+            radial-gradient(circle at 50% 100%, rgba(59, 130, 246, 0.12), transparent 30rem),
+            linear-gradient(135deg, #050b14 0%, #08111f 56%, #07101d 100%) !important;
+        color: #eaf8ff !important;
+    }
+    body .login-card,
+    body .login-modal-card {
+        background:
+            radial-gradient(circle at 0 0, rgba(34, 211, 238, 0.16), transparent 20rem),
+            radial-gradient(circle at 100% 0, rgba(52, 211, 153, 0.10), transparent 18rem),
+            linear-gradient(180deg, rgba(10, 18, 33, 0.99), rgba(5, 10, 20, 0.99)) !important;
+        color: #eaf8ff !important;
+        border-color: rgba(34, 211, 238, 0.42) !important;
+        box-shadow: 0 30px 80px rgba(0, 0, 0, 0.58), 0 0 40px rgba(34, 211, 238, 0.12) !important;
+    }
+    body .login-card::before,
+    body .login-modal-card::before {
+        content: "";
+        position: absolute;
+        inset: 0;
+        pointer-events: none;
+        background:
+            linear-gradient(90deg, transparent, rgba(34, 211, 238, 0.18), transparent) top / 100% 1px no-repeat,
+            linear-gradient(180deg, rgba(255, 255, 255, 0.035), transparent 30%);
+    }
+    body .login-card h1,
+    body .login-modal-card h3 {
+        color: #f7fdff !important;
+        text-shadow: 0 0 22px rgba(34, 211, 238, 0.12);
+    }
+    body .login-card h1 span {
+        color: #22d3ee !important;
+    }
+    body .login-card p,
+    body .login-modal-card p,
+    body .login-card label,
+    body .login-modal-card label {
+        color: #a8bfd8 !important;
+    }
+    body .login-card input,
+    body .login-modal-card input {
+        background:
+            linear-gradient(135deg, rgba(3, 10, 23, 0.96), rgba(8, 47, 73, 0.68)) !important;
+        color: #f7fdff !important;
+        border-color: rgba(34, 211, 238, 0.38) !important;
+        box-shadow: inset 0 1px 0 rgba(255,255,255,0.03), 0 0 0 1px rgba(34, 211, 238, 0.06) !important;
+    }
+    body .login-card input:focus,
+    body .login-modal-card input:focus {
+        background:
+            linear-gradient(135deg, rgba(4, 18, 32, 0.98), rgba(8, 67, 94, 0.76)) !important;
+        border-color: rgba(125, 211, 252, 0.78) !important;
+        box-shadow: 0 0 0 4px rgba(34, 211, 238, 0.16), 0 0 22px rgba(34, 211, 238, 0.10) !important;
+    }
+    body .login-card input::placeholder,
+    body .login-modal-card input::placeholder {
+        color: rgba(180, 200, 223, 0.72) !important;
+    }
+    body .login-primary-btn {
+        background:
+            radial-gradient(circle at 25% 0%, rgba(255, 255, 255, 0.22), transparent 3rem),
+            linear-gradient(135deg, #0ea5e9, #2563eb 54%, #7c3aed) !important;
+        box-shadow: 0 18px 38px rgba(14, 165, 233, 0.24), 0 0 26px rgba(34, 211, 238, 0.16) !important;
+    }
+    body .login-primary-btn:hover {
+        background:
+            radial-gradient(circle at 25% 0%, rgba(255, 255, 255, 0.24), transparent 3rem),
+            linear-gradient(135deg, #22d3ee, #2563eb 58%, #8b5cf6) !important;
+    }
+    body .login-secondary-btn {
+        background:
+            linear-gradient(135deg, rgba(7, 13, 26, 0.96), rgba(8, 47, 73, 0.74)) !important;
+        color: #dffaff !important;
+        border: 1px solid rgba(34, 211, 238, 0.36) !important;
+        box-shadow: 0 12px 28px rgba(0, 0, 0, 0.26) !important;
+    }
+    body .login-secondary-btn:hover {
+        background:
+            linear-gradient(135deg, rgba(8, 145, 178, 0.28), rgba(15, 23, 42, 0.92)) !important;
+        color: #ffffff !important;
+        border-color: rgba(34, 211, 238, 0.58) !important;
+    }
+    body .login-link {
+        color: #8eeaff !important;
+    }
+    body .login-link:hover {
+        color: #ffffff !important;
+        text-shadow: 0 0 16px rgba(34, 211, 238, 0.34);
+    }
+    body .login-error {
+        background:
+            linear-gradient(135deg, rgba(127, 29, 29, 0.42), rgba(76, 5, 25, 0.76)) !important;
+        color: #fecdd3 !important;
+        border-color: rgba(251, 113, 133, 0.50) !important;
+    }
+</style>
+{% endblock %}
+
 {% block content %}
-<div class="w-full h-full flex items-center justify-center bg-slate-100">
-    <div class="bg-white p-10 rounded-[3rem] shadow-2xl border border-slate-200 w-full max-w-md relative overflow-hidden">
+<div class="login-shell w-full h-full flex items-center justify-center bg-slate-100">
+    <div class="login-card bg-white p-10 rounded-[3rem] shadow-2xl border border-slate-200 w-full max-w-md relative overflow-hidden">
         
         <div class="text-center mb-8">
             <h1 class="text-3xl font-black text-slate-800 tracking-tight">Win<span class="text-indigo-600">HUB</span></h1>
@@ -30,22 +133,22 @@
                     class="w-full p-4 bg-slate-50 border border-slate-200 rounded-2xl text-sm font-bold focus:bg-white focus:ring-4 focus:ring-indigo-500/10 outline-none transition-all tracking-widest text-center">
             </div>
 
-            <div id="errorMsg" class="hidden p-4 bg-rose-50 border border-rose-200 text-rose-600 rounded-2xl text-sm font-bold text-center shadow-sm"></div>
+            <div id="errorMsg" class="login-error hidden p-4 bg-rose-50 border border-rose-200 text-rose-600 rounded-2xl text-sm font-bold text-center shadow-sm"></div>
 
-            <button type="submit" id="submitBtn" class="w-full py-4 px-4 bg-indigo-600 hover:bg-indigo-700 text-white rounded-2xl text-xs font-black uppercase tracking-widest shadow-lg shadow-indigo-200 transition-all flex justify-center items-center">
+            <button type="submit" id="submitBtn" class="login-primary-btn w-full py-4 px-4 bg-indigo-600 hover:bg-indigo-700 text-white rounded-2xl text-xs font-black uppercase tracking-widest shadow-lg shadow-indigo-200 transition-all flex justify-center items-center">
                 LOGIN
             </button>
         </form>
 
         <div class="mt-8 text-center border-t border-slate-100 pt-6">
-            <button onclick="toggleForgotModal(true)" class="text-xs font-bold text-slate-400 hover:text-indigo-600 transition-colors uppercase tracking-widest">Forgot Password?</button>
+            <button onclick="toggleForgotModal(true)" class="login-link text-xs font-bold text-slate-400 hover:text-indigo-600 transition-colors uppercase tracking-widest">Forgot Password?</button>
         </div>
     </div>
 </div>
 
 <!-- Forgot Password Modal -->
 <div id="forgotModal" class="fixed inset-0 z-50 hidden bg-slate-900/60 backdrop-blur-sm flex justify-center items-center animate-in fade-in">
-    <div class="bg-white rounded-[3rem] p-10 w-full max-w-sm shadow-2xl relative">
+    <div class="login-modal-card bg-white rounded-[3rem] p-10 w-full max-w-sm shadow-2xl relative border border-slate-200">
         <button onclick="toggleForgotModal(false)" class="absolute top-6 right-6 text-slate-400 hover:text-slate-600 bg-slate-50 hover:bg-slate-100 p-2 rounded-xl transition-colors">
             <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M6 18L18 6M6 6l12 12"></path></svg>
         </button>
@@ -53,14 +156,14 @@
         <h3 class="text-xl font-black text-slate-800 mb-2 uppercase tracking-tight text-center mt-2">Recovery</h3>
         <p class="text-[10px] text-slate-400 font-bold uppercase tracking-widest mb-6 text-center">Via Admin Email</p>
 
-        <div id="forgotError" class="hidden mb-4 p-4 bg-rose-50 border border-rose-200 text-rose-600 rounded-2xl text-sm font-bold text-center"></div>
+        <div id="forgotError" class="login-error hidden mb-4 p-4 bg-rose-50 border border-rose-200 text-rose-600 rounded-2xl text-sm font-bold text-center"></div>
 
         <div id="step1" class="space-y-4">
             <div>
                 <label class="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2 ml-2">Email</label>
                 <input type="email" id="forgotEmail" class="w-full p-4 bg-slate-50 border border-slate-200 rounded-2xl text-sm font-bold focus:bg-white focus:ring-4 focus:ring-indigo-500/10 outline-none transition-all">
             </div>
-            <button onclick="requestResetCode()" id="reqBtn" class="w-full py-4 bg-slate-800 hover:bg-slate-900 text-white rounded-2xl text-xs font-black uppercase tracking-widest shadow-lg transition-all">Send Code</button>
+            <button onclick="requestResetCode()" id="reqBtn" class="login-secondary-btn w-full py-4 bg-slate-800 hover:bg-slate-900 text-white rounded-2xl text-xs font-black uppercase tracking-widest shadow-lg transition-all">Send Code</button>
         </div>
 
         <div id="step2" class="hidden space-y-4">
@@ -72,7 +175,7 @@
                 <label class="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2 ml-2">New Password</label>
                 <input type="password" id="resetNewPass" class="w-full p-4 bg-slate-50 border border-slate-200 rounded-2xl text-sm font-bold focus:bg-white focus:ring-4 focus:ring-indigo-500/10 outline-none transition-all">
             </div>
-            <button onclick="submitNewPassword()" id="resetBtn" class="w-full py-4 bg-indigo-600 hover:bg-indigo-700 text-white rounded-2xl text-xs font-black uppercase tracking-widest shadow-lg shadow-indigo-200 transition-all">Update Password</button>
+            <button onclick="submitNewPassword()" id="resetBtn" class="login-primary-btn w-full py-4 bg-indigo-600 hover:bg-indigo-700 text-white rounded-2xl text-xs font-black uppercase tracking-widest shadow-lg shadow-indigo-200 transition-all">Update Password</button>
         </div>
     </div>
 </div>
