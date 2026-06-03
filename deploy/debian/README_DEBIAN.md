@@ -88,6 +88,28 @@ AGENT_API_KEY=
 AGENT_TASK_HMAC_SECRET=
 ```
 
+## Agent polling cadence
+
+WinHUB returns scheduling hints in `/api/agent/poll`. New agents use them; older agents safely ignore them.
+
+Recommended defaults:
+
+```ini
+AGENT_IDLE_POLL_SECONDS=75
+AGENT_TASK_POLL_SECONDS=15
+AGENT_PENDING_POLL_SECONDS=60
+AGENT_POLL_JITTER_SECONDS=30
+AGENT_TELEMETRY_SECONDS=300
+```
+
+For large local fleets, increase idle poll and jitter, for example:
+
+```ini
+AGENT_IDLE_POLL_SECONDS=120
+AGENT_POLL_JITTER_SECONDS=90
+AGENT_TELEMETRY_SECONDS=300
+```
+
 ## Agent public port
 
 By default:

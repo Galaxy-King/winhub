@@ -46,6 +46,21 @@ def update_agent_connection(agent):
         changed = True
     return changed
 
+
+def agent_poll_timing(mode="idle"):
+    if mode == "task":
+        next_poll_after = int(getattr(Config, "AGENT_TASK_POLL_SECONDS", 15))
+    elif mode == "pending":
+        next_poll_after = int(getattr(Config, "AGENT_PENDING_POLL_SECONDS", 60))
+    else:
+        next_poll_after = int(getattr(Config, "AGENT_IDLE_POLL_SECONDS", 75))
+
+    return {
+        "next_poll_after": max(10, min(3600, next_poll_after)),
+        "poll_jitter_seconds": max(0, min(3600, int(getattr(Config, "AGENT_POLL_JITTER_SECONDS", 30)))),
+        "telemetry_after": max(60, min(86400, int(getattr(Config, "AGENT_TELEMETRY_SECONDS", 300)))),
+    }
+
 def enrollment_source_allowed(remote_addr):
     allowlist = [item.strip() for item in str(getattr(Config, "AGENT_ENROLLMENT_ALLOWLIST", "") or "").split(",") if item.strip()]
     if not allowlist:
@@ -703,7 +718,7 @@ def agent_poll():
         agent.last_seen = datetime.utcnow()
         update_agent_connection(agent)
         db.session.commit()
-        return jsonify({"status": "pending_approval"}), 200
+        return jsonify({"status": "pending_approval", **agent_poll_timing("pending")}), 200
 
     task = AgentTask.query.filter_by(endpoint_id=agent.id, status="Pending").order_by(AgentTask.created_at.asc()).first()
     signature_ok, signature_reason = (
@@ -729,7 +744,7 @@ def agent_poll():
         agent.last_seen = now
         needs_commit = True
 
-    resp = {"status": "idle"}
+    resp = {"status": "idle", **agent_poll_timing("idle")}
 
     if task:
         task.status = "PickedUp"
@@ -762,6 +777,7 @@ def agent_poll():
             "timeout_seconds": int(getattr(Config, "AGENT_TASK_TIMEOUT_SECONDS", 1800)),
             "signature": sign_task_message(task.id, task.action_type, payload_dict),
             "signature_alg": "hmac-sha256",
+            **agent_poll_timing("task"),
         }
         needs_commit = True
 

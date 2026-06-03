@@ -19,6 +19,17 @@ def clean_env_value(value):
         value = value[1:-1].strip()
     return value or None
 
+def env_int(name, default, minimum=None, maximum=None):
+    try:
+        value = int(clean_env_value(os.environ.get(name)) or default)
+    except (TypeError, ValueError):
+        value = int(default)
+    if minimum is not None:
+        value = max(int(minimum), value)
+    if maximum is not None:
+        value = min(int(maximum), value)
+    return value
+
 def mask_database_uri(uri):
     try:
         parsed = urlsplit(uri)
@@ -88,6 +99,11 @@ class Config:
     AGENT_PACKAGE_MAX_UPLOAD_MB = int(os.environ.get('AGENT_PACKAGE_MAX_UPLOAD_MB', 256))
     AGENT_PUBLIC_BASE_URL = (clean_env_value(os.environ.get('AGENT_PUBLIC_BASE_URL')) or '').rstrip('/')
     AGENT_REQUIRE_SIGNED_REQUESTS = (clean_env_value(os.environ.get('AGENT_REQUIRE_SIGNED_REQUESTS')) or 'false').lower() in ('1', 'true', 'yes', 'on')
+    AGENT_IDLE_POLL_SECONDS = env_int('AGENT_IDLE_POLL_SECONDS', 75, 10, 3600)
+    AGENT_TASK_POLL_SECONDS = env_int('AGENT_TASK_POLL_SECONDS', 15, 10, 3600)
+    AGENT_PENDING_POLL_SECONDS = env_int('AGENT_PENDING_POLL_SECONDS', 60, 10, 3600)
+    AGENT_POLL_JITTER_SECONDS = env_int('AGENT_POLL_JITTER_SECONDS', 30, 0, 3600)
+    AGENT_TELEMETRY_SECONDS = env_int('AGENT_TELEMETRY_SECONDS', 300, 60, 86400)
     MAX_CONTENT_LENGTH = AGENT_PACKAGE_MAX_UPLOAD_MB * 1024 * 1024
     LATEST_AGENT_VERSION = clean_env_value(os.environ.get('LATEST_AGENT_VERSION')) or ''
     PRODUCTION_MODE = (clean_env_value(os.environ.get('WINHUB_ENV')) or '').lower() in ('prod', 'production')

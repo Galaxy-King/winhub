@@ -31,6 +31,7 @@ namespace WinHUBAgent
     public record BitLockerInventoryInfo(string status, int encrypted_percentage, string protection_status, string conversion_status, string raw_summary);
     public record SecurityInventoryInfo(bool pending_reboot, string firewall_domain, string firewall_private, string firewall_public, string bitlocker_summary, BitLockerInventoryInfo bitlocker, string defender_service_state, bool veracrypt_detected, bool truecrypt_detected);
     public record HostInventoryInfo(string machine_name, string fqdn, string domain_name, string user_domain_name, bool likely_domain_joined, string os_description, string os_architecture, string process_architecture, string timezone, int processor_count, ulong total_memory_mb, long uptime_seconds, string boot_time_utc, VolumeInfo[] volumes, SecurityInventoryInfo security);
+    public readonly record struct PollTiming(int? NextPollAfterSeconds, int? PollJitterSeconds, int? TelemetryAfterSeconds);
 
     // НОВЕ: Модель для конфігурації
     public class AgentConfig
@@ -247,9 +248,10 @@ namespace WinHUBAgent
 
             int pollIntervalSeconds = GetConfiguredPollIntervalSeconds();
             int pollJitterSeconds = GetPollJitterSeconds();
+            int telemetryIntervalSeconds = 300;
             int startupSpreadSeconds = GetStartupSpreadSeconds();
             int startupDelaySeconds = GetStableDelaySeconds("startup-poll-spread-v1", startupSpreadSeconds + 1);
-            int telemetryDelaySeconds = GetStableDelaySeconds("startup-telemetry-spread-v1", 301);
+            int telemetryDelaySeconds = GetStableDelaySeconds("startup-telemetry-spread-v1", telemetryIntervalSeconds + 1);
 
             _logger.LogInformation(
                 $"Polling cadence: base={pollIntervalSeconds}s, jitter=0-{pollJitterSeconds}s, startup_spread=0-{startupSpreadSeconds}s, startup_delay={startupDelaySeconds}s"
@@ -270,15 +272,25 @@ namespace WinHUBAgent
 
             while (!stoppingToken.IsCancellationRequested)
             {
-                if ((DateTime.UtcNow - lastTelemetrySent).TotalMinutes >= 5)
+                if ((DateTime.UtcNow - lastTelemetrySent).TotalSeconds >= telemetryIntervalSeconds)
                 {
                     await SendTelemetryAsync(stoppingToken);
                     lastTelemetrySent = DateTime.UtcNow;
                 }
 
-                await PollServerAsync(stoppingToken);
+                PollTiming? serverTiming = await PollServerAsync(stoppingToken);
+                if (serverTiming?.TelemetryAfterSeconds is int telemetryAfter)
+                {
+                    telemetryIntervalSeconds = ClampSeconds(telemetryAfter, 60, 86400);
+                }
 
-                int nextPoll = pollIntervalSeconds + NextRandomDelaySeconds(0, pollJitterSeconds);
+                int basePoll = serverTiming?.NextPollAfterSeconds is int nextPollAfter
+                    ? ClampSeconds(nextPollAfter, 10, 3600)
+                    : pollIntervalSeconds;
+                int activeJitter = serverTiming?.PollJitterSeconds is int serverJitter
+                    ? ClampSeconds(serverJitter, 0, 3600)
+                    : pollJitterSeconds;
+                int nextPoll = basePoll + NextRandomDelaySeconds(0, activeJitter);
                 await Task.Delay(TimeSpan.FromSeconds(nextPoll), stoppingToken);
             }
         }
@@ -296,6 +308,11 @@ namespace WinHUBAgent
         private int GetStartupSpreadSeconds()
         {
             return Math.Max(0, Math.Min(3600, _config.StartupSpreadSeconds));
+        }
+
+        private static int ClampSeconds(int value, int min, int max)
+        {
+            return Math.Max(min, Math.Min(max, value));
         }
 
         private int GetStableDelaySeconds(string purpose, int maxExclusive)
@@ -434,7 +451,7 @@ namespace WinHUBAgent
             }
         }
 
-        private async Task PollServerAsync(CancellationToken stoppingToken)
+        private async Task<PollTiming?> PollServerAsync(CancellationToken stoppingToken)
         {
             try
             {
@@ -453,11 +470,12 @@ namespace WinHUBAgent
                         _logger.LogWarning("Server rejected poll token. Attempting secure re-enrollment with previous token proof.");
                         await EnrollAgentAsync(stoppingToken, previousAuthToken, previousHwId);
                     }
-                    return;
+                    return null;
                 }
 
                 var result = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
                 string status = result.RootElement.GetProperty("status").GetString() ?? "";
+                PollTiming timing = ReadPollTiming(result.RootElement);
 
                 if (status == "task")
                 {
@@ -466,7 +484,7 @@ namespace WinHUBAgent
                     int timeoutSeconds = result.RootElement.TryGetProperty("timeout_seconds", out var timeoutEl) && timeoutEl.TryGetInt32(out var parsedTimeout)
                         ? parsedTimeout
                         : _config.DefaultTaskTimeoutSeconds;
-                    
+
                     string script = "";
                     if (result.RootElement.TryGetProperty("payload", out var pl) && pl.TryGetProperty("script", out var s))
                     {
@@ -476,7 +494,7 @@ namespace WinHUBAgent
                     if (!ValidateTaskSignature(result.RootElement))
                     {
                         await ReportResultAsync(taskId, "Error", "Task signature verification failed. Task was not executed.", stoppingToken);
-                        return;
+                        return timing;
                     }
 
                     string executionStatus = "Success";
@@ -487,24 +505,43 @@ namespace WinHUBAgent
                         logOutput = "Reboot command received...";
                         await ReportResultAsync(taskId, "Success", logOutput, stoppingToken);
                         Process.Start(new ProcessStartInfo("shutdown", "/r /t 5 /c \"WinHUB Maintenance Reboot\"") { CreateNoWindow = true });
-                        return;
+                        return timing;
                     }
 
                     if (action == "agent_update")
                     {
                         (executionStatus, logOutput) = await StageAndLaunchAgentUpdateAsync(taskId, result.RootElement.GetProperty("payload"), stoppingToken);
                         await ReportResultAsync(taskId, executionStatus, logOutput, stoppingToken);
-                        return;
+                        return timing;
                     }
-	
+
                     (executionStatus, logOutput) = await ExecutePowerShellAsync(script, timeoutSeconds, stoppingToken);
                     await ReportResultAsync(taskId, executionStatus, logOutput, stoppingToken);
                 }
+                return timing;
             }
             catch (Exception ex)
             {
                 _logger.LogError($"Polling failed: {ex.Message}");
+                return null;
             }
+        }
+
+        private static PollTiming ReadPollTiming(JsonElement root)
+        {
+            return new PollTiming(
+                TryGetJsonInt(root, "next_poll_after"),
+                TryGetJsonInt(root, "poll_jitter_seconds"),
+                TryGetJsonInt(root, "telemetry_after")
+            );
+        }
+
+        private static int? TryGetJsonInt(JsonElement root, string name)
+        {
+            if (!root.TryGetProperty(name, out var value)) return null;
+            if (value.ValueKind == JsonValueKind.Number && value.TryGetInt32(out int number)) return number;
+            if (value.ValueKind == JsonValueKind.String && int.TryParse(value.GetString(), out number)) return number;
+            return null;
         }
 
         private async Task<(string Status, string Log)> StageAndLaunchAgentUpdateAsync(string taskId, JsonElement payload, CancellationToken stoppingToken)
