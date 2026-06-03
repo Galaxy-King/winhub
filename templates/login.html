@@ -107,7 +107,7 @@
 
 {% block content %}
 <div class="login-shell w-full h-full flex items-center justify-center bg-slate-100">
-    <div class="login-card bg-white p-10 rounded-[3rem] shadow-2xl border border-slate-200 w-full max-w-md relative overflow-hidden">
+    <div class="login-card p-10 rounded-[3rem] shadow-2xl border border-slate-200 w-full max-w-md relative overflow-hidden" style="background: radial-gradient(circle at 0 0, rgba(34, 211, 238, 0.18), transparent 20rem), radial-gradient(circle at 100% 0, rgba(52, 211, 153, 0.12), transparent 18rem), linear-gradient(180deg, rgba(10, 18, 33, 0.99), rgba(5, 10, 20, 0.99)) !important; color: #eaf8ff !important; border-color: rgba(34, 211, 238, 0.42) !important;">
         
         <div class="text-center mb-8">
             <h1 class="text-3xl font-black text-slate-800 tracking-tight">Win<span class="text-indigo-600">HUB</span></h1>
@@ -148,7 +148,7 @@
 
 <!-- Forgot Password Modal -->
 <div id="forgotModal" class="fixed inset-0 z-50 hidden bg-slate-900/60 backdrop-blur-sm flex justify-center items-center animate-in fade-in">
-    <div class="login-modal-card bg-white rounded-[3rem] p-10 w-full max-w-sm shadow-2xl relative border border-slate-200">
+    <div class="login-modal-card rounded-[3rem] p-10 w-full max-w-sm shadow-2xl relative border border-slate-200" style="background: radial-gradient(circle at 0 0, rgba(34, 211, 238, 0.18), transparent 20rem), radial-gradient(circle at 100% 0, rgba(52, 211, 153, 0.12), transparent 18rem), linear-gradient(180deg, rgba(10, 18, 33, 0.99), rgba(5, 10, 20, 0.99)) !important; color: #eaf8ff !important; border-color: rgba(34, 211, 238, 0.42) !important;">
         <button onclick="toggleForgotModal(false)" class="absolute top-6 right-6 text-slate-400 hover:text-slate-600 bg-slate-50 hover:bg-slate-100 p-2 rounded-xl transition-colors">
             <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M6 18L18 6M6 6l12 12"></path></svg>
         </button>
