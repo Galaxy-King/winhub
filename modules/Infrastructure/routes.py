@@ -48,6 +48,9 @@ live_state_cache_lock = threading.Lock()
 LIVE_STATE_CACHE_TTL_SECONDS = 10
 LIVE_EVENT_CHECK_INTERVAL_SECONDS = 15
 AUTO_EMAIL_SKIP_CACHE_LIMIT = 4096
+AUTO_EMAIL_CHECK_INTERVAL_SECONDS = 30
+AUTO_EMAIL_SCAN_LIMIT = 200
+AUTO_EMAIL_NEW_CHECK_LIMIT = 10
 
 ENDPOINT_LIST_COLUMNS = (
     Endpoint.id,
@@ -1282,77 +1285,88 @@ def process_due_scheduled_reports():
 def auto_email_checker_thread(app):
     import time
     with app.app_context():
+        last_auto_email_check = 0
         while True:
             try:
-                db.session.commit()
-                jobs = AggregatedJob.query.options(
-                    load_only(
-                        AggregatedJob.id,
-                        AggregatedJob.title,
-                        AggregatedJob.status,
-                    )
-                ).filter_by(status='Waiting Review').all()
-
-                for job in jobs:
-                    source_job_id = job.id
-                    split_match = re.match(r"^([0-9a-fA-F]{32})\.(\d{3})$", str(job.id or ""))
-                    if split_match:
-                        try:
-                            source_job_id = str(uuid.UUID(hex=split_match.group(1)))
-                        except ValueError:
-                            source_job_id = job.id
-                    cache_key = f"{job.id}:{source_job_id}"
-                    if cache_key in auto_email_skip_cache:
-                        continue
-
-                    task = AgentTask.query.options(
-                        load_only(
-                            AgentTask.id,
-                            AgentTask.job_id,
-                            AgentTask.payload,
-                        )
-                    ).filter((AgentTask.job_id == source_job_id) | (AgentTask.id == job.id)).first()
-
-                    if not task:
-                        auto_email_skip_cache.add(cache_key)
-                        continue
-
-                    payload = get_task_payload(task)
-                    if not (payload.get('__auto_email_toggle') or payload.get('auto_email_toggle')):
-                        auto_email_skip_cache.add(cache_key)
-                        continue
-
-                    sender = payload.get('__auto_email_sender') or payload.get('auto_email_sender')
-                    recipients = payload.get('__auto_email_recipients') or payload.get('auto_email_recipients')
-                    use_gpg = payload.get('__auto_email_use_gpg', payload.get('auto_email_use_gpg', True))
-
-                    if not (sender and recipients):
-                        auto_email_skip_cache.add(cache_key)
-                        continue
-
-                    report_id = job.id
-                    report_title = job.title
-                    report_body = job.report_data
-
-                    job.status = 'Sending...'
+                now_monotonic = time.monotonic()
+                if now_monotonic - last_auto_email_check >= AUTO_EMAIL_CHECK_INTERVAL_SECONDS:
+                    last_auto_email_check = now_monotonic
                     db.session.commit()
-                    db.session.remove()
+                    jobs = AggregatedJob.query.options(
+                        load_only(
+                            AggregatedJob.id,
+                            AggregatedJob.title,
+                            AggregatedJob.status,
+                            AggregatedJob.created_at,
+                        )
+                    ).filter_by(status='Waiting Review').order_by(
+                        AggregatedJob.created_at.desc()
+                    ).limit(AUTO_EMAIL_SCAN_LIMIT).all()
 
-                    success, message, sent_count = perform_auto_email_send(
-                        report_id,
-                        report_title,
-                        report_body,
-                        sender,
-                        recipients,
-                        use_gpg,
-                    )
+                    checked_unknown = 0
+                    for job in jobs:
+                        source_job_id = job.id
+                        split_match = re.match(r"^([0-9a-fA-F]{32})\.(\d{3})$", str(job.id or ""))
+                        if split_match:
+                            try:
+                                source_job_id = str(uuid.UUID(hex=split_match.group(1)))
+                            except ValueError:
+                                source_job_id = job.id
+                        cache_key = f"{job.id}:{source_job_id}"
+                        if cache_key in auto_email_skip_cache:
+                            continue
+                        if checked_unknown >= AUTO_EMAIL_NEW_CHECK_LIMIT:
+                            break
+                        checked_unknown += 1
 
-                    update_report_send_status(report_id, success, sent_count)
-                    auto_email_skip_cache.discard(cache_key)
+                        task = AgentTask.query.options(
+                            load_only(
+                                AgentTask.id,
+                                AgentTask.job_id,
+                                AgentTask.payload,
+                            )
+                        ).filter((AgentTask.job_id == source_job_id) | (AgentTask.id == job.id)).first()
 
-                if len(auto_email_skip_cache) > AUTO_EMAIL_SKIP_CACHE_LIMIT:
-                    auto_email_skip_cache.clear()
-                db.session.commit()
+                        if not task:
+                            auto_email_skip_cache.add(cache_key)
+                            continue
+
+                        payload = get_task_payload(task)
+                        if not (payload.get('__auto_email_toggle') or payload.get('auto_email_toggle')):
+                            auto_email_skip_cache.add(cache_key)
+                            continue
+
+                        sender = payload.get('__auto_email_sender') or payload.get('auto_email_sender')
+                        recipients = payload.get('__auto_email_recipients') or payload.get('auto_email_recipients')
+                        use_gpg = payload.get('__auto_email_use_gpg', payload.get('auto_email_use_gpg', True))
+
+                        if not (sender and recipients):
+                            auto_email_skip_cache.add(cache_key)
+                            continue
+
+                        report_id = job.id
+                        report_title = job.title
+                        report_body = job.report_data
+
+                        job.status = 'Sending...'
+                        db.session.commit()
+                        db.session.remove()
+
+                        success, message, sent_count = perform_auto_email_send(
+                            report_id,
+                            report_title,
+                            report_body,
+                            sender,
+                            recipients,
+                            use_gpg,
+                        )
+
+                        update_report_send_status(report_id, success, sent_count)
+                        auto_email_skip_cache.discard(cache_key)
+
+                    if len(auto_email_skip_cache) > AUTO_EMAIL_SKIP_CACHE_LIMIT:
+                        auto_email_skip_cache.clear()
+                    db.session.commit()
             except Exception:
                 db.session.rollback()
                 logging.getLogger("winhub").exception("Auto-email checker failed")
