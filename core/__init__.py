@@ -292,11 +292,25 @@ def inject_global_template_vars(app):
     def inject_vars():
         try:
             if not session.get('logged_in'):
-                return dict(system_modules=[], username=None, is_admin=False, csrf_token=None, session_idle_timeout_seconds=Config.SESSION_IDLE_TIMEOUT_SECONDS)
+                return dict(
+                    system_modules=[],
+                    username=None,
+                    is_admin=False,
+                    csrf_token=None,
+                    session_idle_timeout_seconds=Config.SESSION_IDLE_TIMEOUT_SECONDS,
+                    app_version=get_version(),
+                )
                 
             user = User.query.get(session.get('user_id'))
             if not user:
-                return dict(system_modules=[], username=None, is_admin=False, csrf_token=None, session_idle_timeout_seconds=Config.SESSION_IDLE_TIMEOUT_SECONDS)
+                return dict(
+                    system_modules=[],
+                    username=None,
+                    is_admin=False,
+                    csrf_token=None,
+                    session_idle_timeout_seconds=Config.SESSION_IDLE_TIMEOUT_SECONDS,
+                    app_version=get_version(),
+                )
                 
             modules_info = []
             for module in get_loaded_modules():
@@ -309,9 +323,23 @@ def inject_global_template_vars(app):
                         "icon": module.get("icon", "")
                     })
                                 
-            return dict(system_modules=modules_info, username=user.username, is_admin=user.is_admin, csrf_token=session.get("csrf_token"), session_idle_timeout_seconds=Config.SESSION_IDLE_TIMEOUT_SECONDS)
+            return dict(
+                system_modules=modules_info,
+                username=user.username,
+                is_admin=user.is_admin,
+                csrf_token=session.get("csrf_token"),
+                session_idle_timeout_seconds=Config.SESSION_IDLE_TIMEOUT_SECONDS,
+                app_version=get_version(),
+            )
         except Exception as e:
-            return dict(system_modules=[], username="Error", is_admin=False, csrf_token=session.get("csrf_token"), session_idle_timeout_seconds=Config.SESSION_IDLE_TIMEOUT_SECONDS)
+            return dict(
+                system_modules=[],
+                username="Error",
+                is_admin=False,
+                csrf_token=session.get("csrf_token"),
+                session_idle_timeout_seconds=Config.SESSION_IDLE_TIMEOUT_SECONDS,
+                app_version=get_version(),
+            )
 
 @core_routes.route('/dashboard')
 def dashboard():

@@ -3,6 +3,7 @@
 {% block title %}Newsletter Manager - WinHUB{% endblock %}
 
 {% block extra_head %}
+<script src="{{ url_for('static', filename='vendor/socket.io/socket.io.min.js', v=app_version) }}"></script>
 <style>
     /* Toggle Switch Custom CSS for GPG Slider */
     .toggle-switch { position: relative; display: inline-block; width: 44px; height: 24px; flex-shrink: 0;}

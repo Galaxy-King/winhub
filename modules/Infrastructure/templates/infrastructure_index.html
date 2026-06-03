@@ -3,16 +3,16 @@
 {% block title %}Endpoint Management - WinHUB{% endblock %}
 
 {% block extra_head %}
-<link rel="stylesheet" href="{{ url_for('static', filename='vendor/codemirror/5.65.16/codemirror.min.css') }}">
-<link rel="stylesheet" href="{{ url_for('static', filename='vendor/codemirror/5.65.16/theme/material-darker.min.css') }}">
-<script src="{{ url_for('static', filename='vendor/codemirror/5.65.16/codemirror.min.js') }}"></script>
-<script src="{{ url_for('static', filename='vendor/codemirror/5.65.16/addon/edit/matchbrackets.min.js') }}"></script>
-<script src="{{ url_for('static', filename='vendor/codemirror/5.65.16/mode/powershell/powershell.min.js') }}"></script>
-<script src="{{ url_for('static', filename='vendor/codemirror/5.65.16/mode/shell/shell.min.js') }}"></script>
-<script src="{{ url_for('static', filename='vendor/codemirror/5.65.16/mode/xml/xml.min.js') }}"></script>
-<script src="{{ url_for('static', filename='vendor/codemirror/5.65.16/mode/javascript/javascript.min.js') }}"></script>
-<script src="{{ url_for('static', filename='vendor/codemirror/5.65.16/mode/css/css.min.js') }}"></script>
-<script src="{{ url_for('static', filename='vendor/codemirror/5.65.16/mode/htmlmixed/htmlmixed.min.js') }}"></script>
+<link rel="stylesheet" href="{{ url_for('static', filename='vendor/codemirror/5.65.16/codemirror.min.css', v=app_version) }}">
+<link rel="stylesheet" href="{{ url_for('static', filename='vendor/codemirror/5.65.16/theme/material-darker.min.css', v=app_version) }}">
+<script src="{{ url_for('static', filename='vendor/codemirror/5.65.16/codemirror.min.js', v=app_version) }}"></script>
+<script src="{{ url_for('static', filename='vendor/codemirror/5.65.16/addon/edit/matchbrackets.min.js', v=app_version) }}"></script>
+<script src="{{ url_for('static', filename='vendor/codemirror/5.65.16/mode/powershell/powershell.min.js', v=app_version) }}"></script>
+<script src="{{ url_for('static', filename='vendor/codemirror/5.65.16/mode/shell/shell.min.js', v=app_version) }}"></script>
+<script src="{{ url_for('static', filename='vendor/codemirror/5.65.16/mode/xml/xml.min.js', v=app_version) }}"></script>
+<script src="{{ url_for('static', filename='vendor/codemirror/5.65.16/mode/javascript/javascript.min.js', v=app_version) }}"></script>
+<script src="{{ url_for('static', filename='vendor/codemirror/5.65.16/mode/css/css.min.js', v=app_version) }}"></script>
+<script src="{{ url_for('static', filename='vendor/codemirror/5.65.16/mode/htmlmixed/htmlmixed.min.js', v=app_version) }}"></script>
 	<style>
 	    .CodeMirror {
 	        height: 450px;
@@ -225,7 +225,7 @@
 {% endblock %}
 
 {% block content %}
-    <script src="{{ url_for('static', filename='vendor/chart.js/chart.umd.js') }}"></script>
+    <script src="{{ url_for('static', filename='vendor/chart.js/chart.umd.js', v=app_version) }}"></script>
 
     {% include "sidebar.html" %}
 
@@ -793,5 +793,5 @@
     window.WinhubIsAdmin = {{ 'true' if is_admin else 'false' }};
     window.WinhubCanManageSoftware = {{ 'true' if permissions.manage_software else 'false' }};
 </script>
-<script src="{{ url_for('static', filename='js/infrastructure.js') }}"></script>
+<script src="{{ url_for('static', filename='js/infrastructure.js', v=app_version) }}"></script>
 {% endblock %}
