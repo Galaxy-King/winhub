@@ -5,32 +5,8 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     {% if csrf_token %}<meta name="csrf-token" content="{{ csrf_token }}">{% endif %}
     <title>{% block title %}WinHUB{% endblock %}</title>
-    <script src="https://cdn.tailwindcss.com"></script>
-    <script>
-        tailwind.config = {
-            theme: {
-                extend: {
-                    colors: {
-                        primary: '#0f3d8a',
-                        'primary-dark': '#092b63',
-                        sidebar: '#07152e',
-                        spacebg: '#070a13',
-                        panelbg: '#111827',
-                        plasma: '#22d3ee',
-                        kyber: '#38bdf8',
-                    }
-                }
-            }
-        }
-    </script>
-    
-    <!-- ДОДАНО: Клієнтська бібліотека Socket.IO для WebSockets -->
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.7.4/socket.io.js"></script>
-    
-    <!-- ДОДАНО: Сучасний шрифт Inter для всього проекту -->
-    <link rel="preconnect" href="https://fonts.googleapis.com">
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;700;900&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/tailwind.local.css') }}">
+    <script src="{{ url_for('static', filename='vendor/socket.io/socket.io.min.js') }}"></script>
     <style>
         :root {
             --wh-blue-950: #07152e;
