@@ -32,6 +32,7 @@ fi
 if [[ -z "${agent_backend_port}" ]]; then
   agent_backend_port="${web_backend_port}"
 fi
+static_root="${APP_DIR}/static"
 
 if ! [[ "${agent_public_port}" =~ ^[0-9]+$ ]] || (( agent_public_port < 1 || agent_public_port > 65535 )); then
   echo "Invalid AGENT_PUBLIC_PORT: ${agent_public_port}" >&2
@@ -56,6 +57,7 @@ fi
 sed \
   -e "s#__WINHUB_WEB_BACKEND__#127.0.0.1:${web_backend_port}#g" \
   -e "s#__WINHUB_AGENT_BACKEND__#127.0.0.1:${agent_backend_port}#g" \
+  -e "s#__WINHUB_STATIC_ROOT__#${static_root}#g" \
   "${BASE_CONF}" > "${OUT_FILE}"
 chmod 0644 "${OUT_FILE}"
 
