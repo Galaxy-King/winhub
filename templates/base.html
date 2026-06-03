@@ -1775,6 +1775,12 @@
                 } catch (_) {}
             }
 
+            function isAuthFlowUrl(url) {
+                return url.pathname === '/login'
+                    || url.pathname === '/logout'
+                    || url.pathname.startsWith('/api/auth/');
+            }
+
             window.fetch = async function(input, init = {}) {
                 const requestUrl = typeof input === 'string' ? input : input.url;
                 const url = new URL(requestUrl, window.location.origin);
@@ -1791,7 +1797,7 @@
                 }
 
                 const response = await originalFetch(input, {...init, headers});
-                if (sameOrigin && (response.status === 440 || response.status === 401)) {
+                if (sameOrigin && !isAuthFlowUrl(url) && (response.status === 440 || response.status === 401)) {
                     window.location.href = '/login';
                 }
                 return response;
