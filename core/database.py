@@ -125,6 +125,7 @@ class Endpoint(db.Model):
     public_key_pem = db.Column(EncryptedText) 
     os_version = db.Column(db.String(100))
     os_type = db.Column(db.String(50), default="Windows") 
+    connection_ip = db.Column(db.String(64), index=True)
     ip_address = db.Column(EncryptedString)
     approval_status = db.Column(db.String(20), default="Pending", index=True)
     agent_version = db.Column(db.String(50))

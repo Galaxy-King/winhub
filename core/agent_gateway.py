@@ -37,6 +37,7 @@ POLL_AGENT_COLUMNS = (
     Endpoint.auth_token,
     Endpoint.is_blocked,
     Endpoint.approval_status,
+    Endpoint.connection_ip,
     Endpoint.last_seen,
     Endpoint.agent_version,
 )
@@ -60,7 +61,8 @@ def current_client_ip():
 def update_agent_connection(agent):
     current_ip = current_client_ip()
     changed = False
-    if current_ip and current_ip != (agent.ip_address or ""):
+    if current_ip and current_ip != (getattr(agent, "connection_ip", None) or ""):
+        agent.connection_ip = current_ip
         db.session.add(ConnectionIpHistory(endpoint_id=agent.id, ip_address=current_ip, source="agent"))
         agent.ip_address = current_ip
         changed = True
@@ -463,6 +465,7 @@ def should_adopt_duplicate_enrollment(reasons):
 def adopt_duplicate_endpoint_identity(existing_endpoint, new_hw_id, raw_token, data, source_ip, fingerprint, network_info, host_info, agent_version):
     old_id = existing_endpoint.id
     groups = list(existing_endpoint.groups)
+    inherited_ip = source_ip or getattr(existing_endpoint, "connection_ip", None) or existing_endpoint.ip_address
     adopted = Endpoint(
         id=new_hw_id,
         hostname=data.get("hostname", existing_endpoint.hostname),
@@ -470,7 +473,8 @@ def adopt_duplicate_endpoint_identity(existing_endpoint, new_hw_id, raw_token, d
         public_key_pem=existing_endpoint.public_key_pem,
         os_version=data.get("os_version", existing_endpoint.os_version),
         os_type=data.get("os_type", existing_endpoint.os_type or "Windows"),
-        ip_address=source_ip or existing_endpoint.ip_address,
+        connection_ip=inherited_ip,
+        ip_address=inherited_ip,
         approval_status="Approved",
         agent_version=agent_version or existing_endpoint.agent_version,
         network_info=network_info,
@@ -640,7 +644,7 @@ def enroll_agent():
         adopted_identity = True
     elif not agent:
         agent = Endpoint(id=hw_id, hostname=hostname, auth_token=raw_token,
-                         os_version=data.get('os_version'), os_type=os_type, ip_address=source_ip)
+                         os_version=data.get('os_version'), os_type=os_type, connection_ip=source_ip, ip_address=source_ip)
         agent.approval_status = "Rejected" if duplicate_endpoint else "Pending"
         agent.first_seen = datetime.utcnow()
         agent.last_enrollment_at = datetime.utcnow()
@@ -667,7 +671,8 @@ def enroll_agent():
     else:
         previous_fingerprint = getattr(agent, "identity_fingerprint", None)
         agent.hostname = hostname
-        if source_ip and source_ip != (agent.ip_address or ""):
+        if source_ip and source_ip != (getattr(agent, "connection_ip", None) or ""):
+            agent.connection_ip = source_ip
             db.session.add(ConnectionIpHistory(endpoint_id=agent.id, ip_address=source_ip, source="enrollment"))
             agent.ip_address = source_ip
         agent.last_seen = datetime.utcnow()
@@ -718,7 +723,7 @@ def agent_poll():
         signature_ok, signature_reason = verify_or_bind_agent_key(agent, data, "/api/agent/poll", data.get("auth_token"))
         if not signature_ok:
             return jsonify({"status": "error", "message": signature_reason}), 403
-        source_ip = current_client_ip() or agent.ip_address
+        source_ip = current_client_ip() or getattr(agent, "connection_ip", None) or agent.ip_address
         duplicate_endpoint, duplicate_reasons = find_approved_duplicate_endpoint(
             agent.id,
             agent.hostname,

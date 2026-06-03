@@ -206,6 +206,8 @@ def ensure_endpoint_schema():
         statements.append("ALTER TABLE endpoints ADD COLUMN display_name VARCHAR(120)")
     if "agent_version" not in columns:
         statements.append("ALTER TABLE endpoints ADD COLUMN agent_version VARCHAR(50)")
+    if "connection_ip" not in columns:
+        statements.append("ALTER TABLE endpoints ADD COLUMN connection_ip VARCHAR(64)")
     if "network_info" not in columns:
         statements.append("ALTER TABLE endpoints ADD COLUMN network_info TEXT")
     if "host_info" not in columns:

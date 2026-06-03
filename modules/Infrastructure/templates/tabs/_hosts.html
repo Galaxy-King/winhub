@@ -70,7 +70,7 @@
                         {% if agent.identity_warning %}<div class="text-[10px] text-rose-600 font-bold mt-1">{{ agent.identity_warning }}</div>{% endif %}
                     </td>
                     <td class="px-6 py-4 text-xs">
-                        <div class="font-mono text-slate-700">{{ agent.ip_address or '-' }}</div>
+                        <div class="font-mono text-slate-700">{{ agent.connection_ip or '-' }}</div>
                         <div class="text-[10px] font-black text-slate-400 uppercase mt-1">{{ agent.os_type or 'Unknown' }}</div>
                     </td>
                     <td class="px-6 py-4 text-xs font-bold text-slate-600">{{ agent.agent_version or 'Unknown' }}</td>
@@ -141,14 +141,14 @@
                             <button onclick="viewHost('{{ pair.left.id }}')" class="text-left font-black text-slate-800 hover:text-indigo-600">{{ left_name }}</button>
                             {% if pair.left.display_name and pair.left.hostname %}<div class="display-hostname-line text-[10px] font-mono text-slate-400 mt-1">HOSTNAME: {{ pair.left.hostname }}</div>{% endif %}
                             <div class="text-[10px] font-mono text-slate-400 mt-1 break-all">{{ pair.left.id }}</div>
-                            <div class="text-[10px] font-bold text-slate-500 mt-2">Agent: {{ pair.left.agent_version or 'Unknown' }} / IP: {{ pair.left.ip_address or '-' }}</div>
+                            <div class="text-[10px] font-bold text-slate-500 mt-2">Agent: {{ pair.left.agent_version or 'Unknown' }} / IP: {{ pair.left.connection_ip or '-' }}</div>
                             <div class="text-[10px] font-bold text-slate-400 mt-1">Last seen: {{ pair.left.last_seen_str or '-' }}</div>
                         </td>
                         <td class="px-6 py-4">
                             <button onclick="viewHost('{{ pair.right.id }}')" class="text-left font-black text-slate-800 hover:text-indigo-600">{{ right_name }}</button>
                             {% if pair.right.display_name and pair.right.hostname %}<div class="display-hostname-line text-[10px] font-mono text-slate-400 mt-1">HOSTNAME: {{ pair.right.hostname }}</div>{% endif %}
                             <div class="text-[10px] font-mono text-slate-400 mt-1 break-all">{{ pair.right.id }}</div>
-                            <div class="text-[10px] font-bold text-slate-500 mt-2">Agent: {{ pair.right.agent_version or 'Unknown' }} / IP: {{ pair.right.ip_address or '-' }}</div>
+                            <div class="text-[10px] font-bold text-slate-500 mt-2">Agent: {{ pair.right.agent_version or 'Unknown' }} / IP: {{ pair.right.connection_ip or '-' }}</div>
                             <div class="text-[10px] font-bold text-slate-400 mt-1">Last seen: {{ pair.right.last_seen_str or '-' }}</div>
                         </td>
                         <td class="px-6 py-4">
@@ -208,7 +208,7 @@
                             {% if agent.identity_warning %}<div class="text-[10px] text-rose-600 font-bold mt-1">{{ agent.identity_warning }}</div>{% endif %}
                         </td>
                         <td class="px-6 py-4 text-xs">
-                            <div class="font-mono text-slate-700">{{ agent.ip_address or '-' }}</div>
+                            <div class="font-mono text-slate-700">{{ agent.connection_ip or '-' }}</div>
                             <div class="text-[10px] font-black text-slate-400 uppercase mt-1">{{ agent.os_type or 'Unknown' }}</div>
                         </td>
                         <td class="px-6 py-4 text-xs font-bold text-slate-600">{{ agent.agent_version or 'Unknown' }}</td>
@@ -302,7 +302,7 @@
                     </td>
                     <td class="px-10 py-5">
 	                        <div class="text-[10px] font-black uppercase tracking-widest text-slate-400 mb-1">{{ agent.os_type }}</div>
-	                        <div class="text-sm font-bold text-slate-600 bg-slate-50 px-2 py-0.5 rounded w-fit border border-slate-100" title="Current connection IP seen by WinHUB">{{ agent.ip_address or '-' }}</div>
+		                        <div class="text-sm font-bold text-slate-600 bg-slate-50 px-2 py-0.5 rounded w-fit border border-slate-100" title="Current connection IP seen by WinHUB">{{ agent.connection_ip or '-' }}</div>
                     </td>
                     <td class="px-10 py-5">
                         <div class="text-xs font-black text-slate-700">{{ agent.agent_version or 'Unknown' }}</div>

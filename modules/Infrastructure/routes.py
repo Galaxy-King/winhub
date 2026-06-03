@@ -17,6 +17,7 @@ from email.utils import parseaddr
 from zoneinfo import ZoneInfo
 from flask import Blueprint, request, jsonify, render_template, session, redirect, url_for, current_app, Response, send_from_directory, stream_with_context
 from sqlalchemy import func, or_
+from sqlalchemy.orm import load_only, selectinload
 from werkzeug.utils import secure_filename
 
 from core.database import db, User, Endpoint, EndpointGroup, AgentTask, TaskTemplate, TelemetryHistory, ConnectionIpHistory, ScheduledTask, EndpointMetric, AgentUpdateRollout, TriggerRule, AggregatedJob, ApiKey, RegistrationHistory, AuditLog
@@ -24,7 +25,7 @@ from core.sdk import WinHubCore
 from core.admin import send_notification_email
 from core.security import sec_manager
 from core.config import Config
-from core.permissions import has_module_access, has_permission, user_permissions
+from core.permissions import has_module_access, has_permission, request_api_group_scope, user_permissions
 from core.gpg import gpg_env
 
 infrastructure_bp = Blueprint('infrastructure', __name__, template_folder='templates')
@@ -45,6 +46,77 @@ live_state_cache = {}
 live_state_cache_lock = threading.Lock()
 LIVE_STATE_CACHE_TTL_SECONDS = 10
 LIVE_EVENT_CHECK_INTERVAL_SECONDS = 15
+
+ENDPOINT_LIST_COLUMNS = (
+    Endpoint.id,
+    Endpoint.hostname,
+    Endpoint.display_name,
+    Endpoint.os_version,
+    Endpoint.os_type,
+    Endpoint.connection_ip,
+    Endpoint.approval_status,
+    Endpoint.agent_version,
+    Endpoint.first_seen,
+    Endpoint.last_enrollment_at,
+    Endpoint.enrollment_attempts,
+    Endpoint.identity_fingerprint,
+    Endpoint.identity_warning,
+    Endpoint.last_seen,
+    Endpoint.is_blocked,
+)
+
+
+def endpoint_has_public_key_map(endpoint_ids):
+    if not endpoint_ids:
+        return {}
+    rows = db.session.query(
+        Endpoint.id,
+        Endpoint.public_key_pem.isnot(None).label("has_public_key"),
+    ).filter(Endpoint.id.in_(endpoint_ids)).all()
+    return {row.id: bool(row.has_public_key) for row in rows}
+
+
+def attach_endpoint_list_flags(endpoints):
+    key_map = endpoint_has_public_key_map([endpoint.id for endpoint in endpoints])
+    for endpoint in endpoints:
+        endpoint.agent_identity_key_enrolled = key_map.get(endpoint.id, False)
+        endpoint.encryption = {"status": "Open details", "level": "unknown", "methods": []}
+        endpoint.possible_duplicate = bool(getattr(endpoint, "identity_warning", None))
+        endpoint.duplicate_matches = []
+    return endpoints
+
+
+def get_allowed_hosts_light(user_id, approved_only=False):
+    user = User.query.get(user_id)
+    if not user:
+        return []
+
+    query = Endpoint.query.options(
+        load_only(*ENDPOINT_LIST_COLUMNS),
+        selectinload(Endpoint.groups).load_only(EndpointGroup.id, EndpointGroup.name),
+    )
+    if approved_only:
+        query = query.filter(db.or_(Endpoint.approval_status == "Approved", Endpoint.approval_status.is_(None)))
+
+    api_group_ids = request_api_group_scope()
+    if api_group_ids is not None:
+        if not api_group_ids:
+            return []
+        query = query.join(Endpoint.groups).filter(EndpointGroup.id.in_(api_group_ids)).distinct()
+        if not approved_only:
+            query = query.filter(Endpoint.approval_status == "Approved")
+        return attach_endpoint_list_flags(query.all())
+
+    if user.is_admin:
+        return attach_endpoint_list_flags(query.all())
+
+    group_ids = [group.id for group in user.allowed_host_groups]
+    if not group_ids:
+        return []
+    query = query.join(Endpoint.groups).filter(EndpointGroup.id.in_(group_ids)).distinct()
+    if not approved_only:
+        query = query.filter(Endpoint.approval_status == "Approved")
+    return attach_endpoint_list_flags(query.all())
 
 def load_smtp_profiles():
     if not os.path.exists(SMTP_FILE): return {}
@@ -452,9 +524,31 @@ def infra_allowed_host_ids(user_id):
     user = User.query.get(user_id)
     if not user:
         return []
+    api_group_ids = request_api_group_scope()
+    if api_group_ids is not None:
+        if not api_group_ids:
+            return []
+        return [
+            row[0]
+            for row in db.session.query(Endpoint.id)
+            .join(Endpoint.groups)
+            .filter(EndpointGroup.id.in_(api_group_ids), Endpoint.approval_status == "Approved")
+            .distinct()
+            .all()
+        ]
     if user.is_admin:
         return [row[0] for row in db.session.query(Endpoint.id).all()]
-    return [host.id for host in WinHubCore.get_allowed_hosts(user_id)]
+    group_ids = [group.id for group in user.allowed_host_groups]
+    if not group_ids:
+        return []
+    return [
+        row[0]
+        for row in db.session.query(Endpoint.id)
+        .join(Endpoint.groups)
+        .filter(EndpointGroup.id.in_(group_ids), Endpoint.approval_status == "Approved")
+        .distinct()
+        .all()
+    ]
 
 def infra_live_state():
     """Small, non-sensitive revision snapshot for browser live refresh."""
@@ -607,7 +701,8 @@ def endpoint_health_score(endpoint, latest_version=None):
         last_seen = last_seen.replace(tzinfo=None)
     online = bool(last_seen and last_seen >= now - timedelta(minutes=5))
     outdated = bool(latest_version and (getattr(endpoint, "agent_version", "") or "") != latest_version)
-    has_key = bool(getattr(endpoint, "public_key_pem", None))
+    enrolled_flag = getattr(endpoint, "agent_identity_key_enrolled", None)
+    has_key = bool(enrolled_flag) if enrolled_flag is not None else bool(getattr(endpoint, "public_key_pem", None))
 
     score = 100
     reasons = []
@@ -627,13 +722,14 @@ def endpoint_health_score(endpoint, latest_version=None):
         score -= 15
         reasons.append("identity_warning")
 
-    try:
-        host_info = json.loads(endpoint.host_info or "{}")
-        if host_info.get("pending_reboot") or host_info.get("pendingReboot"):
-            score -= 10
-            reasons.append("pending_reboot")
-    except Exception:
-        pass
+    if "host_info" in getattr(endpoint, "__dict__", {}):
+        try:
+            host_info = json.loads(endpoint.host_info or "{}")
+            if host_info.get("pending_reboot") or host_info.get("pendingReboot"):
+                score -= 10
+                reasons.append("pending_reboot")
+        except Exception:
+            pass
 
     score = max(0, min(100, score))
     if score >= 80:
@@ -1236,7 +1332,7 @@ def index():
     now = datetime.utcnow()
     online_threshold = now - timedelta(minutes=5)
     
-    agents = WinHubCore.get_allowed_hosts(user_id)
+    agents = get_allowed_hosts_light(user_id)
     groups = WinHubCore.get_allowed_groups(user_id)
     
     stats = {
@@ -1248,7 +1344,7 @@ def index():
         'rejected': sum(1 for a in agents if getattr(a, "approval_status", "Approved") == "Rejected"),
         'current': sum(1 for a in agents if Config.LATEST_AGENT_VERSION and (a.agent_version or "") == Config.LATEST_AGENT_VERSION),
         'outdated': sum(1 for a in agents if Config.LATEST_AGENT_VERSION and (a.agent_version or "") != Config.LATEST_AGENT_VERSION),
-        'signed': sum(1 for a in agents if bool(getattr(a, "public_key_pem", None))),
+        'signed': sum(1 for a in agents if bool(getattr(a, "agent_identity_key_enrolled", False))),
     }
     
     for a in agents: 
@@ -1256,24 +1352,21 @@ def index():
         a.last_seen_str = to_kyiv_time(a.last_seen)
         a.last_enrollment_str = to_kyiv_time(getattr(a, "last_enrollment_at", None))
         a.agent_outdated = bool(Config.LATEST_AGENT_VERSION and (a.agent_version or "") != Config.LATEST_AGENT_VERSION)
-        try:
-            a.encryption = encryption_status_from_host_info(json.loads(a.host_info or "{}"))
-        except Exception:
-            a.encryption = {"status": "Unknown", "level": "unknown", "methods": []}
-    annotate_endpoint_duplicates(agents)
+        if not hasattr(a, "encryption"):
+            a.encryption = {"status": "Open details", "level": "unknown", "methods": []}
 
     available_hosts = [{
         "id": a.id,
         "name": endpoint_display_name(a),
         "display_name": getattr(a, "display_name", None) or "",
         "hostname": a.hostname or a.id,
-        "ip": a.ip_address or "",
+        "ip": getattr(a, "connection_ip", None) or "",
         "os_type": getattr(a, 'os_type', 'Windows'),
         "is_blocked": bool(a.is_blocked),
         "approval_status": getattr(a, 'approval_status', 'Approved'),
         "agent_version": getattr(a, 'agent_version', '') or '',
         "agent_outdated": bool(Config.LATEST_AGENT_VERSION and (getattr(a, 'agent_version', '') or '') != Config.LATEST_AGENT_VERSION),
-        "agent_identity_key_enrolled": bool(getattr(a, "public_key_pem", None)),
+        "agent_identity_key_enrolled": bool(getattr(a, "agent_identity_key_enrolled", False)),
         "is_online": bool(a.last_seen and a.last_seen >= online_threshold),
         "last_seen": to_kyiv_time_short(a.last_seen),
         "encryption": getattr(a, "encryption", {"status": "Unknown", "level": "unknown", "methods": []}),
@@ -1286,28 +1379,28 @@ def index():
         a for a in agents
         if getattr(a, "approval_status", "Approved") == "Rejected"
     ]
-    agent_by_id = {a.id: a for a in agents}
     approved_duplicate_pairs = []
     seen_duplicate_pairs = set()
+    approved_by_hostname = {}
     for agent in agents:
         if getattr(agent, "approval_status", "Approved") != "Approved":
             continue
-        for duplicate in getattr(agent, "duplicate_matches", []):
-            if not duplicate.get("strong_match"):
-                continue
-            duplicate_id = duplicate.get("id")
-            duplicate_agent = agent_by_id.get(duplicate_id)
-            if not duplicate_agent or getattr(duplicate_agent, "approval_status", "Approved") != "Approved":
-                continue
-            pair_key = tuple(sorted([agent.id, duplicate_id]))
+        hostname_key = str(agent.hostname or "").strip().upper()
+        if not hostname_key:
+            continue
+        duplicate_agent = approved_by_hostname.get(hostname_key)
+        if duplicate_agent:
+            pair_key = tuple(sorted([agent.id, duplicate_agent.id]))
             if pair_key in seen_duplicate_pairs:
                 continue
             seen_duplicate_pairs.add(pair_key)
             approved_duplicate_pairs.append({
                 "left": agent,
                 "right": duplicate_agent,
-                "reasons": duplicate.get("reasons", []),
+                "reasons": ["hostname"],
             })
+        else:
+            approved_by_hostname[hostname_key] = agent
     stats["review"] = len(pending_agents) + len(rejected_agents) + len(approved_duplicate_pairs)
         
     is_admin = session.get('is_admin')
@@ -1446,7 +1539,7 @@ def list_hosts():
 
     now = datetime.utcnow()
     online_threshold = now - timedelta(minutes=5)
-    hosts = WinHubCore.get_allowed_hosts(session.get("user_id"))
+    hosts = get_allowed_hosts_light(session.get("user_id"))
     return jsonify({
         "success": True,
         "hosts": [{
@@ -1454,7 +1547,7 @@ def list_hosts():
             "hostname": host.hostname,
             "display_name": getattr(host, "display_name", None) or "",
             "name": endpoint_display_name(host),
-            "ip": host.ip_address,
+            "ip": getattr(host, "connection_ip", None) or "",
             "os": host.os_version,
             "os_type": getattr(host, "os_type", "Windows"),
             "last_seen": to_kyiv_time(host.last_seen),
@@ -1463,7 +1556,7 @@ def list_hosts():
 	            "approval_status": getattr(host, "approval_status", "Approved"),
             "agent_version": getattr(host, "agent_version", None),
             "agent_outdated": bool(Config.LATEST_AGENT_VERSION and (getattr(host, "agent_version", "") or "") != Config.LATEST_AGENT_VERSION),
-            "agent_identity_key_enrolled": bool(getattr(host, "public_key_pem", None)),
+            "agent_identity_key_enrolled": bool(getattr(host, "agent_identity_key_enrolled", False)),
             "groups": [{"id": group.id, "name": group.name} for group in host.groups],
 	        } for host in hosts]
 	    })
@@ -2730,27 +2823,20 @@ def fleet_center():
 
     latest_version = latest_agent_package_version()
     hosts = []
-    allowed_hosts = [
-        endpoint for endpoint in WinHubCore.get_allowed_hosts(session.get("user_id"))
-        if getattr(endpoint, "approval_status", "Approved") == "Approved"
-    ]
-    annotate_endpoint_duplicates(allowed_hosts)
+    allowed_hosts = get_allowed_hosts_light(session.get("user_id"), approved_only=True)
     allowed_hosts.sort(key=lambda endpoint: (endpoint_display_name(endpoint).lower(), (endpoint.hostname or endpoint.id or "").lower()))
     for endpoint in allowed_hosts:
         health = endpoint_health_score(endpoint, latest_version)
-        try:
-            encryption = encryption_status_from_host_info(json.loads(endpoint.host_info or "{}"))
-        except Exception:
-            encryption = {"status": "Unknown", "level": "unknown", "methods": []}
+        encryption = getattr(endpoint, "encryption", {"status": "Open details", "level": "unknown", "methods": []})
         hosts.append({
             "id": endpoint.id,
             "hostname": endpoint.hostname or endpoint.id,
             "display_name": getattr(endpoint, "display_name", None) or "",
             "name": endpoint_display_name(endpoint),
-            "ip": endpoint.ip_address or "",
+            "ip": getattr(endpoint, "connection_ip", None) or "",
             "os": endpoint.os_version or getattr(endpoint, "os_type", "Windows"),
             "agent_version": getattr(endpoint, "agent_version", "") or "",
-            "agent_identity_key_enrolled": bool(getattr(endpoint, "public_key_pem", None)),
+            "agent_identity_key_enrolled": bool(getattr(endpoint, "agent_identity_key_enrolled", False)),
             "identity_fingerprint": getattr(endpoint, "identity_fingerprint", "") or "",
             "possible_duplicate": bool(getattr(endpoint, "possible_duplicate", False)),
             "duplicate_matches": getattr(endpoint, "duplicate_matches", []),
@@ -3391,8 +3477,7 @@ def host_operations(host_id):
         host_info = json.loads(agent.host_info or "{}")
     except Exception:
         host_info = {}
-    annotate_endpoint_duplicates(WinHubCore.get_allowed_hosts(session.get("user_id")))
-    return jsonify({"success": True, "data": {"id": agent.id, "hostname": agent.hostname, "display_name": getattr(agent, "display_name", None) or "", "name": endpoint_display_name(agent), "os": agent.os_version, "ip": agent.ip_address, "os_type": getattr(agent, 'os_type', 'Windows'), "last_seen": to_kyiv_time(agent.last_seen), "first_seen": to_kyiv_time(getattr(agent, "first_seen", None)), "last_enrollment_at": to_kyiv_time(getattr(agent, "last_enrollment_at", None)), "last_enrollment_ip": getattr(agent, "last_enrollment_ip", None), "enrollment_attempts": int(getattr(agent, "enrollment_attempts", 0) or 0), "identity_fingerprint": getattr(agent, "identity_fingerprint", None), "agent_identity_key_enrolled": bool(getattr(agent, "public_key_pem", None)), "duplicate_matches": getattr(agent, "duplicate_matches", []), "identity_warning": getattr(agent, "identity_warning", None), "is_blocked": agent.is_blocked, "approval_status": getattr(agent, "approval_status", "Approved"), "agent_version": getattr(agent, "agent_version", None), "network_info": network_info, "host_info": host_info, "encryption": encryption_status_from_host_info(host_info), "groups": [{"id": g.id, "name": g.name} for g in agent.groups], "history": [{"id": h.id, "title": h.title, "status": h.status or "Pending", "date": to_kyiv_time_short(h.created_at), "by": h.created_by} for h in history]}})
+    return jsonify({"success": True, "data": {"id": agent.id, "hostname": agent.hostname, "display_name": getattr(agent, "display_name", None) or "", "name": endpoint_display_name(agent), "os": agent.os_version, "ip": getattr(agent, "connection_ip", None) or agent.ip_address, "os_type": getattr(agent, 'os_type', 'Windows'), "last_seen": to_kyiv_time(agent.last_seen), "first_seen": to_kyiv_time(getattr(agent, "first_seen", None)), "last_enrollment_at": to_kyiv_time(getattr(agent, "last_enrollment_at", None)), "last_enrollment_ip": getattr(agent, "last_enrollment_ip", None), "enrollment_attempts": int(getattr(agent, "enrollment_attempts", 0) or 0), "identity_fingerprint": getattr(agent, "identity_fingerprint", None), "agent_identity_key_enrolled": bool(getattr(agent, "public_key_pem", None)), "duplicate_matches": getattr(agent, "duplicate_matches", []), "identity_warning": getattr(agent, "identity_warning", None), "is_blocked": agent.is_blocked, "approval_status": getattr(agent, "approval_status", "Approved"), "agent_version": getattr(agent, "agent_version", None), "network_info": network_info, "host_info": host_info, "encryption": encryption_status_from_host_info(host_info), "groups": [{"id": g.id, "name": g.name} for g in agent.groups], "history": [{"id": h.id, "title": h.title, "status": h.status or "Pending", "date": to_kyiv_time_short(h.created_at), "by": h.created_by} for h in history]}})
 
 def build_activity_segments(host_id, telemetry_records, threshold, end_time, fallback_ip=""):
     records = sorted([r for r in telemetry_records if r.timestamp], key=lambda r: r.timestamp)
@@ -3720,15 +3805,25 @@ def manage_group(group_id):
     denied = require_permission("view_groups")
     if denied: return denied
     include_non_members = request.args.get("include_non_members") == "1"
+    base_member_query = Endpoint.query.options(
+        load_only(*ENDPOINT_LIST_COLUMNS),
+        selectinload(Endpoint.groups).load_only(EndpointGroup.id, EndpointGroup.name),
+    ).join(Endpoint.groups).filter(EndpointGroup.id == group.id)
     if not session.get('is_admin'):
         allowed_group_ids = {g.id for g in WinHubCore.get_allowed_groups(session.get('user_id'))}
         if group.id not in allowed_group_ids:
             return jsonify({"success": False}), 403
-        allowed_host_ids = {h.id for h in WinHubCore.get_allowed_hosts(session.get('user_id'))}
-        members_source = [a for a in group.endpoints if a.id in allowed_host_ids]
-        group_endpoint_ids = {a.id for a in group.endpoints}
+        allowed_host_ids = set(infra_allowed_host_ids(session.get('user_id')))
+        members_source = attach_endpoint_list_flags(base_member_query.filter(Endpoint.id.in_(allowed_host_ids)).all())
+        group_endpoint_ids = {
+            row[0]
+            for row in db.session.query(Endpoint.id)
+            .join(Endpoint.groups)
+            .filter(EndpointGroup.id == group.id)
+            .all()
+        }
         if include_non_members and can("manage_groups"):
-            non_member_query = Endpoint.query.filter(
+            non_member_query = Endpoint.query.options(load_only(*ENDPOINT_LIST_COLUMNS)).filter(
                 Endpoint.id.in_(allowed_host_ids),
                 db.or_(Endpoint.approval_status == "Approved", Endpoint.approval_status.is_(None)),
                 ~Endpoint.id.in_(group_endpoint_ids)
@@ -3737,12 +3832,18 @@ def manage_group(group_id):
         else:
             non_members = []
     else:
-        group_endpoint_ids = [a.id for a in group.endpoints]
-        members_source = group.endpoints
+        group_endpoint_ids = [
+            row[0]
+            for row in db.session.query(Endpoint.id)
+            .join(Endpoint.groups)
+            .filter(EndpointGroup.id == group.id)
+            .all()
+        ]
+        members_source = attach_endpoint_list_flags(base_member_query.all())
         if include_non_members:
             non_members = [
                 {"id": a.id, "hostname": a.hostname or a.id, "display_name": getattr(a, "display_name", None) or "", "name": endpoint_display_name(a)}
-                for a in Endpoint.query.filter(
+                for a in Endpoint.query.options(load_only(*ENDPOINT_LIST_COLUMNS)).filter(
                     db.or_(Endpoint.approval_status == "Approved", Endpoint.approval_status.is_(None))
                 ).order_by(Endpoint.hostname, Endpoint.id).all()
                 if a.id not in group_endpoint_ids
@@ -3750,7 +3851,7 @@ def manage_group(group_id):
         else:
             non_members = []
 
-    members = [{"id": a.id, "hostname": a.hostname or a.id, "display_name": getattr(a, "display_name", None) or "", "name": endpoint_display_name(a), "ip": a.ip_address, "os_type": getattr(a, 'os_type', 'Windows')} for a in members_source]
+    members = [{"id": a.id, "hostname": a.hostname or a.id, "display_name": getattr(a, "display_name", None) or "", "name": endpoint_display_name(a), "ip": getattr(a, "connection_ip", None) or "", "os_type": getattr(a, 'os_type', 'Windows')} for a in members_source]
     return jsonify({"success": True, "data": {"id": group.id, "name": group.name, "description": group.description, "members": members, "non_members": non_members}})
 
 @infrastructure_bp.route('/api/infrastructure/group/<group_id>/members', methods=['POST'])
