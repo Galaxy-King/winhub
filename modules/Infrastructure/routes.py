@@ -41,6 +41,10 @@ SOFTWARE_PACKAGES_DIR = os.path.join(Config.DATA_DIR, "software_packages")
 # Глобальні змінні для фонового потоку автовідправки
 auto_thread_started = False
 auto_thread_lock = threading.Lock()
+live_state_cache = {}
+live_state_cache_lock = threading.Lock()
+LIVE_STATE_CACHE_TTL_SECONDS = 10
+LIVE_EVENT_CHECK_INTERVAL_SECONDS = 15
 
 def load_smtp_profiles():
     if not os.path.exists(SMTP_FILE): return {}
@@ -564,6 +568,28 @@ def infra_live_state():
             "latest": latest_report.isoformat() if latest_report else None,
         },
     }
+
+def infra_live_state_cached():
+    """Reuse short-lived live-state snapshots across browser SSE clients."""
+    user_id = session.get("user_id")
+    if not user_id:
+        return infra_live_state()
+    cache_key = (int(user_id), bool(session.get("is_admin")))
+    now = time.monotonic()
+    with live_state_cache_lock:
+        cached = live_state_cache.get(cache_key)
+        if cached and now - cached["at"] < LIVE_STATE_CACHE_TTL_SECONDS:
+            return cached["state"]
+
+    state = infra_live_state()
+    with live_state_cache_lock:
+        live_state_cache[cache_key] = {"at": time.monotonic(), "state": state}
+        if len(live_state_cache) > 256:
+            cutoff = time.monotonic() - (LIVE_STATE_CACHE_TTL_SECONDS * 6)
+            stale_keys = [key for key, value in live_state_cache.items() if value.get("at", 0) < cutoff]
+            for key in stale_keys:
+                live_state_cache.pop(key, None)
+    return state
 
 def endpoint_health_score(endpoint, latest_version=None):
     now = datetime.utcnow()
@@ -1347,7 +1373,7 @@ def infrastructure_live_state_api():
     denied = require_permission("view_hosts")
     if denied:
         return denied
-    return jsonify({"success": True, "state": infra_live_state()})
+    return jsonify({"success": True, "state": infra_live_state_cached()})
 
 
 @infrastructure_bp.route('/api/infrastructure/live/events', methods=['GET'])
@@ -1366,7 +1392,7 @@ def infrastructure_live_events():
         yield event_payload("connected", {"ok": True, "ts": datetime.utcnow().isoformat() + "Z"})
         while True:
             try:
-                state = infra_live_state()
+                state = infra_live_state_cached()
                 if previous_state is None:
                     previous_state = state
                     yield event_payload("state", {"state": state})
@@ -1384,7 +1410,7 @@ def infrastructure_live_events():
                     heartbeat_at = time.monotonic()
                     yield event_payload("heartbeat", {"ts": datetime.utcnow().isoformat() + "Z"})
                 db.session.remove()
-                time.sleep(5)
+                time.sleep(LIVE_EVENT_CHECK_INTERVAL_SECONDS)
             except GeneratorExit:
                 break
             except Exception:

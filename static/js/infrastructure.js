@@ -131,7 +131,7 @@ async function pollInfraLiveState() {
 
 function startInfraLiveFallback() {
     if (infraLiveFallbackTimer) return;
-    infraLiveFallbackTimer = setInterval(pollInfraLiveState, 20000);
+    infraLiveFallbackTimer = setInterval(pollInfraLiveState, 45000);
 }
 
 function startInfraLiveRefresh() {
