@@ -130,6 +130,14 @@ For a server where agents must enter through a separate public port, set for exa
 AGENT_PUBLIC_PORT=55555
 ```
 
+If one WinHUB instance manages both local agents and agents behind a public proxy, use relative agent package URLs:
+
+```ini
+AGENT_PACKAGE_URL_MODE=relative
+```
+
+With this mode, each agent downloads self-update packages from its own configured `ServerUrl`. Local agents use the local WinHUB URL, while public agents use the proxy URL. Keep `AGENT_PACKAGE_URL_MODE=absolute` only when every agent can reach the same public package URL.
+
 Then run the update script or regenerate nginx manually:
 
 ```bash

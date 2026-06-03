@@ -98,6 +98,7 @@ class Config:
     AGENT_TASK_TIMEOUT_SECONDS = int(os.environ.get('AGENT_TASK_TIMEOUT_SECONDS', 1800))
     AGENT_PACKAGE_MAX_UPLOAD_MB = int(os.environ.get('AGENT_PACKAGE_MAX_UPLOAD_MB', 256))
     AGENT_PUBLIC_BASE_URL = (clean_env_value(os.environ.get('AGENT_PUBLIC_BASE_URL')) or '').rstrip('/')
+    AGENT_PACKAGE_URL_MODE = (clean_env_value(os.environ.get('AGENT_PACKAGE_URL_MODE')) or 'absolute').lower()
     AGENT_REQUIRE_SIGNED_REQUESTS = (clean_env_value(os.environ.get('AGENT_REQUIRE_SIGNED_REQUESTS')) or 'false').lower() in ('1', 'true', 'yes', 'on')
     AGENT_IDLE_POLL_SECONDS = env_int('AGENT_IDLE_POLL_SECONDS', 75, 10, 3600)
     AGENT_TASK_POLL_SECONDS = env_int('AGENT_TASK_POLL_SECONDS', 15, 10, 3600)

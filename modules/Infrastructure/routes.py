@@ -95,11 +95,19 @@ def find_agent_package(package_id):
             return package
     return None
 
+def agent_package_download_path(package_id):
+    return url_for("infrastructure.download_agent_package_public", package_id=package_id)
+
 def agent_package_public_url(package_id):
-    path = url_for("infrastructure.download_agent_package_public", package_id=package_id)
+    path = agent_package_download_path(package_id)
     if getattr(Config, "AGENT_PUBLIC_BASE_URL", ""):
         return f"{Config.AGENT_PUBLIC_BASE_URL}{path}"
     return url_for("infrastructure.download_agent_package_public", package_id=package_id, _external=True)
+
+def agent_package_update_url(package_id):
+    if getattr(Config, "AGENT_PACKAGE_URL_MODE", "absolute") == "relative":
+        return agent_package_download_path(package_id)
+    return agent_package_public_url(package_id)
 
 def latest_agent_package_version():
     packages = load_agent_packages()
@@ -2120,7 +2128,7 @@ def create_agent_update_wave(host_ids, package, created_by, wave_index, wave_tot
     created_at = datetime.utcnow()
     updater_script = agent_updater_bootstrap_script()
     payload = {
-        "package_url": package.get("download_url") or agent_package_public_url(package["id"]),
+        "package_url": package.get("update_url") or agent_package_update_url(package["id"]),
         "package_sha256": package.get("sha256"),
         "target_version": package.get("version"),
     }
@@ -2175,7 +2183,8 @@ def process_due_agent_update_rollouts():
                     "download_url": rollout.package_url,
                     "sha256": None,
                 }
-            package["download_url"] = rollout.package_url or package.get("download_url") or agent_package_public_url(package["id"])
+            package["update_url"] = rollout.package_url or agent_package_update_url(package["id"])
+            package["download_url"] = package.get("download_url") or agent_package_public_url(package["id"])
 
             wave_size = max(1, int(rollout.wave_size or 50))
             existing_ids = existing_endpoint_id_set(target_ids)
@@ -2772,6 +2781,7 @@ def run_fleet_update():
     if not package:
         return jsonify({"success": False, "message": "Agent package not found"}), 404
     package["download_url"] = agent_package_public_url(package["id"])
+    package["update_url"] = agent_package_update_url(package["id"])
 
     target_mode = str(data.get("target_mode") or "outdated")
     allowed = [h for h in WinHubCore.get_allowed_hosts(session.get("user_id")) if getattr(h, "approval_status", "Approved") == "Approved"]
@@ -2801,7 +2811,7 @@ def run_fleet_update():
 
     rollout = AgentUpdateRollout(
         package_id=package["id"],
-        package_url=package["download_url"],
+        package_url=package["update_url"],
         package_version=package.get("version"),
         target_ids=json.dumps(target_ids, ensure_ascii=False),
         wave_size=wave_size,
