@@ -243,23 +243,46 @@ def datetime_to_epoch_ms(dt):
         dt = dt.replace(tzinfo=timezone.utc)
     return int(dt.timestamp() * 1000)
 
-def can_access_report(report_id):
-    if session.get('is_admin'):
-        return True
-    allowed_hosts = [h.id for h in WinHubCore.get_allowed_hosts(session.get('user_id'))]
-    if not allowed_hosts:
-        return False
-    source_job_id = report_id
+def report_source_job_id(report_id):
     split_match = re.match(r"^([0-9a-fA-F]{32})\.(\d{3})$", str(report_id or ""))
     if split_match:
         try:
-            source_job_id = str(uuid.UUID(hex=split_match.group(1)))
+            return str(uuid.UUID(hex=split_match.group(1)))
         except ValueError:
-            source_job_id = report_id
-    return AgentTask.query.filter(
-        ((AgentTask.job_id == source_job_id) | (AgentTask.id == report_id)),
-        AgentTask.endpoint_id.in_(allowed_hosts)
-    ).first() is not None
+            return report_id
+    return report_id
+
+
+def accessible_report_id_set(report_ids, user_id=None):
+    report_ids = [str(report_id) for report_id in (report_ids or []) if report_id]
+    if not report_ids:
+        return set()
+    if session.get('is_admin'):
+        return set(report_ids)
+
+    allowed_hosts = infra_allowed_host_ids(user_id or session.get('user_id'))
+    if not allowed_hosts:
+        return set()
+
+    source_by_report = {report_id: report_source_job_id(report_id) for report_id in report_ids}
+    source_job_ids = set(source_by_report.values())
+    rows = db.session.query(AgentTask.job_id, AgentTask.id).filter(
+        AgentTask.endpoint_id.in_(allowed_hosts),
+        or_(AgentTask.job_id.in_(source_job_ids), AgentTask.id.in_(report_ids))
+    ).all()
+    allowed_job_ids = {row[0] for row in rows if row[0]}
+    allowed_task_ids = {row[1] for row in rows if row[1]}
+    return {
+        report_id
+        for report_id, source_job_id in source_by_report.items()
+        if source_job_id in allowed_job_ids or report_id in allowed_task_ids
+    }
+
+
+def can_access_report(report_id):
+    if session.get('is_admin'):
+        return True
+    return str(report_id) in accessible_report_id_set([report_id])
 
 def load_template_payload(template):
     try:
@@ -646,7 +669,8 @@ def infra_live_state():
         AggregatedJob.created_at,
     ).order_by(AggregatedJob.created_at.desc()).limit(100).all()
     if not session.get("is_admin"):
-        reports = [report for report in reports if can_access_report(report.id)]
+        accessible_reports = accessible_report_id_set([report.id for report in reports], user_id)
+        reports = [report for report in reports if str(report.id) in accessible_reports]
     report_parts = [
         row_revision(
             report.id,
@@ -1865,7 +1889,8 @@ def get_reports():
         AggregatedJob.created_at,
     ).order_by(AggregatedJob.created_at.desc()).limit(100).all()
     if not session.get('is_admin'):
-        reports = [r for r in reports if can_access_report(r.id)]
+        accessible_reports = accessible_report_id_set([r.id for r in reports])
+        reports = [r for r in reports if str(r.id) in accessible_reports]
     data = [{
         "id": r.id, "title": r.title, "status": r.status,
         "total": r.total_count, "success": r.success_count, "error": r.error_count,
@@ -3369,7 +3394,7 @@ def get_tasks():
     denied = require_permission("view_queue")
     if denied: return denied
     user_id = session.get('user_id')
-    allowed_hosts = [h.id for h in WinHubCore.get_allowed_hosts(user_id)]
+    allowed_hosts = infra_allowed_host_ids(user_id)
     if not allowed_hosts: return jsonify({"success": True, "jobs": []})
 
     last_created_at = func.max(AgentTask.created_at).label("last_created_at")
