@@ -571,11 +571,67 @@
         border-color: rgba(125, 211, 252, 0.72) !important;
         box-shadow: 0 0 22px rgba(34, 211, 238, 0.16) !important;
     }
-    .review-tab-btn span,
-    .node-tab-btn span {
-        background: rgba(244, 63, 94, 0.20) !important;
+    .review-tab-btn {
+        box-shadow: inset 0 0 0 1px rgba(34, 211, 238, 0.10), 0 0 18px rgba(34, 211, 238, 0.04) !important;
+    }
+    #reviewTab-pending {
+        color: #fde68a !important;
+        border-color: rgba(251, 191, 36, 0.34) !important;
+    }
+    #reviewTab-duplicates {
+        color: #ddd6fe !important;
+        border-color: rgba(167, 139, 250, 0.34) !important;
+    }
+    #reviewTab-rejected {
         color: #fecdd3 !important;
-        border: 1px solid rgba(251, 113, 133, 0.35);
+        border-color: rgba(251, 113, 133, 0.36) !important;
+    }
+    #reviewTab-pending.is-active {
+        background:
+            radial-gradient(circle at 0 0, rgba(251, 191, 36, 0.30), transparent 7rem),
+            linear-gradient(135deg, rgba(180, 83, 9, 0.54), rgba(15, 23, 42, 0.92)) !important;
+        color: #fff7ed !important;
+        border-color: rgba(251, 191, 36, 0.76) !important;
+        box-shadow: 0 0 24px rgba(251, 191, 36, 0.16) !important;
+    }
+    #reviewTab-duplicates.is-active {
+        background:
+            radial-gradient(circle at 0 0, rgba(167, 139, 250, 0.34), transparent 7rem),
+            linear-gradient(135deg, rgba(91, 33, 182, 0.58), rgba(15, 23, 42, 0.92)) !important;
+        color: #f5f3ff !important;
+        border-color: rgba(196, 181, 253, 0.78) !important;
+        box-shadow: 0 0 24px rgba(167, 139, 250, 0.16) !important;
+    }
+    #reviewTab-rejected.is-active {
+        background:
+            radial-gradient(circle at 0 0, rgba(244, 63, 94, 0.34), transparent 7rem),
+            linear-gradient(135deg, rgba(159, 18, 57, 0.58), rgba(15, 23, 42, 0.92)) !important;
+        color: #fff1f2 !important;
+        border-color: rgba(251, 113, 133, 0.78) !important;
+        box-shadow: 0 0 24px rgba(244, 63, 94, 0.16) !important;
+    }
+    .review-tab-btn .review-tab-count,
+    .node-tab-btn span {
+        background: transparent !important;
+        border: 0 !important;
+        padding: 0 !important;
+        box-shadow: none !important;
+        font-weight: 900 !important;
+    }
+    #reviewTab-pending .review-tab-count {
+        color: #fbbf24 !important;
+    }
+    #reviewTab-duplicates .review-tab-count {
+        color: #c4b5fd !important;
+    }
+    #reviewTab-rejected .review-tab-count {
+        color: #fb7185 !important;
+    }
+    #reviewTab-pending.is-active .review-tab-count,
+    #reviewTab-duplicates.is-active .review-tab-count,
+    #reviewTab-rejected.is-active .review-tab-count,
+    .node-tab-btn.bg-slate-900 span {
+        color: #ffffff !important;
     }
     .queue-action-btn,
     #view-queue button.bg-white,
@@ -606,6 +662,132 @@
     #view-deploy input::placeholder,
     #view-deploy textarea::placeholder {
         color: rgba(168, 191, 216, 0.78) !important;
+    }
+    #secretsManagerModal > div,
+    #smtpManagerModal > div,
+    #scheduledReportsModal > div,
+    #triggerModal > div,
+    #scheduleModal > div,
+    #categoryModal > div {
+        background:
+            radial-gradient(circle at top left, rgba(34, 211, 238, 0.15), transparent 20rem),
+            radial-gradient(circle at bottom right, rgba(16, 185, 129, 0.10), transparent 18rem),
+            linear-gradient(180deg, rgba(8, 17, 31, 0.98), rgba(3, 7, 18, 0.98)) !important;
+        color: #e8f6ff !important;
+        border-color: rgba(34, 211, 238, 0.34) !important;
+        box-shadow: 0 26px 70px rgba(0, 0, 0, 0.56), 0 0 34px rgba(34, 211, 238, 0.12) !important;
+    }
+    #secretsManagerModal h2,
+    #smtpManagerModal h2,
+    #scheduledReportsModal h2,
+    #triggerModal h2,
+    #scheduleModal h2,
+    #categoryModal h2,
+    #secretsManagerModal h3,
+    #smtpManagerModal h3,
+    #scheduledReportsModal h3,
+    #triggerModal h3,
+    #scheduleModal h3,
+    #categoryModal h3 {
+        color: #f4fbff !important;
+    }
+    #secretsManagerModal p,
+    #smtpManagerModal p,
+    #scheduledReportsModal p,
+    #triggerModal p,
+    #scheduleModal p,
+    #categoryModal p,
+    #secretsManagerModal label,
+    #smtpManagerModal label,
+    #scheduledReportsModal label,
+    #triggerModal label,
+    #scheduleModal label,
+    #categoryModal label {
+        color: #a9c7dc !important;
+    }
+    #secretsManagerModal .bg-slate-50,
+    #secretsManagerModal .bg-amber-50,
+    #smtpManagerModal .bg-slate-50,
+    #scheduledReportsModal .bg-slate-50,
+    #scheduledReportsModal .bg-slate-50\/70,
+    #triggerModal .bg-slate-50,
+    #scheduleModal .bg-slate-50,
+    #categoryModal .bg-slate-50 {
+        background:
+            linear-gradient(135deg, rgba(15, 23, 42, 0.94), rgba(8, 47, 73, 0.58)) !important;
+        color: #dff7ff !important;
+        border-color: rgba(34, 211, 238, 0.24) !important;
+    }
+    #secretsManagerModal input,
+    #smtpManagerModal input,
+    #scheduledReportsModal input,
+    #scheduledReportsModal select,
+    #triggerModal input,
+    #triggerModal select,
+    #scheduleModal input,
+    #scheduleModal select,
+    #categoryModal input {
+        background-color: rgba(3, 10, 23, 0.92) !important;
+        color: #e8f6ff !important;
+        border-color: rgba(34, 211, 238, 0.34) !important;
+        box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.04), 0 0 18px rgba(34, 211, 238, 0.06) !important;
+    }
+    #secretsManagerModal input::placeholder,
+    #smtpManagerModal input::placeholder,
+    #scheduledReportsModal input::placeholder,
+    #triggerModal input::placeholder,
+    #scheduleModal input::placeholder,
+    #categoryModal input::placeholder {
+        color: rgba(169, 199, 220, 0.72) !important;
+    }
+    #secretsManagerModal button.bg-slate-50,
+    #smtpManagerModal button.bg-slate-50,
+    #triggerModal button.bg-slate-50,
+    #scheduleModal button.bg-slate-50,
+    #categoryModal button.bg-slate-50,
+    #secretsManagerModal button.bg-white,
+    #smtpManagerModal button.bg-white,
+    #scheduledReportsModal button.bg-white,
+    #triggerModal button.bg-white,
+    #scheduleModal button.bg-white,
+    #categoryModal button.bg-white {
+        background: rgba(7, 13, 26, 0.88) !important;
+        color: #bfefff !important;
+        border-color: rgba(34, 211, 238, 0.28) !important;
+    }
+    #secretsManagerModal button.bg-slate-50:hover,
+    #smtpManagerModal button.bg-slate-50:hover,
+    #triggerModal button.bg-slate-50:hover,
+    #scheduleModal button.bg-slate-50:hover,
+    #categoryModal button.bg-slate-50:hover,
+    #secretsManagerModal button.bg-white:hover,
+    #smtpManagerModal button.bg-white:hover,
+    #scheduledReportsModal button.bg-white:hover,
+    #triggerModal button.bg-white:hover,
+    #scheduleModal button.bg-white:hover,
+    #categoryModal button.bg-white:hover {
+        background: rgba(8, 145, 178, 0.24) !important;
+        color: #ffffff !important;
+        border-color: rgba(34, 211, 238, 0.55) !important;
+    }
+    #secretsManagerModal .template-secret-row {
+        background:
+            linear-gradient(90deg, rgba(15, 23, 42, 0.96), rgba(8, 47, 73, 0.58)) !important;
+        border-color: rgba(34, 211, 238, 0.24) !important;
+        color: #e8f6ff !important;
+    }
+    #secretsManagerModal .template-secret-row p:first-child {
+        color: #f4fbff !important;
+    }
+    #secretsManagerModal .template-secret-row p:nth-child(2),
+    #secretsManagerModal .font-mono {
+        color: #67e8f9 !important;
+    }
+    #secretsManagerModal .template-secret-empty {
+        color: #a9c7dc !important;
+        background: rgba(15, 23, 42, 0.72) !important;
+        border: 1px dashed rgba(34, 211, 238, 0.28) !important;
+        border-radius: 1rem !important;
     }
 </style>
 

@@ -889,7 +889,7 @@ function renderSecretsList() {
     const list = document.getElementById('secretsListContainer');
     if(!list) return;
     list.innerHTML = templateSecrets.map(s => `
-        <div class="flex justify-between items-center bg-slate-50 p-4 rounded-xl border border-slate-100">
+        <div class="template-secret-row flex justify-between items-center bg-slate-50 p-4 rounded-xl border border-slate-100">
             <div>
                 <p class="font-black text-slate-800 text-sm">${s.name}</p>
                 <p class="text-[10px] font-mono text-indigo-600 mt-1">${s.placeholder}</p>
@@ -898,7 +898,7 @@ function renderSecretsList() {
                 <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"></path></svg>
             </button>
         </div>
-    `).join('') || '<p class="text-center text-slate-400 text-sm font-bold p-6">No template secrets configured.</p>';
+    `).join('') || '<p class="template-secret-empty text-center text-slate-400 text-sm font-bold p-6">No template secrets configured.</p>';
 }
 
 async function openSecretsManager() {
@@ -2698,10 +2698,11 @@ function switchReviewTab(tab, save = true) {
         if (panel) panel.classList.toggle('hidden', key !== tab);
     });
     document.querySelectorAll('.review-tab-btn').forEach(btn => {
-        btn.className = "review-tab-btn px-4 py-2 rounded-xl text-[10px] font-black uppercase text-slate-700 hover:text-rose-700";
+        btn.className = "review-tab-btn px-4 py-2 rounded-xl text-[10px] font-black uppercase";
+        btn.classList.remove('is-active');
     });
     const active = document.getElementById('reviewTab-' + tab);
-    if (active) active.className = "review-tab-btn px-4 py-2 rounded-xl text-[10px] font-black uppercase bg-slate-900 text-white shadow-sm";
+    if (active) active.classList.add('is-active');
     updatePendingApprovalCount();
     updateRejectedSelectionCount();
     updateDuplicateSelectionCount();

@@ -26,9 +26,9 @@
     {% if permissions.manage_hosts %}
     <div id="nodesReviewPanel" class="hidden space-y-4">
         <div class="wh-soft-panel bg-white p-2 rounded-2xl border border-slate-200 shadow-sm flex flex-wrap gap-2 w-fit">
-            <button onclick="switchReviewTab('pending')" id="reviewTab-pending" class="review-tab-btn px-4 py-2 rounded-xl text-[10px] font-black uppercase bg-amber-600 text-white shadow-sm">Pending Approval <span class="ml-1 text-white/80">{{ pending_agents|length }}</span></button>
-            <button onclick="switchReviewTab('duplicates')" id="reviewTab-duplicates" class="review-tab-btn px-4 py-2 rounded-xl text-[10px] font-black uppercase text-slate-700 hover:text-rose-700">Identity Duplicates <span class="ml-1 text-slate-500">{{ approved_duplicate_pairs|length }}</span></button>
-            <button onclick="switchReviewTab('rejected')" id="reviewTab-rejected" class="review-tab-btn px-4 py-2 rounded-xl text-[10px] font-black uppercase text-slate-700 hover:text-rose-700">Rejected Hosts <span class="ml-1 text-slate-500">{{ rejected_agents|length }}</span></button>
+            <button onclick="switchReviewTab('pending')" id="reviewTab-pending" class="review-tab-btn is-active px-4 py-2 rounded-xl text-[10px] font-black uppercase bg-amber-600 text-white shadow-sm">Pending Approval <span class="review-tab-count ml-1">{{ pending_agents|length }}</span></button>
+            <button onclick="switchReviewTab('duplicates')" id="reviewTab-duplicates" class="review-tab-btn px-4 py-2 rounded-xl text-[10px] font-black uppercase text-slate-700 hover:text-rose-700">Identity Duplicates <span class="review-tab-count ml-1">{{ approved_duplicate_pairs|length }}</span></button>
+            <button onclick="switchReviewTab('rejected')" id="reviewTab-rejected" class="review-tab-btn px-4 py-2 rounded-xl text-[10px] font-black uppercase text-slate-700 hover:text-rose-700">Rejected Hosts <span class="review-tab-count ml-1">{{ rejected_agents|length }}</span></button>
         </div>
 
     <div id="nodesPendingPanel" class="review-subpanel bg-white rounded-[2rem] border border-slate-200 shadow-sm overflow-hidden">
