@@ -1,22 +1,5 @@
-// --- БЕЗПЕЧНА ІНІЦІАЛІЗАЦІЯ ---
-let socket;
-try {
-    if (typeof io !== 'undefined') {
-        socket = io();
-        socket.on('connect', () => { console.log('Connected to WebSockets successfully'); });
-        socket.on('log_update', (msg) => {
-            const tLogElement = document.getElementById('tLog');
-            const taskModal = document.getElementById('taskModal');
-            if (tLogElement && taskModal && !taskModal.classList.contains('hidden')) {
-                if (tLogElement.innerText === "Loading..." || tLogElement.innerText === "Waiting for agent pulse...") { tLogElement.innerText = ""; }
-                tLogElement.innerText += msg.data + "\n";
-                tLogElement.scrollTop = tLogElement.scrollHeight;
-            }
-        });
-    }
-} catch (e) {
-    console.warn("SocketIO не завантажено.");
-}
+// Infrastructure uses EventSource/fetch for live updates. Avoid opening a
+// Socket.IO long-polling connection on every page load; Newsletter owns sockets.
 
 let allQueueJobs = [];
 let allReports = [];

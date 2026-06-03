@@ -371,6 +371,7 @@ def session_ping():
 
 def handle_security_and_auth():
     g.request_id = str(uuid.uuid4())
+    g.request_started_at = time.perf_counter()
     open_endpoints = ['auth.login_page', 'auth.api_login', 'auth.forgot_password', 'auth.reset_password', 'core_routes.health', 'static']
     if request.path.startswith('/api/agent/'): return None
     if request.path.startswith('/api/public/agent-packages/') or request.path.startswith('/api/public/software-packages/'):
@@ -454,6 +455,20 @@ def handle_security_and_auth():
 
 
 def apply_security_headers(response):
+    started_at = getattr(g, "request_started_at", None)
+    if started_at is not None and Config.SLOW_REQUEST_LOG_SECONDS:
+        elapsed = time.perf_counter() - started_at
+        if elapsed >= Config.SLOW_REQUEST_LOG_SECONDS:
+            log.warning(
+                "Slow request role=%s method=%s path=%s status=%s duration=%.3fs remote=%s request_id=%s",
+                Config.WINHUB_ROLE,
+                request.method,
+                request.full_path.rstrip("?"),
+                response.status_code,
+                elapsed,
+                request.headers.get("X-Forwarded-For", request.remote_addr),
+                getattr(g, "request_id", "-"),
+            )
     response.headers.setdefault("X-Content-Type-Options", "nosniff")
     response.headers.setdefault("X-Frame-Options", "DENY")
     response.headers.setdefault("Referrer-Policy", "same-origin")

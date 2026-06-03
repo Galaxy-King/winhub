@@ -117,6 +117,7 @@ class Config:
     SESSION_COOKIE_HTTPONLY = True
     SESSION_COOKIE_SAMESITE = clean_env_value(os.environ.get('SESSION_COOKIE_SAMESITE')) or 'Strict'
     HSTS_ENABLED = (clean_env_value(os.environ.get('HSTS_ENABLED')) or ('true' if PRODUCTION_MODE else 'false')).lower() in ('1', 'true', 'yes', 'on')
+    SLOW_REQUEST_LOG_SECONDS = env_int('SLOW_REQUEST_LOG_SECONDS', 2, 0, 3600)
     
     # 🚀 ОПТИМІЗАЦІЯ ДЛЯ ВИСОКОГО НАВАНТАЖЕННЯ (Connection Pooling)
     # Додаємо пул з'єднань тільки якщо використовуємо PostgreSQL, бо SQLite цього не підтримує
