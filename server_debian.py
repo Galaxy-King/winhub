@@ -38,7 +38,8 @@ for _handler in _log_handlers:
 logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s [%(levelname)s] %(message)s',
-    handlers=_log_handlers
+    handlers=_log_handlers,
+    force=True,
 )
 log = logging.getLogger("winhub.debian")
 
