@@ -15,13 +15,30 @@ from core.config import Config
 
 os.makedirs(os.path.dirname(Config.SERVER_LOG_FILE), exist_ok=True)
 
+
+class NoisyAgentRequestFilter(logging.Filter):
+    noisy_paths = (
+        "/api/agent/poll",
+        "/api/agent/telemetry",
+    )
+
+    def filter(self, record):
+        message = record.getMessage()
+        return not any(path in message for path in self.noisy_paths)
+
+
+_agent_noise_filter = NoisyAgentRequestFilter()
+_log_handlers = [
+    RotatingFileHandler(Config.SERVER_LOG_FILE, maxBytes=10 * 1024 * 1024, backupCount=10, encoding="utf-8"),
+    logging.StreamHandler(sys.stdout),
+]
+for _handler in _log_handlers:
+    _handler.addFilter(_agent_noise_filter)
+
 logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s [%(levelname)s] %(message)s',
-    handlers=[
-        RotatingFileHandler(Config.SERVER_LOG_FILE, maxBytes=10 * 1024 * 1024, backupCount=10, encoding="utf-8"),
-        logging.StreamHandler(sys.stdout)
-    ]
+    handlers=_log_handlers
 )
 log = logging.getLogger("winhub.debian")
 
