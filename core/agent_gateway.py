@@ -9,6 +9,7 @@ import base64
 import time
 from datetime import datetime
 from functools import lru_cache
+from threading import Lock
 from flask import Blueprint, request, jsonify
 from cryptography.exceptions import InvalidSignature
 from cryptography.hazmat.primitives import hashes, serialization
@@ -22,6 +23,9 @@ agent_gateway_bp = Blueprint('agent_gateway', __name__, url_prefix='/api/agent')
 log = logging.getLogger("winhub.triggers")
 
 GLOBAL_ENROLLMENT_TOKEN = Config.AGENT_API_KEY
+POLL_SIGNATURE_CACHE_TTL_SECONDS = 120
+poll_signature_cache = {}
+poll_signature_cache_lock = Lock()
 
 def current_client_ip():
     forwarded = request.headers.get("X-Forwarded-For", "")
@@ -138,6 +142,52 @@ def verify_agent_signature(public_key_pem, data, path, auth_token, agent_version
         return False, "invalid_signature"
     except Exception:
         return False, "invalid_public_key_or_signature"
+
+
+def agent_request_signature_timestamp_valid(data):
+    if not data.get("signature") or not data.get("signed_at") or not data.get("signed_nonce"):
+        return False
+    try:
+        signed_ts = int(str(data.get("signed_at") or "").strip())
+        return abs(int(time.time()) - signed_ts) <= 900
+    except Exception:
+        return False
+
+
+def poll_signature_cache_key(agent, data, auth_token):
+    stored_key = str(getattr(agent, "public_key_pem", None) or "").strip()
+    return (
+        str(agent.id or ""),
+        hashlib.sha256(str(auth_token or "").encode("utf-8")).hexdigest()[:16],
+        hashlib.sha256(stored_key.encode("utf-8")).hexdigest()[:16] if stored_key else "",
+        str(data.get("agent_version") or "").strip()[:50],
+    )
+
+
+def remember_poll_signature(agent, data, auth_token):
+    key = poll_signature_cache_key(agent, data, auth_token)
+    now = time.monotonic()
+    with poll_signature_cache_lock:
+        poll_signature_cache[key] = now
+        if len(poll_signature_cache) > 4096:
+            cutoff = now - (POLL_SIGNATURE_CACHE_TTL_SECONDS * 3)
+            stale_keys = [cache_key for cache_key, timestamp in poll_signature_cache.items() if timestamp < cutoff]
+            for cache_key in stale_keys:
+                poll_signature_cache.pop(cache_key, None)
+
+
+def verify_poll_signature_cached(agent, data, auth_token):
+    key = poll_signature_cache_key(agent, data, auth_token)
+    now = time.monotonic()
+    with poll_signature_cache_lock:
+        cached_at = poll_signature_cache.get(key)
+    if cached_at and now - cached_at <= POLL_SIGNATURE_CACHE_TTL_SECONDS and agent_request_signature_timestamp_valid(data):
+        return True, "ok"
+
+    ok, reason = verify_or_bind_agent_key(agent, data, "/api/agent/poll", auth_token)
+    if ok:
+        remember_poll_signature(agent, data, auth_token)
+    return ok, reason
 
 
 def bind_enrollment_public_key(agent, data):
@@ -610,10 +660,10 @@ def agent_poll():
 
     if not agent or agent.is_blocked or agent.auth_token != data.get('auth_token'):
         return jsonify({"status": "error"}), 403
-    signature_ok, signature_reason = verify_or_bind_agent_key(agent, data, "/api/agent/poll", data.get("auth_token"))
-    if not signature_ok:
-        return jsonify({"status": "error", "message": signature_reason}), 403
     if getattr(agent, "approval_status", "Approved") != "Approved":
+        signature_ok, signature_reason = verify_or_bind_agent_key(agent, data, "/api/agent/poll", data.get("auth_token"))
+        if not signature_ok:
+            return jsonify({"status": "error", "message": signature_reason}), 403
         source_ip = current_client_ip() or agent.ip_address
         duplicate_endpoint, duplicate_reasons = find_approved_duplicate_endpoint(
             agent.id,
@@ -655,6 +705,17 @@ def agent_poll():
         db.session.commit()
         return jsonify({"status": "pending_approval"}), 200
 
+    task = AgentTask.query.filter_by(endpoint_id=agent.id, status="Pending").order_by(AgentTask.created_at.asc()).first()
+    signature_ok, signature_reason = (
+        verify_or_bind_agent_key(agent, data, "/api/agent/poll", data.get("auth_token"))
+        if task
+        else verify_poll_signature_cached(agent, data, data.get("auth_token"))
+    )
+    if not signature_ok:
+        return jsonify({"status": "error", "message": signature_reason}), 403
+    if task:
+        remember_poll_signature(agent, data, data.get("auth_token"))
+
     now = datetime.utcnow()
     needs_commit = False
     agent_version = str(data.get('agent_version') or '').strip()[:50]
@@ -668,7 +729,6 @@ def agent_poll():
         agent.last_seen = now
         needs_commit = True
 
-    task = AgentTask.query.filter_by(endpoint_id=agent.id, status="Pending").order_by(AgentTask.created_at.asc()).first()
     resp = {"status": "idle"}
 
     if task:
