@@ -178,6 +178,14 @@ def allowed_endpoint_query(user_id, approved_only=False):
         query = query.filter(Endpoint.approval_status == "Approved")
     return query
 
+
+def bounded_int_arg(name, default, min_value, max_value):
+    try:
+        value = int(request.args.get(name, default) or default)
+    except (TypeError, ValueError):
+        value = default
+    return min(max_value, max(min_value, value))
+
 def load_smtp_profiles():
     if not os.path.exists(SMTP_FILE): return {}
     try:
@@ -2970,8 +2978,8 @@ def fleet_center():
     if denied: return denied
 
     latest_version = latest_agent_package_version()
-    page = max(1, int(request.args.get("page", 1) or 1))
-    page_size = min(100, max(10, int(request.args.get("page_size", 50) or 50)))
+    page = bounded_int_arg("page", 1, 1, 100000)
+    page_size = bounded_int_arg("page_size", 50, 10, 100)
     search = str(request.args.get("search") or "").strip()
     status_filter = str(request.args.get("status") or "all").strip().lower()
     sort_key = str(request.args.get("sort") or "hostname").strip().lower()
@@ -3029,7 +3037,7 @@ def fleet_center():
             warning_clauses.append(or_(Endpoint.agent_version.is_(None), Endpoint.agent_version != latest_version))
         query = query.filter(or_(*warning_clauses))
 
-    total = query.order_by(None).count()
+    total = query.order_by(None).with_entities(Endpoint.id).count()
     sort_columns = {
         "hostname": func.lower(func.coalesce(Endpoint.display_name, Endpoint.hostname, Endpoint.id)),
         "ip": Endpoint.connection_ip,

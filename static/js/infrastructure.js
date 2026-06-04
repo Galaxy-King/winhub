@@ -1904,7 +1904,12 @@ async function loadFleetCenter(page = fleetPagination.page || 1) {
         fleetPagination = data.pagination || fleetPagination;
         renderFleetCenter();
     } catch(e) {
+        console.error('Fleet load failed:', e);
         body.innerHTML = '<tr><td colspan="10" class="p-12 text-center text-rose-400 font-black">Failed to load fleet data.</td></tr>';
+        const paginationBox = document.getElementById('fleetPagination');
+        if (paginationBox) {
+            paginationBox.innerHTML = '<div class="text-[10px] font-black uppercase tracking-widest text-rose-400">Failed to load nodes. Check /api/infrastructure/fleet response in browser Network or server logs.</div>';
+        }
     }
 }
 
@@ -2082,6 +2087,13 @@ function renderFleetPagination() {
     const pageSize = Number(fleetPagination.page_size || 50);
     const first = total ? ((page - 1) * pageSize) + 1 : 0;
     const last = Math.min(total, page * pageSize);
+    const pageButtons = fleetPageNumbers(page, pages).map(item => {
+        if (item === '...') {
+            return '<span class="px-2 py-2 text-[10px] font-black text-slate-400">...</span>';
+        }
+        const active = item === page;
+        return `<button onclick="changeFleetPage(${item})" class="px-3 py-2 rounded-xl border text-[10px] font-black uppercase transition-all ${active ? 'bg-slate-900 text-white border-slate-900' : 'bg-white text-slate-600 border-slate-200 hover:bg-indigo-50 hover:text-indigo-700'}">${item}</button>`;
+    }).join('');
     box.innerHTML = `
         <div class="text-[10px] font-black uppercase tracking-widest text-slate-500">
             Showing ${first}-${last} of ${total} nodes
@@ -2091,10 +2103,22 @@ function renderFleetPagination() {
                 ${[25, 50, 100].map(size => `<option value="${size}" ${size === pageSize ? 'selected' : ''}>${size} / page</option>`).join('')}
             </select>
             <button onclick="changeFleetPage(${page - 1})" ${page <= 1 ? 'disabled' : ''} class="px-3 py-2 rounded-xl border border-slate-200 bg-white text-[10px] font-black uppercase text-slate-600 disabled:opacity-40">Prev</button>
-            <span class="px-3 py-2 rounded-xl bg-slate-900 text-white text-[10px] font-black uppercase">${page} / ${pages}</span>
+            ${pageButtons}
             <button onclick="changeFleetPage(${page + 1})" ${page >= pages ? 'disabled' : ''} class="px-3 py-2 rounded-xl border border-slate-200 bg-white text-[10px] font-black uppercase text-slate-600 disabled:opacity-40">Next</button>
         </div>
     `;
+}
+
+function fleetPageNumbers(page, pages) {
+    if (pages <= 7) return Array.from({ length: pages }, (_, idx) => idx + 1);
+    const items = [1];
+    const start = Math.max(2, page - 1);
+    const end = Math.min(pages - 1, page + 1);
+    if (start > 2) items.push('...');
+    for (let item = start; item <= end; item += 1) items.push(item);
+    if (end < pages - 1) items.push('...');
+    items.push(pages);
+    return items;
 }
 
 async function uploadAgentPackage(event) {
