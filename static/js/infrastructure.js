@@ -1906,10 +1906,7 @@ async function loadFleetCenter(page = fleetPagination.page || 1) {
     } catch(e) {
         console.error('Fleet load failed:', e);
         body.innerHTML = '<tr><td colspan="10" class="p-12 text-center text-rose-400 font-black">Failed to load fleet data.</td></tr>';
-        const paginationBox = document.getElementById('fleetPagination');
-        if (paginationBox) {
-            paginationBox.innerHTML = '<div class="text-[10px] font-black uppercase tracking-widest text-rose-400">Failed to load nodes. Check /api/infrastructure/fleet response in browser Network or server logs.</div>';
-        }
+        renderFleetPaginationError('Failed to load nodes. Check /api/infrastructure/fleet response in browser Network or server logs.');
     }
 }
 
@@ -2079,8 +2076,8 @@ function renderFleetCenter() {
 }
 
 function renderFleetPagination() {
-    const box = document.getElementById('fleetPagination');
-    if (!box) return;
+    const boxes = document.querySelectorAll('.fleet-pagination');
+    if (!boxes.length) return;
     const total = Number(fleetPagination.total || 0);
     const page = Number(fleetPagination.page || 1);
     const pages = Number(fleetPagination.pages || 1);
@@ -2094,7 +2091,7 @@ function renderFleetPagination() {
         const active = item === page;
         return `<button onclick="changeFleetPage(${item})" class="px-3 py-2 rounded-xl border text-[10px] font-black uppercase transition-all ${active ? 'bg-slate-900 text-white border-slate-900' : 'bg-white text-slate-600 border-slate-200 hover:bg-indigo-50 hover:text-indigo-700'}">${item}</button>`;
     }).join('');
-    box.innerHTML = `
+    const html = `
         <div class="text-[10px] font-black uppercase tracking-widest text-slate-500">
             Showing ${first}-${last} of ${total} nodes
         </div>
@@ -2107,6 +2104,13 @@ function renderFleetPagination() {
             <button onclick="changeFleetPage(${page + 1})" ${page >= pages ? 'disabled' : ''} class="px-3 py-2 rounded-xl border border-slate-200 bg-white text-[10px] font-black uppercase text-slate-600 disabled:opacity-40">Next</button>
         </div>
     `;
+    boxes.forEach(box => { box.innerHTML = html; });
+}
+
+function renderFleetPaginationError(message) {
+    document.querySelectorAll('.fleet-pagination').forEach(box => {
+        box.innerHTML = `<div class="text-[10px] font-black uppercase tracking-widest text-rose-400">${escapeHtml(message || 'Failed to load nodes.')}</div>`;
+    });
 }
 
 function fleetPageNumbers(page, pages) {
