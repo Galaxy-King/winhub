@@ -89,7 +89,12 @@ def attach_endpoint_list_flags(endpoints):
     key_map = endpoint_has_public_key_map([endpoint.id for endpoint in endpoints])
     for endpoint in endpoints:
         endpoint.agent_identity_key_enrolled = key_map.get(endpoint.id, False)
-        endpoint.encryption = {"status": "Open details", "level": "unknown", "methods": []}
+        endpoint.encryption = {
+            "status": "Unknown",
+            "level": "unknown",
+            "methods": [],
+            "summary": "Open host details for BitLocker, VeraCrypt, and TrueCrypt inventory.",
+        }
         endpoint.possible_duplicate = bool(getattr(endpoint, "identity_warning", None))
         endpoint.duplicate_matches = []
     return endpoints
@@ -1461,7 +1466,12 @@ def index():
         a.last_enrollment_str = to_kyiv_time(getattr(a, "last_enrollment_at", None))
         a.agent_outdated = bool(Config.LATEST_AGENT_VERSION and (a.agent_version or "") != Config.LATEST_AGENT_VERSION)
         if not hasattr(a, "encryption"):
-            a.encryption = {"status": "Open details", "level": "unknown", "methods": []}
+            a.encryption = {
+                "status": "Unknown",
+                "level": "unknown",
+                "methods": [],
+                "summary": "Open host details for BitLocker, VeraCrypt, and TrueCrypt inventory.",
+            }
 
     available_hosts = [{
         "id": a.id,
@@ -2966,7 +2976,12 @@ def fleet_center():
     allowed_hosts.sort(key=lambda endpoint: (endpoint_display_name(endpoint).lower(), (endpoint.hostname or endpoint.id or "").lower()))
     for endpoint in allowed_hosts:
         health = endpoint_health_score(endpoint, latest_version)
-        encryption = getattr(endpoint, "encryption", {"status": "Open details", "level": "unknown", "methods": []})
+        encryption = getattr(endpoint, "encryption", {
+            "status": "Unknown",
+            "level": "unknown",
+            "methods": [],
+            "summary": "Open host details for BitLocker, VeraCrypt, and TrueCrypt inventory.",
+        })
         hosts.append({
             "id": endpoint.id,
             "hostname": endpoint.hostname or endpoint.id,

@@ -1,5 +1,5 @@
-// Infrastructure uses EventSource/fetch for live updates. Avoid opening a
-// Socket.IO long-polling connection on every page load; Newsletter owns sockets.
+// Infrastructure uses lightweight polling for live updates. Keep this separate
+// from Socket.IO; Newsletter owns sockets.
 
 let allQueueJobs = [];
 let allReports = [];
@@ -23,8 +23,9 @@ let activityChart = null;
 let currentHostStatus = 'all';
 let queueTypeFilter = 'ALL';
 const infraPermissions = window.WinhubPermissions || {};
-let infraLiveSource = null;
-let infraLiveFallbackTimer = null;
+let infraLivePollTimer = null;
+let infraLivePollStarted = false;
+let infraLivePollInFlight = false;
 let infraLiveState = null;
 let infraLiveRefreshTimers = {};
 let payloadEditor = null;
@@ -103,46 +104,45 @@ function handleInfraLiveState(nextState, fromFallback = false) {
 }
 
 async function pollInfraLiveState() {
+    if (infraLivePollInFlight) {
+        scheduleInfraLivePoll();
+        return;
+    }
+    infraLivePollInFlight = true;
     try {
         const res = await fetch('/api/infrastructure/live/state');
         const data = await res.json();
         if (res.ok && data.success) handleInfraLiveState(data.state, true);
     } catch (e) {
-        console.warn('WinHUB live fallback polling failed:', e);
+        console.warn('WinHUB live polling failed:', e);
+    } finally {
+        infraLivePollInFlight = false;
+        scheduleInfraLivePoll();
     }
 }
 
-function startInfraLiveFallback() {
-    if (infraLiveFallbackTimer) return;
-    infraLiveFallbackTimer = setInterval(pollInfraLiveState, 45000);
+function infraLivePollDelay() {
+    if (document.hidden) return 120000;
+    return currentInfraView() === 'queue' ? 20000 : 45000;
+}
+
+function scheduleInfraLivePoll(delay = infraLivePollDelay()) {
+    clearTimeout(infraLivePollTimer);
+    infraLivePollTimer = setTimeout(pollInfraLiveState, delay);
 }
 
 function startInfraLiveRefresh() {
     if (!window.location.pathname.includes('/module/infrastructure')) return;
-    if (!window.EventSource) {
-        startInfraLiveFallback();
+    if (infraLivePollStarted) return;
+    infraLivePollStarted = true;
+    document.addEventListener('visibilitychange', () => {
+        if (document.hidden) {
+            scheduleInfraLivePoll();
+            return;
+        }
         pollInfraLiveState();
-        return;
-    }
-    try {
-        infraLiveSource = new EventSource('/api/infrastructure/live/events');
-        infraLiveSource.addEventListener('state', (event) => {
-            const payload = JSON.parse(event.data || '{}');
-            handleInfraLiveState(payload.state);
-        });
-        infraLiveSource.addEventListener('changed', (event) => {
-            const payload = JSON.parse(event.data || '{}');
-            Object.keys(payload.changes || {}).forEach(section => scheduleInfraLiveRefresh(section));
-            infraLiveState = {...(infraLiveState || {}), ...(payload.changes || {})};
-        });
-        infraLiveSource.onerror = () => {
-            startInfraLiveFallback();
-        };
-    } catch (e) {
-        console.warn('WinHUB live refresh disabled:', e);
-        startInfraLiveFallback();
-        pollInfraLiveState();
-    }
+    });
+    pollInfraLiveState();
 }
 
 function getPayloadValue() {
@@ -1154,6 +1154,7 @@ function switchView(view, save=true) {
     if(view === 'deploy') refreshPayloadEditor();
     if(view === 'hosts') switchNodeTab(localStorage.getItem(infraStateKeys.nodeTab) || 'approved', false);
     if(view === 'software') loadSoftwareRegistry();
+    if(infraLivePollStarted) scheduleInfraLivePoll(1000);
 }
 
 // --- MULTI-HOST SELECTION LOGIC ---
@@ -2007,7 +2008,7 @@ function renderFleetCenter() {
         const encryptionClass = encryption.level === 'encrypted'
             ? 'bg-emerald-50 text-emerald-700 border-emerald-100'
             : (encryption.level === 'partial' ? 'bg-amber-50 text-amber-700 border-amber-100' : (encryption.level === 'none' ? 'bg-rose-50 text-rose-700 border-rose-100' : 'bg-slate-100 text-slate-500 border-slate-200'));
-        const encryptionTitle = (encryption.methods || []).join(', ') || 'No encryption method detected';
+        const encryptionTitle = (encryption.methods || []).join(', ') || encryption.summary || 'Encryption inventory is unavailable';
         const groups = (host.groups || []).map(group => `<span class="px-2 py-1 rounded-lg bg-slate-100 text-slate-500 border border-slate-200 text-[9px] font-black uppercase">${escapeHtml(group.name)}</span>`).join('');
         const keyClass = host.agent_identity_key_enrolled ? 'text-emerald-700 bg-emerald-50 border-emerald-100' : 'text-violet-700 bg-violet-50 border-violet-100';
         const keyLabel = host.agent_identity_key_enrolled ? 'Key OK' : 'No key';
