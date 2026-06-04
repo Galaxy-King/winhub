@@ -1438,14 +1438,22 @@ def check_access_and_start_thread():
                 t.start()
                 auto_thread_started = True
 
+    is_api_request = request.path.startswith("/api/")
     user_id = session.get('user_id')
-    if not user_id: return redirect(url_for('auth.login_page'))
+    if not user_id:
+        if is_api_request:
+            return jsonify({"success": False, "message": "Authentication required. Please sign in again."}), 401
+        return redirect(url_for('auth.login_page'))
     user = User.query.get(user_id)
     if not user:
         session.clear()
+        if is_api_request:
+            return jsonify({"success": False, "message": "Session expired. Please sign in again."}), 401
         return redirect(url_for('auth.login_page'))
-    
+
     if not has_module_access(user, 'Infrastructure'):
+        if is_api_request:
+            return jsonify({"success": False, "message": "Access denied for Endpoint Management."}), 403
         return "Access Denied", 403
 
 # ==========================================

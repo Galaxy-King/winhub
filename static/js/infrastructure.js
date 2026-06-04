@@ -1906,7 +1906,17 @@ async function loadFleetCenter(page = fleetPagination.page || 1) {
             direction: fleetSortState.direction,
         });
         const res = await fetch(`/api/infrastructure/fleet?${params.toString()}`);
-        const data = await res.json();
+        const contentType = res.headers.get('content-type') || '';
+        const raw = await res.text();
+        let data = null;
+        if (contentType.includes('application/json')) {
+            data = JSON.parse(raw || '{}');
+        } else {
+            const compact = raw.replace(/\s+/g, ' ').trim().slice(0, 180);
+            throw new Error(res.status === 401
+                ? 'Session expired. Please sign in again.'
+                : `Fleet API returned ${res.status || 'non-JSON'} instead of JSON: ${compact || 'empty response'}`);
+        }
         if (!res.ok || !data.success) throw new Error(data.message || 'Fleet load failed');
         fleetCenterData = data;
         fleetPagination = data.pagination || fleetPagination;
