@@ -18,6 +18,7 @@ from zoneinfo import ZoneInfo
 from flask import Blueprint, request, jsonify, render_template, session, redirect, url_for, current_app, Response, send_from_directory, stream_with_context
 from sqlalchemy import func, or_
 from sqlalchemy.orm import load_only, selectinload
+from werkzeug.exceptions import HTTPException
 from werkzeug.utils import secure_filename
 
 from core.database import db, User, Endpoint, EndpointGroup, AgentTask, TaskTemplate, TelemetryHistory, ConnectionIpHistory, ScheduledTask, EndpointMetric, AgentUpdateRollout, TriggerRule, AggregatedJob, ApiKey, RegistrationHistory, AuditLog
@@ -52,6 +53,29 @@ AUTO_EMAIL_SKIP_CACHE_LIMIT = 4096
 AUTO_EMAIL_CHECK_INTERVAL_SECONDS = 30
 AUTO_EMAIL_SCAN_LIMIT = 200
 AUTO_EMAIL_NEW_CHECK_LIMIT = 10
+
+
+@infrastructure_bp.errorhandler(Exception)
+def infrastructure_api_error(error):
+    if request.path.startswith("/api/"):
+        try:
+            from flask import g
+            request_id = getattr(g, "request_id", None)
+        except Exception:
+            request_id = None
+        if isinstance(error, HTTPException):
+            return jsonify({
+                "success": False,
+                "message": error.description or error.name,
+                "request_id": request_id,
+            }), error.code or 500
+        logging.getLogger("winhub").exception("Infrastructure API error path=%s request_id=%s", request.path, request_id or "-")
+        return jsonify({
+            "success": False,
+            "message": "Internal server error",
+            "request_id": request_id,
+        }), 500
+    raise error
 
 ENDPOINT_LIST_COLUMNS = (
     Endpoint.id,
@@ -129,7 +153,7 @@ def get_allowed_hosts_light(user_id, approved_only=False):
     if api_group_ids is not None:
         if not api_group_ids:
             return []
-        query = query.join(Endpoint.groups).filter(EndpointGroup.id.in_(api_group_ids)).distinct()
+        query = query.filter(Endpoint.groups.any(EndpointGroup.id.in_(api_group_ids)))
         if not approved_only:
             query = query.filter(Endpoint.approval_status == "Approved")
         return attach_endpoint_list_flags(query.all())
@@ -140,7 +164,7 @@ def get_allowed_hosts_light(user_id, approved_only=False):
     group_ids = [group.id for group in user.allowed_host_groups]
     if not group_ids:
         return []
-    query = query.join(Endpoint.groups).filter(EndpointGroup.id.in_(group_ids)).distinct()
+    query = query.filter(Endpoint.groups.any(EndpointGroup.id.in_(group_ids)))
     if not approved_only:
         query = query.filter(Endpoint.approval_status == "Approved")
     return attach_endpoint_list_flags(query.all())
@@ -162,7 +186,7 @@ def allowed_endpoint_query(user_id, approved_only=False):
     if api_group_ids is not None:
         if not api_group_ids:
             return query.filter(False)
-        query = query.join(Endpoint.groups).filter(EndpointGroup.id.in_(api_group_ids)).distinct()
+        query = query.filter(Endpoint.groups.any(EndpointGroup.id.in_(api_group_ids)))
         if not approved_only:
             query = query.filter(Endpoint.approval_status == "Approved")
         return query
@@ -173,7 +197,7 @@ def allowed_endpoint_query(user_id, approved_only=False):
     group_ids = [group.id for group in user.allowed_host_groups]
     if not group_ids:
         return query.filter(False)
-    query = query.join(Endpoint.groups).filter(EndpointGroup.id.in_(group_ids)).distinct()
+    query = query.filter(Endpoint.groups.any(EndpointGroup.id.in_(group_ids)))
     if not approved_only:
         query = query.filter(Endpoint.approval_status == "Approved")
     return query
