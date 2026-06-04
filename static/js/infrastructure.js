@@ -135,6 +135,14 @@ function startInfraLiveRefresh() {
     if (!window.location.pathname.includes('/module/infrastructure')) return;
     if (infraLivePollStarted) return;
     infraLivePollStarted = true;
+    setTimeout(() => {
+        const fleetPanel = document.getElementById('nodesFleetPanel');
+        const approvedPanel = document.getElementById('nodesApprovedPanel');
+        const stillLoading = Array.from(document.querySelectorAll('.fleet-pagination')).some(box => box.innerText.includes('Loading nodes'));
+        if (fleetPanel && !fleetPanel.classList.contains('hidden') && approvedPanel && !approvedPanel.classList.contains('hidden') && stillLoading) {
+            loadFleetCenter(1);
+        }
+    }, 1000);
     document.addEventListener('visibilitychange', () => {
         if (document.hidden) {
             scheduleInfraLivePoll();
@@ -1902,6 +1910,7 @@ async function loadFleetCenter(page = fleetPagination.page || 1) {
         if (!res.ok || !data.success) throw new Error(data.message || 'Fleet load failed');
         fleetCenterData = data;
         fleetPagination = data.pagination || fleetPagination;
+        renderFleetPagination();
         renderFleetCenter();
     } catch(e) {
         console.error('Fleet load failed:', e);
