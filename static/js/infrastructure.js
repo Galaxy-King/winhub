@@ -1865,6 +1865,8 @@ async function deleteTemplate(id) {
 let fleetCenterData = { hosts: [], packages: [] };
 let fleetSelectedHostIds = new Set();
 let fleetSortState = { key: 'hostname', direction: 'asc' };
+let fleetPagination = { page: 1, page_size: 50, total: 0, pages: 1 };
+let fleetSearchTimer = null;
 let softwareRegistryData = { packages: [] };
 let softwareSelectedHostIds = new Set();
 let softwareSelectedPackageId = null;
@@ -1873,16 +1875,33 @@ let softwareInfoLanguage = localStorage.getItem('software_info_lang') || 'en';
 let softwareOpenGroups = new Set(JSON.parse(localStorage.getItem('software_open_groups') || '[]'));
 let softwareCodeEditors = new Map();
 
-async function loadFleetCenter() {
+function fleetGroupFilterValues() {
+    return Array.from(document.querySelectorAll('#fleetGroupFilters input[type="checkbox"]:checked')).map(cb => String(cb.value));
+}
+
+function scheduleFleetLoad() {
+    clearTimeout(fleetSearchTimer);
+    fleetSearchTimer = setTimeout(() => loadFleetCenter(1), 350);
+}
+
+async function loadFleetCenter(page = fleetPagination.page || 1) {
     const body = document.getElementById('fleetHostsBody');
     if (!body) return;
     try {
-        const res = await fetch('/api/infrastructure/fleet');
+        const params = new URLSearchParams({
+            page: String(page || 1),
+            page_size: String(fleetPagination.page_size || 50),
+            search: (document.getElementById('fleetSearch')?.value || '').trim(),
+            status: document.getElementById('fleetStatusFilter')?.value || 'all',
+            groups: fleetGroupFilterValues().join(','),
+            sort: fleetSortState.key,
+            direction: fleetSortState.direction,
+        });
+        const res = await fetch(`/api/infrastructure/fleet?${params.toString()}`);
         const data = await res.json();
         if (!res.ok || !data.success) throw new Error(data.message || 'Fleet load failed');
         fleetCenterData = data;
-        const liveHostIds = new Set((fleetCenterData.hosts || []).map(host => host.id));
-        fleetSelectedHostIds = new Set(Array.from(fleetSelectedHostIds).filter(id => liveHostIds.has(id)));
+        fleetPagination = data.pagination || fleetPagination;
         renderFleetCenter();
     } catch(e) {
         body.innerHTML = '<tr><td colspan="10" class="p-12 text-center text-rose-400 font-black">Failed to load fleet data.</td></tr>';
@@ -1897,6 +1916,7 @@ function updateFleetSelectedCount() {
 function toggleFleetHostSelection(id, checked) {
     if (checked) fleetSelectedHostIds.add(id);
     else fleetSelectedHostIds.delete(id);
+    renderFleetPagination();
     updateFleetSelectedCount();
 }
 
@@ -1946,7 +1966,7 @@ window.setFleetSort = function setFleetSort(key) {
         fleetSortState = { key, direction: 'desc' };
         if (key === 'hostname') fleetSortState.direction = 'asc';
     }
-    renderFleetCenter();
+    loadFleetCenter(1);
 };
 
 window.setFleetStatusFilter = function setFleetStatusFilter(status) {
@@ -1956,7 +1976,18 @@ window.setFleetStatusFilter = function setFleetStatusFilter(status) {
         const active = btn.dataset.fleetStatus === (status || 'all');
         btn.className = `fleet-status-tab px-4 py-2 rounded-xl text-[10px] font-black uppercase border transition-all ${active ? 'bg-[#0f3d8a] text-white border-[#75a7f7] shadow-sm' : 'bg-white text-slate-700 border-slate-200 hover:bg-blue-50 hover:text-[#0f3d8a]'}`;
     });
-    renderFleetCenter();
+    loadFleetCenter(1);
+};
+
+window.setFleetPageSize = function setFleetPageSize(value) {
+    fleetPagination.page_size = Number(value) || 50;
+    loadFleetCenter(1);
+};
+
+window.changeFleetPage = function changeFleetPage(page) {
+    const nextPage = Math.max(1, Math.min(Number(page) || 1, fleetPagination.pages || 1));
+    if (nextPage === fleetPagination.page) return;
+    loadFleetCenter(nextPage);
 };
 
 function renderFleetCenter() {
@@ -1965,38 +1996,7 @@ function renderFleetCenter() {
     const packageSelect = document.getElementById('fleetPackageSelect');
     if (!body) return;
 
-    const search = (document.getElementById('fleetSearch')?.value || '').trim().toLowerCase();
-    const statusFilter = document.getElementById('fleetStatusFilter')?.value || 'all';
-    const groupFilters = Array.from(document.querySelectorAll('#fleetGroupFilters input[type="checkbox"]:checked')).map(cb => String(cb.value));
-    const hosts = (fleetCenterData.hosts || []).filter(host => {
-        const health = host.health || {};
-        const encryption = host.encryption || {};
-        const groupText = (host.groups || []).map(group => group.name).join(' ');
-        const duplicateText = host.possible_duplicate ? 'duplicate identity approved duplicate' : '';
-        const keyText = host.agent_identity_key_enrolled ? 'signed key enrolled identity key ok' : 'missing key unsigned no key';
-        const haystack = [host.name, host.display_name, host.hostname, host.ip, host.os, host.agent_version, host.identity_fingerprint, duplicateText, keyText, groupText, health.status, encryption.status, ...(encryption.methods || []), ...(health.reasons || [])].join(' ').toLowerCase();
-        const matchSearch = !search || haystack.includes(search);
-        const hostGroupIds = (host.groups || []).map(group => String(group.id));
-        const wantsUngrouped = groupFilters.includes('ungrouped');
-        const selectedGroupIds = groupFilters.filter(value => value !== 'ungrouped');
-        const matchGroup = groupFilters.length === 0
-            || (wantsUngrouped && hostGroupIds.length === 0 && selectedGroupIds.length === 0)
-            || (selectedGroupIds.length > 0 && selectedGroupIds.every(groupId => hostGroupIds.includes(groupId)) && !wantsUngrouped);
-        let matchStatus = true;
-        if (statusFilter === 'outdated') matchStatus = !!health.outdated;
-        else if (statusFilter === 'current') matchStatus = !health.outdated;
-        else if (statusFilter === 'offline') matchStatus = !health.online;
-        else if (statusFilter === 'warning') matchStatus = ['Warning', 'Critical'].includes(health.status);
-        else if (statusFilter === 'unsigned') matchStatus = !host.agent_identity_key_enrolled;
-        return matchSearch && matchGroup && matchStatus;
-    }).sort((a, b) => {
-        const av = fleetSortValue(a, fleetSortState.key);
-        const bv = fleetSortValue(b, fleetSortState.key);
-        const result = typeof av === 'number' && typeof bv === 'number'
-            ? av - bv
-            : String(av).localeCompare(String(bv), undefined, { numeric: true, sensitivity: 'base' });
-        return fleetSortState.direction === 'asc' ? result : -result;
-    });
+    const hosts = fleetCenterData.hosts || [];
 
     body.innerHTML = hosts.map(host => {
         const health = host.health || {};
@@ -2071,6 +2071,30 @@ function renderFleetCenter() {
             `<option value="${escapeHtml(pkg.id)}">${escapeHtml(pkg.version)} (${escapeHtml(pkg.original_filename || 'package')})</option>`
         ).join('') || '<option value="">No packages available</option>';
     }
+}
+
+function renderFleetPagination() {
+    const box = document.getElementById('fleetPagination');
+    if (!box) return;
+    const total = Number(fleetPagination.total || 0);
+    const page = Number(fleetPagination.page || 1);
+    const pages = Number(fleetPagination.pages || 1);
+    const pageSize = Number(fleetPagination.page_size || 50);
+    const first = total ? ((page - 1) * pageSize) + 1 : 0;
+    const last = Math.min(total, page * pageSize);
+    box.innerHTML = `
+        <div class="text-[10px] font-black uppercase tracking-widest text-slate-500">
+            Showing ${first}-${last} of ${total} nodes
+        </div>
+        <div class="flex flex-wrap items-center gap-2">
+            <select onchange="setFleetPageSize(this.value)" class="p-2 rounded-xl bg-white border border-slate-200 text-[10px] font-black uppercase text-slate-600">
+                ${[25, 50, 100].map(size => `<option value="${size}" ${size === pageSize ? 'selected' : ''}>${size} / page</option>`).join('')}
+            </select>
+            <button onclick="changeFleetPage(${page - 1})" ${page <= 1 ? 'disabled' : ''} class="px-3 py-2 rounded-xl border border-slate-200 bg-white text-[10px] font-black uppercase text-slate-600 disabled:opacity-40">Prev</button>
+            <span class="px-3 py-2 rounded-xl bg-slate-900 text-white text-[10px] font-black uppercase">${page} / ${pages}</span>
+            <button onclick="changeFleetPage(${page + 1})" ${page >= pages ? 'disabled' : ''} class="px-3 py-2 rounded-xl border border-slate-200 bg-white text-[10px] font-black uppercase text-slate-600 disabled:opacity-40">Next</button>
+        </div>
+    `;
 }
 
 async function uploadAgentPackage(event) {

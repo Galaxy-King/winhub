@@ -17,6 +17,7 @@ from cryptography.hazmat.primitives import hashes, serialization
 from cryptography.hazmat.primitives.asymmetric import padding
 from core.database import db, Endpoint, AgentTask, RegistrationHistory, TelemetryHistory, ConnectionIpHistory, EndpointGroup, EndpointMetric, TriggerRule, User, TaskTemplate
 from core.security import sec_manager
+from core.host_security import apply_endpoint_encryption_status
 from core.sdk import WinHubCore
 from core.config import Config
 
@@ -544,6 +545,7 @@ def adopt_duplicate_endpoint_identity(existing_endpoint, new_hw_id, raw_token, d
         last_seen=datetime.utcnow(),
         is_blocked=bool(existing_endpoint.is_blocked),
     )
+    apply_endpoint_encryption_status(adopted, host_info)
     adopted.groups = groups
     db.session.add(adopted)
     db.session.flush()
@@ -710,6 +712,7 @@ def enroll_agent():
         agent.agent_version = agent_version
         agent.network_info = network_info
         agent.host_info = host_info
+        apply_endpoint_encryption_status(agent, host_inventory)
         if duplicate_endpoint:
             agent.identity_warning = (
                 "Possible duplicate of approved endpoint "
@@ -741,6 +744,7 @@ def enroll_agent():
         agent.agent_version = agent_version or agent.agent_version
         agent.network_info = network_info
         agent.host_info = host_info
+        apply_endpoint_encryption_status(agent, host_inventory)
         if not previous_fingerprint:
             agent.identity_fingerprint = fingerprint
         elif previous_fingerprint != fingerprint:
@@ -978,6 +982,7 @@ def agent_telemetry():
     host_inventory = data.get('host_info')
     if isinstance(host_inventory, dict):
         agent.host_info = json.dumps(host_inventory, ensure_ascii=False)
+        apply_endpoint_encryption_status(agent, host_inventory)
     update_agent_connection(agent)
 
     telemetry = TelemetryHistory(

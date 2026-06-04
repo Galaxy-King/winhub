@@ -21,8 +21,9 @@ from apscheduler.triggers.cron import CronTrigger
 from apscheduler.triggers.date import DateTrigger
 
 from core.config import Config
-from core.database import db, User, AgentTask, AuditLog, TelemetryHistory, ScheduledTask, EndpointGroup, ApiKey, TaskTemplate
+from core.database import db, User, Endpoint, AgentTask, AuditLog, TelemetryHistory, ScheduledTask, EndpointGroup, ApiKey, TaskTemplate
 from core.security import sec_manager
+from core.host_security import apply_endpoint_encryption_status
 from core.auth import auth_bp
 from core.admin import admin_bp
 from core.agent_gateway import agent_gateway_bp
@@ -214,6 +215,12 @@ def ensure_endpoint_schema():
         statements.append("ALTER TABLE endpoints ADD COLUMN network_info TEXT")
     if "host_info" not in columns:
         statements.append("ALTER TABLE endpoints ADD COLUMN host_info TEXT")
+    if "encryption_status" not in columns:
+        statements.append("ALTER TABLE endpoints ADD COLUMN encryption_status VARCHAR(40) DEFAULT 'Unknown'")
+    if "encryption_level" not in columns:
+        statements.append("ALTER TABLE endpoints ADD COLUMN encryption_level VARCHAR(20) DEFAULT 'unknown'")
+    if "encryption_methods" not in columns:
+        statements.append("ALTER TABLE endpoints ADD COLUMN encryption_methods VARCHAR(120) DEFAULT ''")
     if "first_seen" not in columns:
         statements.append("ALTER TABLE endpoints ADD COLUMN first_seen TIMESTAMP")
     if "last_enrollment_at" not in columns:
@@ -233,6 +240,33 @@ def ensure_endpoint_schema():
         db.session.execute(text("UPDATE endpoints SET approval_status = 'Approved' WHERE approval_status IS NULL OR approval_status = ''"))
         db.session.execute(text("UPDATE endpoints SET first_seen = last_seen WHERE first_seen IS NULL"))
         db.session.execute(text("UPDATE endpoints SET enrollment_attempts = 0 WHERE enrollment_attempts IS NULL"))
+        db.session.execute(text("UPDATE endpoints SET encryption_status = 'Unknown' WHERE encryption_status IS NULL OR encryption_status = ''"))
+        db.session.execute(text("UPDATE endpoints SET encryption_level = 'unknown' WHERE encryption_level IS NULL OR encryption_level = ''"))
+        db.session.execute(text("UPDATE endpoints SET encryption_methods = '' WHERE encryption_methods IS NULL"))
+    db.session.commit()
+
+def backfill_endpoint_encryption_status(limit=5000):
+    endpoints = Endpoint.query.filter(
+        Endpoint.host_info.isnot(None),
+        db.or_(
+            Endpoint.encryption_status.is_(None),
+            Endpoint.encryption_status == "",
+            Endpoint.encryption_status == "Unknown",
+            Endpoint.encryption_level.is_(None),
+            Endpoint.encryption_level == "",
+            Endpoint.encryption_level == "unknown",
+        )
+    ).limit(limit).all()
+    if not endpoints:
+        return
+    for endpoint in endpoints:
+        try:
+            apply_endpoint_encryption_status(endpoint, endpoint.host_info or "{}")
+        except Exception:
+            log.exception("Failed to backfill encryption status for endpoint %s", endpoint.id)
+            endpoint.encryption_status = endpoint.encryption_status or "Unknown"
+            endpoint.encryption_level = endpoint.encryption_level or "unknown"
+            endpoint.encryption_methods = endpoint.encryption_methods or ""
     db.session.commit()
 
 def ensure_performance_indexes():
@@ -251,6 +285,9 @@ def ensure_performance_indexes():
         statements.append("CREATE INDEX IF NOT EXISTS ix_connection_ip_endpoint_timestamp ON connection_ip_history (endpoint_id, timestamp)")
     if "aggregated_jobs" in tables:
         statements.append("CREATE INDEX IF NOT EXISTS ix_aggregated_jobs_created_at ON aggregated_jobs (created_at)")
+    if "endpoints" in tables:
+        statements.append("CREATE INDEX IF NOT EXISTS ix_endpoints_encryption_level ON endpoints (encryption_level)")
+        statements.append("CREATE INDEX IF NOT EXISTS ix_endpoints_agent_version ON endpoints (agent_version)")
 
     for statement in statements:
         db.session.execute(text(statement))
@@ -643,6 +680,7 @@ def create_app():
             )
             raise
         ensure_endpoint_schema()
+        backfill_endpoint_encryption_status()
         ensure_audit_schema()
         ensure_performance_indexes()
         seed_default_os_groups()

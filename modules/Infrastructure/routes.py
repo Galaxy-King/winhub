@@ -25,6 +25,7 @@ from core.sdk import WinHubCore
 from core.admin import send_notification_email
 from core.security import sec_manager
 from core.config import Config
+from core.host_security import encryption_status_from_host_info
 from core.permissions import has_module_access, has_permission, request_api_group_scope, user_permissions
 from core.gpg import gpg_env
 
@@ -62,6 +63,9 @@ ENDPOINT_LIST_COLUMNS = (
     Endpoint.connection_ip,
     Endpoint.approval_status,
     Endpoint.agent_version,
+    Endpoint.encryption_status,
+    Endpoint.encryption_level,
+    Endpoint.encryption_methods,
     Endpoint.first_seen,
     Endpoint.last_enrollment_at,
     Endpoint.enrollment_attempts,
@@ -85,16 +89,25 @@ def endpoint_has_public_key_map(endpoint_ids):
     return {row.id: bool(row.has_public_key) for row in rows}
 
 
+def endpoint_encryption_payload(endpoint):
+    methods = [
+        method.strip()
+        for method in str(getattr(endpoint, "encryption_methods", "") or "").split(",")
+        if method.strip()
+    ]
+    status = getattr(endpoint, "encryption_status", None) or "Unknown"
+    level = getattr(endpoint, "encryption_level", None) or "unknown"
+    summary = ", ".join(methods) if methods else (
+        "No encryption method detected." if level == "none" else "Encryption inventory has not been reported yet."
+    )
+    return {"status": status, "level": level, "methods": methods, "summary": summary}
+
+
 def attach_endpoint_list_flags(endpoints):
     key_map = endpoint_has_public_key_map([endpoint.id for endpoint in endpoints])
     for endpoint in endpoints:
         endpoint.agent_identity_key_enrolled = key_map.get(endpoint.id, False)
-        endpoint.encryption = {
-            "status": "Unknown",
-            "level": "unknown",
-            "methods": [],
-            "summary": "Open host details for BitLocker, VeraCrypt, and TrueCrypt inventory.",
-        }
+        endpoint.encryption = endpoint_encryption_payload(endpoint)
         endpoint.possible_duplicate = bool(getattr(endpoint, "identity_warning", None))
         endpoint.duplicate_matches = []
     return endpoints
@@ -131,6 +144,39 @@ def get_allowed_hosts_light(user_id, approved_only=False):
     if not approved_only:
         query = query.filter(Endpoint.approval_status == "Approved")
     return attach_endpoint_list_flags(query.all())
+
+
+def allowed_endpoint_query(user_id, approved_only=False):
+    user = User.query.get(user_id)
+    if not user:
+        return Endpoint.query.filter(False)
+
+    query = Endpoint.query.options(
+        load_only(*ENDPOINT_LIST_COLUMNS),
+        selectinload(Endpoint.groups).load_only(EndpointGroup.id, EndpointGroup.name),
+    )
+    if approved_only:
+        query = query.filter(db.or_(Endpoint.approval_status == "Approved", Endpoint.approval_status.is_(None)))
+
+    api_group_ids = request_api_group_scope()
+    if api_group_ids is not None:
+        if not api_group_ids:
+            return query.filter(False)
+        query = query.join(Endpoint.groups).filter(EndpointGroup.id.in_(api_group_ids)).distinct()
+        if not approved_only:
+            query = query.filter(Endpoint.approval_status == "Approved")
+        return query
+
+    if user.is_admin:
+        return query
+
+    group_ids = [group.id for group in user.allowed_host_groups]
+    if not group_ids:
+        return query.filter(False)
+    query = query.join(Endpoint.groups).filter(EndpointGroup.id.in_(group_ids)).distinct()
+    if not approved_only:
+        query = query.filter(Endpoint.approval_status == "Approved")
+    return query
 
 def load_smtp_profiles():
     if not os.path.exists(SMTP_FILE): return {}
@@ -790,48 +836,6 @@ def endpoint_health_score(endpoint, latest_version=None):
         "signed_key": has_key,
     }
 
-def encryption_status_from_host_info(host_info):
-    security = {}
-    if isinstance(host_info, dict):
-        security = host_info.get("security") or {}
-    bitlocker = security.get("bitlocker") or {}
-    bitlocker_status = str(bitlocker.get("status") or "").lower()
-    bitlocker_text = str(security.get("bitlocker_summary") or "")
-    bitlocker_lower = bitlocker_text.lower()
-    bitlocker_on = (
-        bitlocker_status == "encrypted"
-        or "protection on" in bitlocker_lower
-        or "fully encrypted" in bitlocker_lower
-        or "percentage encrypted: 100" in bitlocker_lower
-    )
-    bitlocker_partial = (
-        bitlocker_status == "partial"
-        or "encryption in progress" in bitlocker_lower
-        or "percentage encrypted:" in bitlocker_lower and "percentage encrypted: 0" not in bitlocker_lower
-    )
-    veracrypt = bool(security.get("veracrypt_detected"))
-    truecrypt = bool(security.get("truecrypt_detected"))
-    if bitlocker_on or veracrypt or truecrypt:
-        status = "Encrypted"
-        level = "encrypted"
-    elif bitlocker_partial:
-        status = "Partial"
-        level = "partial"
-    elif bitlocker_status == "not_encrypted" or (bitlocker_text and bitlocker_text not in ("unavailable", "timeout")):
-        status = "Not encrypted"
-        level = "none"
-    else:
-        status = "Unknown"
-        level = "unknown"
-    methods = []
-    if bitlocker_on or bitlocker_partial:
-        methods.append("BitLocker")
-    if veracrypt:
-        methods.append("VeraCrypt")
-    if truecrypt:
-        methods.append("TrueCrypt")
-    return {"status": status, "level": level, "methods": methods}
-
 def annotate_endpoint_duplicates(agents):
     def normalized_hostname(agent):
         return str(getattr(agent, "hostname", "") or "").strip().upper()
@@ -1466,12 +1470,7 @@ def index():
         a.last_enrollment_str = to_kyiv_time(getattr(a, "last_enrollment_at", None))
         a.agent_outdated = bool(Config.LATEST_AGENT_VERSION and (a.agent_version or "") != Config.LATEST_AGENT_VERSION)
         if not hasattr(a, "encryption"):
-            a.encryption = {
-                "status": "Unknown",
-                "level": "unknown",
-                "methods": [],
-                "summary": "Open host details for BitLocker, VeraCrypt, and TrueCrypt inventory.",
-            }
+            a.encryption = endpoint_encryption_payload(a)
 
     available_hosts = [{
         "id": a.id,
@@ -2971,17 +2970,86 @@ def fleet_center():
     if denied: return denied
 
     latest_version = latest_agent_package_version()
+    page = max(1, int(request.args.get("page", 1) or 1))
+    page_size = min(100, max(10, int(request.args.get("page_size", 50) or 50)))
+    search = str(request.args.get("search") or "").strip()
+    status_filter = str(request.args.get("status") or "all").strip().lower()
+    sort_key = str(request.args.get("sort") or "hostname").strip().lower()
+    sort_dir = str(request.args.get("direction") or "asc").strip().lower()
+    group_filters = [
+        item.strip()
+        for item in str(request.args.get("groups") or "").split(",")
+        if item.strip()
+    ]
+
+    query = allowed_endpoint_query(session.get("user_id"), approved_only=True)
+    online_since = datetime.utcnow() - timedelta(minutes=5)
+
+    if search:
+        like = f"%{search}%"
+        query = query.filter(or_(
+            Endpoint.id.ilike(like),
+            Endpoint.hostname.ilike(like),
+            Endpoint.display_name.ilike(like),
+            Endpoint.connection_ip.ilike(like),
+            Endpoint.os_version.ilike(like),
+            Endpoint.os_type.ilike(like),
+            Endpoint.agent_version.ilike(like),
+            Endpoint.identity_fingerprint.ilike(like),
+            Endpoint.encryption_status.ilike(like),
+            Endpoint.encryption_methods.ilike(like),
+            Endpoint.groups.any(EndpointGroup.name.ilike(like)),
+        ))
+
+    selected_group_ids = [group_id for group_id in group_filters if group_id != "ungrouped"]
+    if selected_group_ids:
+        for group_id in selected_group_ids:
+            query = query.filter(Endpoint.groups.any(EndpointGroup.id == group_id))
+    elif "ungrouped" in group_filters:
+        query = query.filter(~Endpoint.groups.any())
+
+    has_key_expr = or_(Endpoint.public_key_pem_plain.isnot(None), Endpoint.public_key_pem.isnot(None))
+    if status_filter == "outdated" and latest_version:
+        query = query.filter(or_(Endpoint.agent_version.is_(None), Endpoint.agent_version != latest_version))
+    elif status_filter == "current" and latest_version:
+        query = query.filter(Endpoint.agent_version == latest_version)
+    elif status_filter == "offline":
+        query = query.filter(or_(Endpoint.last_seen.is_(None), Endpoint.last_seen < online_since))
+    elif status_filter == "unsigned":
+        query = query.filter(~has_key_expr)
+    elif status_filter == "warning":
+        warning_clauses = [
+            Endpoint.last_seen.is_(None),
+            Endpoint.last_seen < online_since,
+            ~has_key_expr,
+            Endpoint.is_blocked.is_(True),
+            Endpoint.identity_warning.isnot(None),
+        ]
+        if latest_version:
+            warning_clauses.append(or_(Endpoint.agent_version.is_(None), Endpoint.agent_version != latest_version))
+        query = query.filter(or_(*warning_clauses))
+
+    total = query.order_by(None).count()
+    sort_columns = {
+        "hostname": func.lower(func.coalesce(Endpoint.display_name, Endpoint.hostname, Endpoint.id)),
+        "ip": Endpoint.connection_ip,
+        "agent_version": Endpoint.agent_version,
+        "last_seen": Endpoint.last_seen,
+        "health": Endpoint.last_seen,
+        "encryption": Endpoint.encryption_level,
+    }
+    sort_column = sort_columns.get(sort_key, sort_columns["hostname"])
+    if sort_dir == "desc":
+        query = query.order_by(sort_column.desc().nullslast(), Endpoint.hostname.asc().nullslast(), Endpoint.id.asc())
+    else:
+        query = query.order_by(sort_column.asc().nullslast(), Endpoint.hostname.asc().nullslast(), Endpoint.id.asc())
+
+    allowed_hosts = attach_endpoint_list_flags(
+        query.offset((page - 1) * page_size).limit(page_size).all()
+    )
     hosts = []
-    allowed_hosts = get_allowed_hosts_light(session.get("user_id"), approved_only=True)
-    allowed_hosts.sort(key=lambda endpoint: (endpoint_display_name(endpoint).lower(), (endpoint.hostname or endpoint.id or "").lower()))
     for endpoint in allowed_hosts:
         health = endpoint_health_score(endpoint, latest_version)
-        encryption = getattr(endpoint, "encryption", {
-            "status": "Unknown",
-            "level": "unknown",
-            "methods": [],
-            "summary": "Open host details for BitLocker, VeraCrypt, and TrueCrypt inventory.",
-        })
         hosts.append({
             "id": endpoint.id,
             "hostname": endpoint.hostname or endpoint.id,
@@ -2997,7 +3065,7 @@ def fleet_center():
             "last_seen": to_kyiv_time_short(endpoint.last_seen),
             "groups": [{"id": group.id, "name": group.name} for group in endpoint.groups],
             "health": health,
-            "encryption": encryption,
+            "encryption": getattr(endpoint, "encryption", endpoint_encryption_payload(endpoint)),
         })
 
     packages = load_agent_packages()
@@ -3008,6 +3076,12 @@ def fleet_center():
         "success": True,
         "latest_version": latest_version,
         "hosts": hosts,
+        "pagination": {
+            "page": page,
+            "page_size": page_size,
+            "total": total,
+            "pages": max(1, (total + page_size - 1) // page_size),
+        },
         "packages": packages,
     })
 

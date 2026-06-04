@@ -22,8 +22,8 @@
                     <button onclick="setFleetStatusFilter('unsigned')" data-fleet-status="unsigned" class="fleet-status-tab px-4 py-2 rounded-xl text-[10px] font-black uppercase bg-white text-slate-700 border border-slate-200 hover:bg-violet-50 hover:text-violet-700">Missing Key</button>
                 </div>
                 <div class="grid grid-cols-1 lg:grid-cols-[1.2fr_1.4fr] gap-3">
-                <input id="fleetSearch" oninput="renderFleetCenter()" placeholder="Search host, IP, OS, version..." class="w-full p-3 bg-white border border-slate-200 rounded-xl text-xs font-bold text-slate-700 outline-none focus:ring-4 focus:ring-indigo-500/10">
-                <select id="fleetStatusFilter" onchange="renderFleetCenter()" class="hidden">
+                <input id="fleetSearch" oninput="scheduleFleetLoad()" placeholder="Search host, IP, OS, version..." class="w-full p-3 bg-white border border-slate-200 rounded-xl text-xs font-bold text-slate-700 outline-none focus:ring-4 focus:ring-indigo-500/10">
+                <select id="fleetStatusFilter" onchange="loadFleetCenter(1)" class="hidden">
                     <option value="all">All agents</option>
                     <option value="outdated">Outdated</option>
                     <option value="current">Current</option>
@@ -33,11 +33,11 @@
                 </select>
                 <div id="fleetGroupFilters" class="flex flex-wrap gap-2 bg-white border border-slate-200 rounded-xl p-2">
                     <label class="inline-flex items-center gap-2 px-3 py-2 rounded-lg bg-slate-50 text-[10px] font-black uppercase text-slate-500 border border-slate-100 cursor-pointer">
-                        <input type="checkbox" value="ungrouped" onchange="renderFleetCenter()" class="w-3.5 h-3.5 rounded border-slate-300 text-indigo-600 focus:ring-indigo-500"> No group
+                        <input type="checkbox" value="ungrouped" onchange="loadFleetCenter(1)" class="w-3.5 h-3.5 rounded border-slate-300 text-indigo-600 focus:ring-indigo-500"> No group
                     </label>
                     {% for g in groups %}
                     <label class="inline-flex items-center gap-2 px-3 py-2 rounded-lg bg-indigo-50 text-[10px] font-black uppercase text-indigo-600 border border-indigo-100 cursor-pointer">
-                        <input type="checkbox" value="{{ g.id }}" onchange="renderFleetCenter()" class="fleet-group-filter-cb w-3.5 h-3.5 rounded border-slate-300 text-indigo-600 focus:ring-indigo-500"> {{ g.name }}
+                        <input type="checkbox" value="{{ g.id }}" onchange="loadFleetCenter(1)" class="fleet-group-filter-cb w-3.5 h-3.5 rounded border-slate-300 text-indigo-600 focus:ring-indigo-500"> {{ g.name }}
                     </label>
                     {% endfor %}
                 </div>
@@ -65,6 +65,9 @@
                         <tr><td colspan="10" class="p-12 text-center text-slate-500 font-black">Loading fleet data...</td></tr>
                     </tbody>
                 </table>
+            </div>
+            <div id="fleetPagination" class="px-6 py-4 border-t border-slate-200 bg-white flex flex-col md:flex-row md:items-center justify-between gap-3">
+                <div class="text-[10px] font-black uppercase tracking-widest text-slate-500">Loading nodes...</div>
             </div>
         </div>
         <div id="packageRegistryCard" class="hidden fixed inset-0 z-50 bg-slate-950/45 backdrop-blur-sm p-4 md:p-8 overflow-y-auto">
