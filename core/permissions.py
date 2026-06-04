@@ -3,7 +3,7 @@ import json
 from flask import has_request_context, session
 
 
-MODULE_PERMISSION_CATALOG = {
+MODULE_INTERNAL_PERMISSION_CATALOG = {
     "Infrastructure": [
         {"id": "view_hosts", "name": "View hosts"},
         {"id": "view_groups", "name": "View groups"},
@@ -34,6 +34,71 @@ MODULE_PERMISSION_CATALOG = {
         {"id": "manage_history", "name": "Cleanup/delete history"},
     ],
 }
+
+MODULE_PERMISSION_CATALOG = {
+    "Infrastructure": [
+        {"id": "view", "name": "View"},
+        {"id": "change", "name": "Change"},
+        {"id": "delete", "name": "Delete"},
+    ],
+    "Newsletter": [
+        {"id": "view", "name": "View"},
+        {"id": "change", "name": "Change"},
+        {"id": "delete", "name": "Delete"},
+    ],
+    "HistoryAudit": [
+        {"id": "view", "name": "View"},
+        {"id": "delete", "name": "Delete"},
+    ],
+}
+
+PERMISSION_ALIASES = {
+    "Infrastructure": {
+        "view": {
+            "view_hosts",
+            "view_groups",
+            "view_queue",
+            "view_reports",
+        },
+        "change": {
+            "run_tasks",
+            "edit_reports",
+            "dismiss_reports",
+            "send_reports",
+            "manage_software",
+            "manage_templates",
+            "manage_smtp",
+            "manage_scheduler",
+            "manage_triggers",
+            "manage_groups",
+        },
+        "delete": {
+            "delete_reports",
+            "cleanup_tasks",
+            "manage_hosts",
+        },
+    },
+    "Newsletter": {
+        "view": set(),
+        "change": {
+            "send_campaigns",
+            "manage_lists",
+            "manage_smtp",
+        },
+        "delete": {
+            "manage_lists",
+        },
+    },
+    "HistoryAudit": {
+        "view": {
+            "view_history",
+        },
+        "delete": {
+            "manage_history",
+        },
+    },
+}
+
 
 def parse_allowed_modules(raw):
     if not raw:
@@ -109,7 +174,24 @@ def has_permission(user, module_id, permission_id):
     if token in allowed:
         return True
 
+    aliases = PERMISSION_ALIASES.get(module_id, {})
+    for alias_id, granted_permissions in aliases.items():
+        alias_token = permission_token(module_id, alias_id)
+        if alias_token in allowed and permission_id in granted_permissions:
+            return True
+
     return False
+
+
+def all_permission_ids(module_id):
+    ids = []
+    for item in MODULE_INTERNAL_PERMISSION_CATALOG.get(module_id, []):
+        if item["id"] not in ids:
+            ids.append(item["id"])
+    for item in MODULE_PERMISSION_CATALOG.get(module_id, []):
+        if item["id"] not in ids:
+            ids.append(item["id"])
+    return ids
 
 
 def user_permissions(user, module_id):
@@ -118,16 +200,16 @@ def user_permissions(user, module_id):
     api_permissions = request_api_permissions()
     if api_permissions is not None:
         if module_id in api_permissions:
-            return {p["id"]: True for p in MODULE_PERMISSION_CATALOG.get(module_id, [])}
+            return {permission_id: True for permission_id in all_permission_ids(module_id)}
         return {
-            p["id"]: permission_token(module_id, p["id"]) in api_permissions
-            for p in MODULE_PERMISSION_CATALOG.get(module_id, [])
+            permission_id: has_permission(user, module_id, permission_id)
+            for permission_id in all_permission_ids(module_id)
         }
     if getattr(user, "is_admin", False):
-        return {p["id"]: True for p in MODULE_PERMISSION_CATALOG.get(module_id, [])}
+        return {permission_id: True for permission_id in all_permission_ids(module_id)}
     return {
-        p["id"]: has_permission(user, module_id, p["id"])
-        for p in MODULE_PERMISSION_CATALOG.get(module_id, [])
+        permission_id: has_permission(user, module_id, permission_id)
+        for permission_id in all_permission_ids(module_id)
     }
 
 
@@ -135,6 +217,13 @@ def permission_tokens_for_module(module_id):
     return [
         permission_token(module_id, permission["id"])
         for permission in MODULE_PERMISSION_CATALOG.get(module_id, [])
+    ]
+
+
+def all_permission_tokens_for_module(module_id):
+    return [
+        permission_token(module_id, permission_id)
+        for permission_id in all_permission_ids(module_id)
     ]
 
 

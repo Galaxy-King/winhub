@@ -18,7 +18,7 @@ from core.database import db, User, EndpointGroup, ApiKey, AuditLog
 from core.security import sec_manager
 from core.config import Config
 from core.module_registry import get_module_registry
-from core.permissions import MODULE_PERMISSION_CATALOG, parse_allowed_modules
+from core.permissions import MODULE_PERMISSION_CATALOG, all_permission_tokens_for_module, parse_allowed_modules
 from core.sdk import WinHubCore
 from core.gpg import gpg_env, import_public_key, fetch_public_key, list_public_keys, delete_public_key, validate_gpg
 
@@ -73,11 +73,9 @@ def sanitize_allowed_modules(raw_items):
         )
     valid_modules.update(MODULE_PERMISSION_CATALOG.keys())
 
-    valid_tokens = {
-        f"{module_id}:{permission['id']}"
-        for module_id, permissions in MODULE_PERMISSION_CATALOG.items()
-        for permission in permissions
-    }
+    valid_tokens = set()
+    for module_id in MODULE_PERMISSION_CATALOG:
+        valid_tokens.update(all_permission_tokens_for_module(module_id))
     cleaned = []
     for item in raw_items:
         if not isinstance(item, str):

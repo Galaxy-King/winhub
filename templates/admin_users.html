@@ -462,58 +462,67 @@ $StaticPassword = "{{secret:local_admin_password}}"
             label: 'Viewer',
             admin: false,
             modules: [
-                'Infrastructure:view_hosts', 'Infrastructure:view_groups', 'Infrastructure:view_queue', 'Infrastructure:view_reports',
-                'HistoryAudit:view_history'
+                'Infrastructure:view',
+                'HistoryAudit:view'
             ]
         },
         operator: {
             label: 'Operator',
             admin: false,
             modules: [
-                'Infrastructure:view_hosts', 'Infrastructure:view_groups', 'Infrastructure:view_queue', 'Infrastructure:view_reports',
-                'Infrastructure:run_tasks'
+                'Infrastructure:view', 'Infrastructure:change'
             ]
         },
         template_engineer: {
             label: 'Template Engineer',
             admin: false,
             modules: [
-                'Infrastructure:view_hosts', 'Infrastructure:view_groups', 'Infrastructure:view_queue', 'Infrastructure:view_reports',
-                'Infrastructure:run_tasks', 'Infrastructure:manage_templates'
+                'Infrastructure:view', 'Infrastructure:change'
             ]
         },
         group_manager: {
             label: 'Group Manager',
             admin: false,
             modules: [
-                'Infrastructure:view_hosts', 'Infrastructure:view_groups', 'Infrastructure:view_queue', 'Infrastructure:view_reports',
-                'Infrastructure:run_tasks', 'Infrastructure:manage_groups'
+                'Infrastructure:view', 'Infrastructure:change'
             ]
         },
         software_manager: {
             label: 'Software Manager',
             admin: false,
             modules: [
-                'Infrastructure:view_hosts', 'Infrastructure:view_groups', 'Infrastructure:view_queue', 'Infrastructure:view_reports',
-                'Infrastructure:run_tasks', 'Infrastructure:manage_software'
+                'Infrastructure:view', 'Infrastructure:change'
             ]
         },
         infrastructure_admin: {
             label: 'Endpoint Management Admin',
             admin: false,
             modules: [
-                'Infrastructure:view_hosts', 'Infrastructure:view_groups', 'Infrastructure:view_queue', 'Infrastructure:view_reports',
-                'Infrastructure:view_sensitive_reports', 'Infrastructure:edit_reports', 'Infrastructure:dismiss_reports', 'Infrastructure:delete_reports', 'Infrastructure:run_tasks',
-                'Infrastructure:send_reports', 'Infrastructure:manage_templates', 'Infrastructure:manage_software', 'Infrastructure:manage_smtp',
-                'Infrastructure:manage_scheduler', 'Infrastructure:manage_triggers', 'Infrastructure:manage_hosts',
-                'Infrastructure:manage_groups', 'Infrastructure:cleanup_tasks',
-                'HistoryAudit:view_history'
+                'Infrastructure:view', 'Infrastructure:change', 'Infrastructure:delete',
+                'HistoryAudit:view'
             ]
         },
         system_admin: {
             label: 'System Admin',
             admin: true,
             modules: []
+        }
+    };
+
+    const simplePermissionAliases = {
+        Infrastructure: {
+            view: ['view_hosts', 'view_groups', 'view_queue', 'view_reports'],
+            change: ['run_tasks', 'edit_reports', 'dismiss_reports', 'send_reports', 'manage_software', 'manage_templates', 'manage_smtp', 'manage_scheduler', 'manage_triggers', 'manage_groups'],
+            delete: ['delete_reports', 'cleanup_tasks', 'manage_hosts']
+        },
+        Newsletter: {
+            view: [],
+            change: ['send_campaigns', 'manage_lists', 'manage_smtp'],
+            delete: ['manage_lists']
+        },
+        HistoryAudit: {
+            view: ['view_history'],
+            delete: ['manage_history']
         }
     };
 
@@ -530,9 +539,35 @@ $StaticPassword = "{{secret:local_admin_password}}"
         return JSON.stringify(sortedTokens(a)) === JSON.stringify(sortedTokens(b));
     }
 
+    function normalizeSimpleTokens(tokens) {
+        const selected = new Set(tokens || []);
+        const normalized = new Set();
+        for (const token of selected) {
+            const value = String(token);
+            if (!value.includes(':')) {
+                normalized.add(value);
+                continue;
+            }
+            const [moduleId, permissionId] = value.split(':');
+            if (simplePermissionAliases[moduleId] && Object.prototype.hasOwnProperty.call(simplePermissionAliases[moduleId], permissionId)) {
+                normalized.add(value);
+            }
+        }
+        Object.entries(simplePermissionAliases).forEach(([moduleId, aliases]) => {
+            Object.entries(aliases).forEach(([aliasId, required]) => {
+                if (selected.has(`${moduleId}:${aliasId}`)) {
+                    normalized.add(`${moduleId}:${aliasId}`);
+                } else if (required.length && required.every(permissionId => selected.has(`${moduleId}:${permissionId}`))) {
+                    normalized.add(`${moduleId}:${aliasId}`);
+                }
+            });
+        });
+        return Array.from(normalized);
+    }
+
     function userTypeLabel(user) {
         if (user.is_admin) return rolePresets.system_admin.label;
-        const allowed = user.allowed_modules || [];
+        const allowed = normalizeSimpleTokens(user.allowed_modules || []);
         for (const key of ['infrastructure_admin', 'software_manager', 'group_manager', 'template_engineer', 'operator', 'viewer']) {
             if (tokensMatch(allowed, rolePresets[key].modules)) return rolePresets[key].label;
         }
@@ -561,7 +596,7 @@ $StaticPassword = "{{secret:local_admin_password}}"
     }
 
     function renderApiPermissionPicker(selected = [], containerId = 'apiPermissionsContainer') {
-        const selectedSet = new Set(selected);
+        const selectedSet = new Set(normalizeSimpleTokens(selected));
         const container = document.getElementById(containerId);
         container.innerHTML = sysModules.map(m => `
             <div class="p-4 bg-slate-50 border border-slate-200 rounded-2xl">
@@ -1023,7 +1058,8 @@ $StaticPassword = "{{secret:local_admin_password}}"
     function openEditModal(user) {
         document.getElementById('editUserId').value = user.id;
         document.getElementById('editUsernameLabel').innerText = user.username;
-        document.getElementById('editRolePreset').value = Object.entries(rolePresets).find(([key, preset]) => !preset.admin && tokensMatch(user.allowed_modules || [], preset.modules))?.[0] || 'custom';
+        const normalizedUserModules = normalizeSimpleTokens(user.allowed_modules || []);
+        document.getElementById('editRolePreset').value = Object.entries(rolePresets).find(([key, preset]) => !preset.admin && tokensMatch(normalizedUserModules, preset.modules))?.[0] || 'custom';
         
         const mCont = document.getElementById('modulesContainer');
         mCont.innerHTML = sysModules.map(m => `
@@ -1038,7 +1074,7 @@ $StaticPassword = "{{secret:local_admin_password}}"
                             const token = `${m.id}:${p.id}`;
                             return `
                                 <label class="flex items-center gap-2 cursor-pointer">
-                                    <input type="checkbox" value="${token}" class="perm-cb perm-${m.id} w-3.5 h-3.5 text-indigo-600 rounded border-slate-300 focus:ring-indigo-500" ${user.allowed_modules.includes(token) ? 'checked' : ''}>
+                                    <input type="checkbox" value="${token}" class="perm-cb perm-${m.id} w-3.5 h-3.5 text-indigo-600 rounded border-slate-300 focus:ring-indigo-500" ${normalizedUserModules.includes(token) ? 'checked' : ''}>
                                     <span class="text-xs font-bold text-slate-500">${p.name}</span>
                                 </label>
                             `;

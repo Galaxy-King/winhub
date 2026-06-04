@@ -1914,8 +1914,9 @@ async function loadFleetCenter(page = fleetPagination.page || 1) {
         renderFleetCenter();
     } catch(e) {
         console.error('Fleet load failed:', e);
-        body.innerHTML = '<tr><td colspan="10" class="p-12 text-center text-rose-400 font-black">Failed to load fleet data.</td></tr>';
-        renderFleetPaginationError('Failed to load nodes. Check /api/infrastructure/fleet response in browser Network or server logs.');
+        const message = e.message || 'Failed to load fleet data.';
+        body.innerHTML = `<tr><td colspan="10" class="p-12 text-center text-rose-400 font-black">${escapeHtml(message)}</td></tr>`;
+        renderFleetPaginationError(message);
     }
 }
 
@@ -2057,7 +2058,7 @@ function renderFleetCenter() {
                 <button onclick="runFleetUpdate('${escapeHtml(host.id)}')" class="px-3 py-2 rounded-xl bg-white border border-slate-200 text-[10px] font-black uppercase text-slate-500 hover:text-indigo-600 hover:bg-indigo-50 transition-all">Update</button>
             </td>
         </tr>`;
-    }).join('') || '<tr><td colspan="10" class="p-12 text-center text-slate-500 font-black">No fleet hosts match filters.</td></tr>';
+    }).join('') || `<tr><td colspan="10" class="p-12 text-center text-slate-500 font-black">${escapeHtml(fleetCenterData.access_note || 'No fleet hosts match filters.')}</td></tr>`;
     updateFleetSelectedCount();
 
     if (packagesBox) {

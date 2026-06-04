@@ -2977,6 +2977,7 @@ def fleet_center():
     denied = require_permission("view_hosts")
     if denied: return denied
 
+    user = current_user()
     latest_version = latest_agent_package_version()
     page = bounded_int_arg("page", 1, 1, 100000)
     page_size = bounded_int_arg("page_size", 50, 10, 100)
@@ -2989,6 +2990,10 @@ def fleet_center():
         for item in str(request.args.get("groups") or "").split(",")
         if item.strip()
     ]
+
+    access_note = None
+    if user and not user.is_admin and not list(user.allowed_host_groups):
+        access_note = "No host groups are assigned to this user. Ask an administrator to assign at least one host group."
 
     query = allowed_endpoint_query(session.get("user_id"), approved_only=True)
     online_since = datetime.utcnow() - timedelta(minutes=5)
@@ -3090,6 +3095,7 @@ def fleet_center():
             "total": total,
             "pages": max(1, (total + page_size - 1) // page_size),
         },
+        "access_note": access_note,
         "packages": packages,
     })
 
