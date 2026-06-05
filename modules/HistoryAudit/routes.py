@@ -4,6 +4,7 @@
 # ==============================================================================
 import logging
 import os
+import json
 from flask import Blueprint, jsonify, session, current_app, render_template, request
 from core.database import db, User, AgentTask, AuditLog, Task, RegistrationHistory
 from core.security import sec_manager
@@ -29,6 +30,18 @@ def _history_item(record_id, event_type, dt, user, action, details, status):
         "status": status or "Success",
         "timestamp": dt or datetime.min,
     }
+
+
+def _format_details(details):
+    if not details:
+        return "No details available."
+    if isinstance(details, (dict, list)):
+        return json.dumps(details, ensure_ascii=False, indent=2)
+    try:
+        parsed = json.loads(details)
+        return json.dumps(parsed, ensure_ascii=False, indent=2)
+    except Exception:
+        return str(details)
 
 @history_bp.before_request
 def check_access():
@@ -156,7 +169,7 @@ def get_log_details(task_id):
         if not is_full_admin:
             return jsonify({"success": False, "message": "Access Denied"}), 403
         entry = AuditLog.query.get(task_id.replace("aud_", ""))
-        return jsonify({"success": True, "log": entry.details if entry else "No details available."})
+        return jsonify({"success": True, "log": _format_details(entry.details) if entry else "No details available."})
     
     if task_id.startswith("agent_"):
         entry = AgentTask.query.get(task_id.replace("agent_", ""))
@@ -170,8 +183,13 @@ def get_log_details(task_id):
             return jsonify({"success": True, "log": "No details available."})
         if not is_full_admin and entry.user_id != user.id:
             return jsonify({"success": False, "message": "Access Denied"}), 403
-        if entry.log_file and os.path.exists(entry.log_file):
-            with open(entry.log_file, "r", encoding="utf-8", errors="replace") as f:
+        log_file = entry.log_file
+        if not is_full_admin and log_file:
+            public_log_file = log_file.replace(".log", "_public.log")
+            if os.path.exists(public_log_file):
+                log_file = public_log_file
+        if log_file and os.path.exists(log_file):
+            with open(log_file, "r", encoding="utf-8", errors="replace") as f:
                 return jsonify({"success": True, "log": f.read()})
         return jsonify({"success": True, "log": f"{entry.module_name}: {entry.action}\nTargets: {entry.targets}\nStatus: {entry.status}"})
         

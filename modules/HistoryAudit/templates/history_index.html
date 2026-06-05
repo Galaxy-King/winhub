@@ -94,13 +94,13 @@
 </main>
 
 <div id="logModal" class="fixed inset-0 z-50 hidden bg-slate-900/60 backdrop-blur-md flex justify-center items-center p-4 animate-in fade-in">
-    <div class="bg-white rounded-[3rem] p-10 w-full max-w-3xl shadow-2xl relative flex flex-col max-h-[85vh]">
+    <div class="bg-white rounded-[3rem] p-10 w-full max-w-6xl shadow-2xl relative flex flex-col max-h-[90vh]">
         <button onclick="closeLogModal()" class="absolute top-6 right-6 text-slate-400 hover:text-slate-600 bg-slate-50 hover:bg-slate-100 p-2 rounded-xl transition-colors shrink-0"><svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M6 18L18 6M6 6l12 12"></path></svg></button>
         <h3 class="text-2xl font-black text-slate-800 mb-2 uppercase tracking-tight shrink-0">Detailed Log</h3>
         <p class="text-[10px] text-slate-400 font-bold uppercase tracking-widest mb-6 shrink-0" id="logModalSub">Information</p>
         
-        <div class="bg-[#0f172a] rounded-2xl border border-slate-800 shadow-inner flex-1 overflow-y-auto custom-scrollbar p-6">
-            <pre id="logContent" class="text-emerald-400 font-mono text-xs whitespace-pre-wrap word-break-all"></pre>
+        <div class="bg-[#0f172a] rounded-2xl border border-slate-800 shadow-inner flex-1 overflow-auto custom-scrollbar p-6">
+            <pre id="logContent" class="text-emerald-400 font-mono text-xs whitespace-pre-wrap break-words"></pre>
         </div>
     </div>
 </div>
@@ -169,9 +169,7 @@
 
             const checkbox = canManageHistory ? `<td class="px-6 py-4 text-center" onclick="event.stopPropagation()"><input type="checkbox" value="${i.id}" class="row-cb w-4 h-4 text-indigo-600 rounded border-slate-300 focus:ring-indigo-500 cursor-pointer" onchange="toggleDelBtn()"></td>` : '';
 
-            let actionClick = '';
-            if (i.type === 'task') actionClick = `onclick="viewLog('${i.id}')" class="hover:bg-slate-50/80 cursor-pointer transition-colors"`;
-            else actionClick = `class="hover:bg-slate-50/80 transition-colors"`;
+            const actionClick = `onclick="viewLog('${i.id}')" class="hover:bg-slate-50/80 cursor-pointer transition-colors"`;
 
             return `
             <tr ${actionClick}>
@@ -234,7 +232,11 @@
     }
 
     async function viewLog(taskId) {
+        const row = allData.find(item => item.id === taskId);
         document.getElementById('logContent').innerText = "Loading log from server...";
+        document.getElementById('logModalSub').innerText = row
+            ? `${String(row.type || 'record').toUpperCase()} / ${row.status || 'Details'} / ${row.action || taskId}`
+            : taskId;
         document.getElementById('logModal').classList.remove('hidden');
         try {
             const res = await fetch('/api/history/log/' + taskId);
