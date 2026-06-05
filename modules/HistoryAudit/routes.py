@@ -74,6 +74,16 @@ def _task_log_problem_summary(task, is_full_admin):
         return ""
     return "Problems: " + " | ".join(matches[-4:])
 
+
+def _is_newsletter_campaign_audit(entry):
+    if not entry or getattr(entry, "module", None) != "Newsletter":
+        return False
+    return getattr(entry, "action", "") in {
+        "Newsletter: Send Campaign",
+        "Newsletter: Campaign Finished",
+        "Newsletter: Campaign Failed",
+    }
+
 @history_bp.before_request
 def check_access():
     user = User.query.get(session.get('user_id'))
@@ -119,6 +129,8 @@ def get_unified_history():
     if is_full_admin:
         audits = AuditLog.query.order_by(AuditLog.timestamp.desc()).limit(200).all()
         for a in audits:
+            if _is_newsletter_campaign_audit(a):
+                continue
             event_type = "module" if a.action and ":" in a.action else "audit"
             history.append(_history_item(
                 f"aud_{a.id}",
