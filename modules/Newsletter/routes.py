@@ -9,13 +9,16 @@ import subprocess
 import tempfile
 import time
 import base64
+import mimetypes
 import smtplib
 import ssl
-from email.mime.text import MIMEText
+from email.message import EmailMessage
+from email import policy
 import uuid
 from datetime import datetime
 from flask import Blueprint, request, jsonify, session, render_template, current_app
 from flask_socketio import join_room
+from werkzeug.utils import secure_filename
 from cryptography.fernet import Fernet
 from core.database import db, User, Task
 from core import socketio
@@ -33,6 +36,9 @@ DATA_DIR = os.environ.get("NEWSLETTER_DATA_DIR") or os.path.join(Config.DATA_DIR
 LISTS_DIR = os.path.join(DATA_DIR, "lists")
 SMTP_FILE = os.path.join(DATA_DIR, "smtp_profiles.json")
 DEFAULT_RECIPIENT_DOMAIN = os.environ.get("NEWSLETTER_RECIPIENT_DOMAIN", "@syneforge.com")
+MAX_ATTACHMENTS = int(os.environ.get("NEWSLETTER_MAX_ATTACHMENTS", "8"))
+MAX_ATTACHMENT_BYTES = int(os.environ.get("NEWSLETTER_MAX_ATTACHMENT_BYTES", str(10 * 1024 * 1024)))
+MAX_TOTAL_ATTACHMENT_BYTES = int(os.environ.get("NEWSLETTER_MAX_TOTAL_ATTACHMENT_BYTES", str(25 * 1024 * 1024)))
 
 os.makedirs(DATA_DIR, exist_ok=True)
 os.makedirs(LISTS_DIR, exist_ok=True)
@@ -61,6 +67,87 @@ def normalize_recipient(value):
     if domain and not domain.startswith("@"):
         domain = f"@{domain}"
     return f"{recipient}{domain}"
+
+def html_to_text(html):
+    import re
+    text = re.sub(r"(?i)<\s*br\s*/?\s*>", "\n", str(html or ""))
+    text = re.sub(r"(?i)</\s*(p|div|h[1-6]|li|tr)\s*>", "\n", text)
+    text = re.sub(r"<[^>]+>", "", text)
+    text = text.replace("&nbsp;", " ")
+    text = text.replace("&amp;", "&").replace("&lt;", "<").replace("&gt;", ">")
+    return "\n".join(line.rstrip() for line in text.splitlines()).strip()
+
+def normalize_attachments(raw_attachments):
+    if not isinstance(raw_attachments, list):
+        return []
+    if len(raw_attachments) > MAX_ATTACHMENTS:
+        raise ValueError(f"Too many attachments. Maximum is {MAX_ATTACHMENTS}.")
+
+    attachments = []
+    total_size = 0
+    for item in raw_attachments:
+        if not isinstance(item, dict):
+            continue
+        filename = secure_filename(str(item.get("name") or "attachment"))
+        if not filename:
+            filename = "attachment"
+        content_type = str(item.get("type") or "").strip() or mimetypes.guess_type(filename)[0] or "application/octet-stream"
+        data_url = str(item.get("data") or "")
+        if "," in data_url:
+            data_url = data_url.split(",", 1)[1]
+        try:
+            content = base64.b64decode(data_url, validate=True)
+        except Exception:
+            raise ValueError(f"Attachment '{filename}' is not valid base64.")
+        if len(content) > MAX_ATTACHMENT_BYTES:
+            raise ValueError(f"Attachment '{filename}' is too large.")
+        total_size += len(content)
+        if total_size > MAX_TOTAL_ATTACHMENT_BYTES:
+            raise ValueError("Total attachment size is too large.")
+        attachments.append({"filename": filename, "content_type": content_type, "content": content})
+    return attachments
+
+def build_clear_message(sender_email, recipient, subject, body_text, body_html=None, attachments=None):
+    msg = EmailMessage(policy=policy.SMTP)
+    msg["Subject"] = subject
+    msg["From"] = sender_email
+    msg["To"] = recipient
+
+    body_text = body_text or html_to_text(body_html) or " "
+    if body_html:
+        msg.set_content(body_text, subtype="plain", charset="utf-8")
+        msg.add_alternative(body_html, subtype="html", charset="utf-8")
+    else:
+        msg.set_content(body_text, subtype="plain", charset="utf-8")
+
+    for att in attachments or []:
+        if "/" in att["content_type"]:
+            maintype, subtype = att["content_type"].split("/", 1)
+        else:
+            maintype, subtype = "application", "octet-stream"
+        msg.add_attachment(att["content"], maintype=maintype, subtype=subtype, filename=att["filename"])
+    return msg
+
+def build_encrypted_message(sender_email, recipient, subject, encrypted_payload):
+    msg = EmailMessage(policy=policy.SMTP)
+    msg["Subject"] = subject
+    msg["From"] = sender_email
+    msg["To"] = recipient
+    msg.set_type("multipart/encrypted")
+    msg.set_param("protocol", "application/pgp-encrypted")
+
+    version_part = EmailMessage(policy=policy.SMTP)
+    version_part.set_content("Version: 1\n", subtype="pgp-encrypted", charset="us-ascii")
+    version_part.replace_header("Content-Type", "application/pgp-encrypted")
+
+    encrypted_part = EmailMessage(policy=policy.SMTP)
+    encrypted_part.set_content(encrypted_payload, subtype="octet-stream", charset="us-ascii")
+    encrypted_part.replace_header("Content-Type", 'application/octet-stream; name="encrypted.asc"')
+    encrypted_part["Content-Disposition"] = 'inline; filename="encrypted.asc"'
+
+    msg.attach(version_part)
+    msg.attach(encrypted_part)
+    return msg
 
 # --- Encryption Helper for SMTP Passwords ---
 def get_cipher():
@@ -225,13 +312,18 @@ def send_newsletter():
     selected_lists = data.get("lists", [])
     subject = data.get("subject", "Newsletter").strip()
     body = data.get("body", "").strip()
+    body_html = data.get("body_html", "").strip()
     use_gpg = bool(data.get("use_gpg", True))
+    try:
+        attachments = normalize_attachments(data.get("attachments", []))
+    except ValueError as e:
+        return jsonify({"success": False, "message": str(e)}), 400
     
     user_id = session.get('user_id')
     room_id = str(user_id)
     is_admin = session.get('is_admin', False)
     
-    if not sender_email or not selected_lists or not body:
+    if not sender_email or not selected_lists or not (body or html_to_text(body_html)):
         return jsonify({"success": False, "message": "Please fill in all required fields."}), 400
 
     profiles = load_smtp_profiles()
@@ -276,6 +368,7 @@ def send_newsletter():
                 "lists": selected_lists,
                 "recipients_count": len(target_users),
                 "use_gpg": use_gpg,
+                "attachments_count": len(attachments),
             },
             status="Success"
         )
@@ -285,7 +378,7 @@ def send_newsletter():
     # Background Execution
     app_context = current_app._get_current_object()
     thread = threading.Thread(target=bg_send_execution, args=(
-        app_context, task_id, sender_email, profiles[sender_email], list(target_users), subject, body, use_gpg, log_file, room_id, is_admin
+        app_context, task_id, sender_email, profiles[sender_email], list(target_users), subject, body, body_html, attachments, use_gpg, log_file, room_id, is_admin
     ))
     thread.daemon = True
     thread.start()
@@ -362,13 +455,16 @@ def fetch_gpg_key(gpg_path, keyserver, email):
         log.error(f"GPG HTTP Fetch Error: {str(e)}")
         return False, f"System Error: {str(e)}"
 
-def encrypt_with_gpg(gpg_path, recipient_email, body):
+def encrypt_with_gpg(gpg_path, recipient_email, payload):
     unique_id = str(time.time()).replace(".", "")
-    tmp_in = os.path.join(tempfile.gettempdir(), f"nl_{unique_id}.txt")
+    tmp_in = os.path.join(tempfile.gettempdir(), f"nl_{unique_id}.eml")
     tmp_out = tmp_in + ".asc"
     
     try:
-        with open(tmp_in, 'w', encoding='utf-8') as f: f.write(body)
+        mode = "wb" if isinstance(payload, (bytes, bytearray)) else "w"
+        kwargs = {} if mode == "wb" else {"encoding": "utf-8"}
+        with open(tmp_in, mode, **kwargs) as f:
+            f.write(payload)
             
         # УВАГА: Видалено шифрування для відправника (-r sender_email), 
         # оскільки відсутність його ключа блокує розсилку та викликає таймаути
@@ -399,7 +495,7 @@ def encrypt_with_gpg(gpg_path, recipient_email, body):
                 except: pass
 
 # --- Background Worker ---
-def bg_send_execution(app, task_id, sender_email, smtp_config, target_users, subject, body, use_gpg, log_file, room_id, is_admin):
+def bg_send_execution(app, task_id, sender_email, smtp_config, target_users, subject, body, body_html, attachments, use_gpg, log_file, room_id, is_admin):
     timestamp = datetime.utcnow().strftime("[%Y-%m-%d %H:%M:%S]")
     ensure_parent_dir(log_file)
     
@@ -429,6 +525,7 @@ def bg_send_execution(app, task_id, sender_email, smtp_config, target_users, sub
             emit_and_write(f"========== [ {timestamp} ] NEWSLETTER CAMPAIGN ==========")
             emit_and_write(f"--- 📤 Sender: {sender_email}")
             emit_and_write(f"--- 👥 Recipients: {len(target_users)}", "__HIDE__")
+            emit_and_write(f"--- 📎 Attachments: {len(attachments or [])}", "__HIDE__")
             emit_and_write(f"--- 🔒 GPG Encryption: {'ENABLED' if use_gpg else 'DISABLED'}")
             
             if keyserver:
@@ -463,7 +560,8 @@ def bg_send_execution(app, task_id, sender_email, smtp_config, target_users, sub
 
             # Sending loop
             for idx, recipient in enumerate(sorted(target_users), 1):
-                final_body = body
+                clear_msg = build_clear_message(sender_email, recipient, subject, body, body_html, attachments)
+                final_msg = clear_msg
                 if use_gpg:
                     key_exists = check_gpg_key_exists(gpg_path, recipient)
                     
@@ -482,22 +580,19 @@ def bg_send_execution(app, task_id, sender_email, smtp_config, target_users, sub
                         failure_reasons["Missing GPG Key"] = failure_reasons.get("Missing GPG Key", 0) + 1
                         continue
                         
-                    is_encrypted, final_body = encrypt_with_gpg(gpg_path, recipient, body)
+                    is_encrypted, encrypted_payload = encrypt_with_gpg(gpg_path, recipient, clear_msg.as_bytes())
                     
                     if not is_encrypted:
-                        emit_and_write(f"[{idx}/{len(target_users)}] ❌ Failed: {recipient} (Encryption Error: {final_body})", "__HIDE__")
+                        emit_and_write(f"[{idx}/{len(target_users)}] ❌ Failed: {recipient} (Encryption Error: {encrypted_payload})", "__HIDE__")
                         error_count += 1
                         failure_reasons["GPG Encryption Error"] = failure_reasons.get("GPG Encryption Error", 0) + 1
                         continue
+                    final_msg = build_encrypted_message(sender_email, recipient, subject, encrypted_payload)
                 else:
                     emit_and_write(f"[{idx}/{len(target_users)}] ⚠️ Sending without GPG encryption: {recipient}", "__HIDE__")
                 
                 try:
-                    msg = MIMEText(final_body, 'plain', 'utf-8')
-                    msg['Subject'] = subject
-                    msg['From'] = sender_email
-                    msg['To'] = recipient
-                    server.send_message(msg)
+                    server.send_message(final_msg)
                     emit_and_write(f"[{idx}/{len(target_users)}] ✅ Sent: {recipient}", "__HIDE__")
                     success_count += 1
                 except Exception as e:
@@ -545,6 +640,7 @@ def bg_send_execution(app, task_id, sender_email, smtp_config, target_users, sub
                         "success_count": success_count,
                         "error_count": error_count,
                         "use_gpg": use_gpg,
+                        "attachments_count": len(attachments or []),
                     },
                     status="Success" if error_count == 0 else "Warning"
                 )
@@ -571,6 +667,7 @@ def bg_send_execution(app, task_id, sender_email, smtp_config, target_users, sub
                         "recipients_count": len(target_users),
                         "error": str(e),
                         "use_gpg": use_gpg,
+                        "attachments_count": len(attachments or []),
                     },
                     status="Error"
                 )

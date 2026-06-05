@@ -78,9 +78,28 @@
 
     .newsletter-module article input:focus,
     .newsletter-module article textarea:focus,
+    .newsletter-module article [contenteditable="true"]:focus,
     .newsletter-module article select:focus {
         border-color: rgba(103, 232, 249, 0.72) !important;
         box-shadow: 0 0 0 4px rgba(34, 211, 238, 0.13) !important;
+    }
+
+    .newsletter-editor-toolbar button,
+    .newsletter-editor-toolbar select,
+    .newsletter-editor-toolbar input[type="color"] {
+        height: 34px;
+    }
+
+    .newsletter-editor-toolbar button.is-active {
+        background: rgba(34, 211, 238, 0.22) !important;
+        color: #ffffff !important;
+        border-color: rgba(103, 232, 249, 0.55) !important;
+    }
+
+    #nlEditor:empty:before {
+        content: attr(data-placeholder);
+        color: #7fa8bd;
+        pointer-events: none;
     }
 
     .newsletter-module #nlListsCheckboxes,
@@ -266,9 +285,43 @@
                         <input type="text" id="nlSubject" required class="w-full px-4 py-2 border border-slate-300 rounded-lg outline-none focus:ring-2 focus:ring-indigo-500 font-medium" placeholder="Email subject...">
                     </div>
 
-                    <div class="mb-6">
+                    <div class="mb-4">
                         <label class="block text-sm font-bold text-slate-700 mb-2">Email Body*</label>
-                        <textarea id="nlBody" required rows="10" class="w-full min-h-[260px] px-4 py-3 border border-slate-300 rounded-lg outline-none focus:ring-2 focus:ring-indigo-500 font-mono text-sm resize-y" placeholder="Write your message here..."></textarea>
+                        <div class="newsletter-editor-toolbar flex flex-wrap items-center gap-2 p-2 border border-cyan-400/25 rounded-t-lg bg-slate-950/40">
+                            <select id="nlFontFamily" onchange="formatEditor('fontName', this.value)" title="Font family" class="px-2 border border-cyan-400/25 rounded bg-slate-950/70 text-cyan-50 text-xs font-bold outline-none">
+                                <option value="Arial">Arial</option>
+                                <option value="Georgia">Georgia</option>
+                                <option value="Tahoma">Tahoma</option>
+                                <option value="Times New Roman">Times</option>
+                                <option value="Verdana">Verdana</option>
+                            </select>
+                            <select id="nlFontSize" onchange="formatEditor('fontSize', this.value)" title="Font size" class="px-2 border border-cyan-400/25 rounded bg-slate-950/70 text-cyan-50 text-xs font-bold outline-none">
+                                <option value="2">Small</option>
+                                <option value="3" selected>Normal</option>
+                                <option value="4">Large</option>
+                                <option value="5">Huge</option>
+                            </select>
+                            <button type="button" onclick="formatEditor('bold')" title="Bold" class="w-9 border border-cyan-400/25 rounded bg-slate-950/70 text-cyan-50 font-black">B</button>
+                            <button type="button" onclick="formatEditor('italic')" title="Italic" class="w-9 border border-cyan-400/25 rounded bg-slate-950/70 text-cyan-50 italic font-bold">I</button>
+                            <button type="button" onclick="formatEditor('underline')" title="Underline" class="w-9 border border-cyan-400/25 rounded bg-slate-950/70 text-cyan-50 underline font-bold">U</button>
+                            <button type="button" onclick="formatEditor('insertUnorderedList')" title="Bullet list" class="w-9 border border-cyan-400/25 rounded bg-slate-950/70 text-cyan-50 font-bold">•</button>
+                            <button type="button" onclick="formatEditor('insertOrderedList')" title="Numbered list" class="w-9 border border-cyan-400/25 rounded bg-slate-950/70 text-cyan-50 font-bold">1.</button>
+                            <button type="button" onclick="formatEditor('justifyLeft')" title="Align left" class="w-9 border border-cyan-400/25 rounded bg-slate-950/70 text-cyan-50 font-bold">≡</button>
+                            <button type="button" onclick="formatEditor('justifyCenter')" title="Align center" class="w-9 border border-cyan-400/25 rounded bg-slate-950/70 text-cyan-50 font-bold">≣</button>
+                            <button type="button" onclick="formatEditor('justifyRight')" title="Align right" class="w-9 border border-cyan-400/25 rounded bg-slate-950/70 text-cyan-50 font-bold">≡</button>
+                            <input id="nlTextColor" type="color" value="#e6f7ff" onchange="formatEditor('foreColor', this.value)" title="Text color" class="w-10 p-1 border border-cyan-400/25 rounded bg-slate-950/70">
+                            <button type="button" onclick="addEditorLink()" title="Insert link" class="px-3 border border-cyan-400/25 rounded bg-slate-950/70 text-cyan-50 text-xs font-black">Link</button>
+                            <button type="button" onclick="formatEditor('removeFormat')" title="Clear formatting" class="px-3 border border-cyan-400/25 rounded bg-slate-950/70 text-cyan-50 text-xs font-black">Clear</button>
+                        </div>
+                        <div id="nlEditor" contenteditable="true" data-placeholder="Write your message here..." oninput="saveNewsletterDraft()" onkeyup="updateToolbarState()" onmouseup="updateToolbarState()" class="w-full min-h-[260px] px-4 py-3 border-x border-b border-slate-300 rounded-b-lg outline-none focus:ring-2 focus:ring-indigo-500 text-sm resize-y overflow-y-auto bg-slate-950/35 text-cyan-50"></div>
+                        <textarea id="nlBody" class="hidden"></textarea>
+                    </div>
+
+                    <div class="mb-6">
+                        <label class="block text-sm font-bold text-slate-700 mb-2">Attachments</label>
+                        <input type="file" id="nlAttachments" multiple onchange="handleAttachmentSelection()" class="w-full px-4 py-2 border border-slate-300 rounded-lg outline-none focus:ring-2 focus:ring-indigo-500 font-medium">
+                        <div id="nlAttachmentList" class="mt-2 space-y-2 text-xs text-cyan-50"></div>
+                        <p class="mt-2 text-xs text-slate-500 font-bold">Files are included in the MIME message. With GPG enabled, the whole message including attachments is encrypted.</p>
                     </div>
 
                     <div class="sticky bottom-0 -mx-6 -mb-6 px-6 py-4 bg-white/95 backdrop-blur border-t border-slate-100 rounded-b-xl">
@@ -426,6 +479,9 @@
     let currentEditListUsers = [];
     let originalEditListName = null;
     const newsletterStateKey = 'winhub_newsletter_draft';
+    const maxAttachments = 8;
+    const maxAttachmentBytes = 10 * 1024 * 1024;
+    const maxTotalAttachmentBytes = 25 * 1024 * 1024;
 
     window.onload = () => { loadConfig(); };
 
@@ -469,7 +525,7 @@
         return {
             sender: document.getElementById('nlSender')?.value || '',
             subject: document.getElementById('nlSubject')?.value || '',
-            body: document.getElementById('nlBody')?.value || '',
+            body_html: document.getElementById('nlEditor')?.innerHTML || '',
             use_gpg: document.getElementById('nlUseGpg')?.checked !== false,
             lists: Array.from(document.querySelectorAll('.nl-list-cb:checked')).map(cb => cb.value)
         };
@@ -489,14 +545,14 @@
         if (!draft) return;
         if (draft.sender && document.getElementById('nlSender')) document.getElementById('nlSender').value = draft.sender;
         if (document.getElementById('nlSubject')) document.getElementById('nlSubject').value = draft.subject || '';
-        if (document.getElementById('nlBody')) document.getElementById('nlBody').value = draft.body || '';
+        if (document.getElementById('nlEditor')) document.getElementById('nlEditor').innerHTML = draft.body_html || draft.body || '';
         if (document.getElementById('nlUseGpg')) document.getElementById('nlUseGpg').checked = draft.use_gpg !== false;
         const selectedLists = new Set(draft.lists || []);
         document.querySelectorAll('.nl-list-cb').forEach(cb => { cb.checked = selectedLists.has(cb.value); });
     }
 
     function bindNewsletterDraftPersistence() {
-        ['nlSender', 'nlSubject', 'nlBody', 'nlUseGpg'].forEach(id => {
+        ['nlSender', 'nlSubject', 'nlUseGpg'].forEach(id => {
             const el = document.getElementById(id);
             if (el && !el.dataset.draftBound) {
                 el.addEventListener('input', saveNewsletterDraft);
@@ -557,21 +613,110 @@
         }
     }
 
+    function formatEditor(command, value = null) {
+        const editor = document.getElementById('nlEditor');
+        editor.focus();
+        document.execCommand(command, false, value);
+        saveNewsletterDraft();
+        updateToolbarState();
+    }
+
+    function updateToolbarState() {
+        document.querySelectorAll('.newsletter-editor-toolbar button').forEach(btn => btn.classList.remove('is-active'));
+        [
+            ['bold', 0],
+            ['italic', 1],
+            ['underline', 2],
+            ['insertUnorderedList', 3],
+            ['insertOrderedList', 4]
+        ].forEach(([cmd, index]) => {
+            const btn = document.querySelectorAll('.newsletter-editor-toolbar button')[index];
+            if (btn && document.queryCommandState(cmd)) btn.classList.add('is-active');
+        });
+    }
+
+    function addEditorLink() {
+        const url = prompt('Enter URL');
+        if (!url) return;
+        const safeUrl = /^https?:\/\//i.test(url) ? url : `https://${url}`;
+        formatEditor('createLink', safeUrl);
+    }
+
+    function editorPlainText() {
+        const editor = document.getElementById('nlEditor');
+        return (editor?.innerText || '').replace(/\u00a0/g, ' ').trim();
+    }
+
+    function handleAttachmentSelection() {
+        const input = document.getElementById('nlAttachments');
+        const files = Array.from(input.files || []);
+        const list = document.getElementById('nlAttachmentList');
+        let totalSize = 0;
+
+        if (files.length > maxAttachments) {
+            input.value = '';
+            list.innerHTML = `<div class="text-rose-300 font-bold">Maximum ${maxAttachments} attachments are allowed.</div>`;
+            return;
+        }
+
+        for (const file of files) {
+            totalSize += file.size;
+            if (file.size > maxAttachmentBytes || totalSize > maxTotalAttachmentBytes) {
+                input.value = '';
+                list.innerHTML = '<div class="text-rose-300 font-bold">Attachment size limit exceeded.</div>';
+                return;
+            }
+        }
+
+        list.innerHTML = files.map(file => `
+            <div class="flex items-center justify-between gap-3 p-2 rounded border border-cyan-400/20 bg-slate-950/35">
+                <span class="truncate font-bold">${file.name}</span>
+                <span class="shrink-0 text-cyan-100/70 font-mono">${formatBytes(file.size)}</span>
+            </div>
+        `).join('');
+    }
+
+    function formatBytes(bytes) {
+        if (!bytes) return '0 B';
+        const units = ['B', 'KB', 'MB', 'GB'];
+        const idx = Math.min(Math.floor(Math.log(bytes) / Math.log(1024)), units.length - 1);
+        return `${(bytes / Math.pow(1024, idx)).toFixed(idx ? 1 : 0)} ${units[idx]}`;
+    }
+
+    function readFileAsDataUrl(file) {
+        return new Promise((resolve, reject) => {
+            const reader = new FileReader();
+            reader.onload = () => resolve({ name: file.name, type: file.type || 'application/octet-stream', data: reader.result });
+            reader.onerror = () => reject(reader.error);
+            reader.readAsDataURL(file);
+        });
+    }
+
+    async function collectAttachments() {
+        const files = Array.from(document.getElementById('nlAttachments')?.files || []);
+        return Promise.all(files.map(readFileAsDataUrl));
+    }
+
     // --- Campaign Execution ---
     async function sendCampaign(e) {
         e.preventDefault();
         const btn = document.getElementById('btnSend');
         const originalHtml = btn.innerHTML;
+        const bodyHtml = document.getElementById('nlEditor').innerHTML.trim();
+        const bodyText = editorPlainText();
         
         const payload = {
             sender: document.getElementById('nlSender').value,
             lists: Array.from(document.querySelectorAll('.nl-list-cb:checked')).map(cb => cb.value),
             subject: document.getElementById('nlSubject').value,
-            body: document.getElementById('nlBody').value,
-            use_gpg: document.getElementById('nlUseGpg').checked
+            body: bodyText,
+            body_html: bodyHtml,
+            use_gpg: document.getElementById('nlUseGpg').checked,
+            attachments: []
         };
 
         if(payload.lists.length === 0) return alert('Please select at least one target list.');
+        if(!bodyText) return alert('Please write an email body.');
         if(!payload.use_gpg) {
             const confirmed = confirm('Final confirmation: send this campaign without GPG encryption?');
             if(!confirmed) return;
@@ -584,6 +729,7 @@
         appendLog("\n\n⏳ [BACKGROUND PROCESS] CAMPAIGN STARTED. Waiting for server logs...");
 
         try {
+            payload.attachments = await collectAttachments();
             const res = await fetch('/api/newsletter/send', {
                 method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(payload)
             });
@@ -594,7 +740,10 @@
             setTimeout(() => {
                 btn.disabled = false; btn.innerHTML = originalHtml; btn.classList.remove('opacity-75', 'cursor-not-allowed');
                 document.getElementById('nlSubject').value = '';
+                document.getElementById('nlEditor').innerHTML = '';
                 document.getElementById('nlBody').value = '';
+                document.getElementById('nlAttachments').value = '';
+                document.getElementById('nlAttachmentList').innerHTML = '';
                 document.querySelectorAll('.nl-list-cb').forEach(cb => cb.checked = false);
                 localStorage.removeItem(newsletterStateKey);
             }, 1000);
