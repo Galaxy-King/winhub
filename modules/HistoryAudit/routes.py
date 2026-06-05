@@ -43,6 +43,37 @@ def _format_details(details):
     except Exception:
         return str(details)
 
+
+def _task_log_problem_summary(task, is_full_admin):
+    if not is_full_admin or not task or not getattr(task, "log_file", None):
+        return ""
+    if not os.path.exists(task.log_file):
+        return ""
+    try:
+        with open(task.log_file, "r", encoding="utf-8", errors="replace") as f:
+            lines = f.readlines()
+    except Exception as e:
+        log.warning("Failed to read task log summary for %s: %s", getattr(task, "id", ""), e)
+        return ""
+
+    markers = (
+        "Failed:",
+        "CRITICAL ERROR",
+        "Encryption Error",
+        "Missing GPG Key",
+        "GPG Encryption Error",
+        "SMTP Connection/Send Error",
+        "Failure Breakdown",
+    )
+    matches = []
+    for line in lines:
+        clean = line.strip()
+        if clean and any(marker in clean for marker in markers):
+            matches.append(clean)
+    if not matches:
+        return ""
+    return "Problems: " + " | ".join(matches[-4:])
+
 @history_bp.before_request
 def check_access():
     user = User.query.get(session.get('user_id'))
@@ -138,13 +169,17 @@ def get_unified_history():
     legacy_tasks = legacy_q.order_by(Task.created_at.desc()).limit(200).all()
     for t in legacy_tasks:
         task_user = t.user.username if getattr(t, "user", None) else "System"
+        details = t.targets
+        problem_summary = _task_log_problem_summary(t, is_full_admin)
+        if problem_summary:
+            details = f"{t.targets or 'Targets unavailable'} / {problem_summary}"
         history.append(_history_item(
             f"task_{t.id}",
             "task",
             t.created_at,
             task_user,
             f"{t.module_name or 'Module'}: {t.action or 'Task'}",
-            t.targets,
+            details,
             t.status,
         ))
 
