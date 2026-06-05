@@ -84,10 +84,24 @@
         box-shadow: 0 0 0 4px rgba(34, 211, 238, 0.13) !important;
     }
 
-    .newsletter-editor-toolbar button,
-    .newsletter-editor-toolbar select,
+    .newsletter-editor-toolbar button {
+        min-width: 52px;
+        width: auto !important;
+        height: 44px;
+        padding: 0 14px;
+        font-size: 13px !important;
+        line-height: 1;
+    }
+
+    .newsletter-editor-toolbar select {
+        min-width: 150px;
+        height: 44px;
+        font-size: 13px;
+    }
+
     .newsletter-editor-toolbar input[type="color"] {
-        height: 34px;
+        width: 52px;
+        height: 44px;
     }
 
     .newsletter-editor-toolbar button.is-active {
@@ -100,6 +114,12 @@
         content: attr(data-placeholder);
         color: #7fa8bd;
         pointer-events: none;
+    }
+
+    #logsModal > div {
+        background: #0f172a !important;
+        border: 1px solid rgba(34, 211, 238, 0.24) !important;
+        box-shadow: 0 30px 90px rgba(0, 0, 0, 0.58) !important;
     }
 
     .newsletter-module #nlListsCheckboxes,
@@ -229,8 +249,12 @@
     <header class="h-16 bg-white border-b border-slate-200 flex items-center justify-between px-8 shrink-0 shadow-sm">
         <h2 class="text-lg font-bold text-slate-800">Newsletter Manager</h2>
         <div class="flex items-center gap-4">
+            <button onclick="openLogsModal()" class="flex items-center gap-2 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold py-2 px-4 rounded-lg border border-slate-300 transition-colors text-sm">
+                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 9h8M8 13h6M5 5h14v14H5z"></path></svg>
+                Logs
+            </button>
             {% if permissions.manage_smtp %}
-            <button onclick="openSmtpModal()" class="flex items-center gap-2 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold py-1.5 px-3 rounded-lg border border-slate-300 transition-colors text-sm">
+            <button onclick="openSmtpModal()" class="flex items-center gap-2 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold py-2 px-4 rounded-lg border border-slate-300 transition-colors text-sm">
                 <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z"></path><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"></path></svg>
                 SMTP Settings
             </button>
@@ -242,37 +266,37 @@
         </div>
     </header>
 
-    <div class="flex-1 p-6 overflow-hidden flex flex-col xl:flex-row gap-6">
+    <div class="flex-1 p-6 lg:p-8 overflow-y-auto">
         
-        <!-- Left Column: Form & Lists -->
-        <div class="w-full xl:w-[680px] flex flex-col gap-6 shrink-0 overflow-y-auto">
+        <!-- Main Workspace -->
+        <div class="w-full max-w-[1280px] mx-auto flex flex-col gap-6">
             
             <!-- Campaign Setup Card -->
-            <article class="bg-white rounded-xl shadow-sm border border-slate-200 p-6 flex flex-col shrink-0 wh-soft-panel">
-                <h3 class="text-md font-bold text-slate-800 mb-4 flex items-center gap-2">
-                    <svg class="w-5 h-5 text-indigo-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z"></path></svg>
+            <article class="bg-white rounded-xl shadow-sm border border-slate-200 p-7 lg:p-8 flex flex-col shrink-0 wh-soft-panel">
+                <h3 class="text-xl font-bold text-slate-800 mb-6 flex items-center gap-3">
+                    <svg class="w-6 h-6 text-indigo-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z"></path></svg>
                     Campaign Setup
                 </h3>
 
                 <form id="campaignForm" onsubmit="sendCampaign(event)">
-                    <div class="mb-4">
-                        <label class="block text-sm font-bold text-slate-700 mb-2">Sender Profile*</label>
-                        <select id="nlSender" required class="w-full px-4 py-2.5 border border-slate-300 rounded-lg outline-none focus:ring-2 focus:ring-indigo-500 font-medium text-slate-800 bg-slate-50">
+                    <div class="mb-5">
+                        <label class="block text-base font-bold text-slate-700 mb-2">Sender Profile*</label>
+                        <select id="nlSender" required class="w-full px-5 py-3.5 border border-slate-300 rounded-lg outline-none focus:ring-2 focus:ring-indigo-500 font-medium text-slate-800 bg-slate-50 text-base">
                             <option value="" disabled selected>Loading senders...</option>
                         </select>
                     </div>
 
-                    <div class="mb-4">
-                        <label class="block text-sm font-bold text-slate-700 mb-2">Target Lists*</label>
-                        <div id="nlListsCheckboxes" class="border border-slate-200 rounded-lg p-3 bg-slate-50 max-h-40 overflow-y-auto space-y-2">
+                    <div class="mb-5">
+                        <label class="block text-base font-bold text-slate-700 mb-2">Target Lists*</label>
+                        <div id="nlListsCheckboxes" class="border border-slate-200 rounded-lg p-4 bg-slate-50 max-h-48 overflow-y-auto space-y-2">
                             <span class="text-slate-500 text-sm italic">Loading lists...</span>
                         </div>
                     </div>
 
-                    <div class="mb-4 flex justify-between items-center bg-slate-100 p-3 rounded-lg border border-slate-200">
+                    <div class="mb-5 flex justify-between items-center bg-slate-100 p-4 rounded-lg border border-slate-200">
                         <div>
-                            <span class="block text-sm font-bold text-slate-800">GPG Encryption</span>
-                            <span class="block text-xs text-slate-500">Encrypt email body before sending</span>
+                            <span class="block text-base font-bold text-slate-800">GPG Encryption</span>
+                            <span class="block text-sm text-slate-500">Encrypt email body and attachments before sending</span>
                         </div>
                         <label class="toggle-switch">
                             <input type="checkbox" id="nlUseGpg" checked>
@@ -280,30 +304,30 @@
                         </label>
                     </div>
 
-                    <div class="mb-4">
-                        <label class="block text-sm font-bold text-slate-700 mb-2">Subject*</label>
-                        <input type="text" id="nlSubject" required class="w-full px-4 py-2 border border-slate-300 rounded-lg outline-none focus:ring-2 focus:ring-indigo-500 font-medium" placeholder="Email subject...">
+                    <div class="mb-5">
+                        <label class="block text-base font-bold text-slate-700 mb-2">Subject*</label>
+                        <input type="text" id="nlSubject" required class="w-full px-5 py-3.5 border border-slate-300 rounded-lg outline-none focus:ring-2 focus:ring-indigo-500 font-medium text-base" placeholder="Email subject...">
                     </div>
 
-                    <div class="mb-4">
-                        <label class="block text-sm font-bold text-slate-700 mb-2">Email Body*</label>
-                        <div class="newsletter-editor-toolbar flex flex-wrap items-center gap-2 p-2 border border-cyan-400/25 rounded-t-lg bg-slate-950/40">
-                            <select id="nlFontFamily" onchange="formatEditor('fontName', this.value)" title="Font family" class="px-2 border border-cyan-400/25 rounded bg-slate-950/70 text-cyan-50 text-xs font-bold outline-none">
+                    <div class="mb-5">
+                        <label class="block text-base font-bold text-slate-700 mb-2">Email Body*</label>
+                        <div class="newsletter-editor-toolbar flex flex-wrap items-center gap-2.5 p-3 border border-cyan-400/25 rounded-t-lg bg-slate-950/40">
+                            <select id="nlFontFamily" onchange="formatEditor('fontName', this.value)" title="Font family" class="px-3 border border-cyan-400/25 rounded bg-slate-950/70 text-cyan-50 font-bold outline-none">
                                 <option value="Arial">Arial</option>
                                 <option value="Georgia">Georgia</option>
                                 <option value="Tahoma">Tahoma</option>
                                 <option value="Times New Roman">Times</option>
                                 <option value="Verdana">Verdana</option>
                             </select>
-                            <select id="nlFontSize" onchange="formatEditor('fontSize', this.value)" title="Font size" class="px-2 border border-cyan-400/25 rounded bg-slate-950/70 text-cyan-50 text-xs font-bold outline-none">
+                            <select id="nlFontSize" onchange="formatEditor('fontSize', this.value)" title="Font size" class="px-3 border border-cyan-400/25 rounded bg-slate-950/70 text-cyan-50 font-bold outline-none">
                                 <option value="2">Small</option>
                                 <option value="3" selected>Normal</option>
                                 <option value="4">Large</option>
                                 <option value="5">Huge</option>
                             </select>
-                            <button type="button" onclick="formatEditor('bold')" title="Bold" class="w-9 border border-cyan-400/25 rounded bg-slate-950/70 text-cyan-50 font-black">B</button>
-                            <button type="button" onclick="formatEditor('italic')" title="Italic" class="w-9 border border-cyan-400/25 rounded bg-slate-950/70 text-cyan-50 italic font-bold">I</button>
-                            <button type="button" onclick="formatEditor('underline')" title="Underline" class="w-9 border border-cyan-400/25 rounded bg-slate-950/70 text-cyan-50 underline font-bold">U</button>
+                            <button type="button" onclick="formatEditor('bold')" title="Bold" class="border border-cyan-400/25 rounded bg-slate-950/70 text-cyan-50 font-black">B</button>
+                            <button type="button" onclick="formatEditor('italic')" title="Italic" class="border border-cyan-400/25 rounded bg-slate-950/70 text-cyan-50 italic font-bold">I</button>
+                            <button type="button" onclick="formatEditor('underline')" title="Underline" class="border border-cyan-400/25 rounded bg-slate-950/70 text-cyan-50 underline font-bold">U</button>
                             <button type="button" onclick="formatEditor('insertUnorderedList')" title="Bullet list" class="w-9 border border-cyan-400/25 rounded bg-slate-950/70 text-cyan-50 font-bold">•</button>
                             <button type="button" onclick="formatEditor('insertOrderedList')" title="Numbered list" class="w-9 border border-cyan-400/25 rounded bg-slate-950/70 text-cyan-50 font-bold">1.</button>
                             <button type="button" onclick="formatEditor('justifyLeft')" title="Align left" class="w-9 border border-cyan-400/25 rounded bg-slate-950/70 text-cyan-50 font-bold">≡</button>
@@ -313,19 +337,19 @@
                             <button type="button" onclick="addEditorLink()" title="Insert link" class="px-3 border border-cyan-400/25 rounded bg-slate-950/70 text-cyan-50 text-xs font-black">Link</button>
                             <button type="button" onclick="formatEditor('removeFormat')" title="Clear formatting" class="px-3 border border-cyan-400/25 rounded bg-slate-950/70 text-cyan-50 text-xs font-black">Clear</button>
                         </div>
-                        <div id="nlEditor" contenteditable="true" data-placeholder="Write your message here..." oninput="saveNewsletterDraft()" onkeyup="updateToolbarState()" onmouseup="updateToolbarState()" class="w-full min-h-[260px] px-4 py-3 border-x border-b border-slate-300 rounded-b-lg outline-none focus:ring-2 focus:ring-indigo-500 text-sm resize-y overflow-y-auto bg-slate-950/35 text-cyan-50"></div>
+                        <div id="nlEditor" contenteditable="true" data-placeholder="Write your message here..." oninput="saveNewsletterDraft()" onkeyup="updateToolbarState()" onmouseup="updateToolbarState()" class="w-full min-h-[420px] px-5 py-4 border-x border-b border-slate-300 rounded-b-lg outline-none focus:ring-2 focus:ring-indigo-500 text-base leading-relaxed resize-y overflow-y-auto bg-slate-950/35 text-cyan-50"></div>
                         <textarea id="nlBody" class="hidden"></textarea>
                     </div>
 
                     <div class="mb-6">
-                        <label class="block text-sm font-bold text-slate-700 mb-2">Attachments</label>
-                        <input type="file" id="nlAttachments" multiple onchange="handleAttachmentSelection()" class="w-full px-4 py-2 border border-slate-300 rounded-lg outline-none focus:ring-2 focus:ring-indigo-500 font-medium">
+                        <label class="block text-base font-bold text-slate-700 mb-2">Attachments</label>
+                        <input type="file" id="nlAttachments" multiple onchange="handleAttachmentSelection()" class="w-full px-5 py-3.5 border border-slate-300 rounded-lg outline-none focus:ring-2 focus:ring-indigo-500 font-medium text-base">
                         <div id="nlAttachmentList" class="mt-2 space-y-2 text-xs text-cyan-50"></div>
                         <p class="mt-2 text-xs text-slate-500 font-bold">Files are included in the MIME message. With GPG enabled, the whole message including attachments is encrypted.</p>
                     </div>
 
-                    <div class="sticky bottom-0 -mx-6 -mb-6 px-6 py-4 bg-white/95 backdrop-blur border-t border-slate-100 rounded-b-xl">
-                    <button type="submit" id="btnSend" class="w-full bg-indigo-600 hover:bg-indigo-700 text-white font-black py-3.5 rounded-xl shadow-lg shadow-indigo-200 transition-all flex justify-center items-center gap-2 uppercase text-xs tracking-widest">
+                    <div class="sticky bottom-0 -mx-7 lg:-mx-8 -mb-7 lg:-mb-8 px-7 lg:px-8 py-5 bg-white/95 backdrop-blur border-t border-slate-100 rounded-b-xl">
+                    <button type="submit" id="btnSend" class="w-full bg-indigo-600 hover:bg-indigo-700 text-white font-black py-4 rounded-xl shadow-lg shadow-indigo-200 transition-all flex justify-center items-center gap-2 uppercase text-sm tracking-widest">
                         <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><line x1="22" y1="2" x2="11" y2="13"></line><polygon points="22 2 15 22 11 13 2 9 22 2"></polygon></svg>
                         Send Campaign
                     </button>
@@ -334,10 +358,10 @@
             </article>
 
             <!-- Manage Lists Card -->
-            <article class="bg-white rounded-xl shadow-sm border border-slate-200 p-6 flex flex-col shrink-0 flex-1 min-h-[300px]">
+            <article class="bg-white rounded-xl shadow-sm border border-slate-200 p-7 lg:p-8 flex flex-col shrink-0 flex-1 min-h-[300px]">
                 <div class="flex justify-between items-center mb-4">
-                    <h3 class="text-md font-bold text-slate-800 flex items-center gap-2">
-                        <svg class="w-5 h-5 text-emerald-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4.354a4 4 0 110 5.292M15 21H3v-1a6 6 0 0112 0v1zm0 0h6v-1a6 6 0 00-9-5.197M13 7a4 4 0 11-8 0 4 4 0 018 0z"></path></svg>
+                    <h3 class="text-xl font-bold text-slate-800 flex items-center gap-3">
+                        <svg class="w-6 h-6 text-emerald-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4.354a4 4 0 110 5.292M15 21H3v-1a6 6 0 0112 0v1zm0 0h6v-1a6 6 0 00-9-5.197M13 7a4 4 0 11-8 0 4 4 0 018 0z"></path></svg>
                         Mailing Lists
                     </h3>
                     {% if permissions.manage_lists %}
@@ -360,23 +384,27 @@
             </article>
 
         </div>
-
-        <!-- Right Column: Live Terminal -->
-        <article class="flex-1 xl:flex-[0.85] flex flex-col bg-slate-900 rounded-xl shadow-lg border border-slate-800 overflow-hidden min-h-[360px]">
-            <div class="h-10 bg-slate-800 border-b border-slate-700 flex items-center px-4 justify-between shrink-0">
-                <div class="flex items-center gap-2">
-                    <div class="w-3 h-3 rounded-full bg-rose-500"></div>
-                    <div class="w-3 h-3 rounded-full bg-amber-500"></div>
-                    <div class="w-3 h-3 rounded-full bg-emerald-500"></div>
-                    <span class="ml-2 text-xs font-mono text-slate-400">Campaign Execution Logs</span>
-                </div>
-                <button onclick="document.getElementById('terminalBody').innerHTML = ''" class="text-xs font-bold text-slate-400 hover:text-white transition-colors border border-slate-600 px-3 py-1 rounded">CLEAR</button>
-            </div>
-            <div id="terminalBody" class="flex-1 p-4 overflow-y-auto font-mono text-sm leading-relaxed text-emerald-400 whitespace-pre-wrap"></div>
-        </article>
-
     </div>
 </main>
+
+<!-- Modal: Campaign Logs -->
+<div id="logsModal" class="hidden fixed inset-0 z-50 flex items-center justify-center bg-slate-900/80 p-6 backdrop-blur-sm">
+    <div class="w-full max-w-5xl h-[78vh] rounded-2xl shadow-2xl flex flex-col overflow-hidden">
+        <div class="h-12 bg-slate-800 border-b border-slate-700 flex items-center px-5 justify-between shrink-0">
+            <div class="flex items-center gap-2">
+                <div class="w-3 h-3 rounded-full bg-rose-500"></div>
+                <div class="w-3 h-3 rounded-full bg-amber-500"></div>
+                <div class="w-3 h-3 rounded-full bg-emerald-500"></div>
+                <span class="ml-2 text-sm font-mono text-slate-300 font-bold">Campaign Execution Logs</span>
+            </div>
+            <div class="flex items-center gap-2">
+                <button onclick="document.getElementById('terminalBody').innerHTML = ''" class="text-xs font-bold text-slate-300 hover:text-white transition-colors border border-slate-600 px-3 py-1.5 rounded">CLEAR</button>
+                <button onclick="closeLogsModal()" class="text-xs font-bold text-slate-300 hover:text-white transition-colors border border-slate-600 px-3 py-1.5 rounded">CLOSE</button>
+            </div>
+        </div>
+        <div id="terminalBody" class="flex-1 p-5 overflow-y-auto font-mono text-sm leading-relaxed text-emerald-400 whitespace-pre-wrap bg-slate-950"></div>
+    </div>
+</div>
 
 <!-- Modal: List Editor (Admin Only) -->
 {% if permissions.manage_lists %}
@@ -483,7 +511,10 @@
     const maxAttachmentBytes = 10 * 1024 * 1024;
     const maxTotalAttachmentBytes = 25 * 1024 * 1024;
 
-    window.onload = () => { loadConfig(); };
+    window.onload = () => {
+        normalizeEditorToolbarLabels();
+        loadConfig();
+    };
 
     socket.on('connect', function() {
         socket.emit('join_newsletter_logs');
@@ -508,6 +539,28 @@
         div.innerText = msg;
         terminal.appendChild(div);
         terminal.scrollTop = terminal.scrollHeight;
+    }
+
+    function openLogsModal() {
+        document.getElementById('logsModal').classList.remove('hidden');
+        terminal.scrollTop = terminal.scrollHeight;
+    }
+
+    function closeLogsModal() {
+        document.getElementById('logsModal').classList.add('hidden');
+    }
+
+    function normalizeEditorToolbarLabels() {
+        const labels = {
+            'Bullet list': 'List',
+            'Numbered list': '1. List',
+            'Align left': 'Left',
+            'Align center': 'Center',
+            'Align right': 'Right'
+        };
+        document.querySelectorAll('.newsletter-editor-toolbar button').forEach(btn => {
+            if (labels[btn.title]) btn.textContent = labels[btn.title];
+        });
     }
 
     async function loadConfig() {
