@@ -79,7 +79,9 @@ PERMISSION_ALIASES = {
         },
     },
     "Newsletter": {
-        "view": set(),
+        "view": {
+            "send_campaigns",
+        },
         "change": {
             "send_campaigns",
             "manage_lists",

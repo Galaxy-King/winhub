@@ -166,9 +166,49 @@
     }
 
     #nlEditor {
-        border-top: 1px solid rgba(34, 211, 238, 0.12);
+        border-top: 0 !important;
         background: rgba(3, 15, 27, 0.92) !important;
     }
+
+    .select-shell {
+        position: relative;
+    }
+
+    .select-shell select {
+        appearance: none;
+        padding-right: 3.25rem !important;
+    }
+
+    .select-shell:after {
+        content: "";
+        position: absolute;
+        right: 18px;
+        top: 50%;
+        width: 10px;
+        height: 10px;
+        border-right: 2px solid #67e8f9;
+        border-bottom: 2px solid #67e8f9;
+        transform: translateY(-70%) rotate(45deg);
+        pointer-events: none;
+        filter: drop-shadow(0 0 8px rgba(34, 211, 238, 0.65));
+    }
+
+    #nlListsCheckboxes {
+        border-color: rgba(34, 211, 238, 0.18) !important;
+    }
+
+    .nl-list-option {
+        border: 1px solid transparent !important;
+        background: rgba(3, 15, 27, 0.78) !important;
+        box-shadow: inset 0 1px 0 rgba(255,255,255,0.04), 0 0 22px rgba(34, 211, 238, 0.06);
+    }
+
+    .nl-list-option:nth-child(6n+1) { border-color: rgba(34, 211, 238, 0.38) !important; box-shadow: 0 0 16px rgba(34, 211, 238, 0.14); }
+    .nl-list-option:nth-child(6n+2) { border-color: rgba(16, 185, 129, 0.38) !important; box-shadow: 0 0 16px rgba(16, 185, 129, 0.14); }
+    .nl-list-option:nth-child(6n+3) { border-color: rgba(168, 85, 247, 0.38) !important; box-shadow: 0 0 16px rgba(168, 85, 247, 0.14); }
+    .nl-list-option:nth-child(6n+4) { border-color: rgba(244, 114, 182, 0.38) !important; box-shadow: 0 0 16px rgba(244, 114, 182, 0.14); }
+    .nl-list-option:nth-child(6n+5) { border-color: rgba(251, 191, 36, 0.38) !important; box-shadow: 0 0 16px rgba(251, 191, 36, 0.14); }
+    .nl-list-option:nth-child(6n) { border-color: rgba(96, 165, 250, 0.38) !important; box-shadow: 0 0 16px rgba(96, 165, 250, 0.14); }
 
     #logsModal > div {
         background: #0f172a !important;
@@ -335,9 +375,11 @@
                 <form id="campaignForm" onsubmit="sendCampaign(event)">
                     <div class="campaign-section">
                         <label class="block text-base font-bold text-slate-700 mb-2">Sender Profile*</label>
+                        <div class="select-shell">
                         <select id="nlSender" required class="w-full px-5 py-3.5 border border-slate-300 rounded-lg outline-none focus:ring-2 focus:ring-indigo-500 font-medium text-slate-800 bg-slate-50 text-base">
                             <option value="" disabled selected>Loading senders...</option>
                         </select>
+                        </div>
                     </div>
 
                     <div class="campaign-section">
@@ -366,7 +408,7 @@
                     <div class="campaign-section">
                         <label class="block text-base font-bold text-slate-700 mb-2">Email Body*</label>
                         <div class="editor-shell">
-                        <div class="newsletter-editor-toolbar flex flex-wrap items-center gap-2.5 p-3 border-b border-cyan-400/20 bg-slate-950/40">
+                        <div class="newsletter-editor-toolbar flex flex-wrap items-center gap-2.5 p-3 bg-slate-950/40">
                             <select id="nlFontFamily" onchange="formatEditor('fontName', this.value)" title="Font family" class="px-3 border border-cyan-400/25 rounded bg-slate-950/70 text-cyan-50 font-bold outline-none">
                                 <option value="Arial">Arial</option>
                                 <option value="Georgia">Georgia</option>
@@ -404,7 +446,7 @@
                         <p class="mt-2 text-xs text-slate-500 font-bold">Files are included in the MIME message. With GPG enabled, the whole message including attachments is encrypted.</p>
                     </div>
 
-                    <div class="sticky bottom-0 -mx-7 lg:-mx-8 -mb-7 lg:-mb-8 px-7 lg:px-8 py-5 bg-white/95 backdrop-blur border-t border-slate-100 rounded-b-xl">
+                    <div class="campaign-section">
                     <button type="submit" id="btnSend" class="w-full bg-indigo-600 hover:bg-indigo-700 text-white font-black py-4 rounded-xl shadow-lg shadow-indigo-200 transition-all flex justify-center items-center gap-2 uppercase text-sm tracking-widest">
                         <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><line x1="22" y1="2" x2="11" y2="13"></line><polygon points="22 2 15 22 11 13 2 9 22 2"></polygon></svg>
                         Send Campaign
@@ -607,15 +649,20 @@
     }
 
     function normalizeEditorToolbarLabels() {
-        const labels = {
-            'Bullet list': 'List',
-            'Numbered list': '1. List',
-            'Align left': 'Left',
-            'Align center': 'Center',
-            'Align right': 'Right'
+        const icons = {
+            'Bold': '<strong class="text-base">B</strong>',
+            'Italic': '<em class="text-base font-bold">I</em>',
+            'Underline': '<span class="text-base font-bold underline">U</span>',
+            'Bullet list': '<svg viewBox="0 0 24 24" class="w-5 h-5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="9" y1="7" x2="21" y2="7"></line><line x1="9" y1="12" x2="21" y2="12"></line><line x1="9" y1="17" x2="21" y2="17"></line><circle cx="4" cy="7" r="1"></circle><circle cx="4" cy="12" r="1"></circle><circle cx="4" cy="17" r="1"></circle></svg>',
+            'Numbered list': '<svg viewBox="0 0 24 24" class="w-5 h-5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="10" y1="6" x2="21" y2="6"></line><line x1="10" y1="12" x2="21" y2="12"></line><line x1="10" y1="18" x2="21" y2="18"></line><path d="M4 6h1v4"></path><path d="M4 10h2"></path><path d="M4 14h2l-2 4h2"></path></svg>',
+            'Align left': '<svg viewBox="0 0 24 24" class="w-5 h-5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="3" y1="6" x2="21" y2="6"></line><line x1="3" y1="12" x2="15" y2="12"></line><line x1="3" y1="18" x2="19" y2="18"></line></svg>',
+            'Align center': '<svg viewBox="0 0 24 24" class="w-5 h-5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="5" y1="6" x2="19" y2="6"></line><line x1="3" y1="12" x2="21" y2="12"></line><line x1="7" y1="18" x2="17" y2="18"></line></svg>',
+            'Align right': '<svg viewBox="0 0 24 24" class="w-5 h-5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="3" y1="6" x2="21" y2="6"></line><line x1="9" y1="12" x2="21" y2="12"></line><line x1="5" y1="18" x2="21" y2="18"></line></svg>',
+            'Insert link': '<svg viewBox="0 0 24 24" class="w-5 h-5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10 13a5 5 0 0 0 7.07 0l2-2a5 5 0 0 0-7.07-7.07l-1.15 1.15"></path><path d="M14 11a5 5 0 0 0-7.07 0l-2 2A5 5 0 0 0 12 20.07l1.15-1.15"></path></svg>',
+            'Clear formatting': '<svg viewBox="0 0 24 24" class="w-5 h-5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 7V4h16v3"></path><path d="M9 20h6"></path><path d="M12 4v16"></path><path d="M17 17l4 4"></path><path d="M21 17l-4 4"></path></svg>'
         };
         document.querySelectorAll('.newsletter-editor-toolbar button').forEach(btn => {
-            if (labels[btn.title]) btn.textContent = labels[btn.title];
+            if (icons[btn.title]) btn.innerHTML = icons[btn.title];
             btn.addEventListener('mousedown', event => event.preventDefault());
         });
     }
@@ -698,7 +745,7 @@
         } else {
             // Для звичайних юзерів ми не показуємо бейдж з кількістю
             cbContainer.innerHTML = listNames.map(name => `
-                <label class="flex items-center gap-3 p-2 hover:bg-cyan-500/10 rounded cursor-pointer border border-cyan-400/20 bg-slate-950/35 shadow-sm">
+                <label class="nl-list-option flex items-center gap-3 p-3 hover:bg-cyan-500/10 rounded-lg cursor-pointer transition-all">
                     <input type="checkbox" value="${name}" class="nl-list-cb w-4 h-4 text-indigo-600 border-slate-300 rounded cursor-pointer">
                     <span class="text-sm font-bold text-cyan-50 flex-1">${name}</span>
                     ${moduleData.lists[name].length > 0 ? `<span class="text-xs bg-cyan-400/15 text-cyan-100 border border-cyan-300/20 px-2 py-0.5 rounded-full font-bold">${moduleData.lists[name].length}</span>` : ''}
