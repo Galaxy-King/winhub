@@ -11,7 +11,8 @@ import threading
 import keyring
 import csv
 import io
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
+from zoneinfo import ZoneInfo
 from email.mime.text import MIMEText
 from flask import Blueprint, request, jsonify, session, render_template, redirect, url_for, Response
 from core.database import db, User, EndpointGroup, ApiKey, AuditLog
@@ -29,6 +30,11 @@ DEFAULT_GPG_KEYSERVERS = [
     "hkps://keys.openpgp.org",
     "hkps://keyserver.ubuntu.com",
 ]
+
+try:
+    KYIV_TZ = ZoneInfo("Europe/Kyiv")
+except Exception:
+    KYIV_TZ = ZoneInfo("Europe/Kiev")
 
 
 def load_gpg_keyservers():
@@ -184,6 +190,19 @@ def send_notification_email(subject, recipient, body_content, encrypt=True):
             return True
     except Exception: return False
 
+def _as_utc(value):
+    if not value:
+        return None
+    if value.tzinfo is None:
+        return value.replace(tzinfo=timezone.utc)
+    return value.astimezone(timezone.utc)
+
+
+def _as_kyiv(value):
+    utc_value = _as_utc(value)
+    return utc_value.astimezone(KYIV_TZ) if utc_value else None
+
+
 def iso_or_none(value):
     return value.isoformat() if value else None
 
@@ -196,12 +215,14 @@ def parse_datetime_filter(value, end_of_day=False):
         parsed = datetime.strptime(value, "%Y-%m-%d")
     if end_of_day and len(value) == 10:
         parsed = parsed.replace(hour=23, minute=59, second=59, microsecond=999999)
-    return parsed
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=KYIV_TZ)
+    return parsed.astimezone(timezone.utc).replace(tzinfo=None)
 
 def audit_to_dict(item):
     return {
         "id": item.id,
-        "timestamp": item.timestamp.isoformat() if item.timestamp else None,
+        "timestamp": iso_or_none(_as_kyiv(item.timestamp)),
         "user": item.user,
         "actor_type": item.actor_type or "user",
         "actor_name": item.actor_name or item.user,

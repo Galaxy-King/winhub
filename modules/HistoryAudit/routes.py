@@ -9,14 +9,29 @@ from flask import Blueprint, jsonify, session, current_app, render_template, req
 from core.database import db, User, AgentTask, AuditLog, Task, RegistrationHistory
 from core.security import sec_manager
 from core.permissions import has_module_access, has_permission
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
+from zoneinfo import ZoneInfo
 
 history_bp = Blueprint('history_audit', __name__, template_folder='templates')
 log = logging.getLogger("winhub.history")
 
+try:
+    KYIV_TZ = ZoneInfo("Europe/Kyiv")
+except Exception:
+    KYIV_TZ = ZoneInfo("Europe/Kiev")
+
+
+def _display_dt(dt):
+    if not dt:
+        return None
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=timezone.utc)
+    return dt.astimezone(KYIV_TZ)
+
 
 def _date(dt):
-    return dt.strftime('%Y-%m-%d %H:%M:%S') if dt else ""
+    local_dt = _display_dt(dt)
+    return local_dt.strftime('%Y-%m-%d %H:%M:%S %Z') if local_dt else ""
 
 
 def _history_item(record_id, event_type, dt, user, action, details, status):
