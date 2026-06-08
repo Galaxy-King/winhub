@@ -16,6 +16,7 @@ from email.message import EmailMessage
 from email import policy
 import uuid
 from datetime import datetime
+from zoneinfo import ZoneInfo
 from flask import Blueprint, request, jsonify, session, render_template, current_app
 from flask_socketio import join_room
 from werkzeug.utils import secure_filename
@@ -40,6 +41,11 @@ MAX_ATTACHMENTS = int(os.environ.get("NEWSLETTER_MAX_ATTACHMENTS", "8"))
 MAX_ATTACHMENT_BYTES = int(os.environ.get("NEWSLETTER_MAX_ATTACHMENT_BYTES", str(10 * 1024 * 1024)))
 MAX_TOTAL_ATTACHMENT_BYTES = int(os.environ.get("NEWSLETTER_MAX_TOTAL_ATTACHMENT_BYTES", str(25 * 1024 * 1024)))
 
+try:
+    KYIV_TZ = ZoneInfo("Europe/Kyiv")
+except Exception:
+    KYIV_TZ = ZoneInfo("Europe/Kiev")
+
 os.makedirs(DATA_DIR, exist_ok=True)
 os.makedirs(LISTS_DIR, exist_ok=True)
 
@@ -56,6 +62,9 @@ def ensure_parent_dir(path):
 
 def hidden_subprocess_kwargs():
     return {"creationflags": 0x08000000} if os.name == "nt" else {}
+
+def kyiv_log_timestamp():
+    return datetime.now(KYIV_TZ).strftime("%Y-%m-%d %H:%M:%S %Z")
 
 def normalize_recipient(value):
     recipient = str(value or "").strip()
@@ -496,7 +505,7 @@ def encrypt_with_gpg(gpg_path, recipient_email, payload):
 
 # --- Background Worker ---
 def bg_send_execution(app, task_id, sender_email, smtp_config, target_users, subject, body, body_html, attachments, use_gpg, log_file, room_id, is_admin):
-    timestamp = datetime.utcnow().strftime("[%Y-%m-%d %H:%M:%S]")
+    timestamp = kyiv_log_timestamp()
     ensure_parent_dir(log_file)
     
     def emit_and_write(full_line, public_line=None):
