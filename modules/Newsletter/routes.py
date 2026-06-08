@@ -396,13 +396,84 @@ def send_newsletter():
 
 
 # --- GPG Functions ---
-def check_gpg_key_exists(gpg_path, email):
-    cmd = [gpg_path, "--batch", "--list-keys", email]
+def get_gpg_key_status(gpg_path, email):
+    cmd = [gpg_path, "--batch", "--with-colons", "--list-keys", email]
     try:
         proc = subprocess.run(cmd, capture_output=True, text=True, timeout=5, env=gpg_env(), **hidden_subprocess_kwargs())
-        return proc.returncode == 0
-    except Exception:
-        return False
+    except Exception as e:
+        return {"exists": False, "usable": False, "reason": f"GPG key check failed: {e}"}
+
+    if proc.returncode != 0:
+        return {"exists": False, "usable": False, "reason": "Missing public key"}
+
+    now_ts = int(time.time())
+    saw_public_key = False
+    unusable_reasons = []
+    validity_reasons = {
+        "e": "Public key is expired",
+        "r": "Public key is revoked",
+        "d": "Public key is disabled",
+    }
+
+    for line in proc.stdout.splitlines():
+        parts = line.split(":")
+        if not parts or parts[0] != "pub":
+            continue
+        saw_public_key = True
+        validity = parts[1] if len(parts) > 1 else ""
+        expires_raw = parts[6] if len(parts) > 6 else ""
+
+        reason = validity_reasons.get(validity)
+        if not reason and expires_raw:
+            try:
+                expires_ts = int(expires_raw)
+                if expires_ts > 0 and expires_ts < now_ts:
+                    reason = "Public key is expired"
+            except ValueError:
+                pass
+
+        if reason:
+            unusable_reasons.append(reason)
+            continue
+        return {"exists": True, "usable": True, "reason": "Public key is usable"}
+
+    if not saw_public_key:
+        return {"exists": False, "usable": False, "reason": "Missing public key"}
+
+    reason = unusable_reasons[0] if unusable_reasons else "No usable public key"
+    return {"exists": True, "usable": False, "reason": reason}
+
+
+def check_gpg_key_exists(gpg_path, email):
+    return get_gpg_key_status(gpg_path, email)["usable"]
+
+
+def ensure_gpg_key_ready(gpg_path, keyserver, email, emit_and_write=None, progress_prefix=""):
+    status = get_gpg_key_status(gpg_path, email)
+    if status["usable"]:
+        return True, status["reason"]
+
+    keyserver = (keyserver or "").strip()
+    if not keyserver:
+        return False, status["reason"]
+
+    if emit_and_write:
+        emit_and_write(
+            f"{progress_prefix} ⚠️ {status['reason']} for {email}. Fetching from keyserver {keyserver}...",
+            "__HIDE__",
+        )
+
+    fetch_success, fetch_msg = fetch_gpg_key(gpg_path, keyserver, email)
+    if not fetch_success:
+        return False, f"{status['reason']}; keyserver fetch failed: {fetch_msg}"
+
+    refreshed_status = get_gpg_key_status(gpg_path, email)
+    if refreshed_status["usable"]:
+        if emit_and_write:
+            emit_and_write(f"{progress_prefix} 🔑 Public key refreshed successfully.", "__HIDE__")
+        return True, "Public key refreshed successfully"
+
+    return False, f"{refreshed_status['reason']} after keyserver refresh"
 
 def validate_gpg(gpg_path):
     if not gpg_path or not os.path.exists(gpg_path):
@@ -572,21 +643,18 @@ def bg_send_execution(app, task_id, sender_email, smtp_config, target_users, sub
                 clear_msg = build_clear_message(sender_email, recipient, subject, body, body_html, attachments)
                 final_msg = clear_msg
                 if use_gpg:
-                    key_exists = check_gpg_key_exists(gpg_path, recipient)
-                    
-                    if not key_exists and keyserver:
-                        emit_and_write(f"[{idx}/{len(target_users)}] ⚠️ Local key missing for {recipient}. Fetching from keyserver...", "__HIDE__")
-                        fetch_success, fetch_msg = fetch_gpg_key(gpg_path, keyserver, recipient)
-                        if fetch_success:
-                            emit_and_write(f"   🔑 Key imported successfully.", "__HIDE__")
-                            key_exists = True
-                        else:
-                            emit_and_write(f"   ❌ Failed to fetch key from {keyserver}. Reason: {fetch_msg}", "__HIDE__")
+                    key_ready, key_message = ensure_gpg_key_ready(
+                        gpg_path,
+                        keyserver,
+                        recipient,
+                        emit_and_write=emit_and_write,
+                        progress_prefix=f"[{idx}/{len(target_users)}]",
+                    )
 
-                    if not key_exists:
-                        emit_and_write(f"[{idx}/{len(target_users)}] ❌ Failed: {recipient} (Encryption Error: Missing public key)", "__HIDE__")
+                    if not key_ready:
+                        emit_and_write(f"[{idx}/{len(target_users)}] ❌ Failed: {recipient} (Encryption Error: {key_message})", "__HIDE__")
                         error_count += 1
-                        failure_reasons["Missing GPG Key"] = failure_reasons.get("Missing GPG Key", 0) + 1
+                        failure_reasons["Missing/Invalid GPG Key"] = failure_reasons.get("Missing/Invalid GPG Key", 0) + 1
                         continue
                         
                     is_encrypted, encrypted_payload = encrypt_with_gpg(gpg_path, recipient, clear_msg.as_bytes())
