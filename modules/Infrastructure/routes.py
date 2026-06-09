@@ -14,6 +14,7 @@ import time
 from datetime import datetime, timedelta, timezone
 from email.mime.text import MIMEText
 from email.utils import parseaddr
+from urllib.parse import urlsplit
 from zoneinfo import ZoneInfo
 from flask import Blueprint, request, jsonify, render_template, session, redirect, url_for, current_app, Response, send_from_directory, stream_with_context
 from sqlalchemy import func, or_
@@ -300,6 +301,18 @@ def agent_package_update_url(package_id):
     if getattr(Config, "AGENT_PACKAGE_URL_MODE", "absolute") == "relative":
         return agent_package_download_path(package_id)
     return agent_package_public_url(package_id)
+
+def usable_agent_package_url(value):
+    value = str(value or "").strip()
+    if not value:
+        return ""
+    parsed = urlsplit(value)
+    if parsed.scheme and parsed.scheme.lower() not in ("http", "https"):
+        return ""
+    return value
+
+def resolved_agent_package_update_url(package_id, preferred_url=""):
+    return usable_agent_package_url(preferred_url) or agent_package_update_url(package_id)
 
 def latest_agent_package_version():
     packages = load_agent_packages()
@@ -2455,7 +2468,7 @@ def build_agent_update_plan(target_ids, selected_package):
             continue
         package = dict(package)
         package["platform"] = str(package.get("platform") or platform).lower()
-        package["update_url"] = package.get("update_url") or agent_package_update_url(package["id"])
+        package["update_url"] = resolved_agent_package_update_url(package["id"], package.get("update_url"))
         package["download_url"] = package.get("download_url") or agent_package_public_url(package["id"])
         plan.append({"host_id": host_id, "platform": platform, "package": package})
     return plan, skipped
@@ -2470,7 +2483,7 @@ def create_agent_update_wave(update_items, created_by, wave_index, wave_total):
         platform = item.get("platform") or "windows"
         package = item["package"]
         payload = {
-            "package_url": package.get("update_url") or agent_package_update_url(package["id"]),
+            "package_url": resolved_agent_package_update_url(package["id"], package.get("update_url")),
             "sha256": package.get("sha256"),
             "target_version": package.get("version"),
             "platform": platform,
@@ -2529,7 +2542,7 @@ def process_due_agent_update_rollouts():
                     "sha256": None,
                 }
             package["platform"] = package.get("platform") or detect_agent_package_platform(package.get("original_filename") or package.get("filename") or "")
-            package["update_url"] = rollout.package_url or agent_package_update_url(package["id"])
+            package["update_url"] = resolved_agent_package_update_url(package["id"], rollout.package_url)
             package["download_url"] = package.get("download_url") or agent_package_public_url(package["id"])
 
             wave_size = max(1, int(rollout.wave_size or 50))
@@ -3219,7 +3232,7 @@ def run_fleet_update():
     if not package:
         return jsonify({"success": False, "message": "Agent package not found"}), 404
     package["download_url"] = agent_package_public_url(package["id"])
-    package["update_url"] = agent_package_update_url(package["id"])
+    package["update_url"] = resolved_agent_package_update_url(package["id"])
 
     target_mode = str(data.get("target_mode") or "outdated")
     allowed = [h for h in WinHubCore.get_allowed_hosts(session.get("user_id")) if getattr(h, "approval_status", "Approved") == "Approved"]
