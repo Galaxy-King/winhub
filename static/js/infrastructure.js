@@ -22,6 +22,7 @@ let diskChart = null;
 let activityChart = null;
 let currentHostStatus = 'all';
 let queueTypeFilter = 'ALL';
+let queueStatusFilter = 'ALL';
 const infraPermissions = window.WinhubPermissions || {};
 let infraLivePollTimer = null;
 let infraLivePollStarted = false;
@@ -208,7 +209,7 @@ function initPayloadEditor() {
 
     payloadEditor = CodeMirror.fromTextArea(textarea, {
         mode: 'powershell',
-        theme: 'material-darker',
+        theme: 'winhub-neon',
         lineNumbers: true,
         lineWrapping: true,
         indentUnit: 4,
@@ -2287,7 +2288,7 @@ function initSoftwareCodeEditors(form) {
         if (softwareCodeEditors.has(textarea)) return;
         const editor = CodeMirror.fromTextArea(textarea, {
             mode: 'powershell',
-            theme: 'material-darker',
+            theme: 'winhub-neon',
             lineNumbers: true,
             lineWrapping: true,
             indentUnit: 4,
@@ -3141,6 +3142,19 @@ function setQueueTypeFilter(type, btn) {
     renderQueue();
 }
 
+function setQueueStatusFilter(status, btn) {
+    queueStatusFilter = status || 'ALL';
+    document.querySelectorAll('.q-status-btn').forEach(b => {
+        b.classList.remove('bg-white', 'text-indigo-600', 'shadow-sm');
+        b.classList.add('text-slate-500');
+    });
+    if(btn) {
+        btn.classList.remove('text-slate-500');
+        btn.classList.add('bg-white', 'text-indigo-600', 'shadow-sm');
+    }
+    renderQueue();
+}
+
 async function loadQueue() {
     try {
         const res = await fetch('/api/infrastructure/tasks/all');
@@ -3188,7 +3202,10 @@ function renderQueue() {
         else if(queueTypeFilter === 'Auto-Fix') matchType = titleLower.startsWith('[auto-fix]');
         else if(queueTypeFilter === 'Manual') matchType = !titleLower.startsWith('[auto]') && !titleLower.startsWith('[auto-fix]');
 
-        return matchSearch && matchUser && matchType;
+        let matchStatus = true;
+        if(queueStatusFilter !== 'ALL') matchStatus = (j.status || 'Pending').toLowerCase() === queueStatusFilter.toLowerCase();
+
+        return matchSearch && matchUser && matchType && matchStatus;
     });
 
     tbody.innerHTML = filtered.map(j => {
@@ -3200,7 +3217,13 @@ function renderQueue() {
 
         const hasActionColumn = infraPermissions.cleanup_tasks || infraPermissions.run_tasks;
         let actionBtn = hasActionColumn ? '<td class="px-10 py-4 text-right"></td>' : '';
-        if(!j.planned && hasActionColumn) {
+        if(j.planned && hasActionColumn) {
+            actionBtn = `<td class="px-10 py-4 text-right">
+                <div class="flex justify-end gap-2">
+                    ${infraPermissions.run_tasks && j.rollout_id ? `<button onclick="event.stopPropagation(); cancelScheduledRollout('${j.rollout_id}')" class="queue-action-btn p-3 border rounded-2xl transition-colors shadow-sm" title="Cancel scheduled rollout waves"><svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path d="M10 10l4 4m0-4l-4 4M12 22a10 10 0 100-20 10 10 0 000 20z" stroke-width="2.3" stroke-linecap="round" stroke-linejoin="round"/></svg></button>` : ''}
+                </div>
+            </td>`;
+        } else if(!j.planned && hasActionColumn) {
             actionBtn = `<td class="px-10 py-4 text-right">
                 <div class="flex justify-end gap-2">
                     ${infraPermissions.run_tasks && j.error > 0 ? `<button onclick="event.stopPropagation(); retryFailedJob('${j.job_id}')" class="queue-action-btn p-3 border rounded-2xl transition-colors shadow-sm" title="Retry failed hosts"><svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path d="M4 4v6h6M20 20v-6h-6M5 19A9 9 0 0119 5l1 1M19 5A9 9 0 005 19l-1-1" stroke-width="2.3" stroke-linecap="round" stroke-linejoin="round"/></svg></button>` : ''}
@@ -3835,6 +3858,14 @@ async function cancelPendingJob(id) {
     const res = await fetch('/api/infrastructure/job/' + encodeURIComponent(id) + '/cancel-pending', { method: 'POST' });
     const data = await res.json().catch(() => ({}));
     if(!res.ok || !data.success) return alert(data.message || 'Cancel failed.');
+    loadQueue();
+}
+
+async function cancelScheduledRollout(id) {
+    if(!confirm("Cancel this scheduled agent update rollout? Future waves will not be created. Already created jobs are not changed.")) return;
+    const res = await fetch('/api/infrastructure/agent-rollout/' + encodeURIComponent(id) + '/cancel', { method: 'POST' });
+    const data = await res.json().catch(() => ({}));
+    if(!res.ok || !data.success) return alert(data.message || 'Cancel scheduled rollout failed.');
     loadQueue();
 }
 

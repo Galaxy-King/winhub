@@ -14,52 +14,93 @@
 <script src="{{ url_for('static', filename='vendor/codemirror/5.65.16/mode/css/css.min.js', v=app_version) }}"></script>
 <script src="{{ url_for('static', filename='vendor/codemirror/5.65.16/mode/htmlmixed/htmlmixed.min.js', v=app_version) }}"></script>
 	<style>
-	    .CodeMirror {
-	        height: 450px;
-	        border: 1px solid #2c313a;
-	        border-radius: 0.5rem;
-	        font-family: Consolas, "Cascadia Code", "Fira Code", monospace;
-	        font-size: 13px;
-	        line-height: 1.6;
-	        background: #272822 !important;
-	        color: #f8f8f2 !important;
-	        box-shadow: 0 18px 45px rgba(7, 21, 46, 0.26);
-	        overflow: hidden;
-	    }
-	    .CodeMirror-scroll,
-	    .CodeMirror-sizer,
-	    .CodeMirror-lines {
-	        background: #272822 !important;
-	    }
-	    .CodeMirror-gutters {
-	        border-right: 1px solid #3e3d32;
-	        background: #1f201b;
-	        min-width: 3.25rem;
-	    }
-	    .CodeMirror-linenumber {
-	        padding: 0 0.75rem 0 0.5rem;
-	        color: #8f908a;
-	    }
-	    .CodeMirror-lines {
-	        padding: 0.75rem 0;
-	    }
-	    .CodeMirror-cursor { border-left: 2px solid #f8f8f0 !important; }
-	    .CodeMirror-selected { background: #49483e !important; }
-	    .CodeMirror-matchingbracket { color: #a6e22e !important; text-decoration: underline; }
-	    .cm-s-material-darker span.cm-keyword { color: #f92672 !important; }
-	    .cm-s-material-darker span.cm-atom,
-	    .cm-s-material-darker span.cm-number { color: #ae81ff !important; }
-	    .cm-s-material-darker span.cm-def,
-	    .cm-s-material-darker span.cm-variable { color: #f8f8f2 !important; }
-	    .cm-s-material-darker span.cm-variable-2 { color: #66d9ef !important; }
-	    .cm-s-material-darker span.cm-property { color: #a6e22e !important; }
-	    .cm-s-material-darker span.cm-operator { color: #f92672 !important; }
-	    .cm-s-material-darker span.cm-comment { color: #75715e !important; font-style: italic; }
-	    .cm-s-material-darker span.cm-string { color: #e6db74 !important; }
-	    .cm-s-material-darker span.cm-builtin { color: #66d9ef !important; }
-	    .cm-s-material-darker span.cm-tag { color: #f92672 !important; }
-	    .cm-s-material-darker span.cm-attribute { color: #a6e22e !important; }
-	    .cm-s-material-darker span.cm-error { color: #f8f8f0 !important; background: #f92672 !important; }
+		    .cm-s-winhub-neon.CodeMirror {
+		        height: 450px;
+		        border: 1px solid rgba(56, 189, 248, 0.42);
+		        border-radius: 1.25rem;
+		        font-family: Consolas, "Cascadia Code", "Fira Code", monospace;
+		        font-size: 13px;
+		        line-height: 1.65;
+		        background:
+		            radial-gradient(circle at 12% 0%, rgba(34, 211, 238, 0.12), transparent 18rem),
+		            linear-gradient(180deg, #06172d 0%, #08111f 58%, #050b16 100%) !important;
+		        color: #dff7ff !important;
+		        box-shadow: 0 22px 55px rgba(7, 21, 46, 0.35), inset 0 1px 0 rgba(255, 255, 255, 0.06);
+		        overflow: hidden;
+		    }
+		    .cm-s-winhub-neon .CodeMirror-scroll,
+		    .cm-s-winhub-neon .CodeMirror-sizer,
+		    .cm-s-winhub-neon .CodeMirror-lines {
+		        background: transparent !important;
+		    }
+		    .cm-s-winhub-neon .CodeMirror-gutters {
+		        border-right: 1px solid rgba(96, 165, 250, 0.22);
+		        background: rgba(3, 10, 22, 0.82);
+		        min-width: 3.25rem;
+		    }
+		    .cm-s-winhub-neon .CodeMirror-linenumber {
+		        padding: 0 0.75rem 0 0.5rem;
+		        color: #60a5fa;
+		    }
+		    .cm-s-winhub-neon .CodeMirror-lines {
+		        padding: 0.85rem 0;
+		    }
+		    .cm-s-winhub-neon .CodeMirror-cursor {
+		        border-left: 2px solid #67e8f9 !important;
+		    }
+		    .cm-s-winhub-neon div.CodeMirror-selected,
+		    .cm-s-winhub-neon .CodeMirror-selected {
+		        background: rgba(14, 165, 233, 0.38) !important;
+		    }
+		    .cm-s-winhub-neon.CodeMirror-focused div.CodeMirror-selected,
+		    .cm-s-winhub-neon.CodeMirror-focused .CodeMirror-selected {
+		        background: rgba(45, 212, 191, 0.42) !important;
+		    }
+		    .cm-s-winhub-neon .CodeMirror-selectedtext {
+		        color: #ffffff !important;
+		    }
+		    .cm-s-winhub-neon .CodeMirror-line::selection,
+		    .cm-s-winhub-neon .CodeMirror-line > span::selection,
+		    .cm-s-winhub-neon .CodeMirror-line > span > span::selection {
+		        background: rgba(45, 212, 191, 0.46);
+		        color: #ffffff;
+		    }
+		    .cm-s-winhub-neon .CodeMirror-line::-moz-selection,
+		    .cm-s-winhub-neon .CodeMirror-line > span::-moz-selection,
+		    .cm-s-winhub-neon .CodeMirror-line > span > span::-moz-selection {
+		        background: rgba(45, 212, 191, 0.46);
+		        color: #ffffff;
+		    }
+		    .cm-s-winhub-neon .CodeMirror-activeline-background {
+		        background: rgba(30, 64, 175, 0.24) !important;
+		        box-shadow: inset 3px 0 0 rgba(34, 211, 238, 0.82);
+		    }
+		    .cm-s-winhub-neon .CodeMirror-matchingbracket {
+		        color: #fef08a !important;
+		        background: rgba(250, 204, 21, 0.16);
+		        text-decoration: none;
+		    }
+		    .cm-s-winhub-neon span.cm-keyword { color: #f472b6 !important; }
+		    .cm-s-winhub-neon span.cm-atom,
+		    .cm-s-winhub-neon span.cm-number { color: #c084fc !important; }
+		    .cm-s-winhub-neon span.cm-def,
+		    .cm-s-winhub-neon span.cm-variable { color: #e0f2fe !important; }
+		    .cm-s-winhub-neon span.cm-variable-2 { color: #7dd3fc !important; }
+		    .cm-s-winhub-neon span.cm-property { color: #86efac !important; }
+		    .cm-s-winhub-neon span.cm-operator { color: #fb7185 !important; }
+		    .cm-s-winhub-neon span.cm-comment { color: #94a3b8 !important; font-style: italic; }
+		    .cm-s-winhub-neon span.cm-string { color: #bef264 !important; }
+		    .cm-s-winhub-neon span.cm-builtin { color: #22d3ee !important; }
+		    .cm-s-winhub-neon span.cm-tag { color: #fb7185 !important; }
+		    .cm-s-winhub-neon span.cm-attribute { color: #86efac !important; }
+		    .cm-s-winhub-neon span.cm-error { color: #fff7ed !important; background: rgba(244, 63, 94, 0.65) !important; }
+		    #depPayload {
+		        caret-color: #67e8f9;
+		    }
+		    #depPayload::selection {
+		        background: rgba(45, 212, 191, 0.46);
+		        color: #ffffff;
+		    }
     #infraNavScroller {
         scrollbar-width: none;
         -ms-overflow-style: none;

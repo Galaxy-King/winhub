@@ -3941,6 +3941,54 @@ def cancel_pending_job(job_id):
     return jsonify({"success": True, "cancelled": cancelled})
 
 
+@infrastructure_bp.route('/api/infrastructure/agent-rollout/<rollout_id>/cancel', methods=['POST'])
+def cancel_agent_update_rollout(rollout_id):
+    denied = require_permission("run_tasks")
+    if denied:
+        return denied
+
+    rollout = AgentUpdateRollout.query.filter_by(id=rollout_id).with_for_update().first()
+    if not rollout:
+        return jsonify({"success": False, "message": "Scheduled rollout not found"}), 404
+    if rollout.status != "Running":
+        return jsonify({"success": True, "status": rollout.status, "message": "Rollout is not running"})
+
+    try:
+        target_ids = json.loads(rollout.target_ids or "[]")
+        target_ids = set(str(item) for item in target_ids if str(item or "").strip()) if isinstance(target_ids, list) else set()
+    except Exception:
+        target_ids = set()
+
+    if target_ids:
+        existing_target_ids = {
+            row[0]
+            for row in db.session.query(Endpoint.id).filter(Endpoint.id.in_(target_ids)).all()
+        }
+        allowed_host_ids = set(infra_allowed_host_ids(session.get("user_id")))
+        unauthorized = existing_target_ids - allowed_host_ids
+        if unauthorized:
+            return jsonify({"success": False, "message": "Permission denied for one or more rollout hosts"}), 403
+
+    previous_status = rollout.status or "Running"
+    rollout.status = "Cancelled"
+    rollout.updated_at = datetime.utcnow()
+    write_infra_audit(
+        "Cancel Scheduled Agent Update Rollout",
+        "agent_update_rollout",
+        rollout.id,
+        {
+            "previous_status": previous_status,
+            "package_version": rollout.package_version,
+            "next_wave_index": rollout.next_wave_index,
+            "total_waves": rollout.total_waves,
+            "target_count": len(target_ids),
+        }
+    )
+    db.session.commit()
+
+    return jsonify({"success": True, "status": rollout.status})
+
+
 @infrastructure_bp.route('/api/infrastructure/job/<job_id>/finalize-report', methods=['POST'])
 def finalize_job_report(job_id):
     denied = require_permission("run_tasks")
