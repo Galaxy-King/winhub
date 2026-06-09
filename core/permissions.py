@@ -25,7 +25,7 @@ MODULE_INTERNAL_PERMISSION_CATALOG = {
         {"id": "cleanup_tasks", "name": "Cleanup task history"},
     ],
     "Newsletter": [
-        {"id": "send_campaigns", "name": "Send campaigns"},
+        {"id": "send_campaigns", "name": "Send mailings"},
         {"id": "manage_lists", "name": "Manage mailing lists"},
         {"id": "manage_smtp", "name": "Manage SMTP profiles"},
     ],

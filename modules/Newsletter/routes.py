@@ -361,7 +361,7 @@ def send_newsletter():
     
     new_task = Task(
         id=task_id, user_id=user_id, module_name="Newsletter",
-        action="Send Campaign", targets=targets_db, status="Running", log_file=log_file
+        action="Send Mailing", targets=targets_db, status="Running", log_file=log_file
     )
     db.session.add(new_task)
     db.session.commit()
@@ -371,7 +371,7 @@ def send_newsletter():
             user_id=user_id,
             username=session.get('username'),
             module="Newsletter",
-            action="Send Campaign",
+            action="Send Mailing",
             details={
                 "sender": sender_email,
                 "lists": selected_lists,
@@ -382,7 +382,7 @@ def send_newsletter():
             status="Success"
         )
     except Exception as e:
-        log.error(f"Failed to audit Newsletter campaign start: {e}")
+        log.error(f"Failed to audit Newsletter mailing start: {e}")
 
     # Background Execution
     app_context = current_app._get_current_object()
@@ -602,7 +602,7 @@ def bg_send_execution(app, task_id, sender_email, smtp_config, target_users, sub
             keyserver = smtp_config.get('keyserver', '').strip()
             use_gpg = bool(use_gpg)
             
-            emit_and_write(f"========== [ {timestamp} ] NEWSLETTER CAMPAIGN ==========")
+            emit_and_write(f"========== [ {timestamp} ] NEWSLETTER MAILING ==========")
             emit_and_write(f"--- 📤 Sender: {sender_email}")
             emit_and_write(f"--- 👥 Recipients: {len(target_users)}", "__HIDE__")
             emit_and_write(f"--- 📎 Attachments: {len(attachments or [])}", "__HIDE__")
@@ -683,18 +683,18 @@ def bg_send_execution(app, task_id, sender_email, smtp_config, target_users, sub
                 server.quit()
                 server = None
             
-            # --- FINAL CAMPAIGN SUMMARY ---
+            # --- FINAL NEWSLETTER SUMMARY ---
             emit_and_write(f"\n==================================================", "__HIDE__")
-            emit_and_write(f"📊 CAMPAIGN EXECUTION SUMMARY", "__HIDE__")
+            emit_and_write(f"📊 NEWSLETTER SENDING SUMMARY", "__HIDE__")
             emit_and_write(f"==================================================", "__HIDE__")
             
             emit_and_write(f"✅ Total Successfully Sent: {success_count}", "__HIDE__")
             emit_and_write(f"❌ Total Failed: {error_count}", "__HIDE__")
             
             if error_count == 0:
-                emit_and_write("✅ Campaign completed successfully.", "✅ Campaign completed successfully.")
+                emit_and_write("✅ Newsletter completed successfully.", "✅ Newsletter completed successfully.")
             else:
-                emit_and_write("⚠️ Campaign completed with errors.", "⚠️ Campaign completed with errors. Contact an administrator.")
+                emit_and_write("⚠️ Newsletter completed with errors.", "⚠️ Newsletter completed with errors. Contact an administrator.")
 
             if error_count > 0:
                 emit_and_write(f"\nFailure Breakdown:", "__HIDE__")
@@ -710,7 +710,7 @@ def bg_send_execution(app, task_id, sender_email, smtp_config, target_users, sub
             try:
                 WinHubCore.audit(
                     module="Newsletter",
-                    action="Campaign Finished",
+                    action="Mailing Finished",
                     details={
                         "sender": sender_email,
                         "recipients_count": len(target_users),
@@ -722,7 +722,7 @@ def bg_send_execution(app, task_id, sender_email, smtp_config, target_users, sub
                     status="Success" if error_count == 0 else "Warning"
                 )
             except Exception as audit_error:
-                log.error(f"Failed to audit Newsletter campaign finish: {audit_error}")
+                log.error(f"Failed to audit Newsletter mailing finish: {audit_error}")
                 
         except Exception as e:
             log.error(f"Newsletter Script Error: {traceback.format_exc()}")
@@ -738,7 +738,7 @@ def bg_send_execution(app, task_id, sender_email, smtp_config, target_users, sub
             try:
                 WinHubCore.audit(
                     module="Newsletter",
-                    action="Campaign Failed",
+                    action="Mailing Failed",
                     details={
                         "sender": sender_email,
                         "recipients_count": len(target_users),
@@ -749,7 +749,7 @@ def bg_send_execution(app, task_id, sender_email, smtp_config, target_users, sub
                     status="Error"
                 )
             except Exception as audit_error:
-                log.error(f"Failed to audit Newsletter campaign failure: {audit_error}")
+                log.error(f"Failed to audit Newsletter mailing failure: {audit_error}")
         finally:
             if server:
                 try:

@@ -97,6 +97,9 @@ def _is_newsletter_campaign_audit(entry):
         "Newsletter: Send Campaign",
         "Newsletter: Campaign Finished",
         "Newsletter: Campaign Failed",
+        "Newsletter: Send Mailing",
+        "Newsletter: Mailing Finished",
+        "Newsletter: Mailing Failed",
     }
 
 @history_bp.before_request
