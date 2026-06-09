@@ -267,6 +267,18 @@ function escapeHtml(value) {
     }[ch]));
 }
 
+function escapeJsString(value) {
+    return String(value ?? '').replace(/[\\'"\n\r\u2028\u2029]/g, ch => ({
+        '\\': '\\\\',
+        "'": "\\'",
+        '"': '\\"',
+        '\n': '\\n',
+        '\r': '\\r',
+        '\u2028': '\\u2028',
+        '\u2029': '\\u2029'
+    }[ch]));
+}
+
 function filterTemplateLibrary() {
     const q = (document.getElementById('templateLibrarySearch')?.value || '').trim().toLowerCase();
     document.querySelectorAll('.template-category-block').forEach(block => {
@@ -668,13 +680,14 @@ async function sendReportEmail() {
 function renderSmtpList() {
     const list = document.getElementById('smtpListContainer');
     if(!list) return;
-    list.innerHTML = smtpProfiles.map(p => `
-        <div class="flex justify-between items-center bg-slate-50 p-4 rounded-xl border border-slate-100">
-            <div>
-                <p class="font-black text-slate-800 text-sm">${p.email}</p>
-                <p class="text-[10px] font-bold text-slate-400 uppercase tracking-widest mt-1">${p.host} : ${p.port}</p>
-            </div>
-            <button onclick="deleteSmtpProfile('${p.email}')" class="p-2 text-rose-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition-colors">
+	    list.innerHTML = smtpProfiles.map(p => `
+	        <div class="flex justify-between items-center bg-slate-50 p-4 rounded-xl border border-slate-100">
+	            <div>
+	                <p class="font-black text-slate-800 text-sm">${escapeHtml(p.email || '')}</p>
+	                <p class="text-[10px] font-bold text-slate-400 uppercase tracking-widest mt-1">${escapeHtml(p.host || '')} : ${escapeHtml(String(p.port || ''))}</p>
+	                ${p.keyserver ? `<p class="text-[10px] font-mono font-bold text-sky-500 mt-1">${escapeHtml(p.keyserver)}</p>` : ''}
+	            </div>
+	            <button onclick="deleteSmtpProfile('${escapeJsString(p.email || '')}')" class="p-2 text-rose-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition-colors">
                 <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"></path></svg>
             </button>
         </div>
@@ -691,17 +704,19 @@ async function saveSmtpProfile() {
     const host = document.getElementById('smtpHost').value;
     const port = document.getElementById('smtpPort').value;
     const password = document.getElementById('smtpPass').value;
+    const keyserver = document.getElementById('smtpKeyserver')?.value || '';
 
     if(!email || !host || !password) return alert("Fill all fields (Email, Host, App Password).");
 
     try {
-        await fetch('/api/infrastructure/smtp', {
-            method: 'POST', headers: {'Content-Type': 'application/json'},
-            body: JSON.stringify({email, host, port, password})
-        });
-        document.getElementById('smtpEmail').value = '';
-        document.getElementById('smtpHost').value = '';
-        document.getElementById('smtpPass').value = '';
+	        await fetch('/api/infrastructure/smtp', {
+	            method: 'POST', headers: {'Content-Type': 'application/json'},
+	            body: JSON.stringify({email, host, port, password, keyserver})
+	        });
+	        document.getElementById('smtpEmail').value = '';
+	        document.getElementById('smtpHost').value = '';
+	        document.getElementById('smtpPass').value = '';
+	        if(document.getElementById('smtpKeyserver')) document.getElementById('smtpKeyserver').value = '';
 
         await fetchSmtpProfilesGlobally();
         renderSmtpList();

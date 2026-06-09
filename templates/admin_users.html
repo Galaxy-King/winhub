@@ -159,15 +159,21 @@
                     </div>
                     <textarea id="gpgKeyText" class="w-full min-h-56 p-4 bg-slate-50 border border-slate-200 rounded-2xl text-xs font-mono outline-none focus:ring-4 focus:ring-indigo-500/10" placeholder="-----BEGIN PGP PUBLIC KEY BLOCK-----"></textarea>
                     <button onclick="importGpgKey()" class="w-full px-5 py-3 bg-indigo-600 text-white rounded-2xl text-[10px] font-black uppercase shadow-sm">Import Armored Key</button>
-                    <div class="pt-5 border-t border-slate-100 space-y-3">
-                        <h4 class="text-[10px] font-black text-indigo-600 uppercase tracking-widest">Fetch From Keyserver</h4>
-                        <select id="gpgKeyserverSelect" onchange="syncGpgKeyserverFromSelect()" class="w-full p-3 bg-slate-50 border border-slate-200 rounded-2xl text-xs font-bold outline-none">
-                            <option value="hkps://keys.openpgp.org">hkps://keys.openpgp.org</option>
-                        </select>
-                        <input id="gpgKeyserver" type="text" value="hkps://keys.openpgp.org" placeholder="Custom keyserver URL" class="w-full p-3 bg-slate-50 border border-slate-200 rounded-2xl text-xs font-bold outline-none">
-                        <input id="gpgSearch" type="text" placeholder="email@example.com or fingerprint" class="w-full p-3 bg-slate-50 border border-slate-200 rounded-2xl text-xs font-bold outline-none">
-                        <button onclick="fetchGpgKey()" class="w-full px-5 py-3 bg-white border border-slate-200 text-slate-700 rounded-2xl text-[10px] font-black uppercase shadow-sm">Fetch Key</button>
-                    </div>
+	                    <div class="pt-5 border-t border-slate-100 space-y-3">
+	                        <h4 class="text-[10px] font-black text-indigo-600 uppercase tracking-widest">Fetch From Keyserver</h4>
+	                        <div class="flex gap-2">
+	                            <div class="relative flex-1">
+	                                <input id="gpgKeyserver" type="text" list="gpgKeyserverOptions" value="hkps://keys.openpgp.org" placeholder="Keyserver URL or direct public key URL" class="w-full p-3 pr-11 bg-slate-50 border border-slate-200 rounded-2xl text-xs font-bold outline-none">
+	                                <datalist id="gpgKeyserverOptions"></datalist>
+	                                <button type="button" onclick="openGpgKeyserverPicker()" class="absolute right-2 top-1/2 -translate-y-1/2 p-2 text-slate-500 hover:text-indigo-600 rounded-xl transition-colors" title="Open saved keyservers">
+	                                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M6 9l6 6 6-6"></path></svg>
+	                                </button>
+	                            </div>
+	                            <button type="button" onclick="deleteGpgKeyserver()" class="px-4 bg-rose-50 border border-rose-100 text-rose-600 rounded-2xl text-[10px] font-black uppercase shadow-sm hover:bg-rose-100 transition-colors" title="Remove selected custom keyserver">Remove</button>
+	                        </div>
+	                        <input id="gpgSearch" type="text" placeholder="email@example.com or fingerprint" class="w-full p-3 bg-slate-50 border border-slate-200 rounded-2xl text-xs font-bold outline-none">
+	                        <button onclick="fetchGpgKey()" class="w-full px-5 py-3 bg-white border border-slate-200 text-slate-700 rounded-2xl text-[10px] font-black uppercase shadow-sm">Fetch Key</button>
+	                    </div>
                     <p id="gpgStatus" class="text-xs font-bold text-slate-500"></p>
                 </div>
                 <div class="bg-white rounded-[3rem] border border-slate-200 shadow-sm overflow-hidden">
@@ -847,24 +853,24 @@ $StaticPassword = "{{secret:local_admin_password}}"
             `).join('') || `<tr><td colspan="3" class="p-16 text-center text-slate-400 font-bold">${query ? 'No public keys match search.' : 'No public keys imported.'}</td></tr>`;
     }
 
-    function updateGpgKeyserverOptions(keyservers) {
-        gpgKeyserversCache = Array.from(new Set((keyservers || []).filter(Boolean)));
-        const select = document.getElementById('gpgKeyserverSelect');
-        const input = document.getElementById('gpgKeyserver');
-        if (!select) return;
-        const current = input?.value || select.value || 'hkps://keys.openpgp.org';
-        select.innerHTML = gpgKeyserversCache.map(server => `<option value="${escapeHtml(server)}">${escapeHtml(server)}</option>`).join('');
-        if (gpgKeyserversCache.includes(current)) {
-            select.value = current;
-        }
-        if (input && !input.value && select.value) input.value = select.value;
-    }
+	    function updateGpgKeyserverOptions(keyservers) {
+	        gpgKeyserversCache = Array.from(new Set((keyservers || []).filter(Boolean)));
+	        const datalist = document.getElementById('gpgKeyserverOptions');
+	        const input = document.getElementById('gpgKeyserver');
+	        if (!datalist) return;
+	        const current = input?.value || gpgKeyserversCache[0] || 'hkps://keys.openpgp.org';
+	        datalist.innerHTML = gpgKeyserversCache.map(server => `<option value="${escapeHtml(server)}">${escapeHtml(server)}</option>`).join('');
+	        if (input && !input.value) input.value = current;
+	    }
 
-    function syncGpgKeyserverFromSelect() {
-        const select = document.getElementById('gpgKeyserverSelect');
-        const input = document.getElementById('gpgKeyserver');
-        if (select && input) input.value = select.value;
-    }
+	    function openGpgKeyserverPicker() {
+	        const input = document.getElementById('gpgKeyserver');
+	        if (!input) return;
+	        input.focus();
+	        if (typeof input.showPicker === 'function') {
+	            try { input.showPicker(); } catch(e) {}
+	        }
+	    }
 
     async function importGpgKey() {
         const key = document.getElementById('gpgKeyText')?.value || '';
@@ -896,14 +902,36 @@ $StaticPassword = "{{secret:local_admin_password}}"
                 body: JSON.stringify({keyserver, search})
             });
             const data = await res.json();
-            if (!data.success) throw new Error(data.message || 'Fetch failed');
-            if (status) status.textContent = data.message || 'Key fetched.';
-            updateGpgKeyserverOptions(data.keyservers || []);
-            fetchGpgKeys();
-        } catch (e) {
-            if (status) status.textContent = e.message || 'Fetch failed.';
-        }
-    }
+	            if (!data.success) throw new Error(data.message || 'Fetch failed');
+	            if (status) status.textContent = data.message || 'Key fetched.';
+	            updateGpgKeyserverOptions(data.keyservers || []);
+	            fetchGpgKeys();
+	        } catch (e) {
+	            if (status) status.textContent = e.message || 'Fetch failed.';
+	        }
+	    }
+
+	    async function deleteGpgKeyserver() {
+	        const input = document.getElementById('gpgKeyserver');
+	        const keyserver = (input?.value || '').trim();
+	        const status = document.getElementById('gpgStatus');
+	        if (!keyserver) return;
+	        if (!confirm('Remove this saved GPG keyserver from the dropdown? Built-in keyservers cannot be removed.')) return;
+	        try {
+	            const res = await fetch('/api/admin/gpg/keyservers', {
+	                method: 'DELETE',
+	                headers: {'Content-Type': 'application/json'},
+	                body: JSON.stringify({keyserver})
+	            });
+	            const data = await res.json();
+	            if (!data.success) throw new Error(data.message || 'Delete failed');
+	            updateGpgKeyserverOptions(data.keyservers || []);
+	            if (input && !gpgKeyserversCache.includes(keyserver)) input.value = gpgKeyserversCache[0] || '';
+	            if (status) status.textContent = data.message || 'Keyserver removed.';
+	        } catch (e) {
+	            if (status) status.textContent = e.message || 'Delete failed.';
+	        }
+	    }
 
     async function deleteGpgKey(fingerprint) {
         if (!fingerprint || !confirm('Delete this public GPG key?')) return;

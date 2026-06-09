@@ -442,13 +442,16 @@
             <div class="col-span-2 sm:col-span-1">
                 <input type="text" id="smtpHost" placeholder="SMTP Host (e.g. smtp.gmail.com)" class="w-full p-3 bg-white border border-slate-200 rounded-xl text-sm font-bold outline-none focus:ring-2 focus:ring-indigo-500 shadow-sm">
             </div>
-            <div class="col-span-2 sm:col-span-1">
-                <input type="password" id="smtpPass" placeholder="App Password" class="w-full p-3 bg-white border border-slate-200 rounded-xl text-sm font-bold outline-none focus:ring-2 focus:ring-indigo-500 shadow-sm">
-            </div>
-            <div class="col-span-1 sm:col-span-1 flex gap-2">
-                <input type="number" id="smtpPort" value="587" placeholder="Port" class="w-24 p-3 bg-white border border-slate-200 rounded-xl text-sm font-bold outline-none focus:ring-2 focus:ring-indigo-500 shadow-sm text-center">
-                <button onclick="saveSmtpProfile()" class="flex-1 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-xs font-black uppercase shadow-sm transition-all">Add Profile</button>
-            </div>
+	            <div class="col-span-2 sm:col-span-1">
+	                <input type="password" id="smtpPass" placeholder="App Password" class="w-full p-3 bg-white border border-slate-200 rounded-xl text-sm font-bold outline-none focus:ring-2 focus:ring-indigo-500 shadow-sm">
+	            </div>
+	            <div class="col-span-2 sm:col-span-1">
+	                <input type="text" id="smtpKeyserver" placeholder="GPG Keyserver URL (optional)" class="w-full p-3 bg-white border border-slate-200 rounded-xl text-sm font-bold outline-none focus:ring-2 focus:ring-indigo-500 shadow-sm">
+	            </div>
+	            <div class="col-span-2 flex gap-2">
+	                <input type="number" id="smtpPort" value="587" placeholder="Port" class="w-24 p-3 bg-white border border-slate-200 rounded-xl text-sm font-bold outline-none focus:ring-2 focus:ring-indigo-500 shadow-sm text-center">
+	                <button onclick="saveSmtpProfile()" class="flex-1 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-xs font-black uppercase shadow-sm transition-all">Add Profile</button>
+	            </div>
         </div>
 
         <div class="overflow-y-auto custom-scrollbar flex-1 pr-2 space-y-3" id="smtpListContainer">

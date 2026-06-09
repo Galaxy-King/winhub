@@ -79,8 +79,14 @@ def fetch_public_key(keyserver, search):
     lookup = (search or "").strip()
     if not lookup:
         return False, "Search value is required."
+    if "://" not in base_url:
+        base_url = "https://" + base_url
     base_url = base_url.replace("hkps://", "https://").replace("hkp://", "http://").rstrip("/")
-    api_url = f"{base_url}/pks/lookup?op=get&options=mr&search={urllib.parse.quote(lookup)}"
+    parsed = urllib.parse.urlsplit(base_url)
+    if parsed.path.lower().endswith((".asc", ".pgp", ".gpg", ".txt")):
+        api_url = base_url
+    else:
+        api_url = f"{base_url}/pks/lookup?op=get&options=mr&search={urllib.parse.quote(lookup)}"
     try:
         context = ssl.create_default_context()
         req = urllib.request.Request(api_url, headers={"User-Agent": "WinHUB GPG Key Import"})

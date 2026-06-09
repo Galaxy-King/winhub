@@ -29,7 +29,7 @@ from core.security import sec_manager
 from core.config import Config
 from core.host_security import encryption_status_from_host_info
 from core.permissions import has_module_access, has_permission, request_api_group_scope, user_permissions
-from core.gpg import gpg_env
+from core.gpg import fetch_public_key, gpg_env
 
 infrastructure_bp = Blueprint('infrastructure', __name__, template_folder='templates')
 kyiv_tz = ZoneInfo("Europe/Kyiv")
@@ -1133,28 +1133,104 @@ def parse_recipients(recipient_list):
 def hidden_subprocess_kwargs():
     return {"creationflags": 0x08000000} if os.name == "nt" else {}
 
-def encrypt_report_body(body, recipient, sender_email):
+def get_report_gpg_key_status(gpg_path, email):
+    try:
+        proc = subprocess.run(
+            [gpg_path, "--batch", "--with-colons", "--list-keys", email],
+            capture_output=True,
+            text=True,
+            timeout=5,
+            env=gpg_env(),
+            **hidden_subprocess_kwargs(),
+        )
+    except Exception as exc:
+        return {"usable": False, "reason": f"GPG key check failed: {exc}"}
+
+    if proc.returncode != 0:
+        return {"usable": False, "reason": "Missing public key"}
+
+    now_ts = int(time.time())
+    saw_public_key = False
+    unusable_reasons = []
+    validity_reasons = {
+        "e": "Public key is expired",
+        "r": "Public key is revoked",
+        "d": "Public key is disabled",
+    }
+
+    for line in proc.stdout.splitlines():
+        parts = line.split(":")
+        if not parts or parts[0] != "pub":
+            continue
+        saw_public_key = True
+        validity = parts[1] if len(parts) > 1 else ""
+        expires_raw = parts[6] if len(parts) > 6 else ""
+
+        reason = validity_reasons.get(validity)
+        if not reason and expires_raw:
+            try:
+                expires_ts = int(expires_raw)
+                if expires_ts > 0 and expires_ts < now_ts:
+                    reason = "Public key is expired"
+            except ValueError:
+                pass
+
+        if reason:
+            unusable_reasons.append(reason)
+            continue
+        return {"usable": True, "reason": "Public key is usable"}
+
+    if not saw_public_key:
+        return {"usable": False, "reason": "Missing public key"}
+    return {"usable": False, "reason": unusable_reasons[0] if unusable_reasons else "No usable public key"}
+
+
+def ensure_report_gpg_key_ready(gpg_path, recipient, keyserver=None):
+    status = get_report_gpg_key_status(gpg_path, recipient)
+    if status["usable"]:
+        return True, status["reason"]
+
+    keyserver = str(keyserver or "").strip()
+    if keyserver:
+        fetched, fetch_message = fetch_public_key(keyserver, recipient)
+        if not fetched:
+            return False, f"{status['reason']}; keyserver fetch failed: {fetch_message}"
+        refreshed = get_report_gpg_key_status(gpg_path, recipient)
+        if refreshed["usable"]:
+            return True, "Public key refreshed successfully"
+        return False, f"{refreshed['reason']} after keyserver refresh"
+
+    return False, f"{status['reason']}. Import a valid public key in Administration > GPG Keys or set a GPG keyserver on the SMTP profile."
+
+
+def encrypt_report_body(body, recipient, sender_email, keyserver=None):
     gpg_path = getattr(Config, 'GPG_PATH', os.environ.get('GPG_PATH', 'gpg'))
-    if not os.path.exists(gpg_path):
+    if os.path.sep in gpg_path and not os.path.exists(gpg_path):
         return False, body, f"GPG executable not found: {gpg_path}"
 
     unique_id = str(uuid.uuid4())
     tmp_in = os.path.join(tempfile.gettempdir(), f"winhub_report_{unique_id}.txt")
     tmp_out = tmp_in + ".asc"
     try:
+        key_ready, key_message = ensure_report_gpg_key_ready(gpg_path, recipient, keyserver)
+        if not key_ready:
+            return False, body, key_message
+
         with open(tmp_in, 'w', encoding='utf-8') as f:
             f.write(body)
         cmd = [
-            gpg_path, "--batch", "--yes", "--trust-model", "always",
+            gpg_path, "--batch", "--yes", "--trust-model", "always", "--no-auto-key-locate",
             "--encrypt", "--armor", "-r", recipient,
             "-o", tmp_out, tmp_in
         ]
-        result = subprocess.run(cmd, capture_output=True, text=True, timeout=30, env=gpg_env(), **hidden_subprocess_kwargs())
+        result = subprocess.run(cmd, capture_output=True, text=True, timeout=15, stdin=subprocess.DEVNULL, env=gpg_env(), **hidden_subprocess_kwargs())
         if result.returncode != 0 or not os.path.exists(tmp_out):
             error_text = (result.stderr or result.stdout or "GPG encryption failed").strip()
             return False, body, error_text
         with open(tmp_out, 'r', encoding='utf-8') as f:
             return True, f.read(), None
+    except subprocess.TimeoutExpired:
+        return False, body, "GPG encryption timed out after 15 seconds"
     except Exception as e:
         return False, body, str(e)
     finally:
@@ -1196,7 +1272,7 @@ def send_report_email(title, report_body, sender_email, recipient_list, custom_m
             for rec in recipients:
                 body_to_send = final_body
                 if use_gpg:
-                    encrypted, encrypted_body, error_text = encrypt_report_body(final_body, rec, sender_email)
+                    encrypted, encrypted_body, error_text = encrypt_report_body(final_body, rec, sender_email, smtp_conf.get("keyserver"))
                     if not encrypted:
                         return False, f"GPG encryption failed for {rec}: {error_text}", sent_count
                     body_to_send = encrypted_body
@@ -1874,7 +1950,7 @@ def manage_smtp():
     if request.method == 'GET':
         if not (can("send_reports") or can("manage_smtp")):
             return jsonify({"success": False, "message": "Permission denied"}), 403
-        safe_profiles = [{"email": k, "host": v.get("host"), "port": v.get("port")} for k, v in profiles.items()]
+        safe_profiles = [{"email": k, "host": v.get("host"), "port": v.get("port"), "keyserver": v.get("keyserver", "")} for k, v in profiles.items()]
         return jsonify({"success": True, "profiles": safe_profiles})
         
     denied = require_permission("manage_smtp")
@@ -1886,13 +1962,15 @@ def manage_smtp():
         host = data.get("host", "").strip()
         port = data.get("port", 587)
         password = data.get("password", "")
+        keyserver = data.get("keyserver", "").strip()
         
         if not email or not host or not password:
             return jsonify({"success": False, "message": "Email, Host, and Password are required."}), 400
             
         profiles[email] = {
             "host": host, "port": int(port),
-            "password": sec_manager.encrypt_data(password)
+            "password": sec_manager.encrypt_data(password),
+            "keyserver": keyserver,
         }
         save_smtp_profiles(profiles)
         return jsonify({"success": True})

@@ -51,17 +51,54 @@ def load_gpg_keyservers():
     return list(DEFAULT_GPG_KEYSERVERS)
 
 
+def load_custom_gpg_keyservers():
+    try:
+        with open(GPG_KEYSERVERS_FILE, "r", encoding="utf-8") as handle:
+            data = json.load(handle)
+            if isinstance(data, list):
+                return [
+                    str(item).strip()
+                    for item in data
+                    if str(item).strip() and str(item).strip() not in DEFAULT_GPG_KEYSERVERS
+                ]
+    except FileNotFoundError:
+        pass
+    except Exception:
+        log.exception("Failed to load custom GPG keyservers")
+    return []
+
+
+def save_custom_gpg_keyservers(values):
+    cleaned = [
+        str(item).strip()
+        for item in values
+        if str(item).strip() and str(item).strip() not in DEFAULT_GPG_KEYSERVERS
+    ]
+    cleaned = list(dict.fromkeys(cleaned))
+    os.makedirs(os.path.dirname(GPG_KEYSERVERS_FILE), exist_ok=True)
+    with open(GPG_KEYSERVERS_FILE, "w", encoding="utf-8") as handle:
+        json.dump(cleaned, handle, indent=2)
+    return load_gpg_keyservers()
+
+
 def save_gpg_keyserver(keyserver):
     value = str(keyserver or "").strip()
     if not value:
         return load_gpg_keyservers()
-    values = load_gpg_keyservers()
-    if value not in values:
+    values = load_custom_gpg_keyservers()
+    if value not in DEFAULT_GPG_KEYSERVERS and value not in values:
         values.append(value)
-    os.makedirs(os.path.dirname(GPG_KEYSERVERS_FILE), exist_ok=True)
-    with open(GPG_KEYSERVERS_FILE, "w", encoding="utf-8") as handle:
-        json.dump(values, handle, indent=2)
-    return values
+    return save_custom_gpg_keyservers(values)
+
+
+def delete_gpg_keyserver(keyserver):
+    value = str(keyserver or "").strip()
+    if not value:
+        return False, "Keyserver value is required.", load_gpg_keyservers()
+    if value in DEFAULT_GPG_KEYSERVERS:
+        return False, "Built-in keyservers cannot be removed.", load_gpg_keyservers()
+    values = [item for item in load_custom_gpg_keyservers() if item != value]
+    return True, "Keyserver removed.", save_custom_gpg_keyservers(values)
 
 
 def sanitize_allowed_modules(raw_items):
@@ -689,6 +726,20 @@ def get_gpg_keys():
 @admin_bp.route('/api/admin/gpg/keyservers', methods=['GET'])
 def get_gpg_keyservers():
     return jsonify({"success": True, "keyservers": load_gpg_keyservers()})
+
+
+@admin_bp.route('/api/admin/gpg/keyservers', methods=['DELETE'])
+def delete_gpg_keyserver_route():
+    data = request.json or {}
+    ok, message, keyservers = delete_gpg_keyserver(data.get("keyserver"))
+    WinHubCore.audit(
+        user_id=session.get('user_id'),
+        module="Admin",
+        action="Delete GPG Keyserver",
+        details={"success": bool(ok), "keyserver": data.get("keyserver"), "message": message[:300]},
+        status="Success" if ok else "Error"
+    )
+    return jsonify({"success": ok, "message": message, "keyservers": keyservers}), 200 if ok else 400
 
 
 @admin_bp.route('/api/admin/gpg/import', methods=['POST'])
