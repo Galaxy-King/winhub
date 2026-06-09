@@ -1202,7 +1202,7 @@ def send_report_email(title, report_body, sender_email, recipient_list, custom_m
                     body_to_send = encrypted_body
 
                 msg = MIMEText(body_to_send, 'plain', 'utf-8')
-                msg['Subject'] = f"WinHUB Report: {title}" + (" [SECURE]" if use_gpg else "")
+                msg['Subject'] = str(title or '').strip() or "Report"
                 msg['From'] = sender_email
                 msg['To'] = rec
                 server.send_message(msg)
