@@ -17,7 +17,7 @@ from email.utils import parseaddr
 from urllib.parse import urlsplit
 from zoneinfo import ZoneInfo
 from flask import Blueprint, request, jsonify, render_template, session, redirect, url_for, current_app, Response, send_from_directory, stream_with_context
-from sqlalchemy import func, or_
+from sqlalchemy import and_, func, or_
 from sqlalchemy.orm import load_only, selectinload
 from werkzeug.exceptions import HTTPException
 from werkzeug.utils import secure_filename
@@ -314,9 +314,51 @@ def usable_agent_package_url(value):
 def resolved_agent_package_update_url(package_id, preferred_url=""):
     return usable_agent_package_url(preferred_url) or agent_package_update_url(package_id)
 
-def latest_agent_package_version():
+def latest_agent_package_versions_by_platform():
+    versions = {}
+    for package in load_agent_packages():
+        platform = str(package.get("platform") or detect_agent_package_platform(package.get("original_filename") or package.get("filename") or "")).lower()
+        version = str(package.get("version") or "").strip()
+        if platform and version and platform not in versions:
+            versions[platform] = version
+    return versions
+
+
+def latest_agent_package_version(platform=None):
+    platform = str(platform or "").strip().lower()
+    if platform:
+        return latest_agent_package_versions_by_platform().get(platform, Config.LATEST_AGENT_VERSION)
     packages = load_agent_packages()
     return packages[0].get("version", "") if packages else Config.LATEST_AGENT_VERSION
+
+
+def latest_version_for_endpoint(endpoint, latest_versions=None):
+    latest_versions = latest_versions or latest_agent_package_versions_by_platform()
+    platform = endpoint_agent_platform(endpoint)
+    return latest_versions.get(platform) or Config.LATEST_AGENT_VERSION
+
+
+def endpoint_platform_clause(platform):
+    linux_clause = or_(
+        Endpoint.os_type.ilike("%linux%"),
+        Endpoint.os_version.ilike("%debian%"),
+        Endpoint.os_version.ilike("%ubuntu%"),
+    )
+    return linux_clause if platform == "linux" else ~linux_clause
+
+
+def platform_agent_version_clauses(latest_versions, current=False):
+    clauses = []
+    for platform in ("windows", "linux"):
+        latest = latest_versions.get(platform)
+        if not latest:
+            continue
+        version_clause = Endpoint.agent_version == latest if current else or_(Endpoint.agent_version.is_(None), Endpoint.agent_version != latest)
+        clauses.append(and_(endpoint_platform_clause(platform), version_clause))
+    if not clauses and Config.LATEST_AGENT_VERSION:
+        version_clause = Endpoint.agent_version == Config.LATEST_AGENT_VERSION if current else or_(Endpoint.agent_version.is_(None), Endpoint.agent_version != Config.LATEST_AGENT_VERSION)
+        clauses.append(version_clause)
+    return clauses
 
 def load_software_packages():
     if not os.path.exists(SOFTWARE_PACKAGES_FILE):
@@ -855,7 +897,10 @@ def infra_live_state_cached():
 
 def endpoint_health_score(endpoint, latest_version=None):
     now = datetime.utcnow()
-    latest_version = latest_version if latest_version is not None else latest_agent_package_version()
+    if isinstance(latest_version, dict):
+        latest_version = latest_version_for_endpoint(endpoint, latest_version)
+    else:
+        latest_version = latest_version if latest_version is not None else latest_agent_package_version(endpoint_agent_platform(endpoint))
     last_seen = endpoint.last_seen
     if last_seen and getattr(last_seen, "tzinfo", None):
         last_seen = last_seen.replace(tzinfo=None)
@@ -1229,8 +1274,14 @@ def build_scheduled_report_body(report_types, since, until):
                 Endpoint.public_key_pem.isnot(None),
             )
         ).count()
-        latest = latest_agent_package_version()
-        outdated = Endpoint.query.filter(Endpoint.approval_status == "Approved", Endpoint.agent_version != latest).count() if latest else 0
+        latest_versions = latest_agent_package_versions_by_platform()
+        approved_endpoints = Endpoint.query.filter_by(approval_status="Approved").all()
+        outdated = sum(
+            1 for endpoint in approved_endpoints
+            if latest_version_for_endpoint(endpoint, latest_versions)
+            and (endpoint.agent_version or "") != latest_version_for_endpoint(endpoint, latest_versions)
+        )
+        latest_label = ", ".join(f"{platform}: {version}" for platform, version in sorted(latest_versions.items())) or (Config.LATEST_AGENT_VERSION or "unknown")
         online_since = datetime.utcnow() - timedelta(minutes=5)
         online = Endpoint.query.filter(Endpoint.last_seen >= online_since).count()
         lines += [
@@ -1239,7 +1290,7 @@ def build_scheduled_report_body(report_types, since, until):
             f"Approved: {approved} | Pending: {pending} | Rejected: {rejected}",
             f"Online now: {online}",
             f"Signed identity keys: {signed}",
-            f"Latest agent: {latest or 'unknown'} | Outdated approved agents: {outdated}",
+            f"Latest agent: {latest_label} | Outdated approved agents: {outdated}",
             "",
         ]
 
@@ -1532,7 +1583,12 @@ def index():
     
     agents = get_allowed_hosts_light(user_id)
     groups = WinHubCore.get_allowed_groups(user_id)
-    
+    latest_versions = latest_agent_package_versions_by_platform()
+
+    def is_agent_current(agent):
+        latest = latest_version_for_endpoint(agent, latest_versions)
+        return bool(latest and (getattr(agent, "agent_version", "") or "") == latest)
+
     stats = {
         'total': len(agents),
         'online': sum(1 for a in agents if a.last_seen and a.last_seen >= online_threshold),
@@ -1540,8 +1596,8 @@ def index():
         'blocked': sum(1 for a in agents if a.is_blocked),
         'pending': sum(1 for a in agents if getattr(a, "approval_status", "Approved") == "Pending"),
         'rejected': sum(1 for a in agents if getattr(a, "approval_status", "Approved") == "Rejected"),
-        'current': sum(1 for a in agents if Config.LATEST_AGENT_VERSION and (a.agent_version or "") == Config.LATEST_AGENT_VERSION),
-        'outdated': sum(1 for a in agents if Config.LATEST_AGENT_VERSION and (a.agent_version or "") != Config.LATEST_AGENT_VERSION),
+        'current': sum(1 for a in agents if is_agent_current(a)),
+        'outdated': sum(1 for a in agents if not is_agent_current(a)),
         'signed': sum(1 for a in agents if bool(getattr(a, "agent_identity_key_enrolled", False))),
     }
     
@@ -1549,7 +1605,7 @@ def index():
         a.is_online = (a.last_seen and a.last_seen >= online_threshold)
         a.last_seen_str = to_kyiv_time(a.last_seen)
         a.last_enrollment_str = to_kyiv_time(getattr(a, "last_enrollment_at", None))
-        a.agent_outdated = bool(Config.LATEST_AGENT_VERSION and (a.agent_version or "") != Config.LATEST_AGENT_VERSION)
+        a.agent_outdated = not is_agent_current(a)
         if not hasattr(a, "encryption"):
             a.encryption = endpoint_encryption_payload(a)
 
@@ -1563,7 +1619,7 @@ def index():
         "is_blocked": bool(a.is_blocked),
         "approval_status": getattr(a, 'approval_status', 'Approved'),
         "agent_version": getattr(a, 'agent_version', '') or '',
-        "agent_outdated": bool(Config.LATEST_AGENT_VERSION and (getattr(a, 'agent_version', '') or '') != Config.LATEST_AGENT_VERSION),
+        "agent_outdated": not is_agent_current(a),
         "agent_identity_key_enrolled": bool(getattr(a, "agent_identity_key_enrolled", False)),
         "is_online": bool(a.last_seen and a.last_seen >= online_threshold),
         "last_seen": to_kyiv_time_short(a.last_seen),
@@ -3101,6 +3157,7 @@ def fleet_center():
     if denied: return denied
 
     user = current_user()
+    latest_versions = latest_agent_package_versions_by_platform()
     latest_version = latest_agent_package_version()
     page = bounded_int_arg("page", 1, 1, 100000)
     page_size = bounded_int_arg("page_size", 50, 10, 100)
@@ -3145,10 +3202,12 @@ def fleet_center():
         query = query.filter(~Endpoint.groups.any())
 
     has_key_expr = or_(Endpoint.public_key_pem_plain.isnot(None), Endpoint.public_key_pem.isnot(None))
-    if status_filter == "outdated" and latest_version:
-        query = query.filter(or_(Endpoint.agent_version.is_(None), Endpoint.agent_version != latest_version))
-    elif status_filter == "current" and latest_version:
-        query = query.filter(Endpoint.agent_version == latest_version)
+    outdated_clauses = platform_agent_version_clauses(latest_versions, current=False)
+    current_clauses = platform_agent_version_clauses(latest_versions, current=True)
+    if status_filter == "outdated" and outdated_clauses:
+        query = query.filter(or_(*outdated_clauses))
+    elif status_filter == "current" and current_clauses:
+        query = query.filter(or_(*current_clauses))
     elif status_filter == "offline":
         query = query.filter(or_(Endpoint.last_seen.is_(None), Endpoint.last_seen < online_since))
     elif status_filter == "unsigned":
@@ -3161,8 +3220,7 @@ def fleet_center():
             Endpoint.is_blocked.is_(True),
             Endpoint.identity_warning.isnot(None),
         ]
-        if latest_version:
-            warning_clauses.append(or_(Endpoint.agent_version.is_(None), Endpoint.agent_version != latest_version))
+        warning_clauses.extend(outdated_clauses)
         query = query.filter(or_(*warning_clauses))
 
     total = query.order_by(None).with_entities(Endpoint.id).count()
@@ -3185,7 +3243,7 @@ def fleet_center():
     )
     hosts = []
     for endpoint in allowed_hosts:
-        health = endpoint_health_score(endpoint, latest_version)
+        health = endpoint_health_score(endpoint, latest_versions)
         hosts.append({
             "id": endpoint.id,
             "hostname": endpoint.hostname or endpoint.id,
@@ -3211,6 +3269,7 @@ def fleet_center():
     return jsonify({
         "success": True,
         "latest_version": latest_version,
+        "latest_versions": latest_versions,
         "hosts": hosts,
         "pagination": {
             "page": page,
