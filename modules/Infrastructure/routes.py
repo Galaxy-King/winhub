@@ -291,16 +291,30 @@ def find_agent_package_for_platform(version, platform):
 def agent_package_download_path(package_id):
     return url_for("infrastructure.download_agent_package_public", package_id=package_id)
 
+def usable_agent_public_base_url():
+    value = str(getattr(Config, "AGENT_PUBLIC_BASE_URL", "") or "").strip().rstrip("/")
+    if not value:
+        return ""
+    parsed = urlsplit(value)
+    if parsed.scheme.lower() not in ("http", "https") or not parsed.netloc:
+        logging.getLogger("winhub").warning(
+            "Ignoring invalid AGENT_PUBLIC_BASE_URL for agent package downloads: %s",
+            value,
+        )
+        return ""
+    return value
+
 def agent_package_public_url(package_id):
     path = agent_package_download_path(package_id)
-    if getattr(Config, "AGENT_PUBLIC_BASE_URL", ""):
-        return f"{Config.AGENT_PUBLIC_BASE_URL}{path}"
+    public_base_url = usable_agent_public_base_url()
+    if public_base_url:
+        return f"{public_base_url}{path}"
     return url_for("infrastructure.download_agent_package_public", package_id=package_id, _external=True)
 
 def agent_package_update_url(package_id):
     if getattr(Config, "AGENT_PACKAGE_URL_MODE", "absolute") == "relative":
         return agent_package_download_path(package_id)
-    return agent_package_public_url(package_id)
+    return usable_agent_package_url(agent_package_public_url(package_id)) or agent_package_download_path(package_id)
 
 def usable_agent_package_url(value):
     value = str(value or "").strip()

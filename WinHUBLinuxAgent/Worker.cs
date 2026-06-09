@@ -1119,7 +1119,26 @@ public class Worker : BackgroundService
         if (value.ValueKind == JsonValueKind.String && int.TryParse(value.GetString(), out number)) return number;
         return null;
     }
-    private Uri BuildUpdatePackageUri(string packageUrl) => Uri.TryCreate(packageUrl, UriKind.Absolute, out var absolute) ? absolute : new Uri(new Uri(_config.ServerUrl.TrimEnd('/') + "/"), packageUrl.TrimStart('/'));
+    private Uri BuildUpdatePackageUri(string packageUrl)
+    {
+        if (Uri.TryCreate(packageUrl, UriKind.Absolute, out var absolute))
+        {
+            if (IsHttpUri(absolute)) return absolute;
+            throw new InvalidOperationException($"Unsupported agent package URL scheme '{absolute.Scheme}'. Use http or https.");
+        }
+
+        if (!Uri.TryCreate(_config.ServerUrl.TrimEnd('/') + "/", UriKind.Absolute, out var baseUri) || !IsHttpUri(baseUri))
+        {
+            string scheme = baseUri?.Scheme ?? "invalid";
+            throw new InvalidOperationException($"ServerUrl must use http or https for agent updates. Current scheme: '{scheme}'.");
+        }
+
+        return new Uri(baseUri, packageUrl.TrimStart('/'));
+    }
+
+    private static bool IsHttpUri(Uri uri) =>
+        uri.Scheme.Equals(Uri.UriSchemeHttp, StringComparison.OrdinalIgnoreCase) ||
+        uri.Scheme.Equals(Uri.UriSchemeHttps, StringComparison.OrdinalIgnoreCase);
     private static string GetPayloadString(JsonElement payload, string name) => payload.ValueKind == JsonValueKind.Object && payload.TryGetProperty(name, out var value) ? value.GetString() ?? "" : "";
     private static string ComputeFileSha256(string path)
     {
