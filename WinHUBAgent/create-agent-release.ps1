@@ -2,13 +2,53 @@ param(
     [string]$Version = "1.2.0",
     [string]$OutputDir = ".\dist-agent",
     [switch]$Aot,
-    [switch]$ManagedSingleFile
+    [switch]$ManagedSingleFile,
+    [switch]$VsDevReady
 )
 
 $ErrorActionPreference = "Stop"
 
 if ($Aot -and $ManagedSingleFile) {
     throw "Use either -Aot or -ManagedSingleFile, not both."
+}
+
+if (-not $ManagedSingleFile -and -not $VsDevReady) {
+    $vswhere = Join-Path ${env:ProgramFiles(x86)} "Microsoft Visual Studio\Installer\vswhere.exe"
+    $installPath = ""
+    if (Test-Path -LiteralPath $vswhere) {
+        $installPath = & $vswhere -products Microsoft.VisualStudio.Product.BuildTools Microsoft.VisualStudio.Product.Community -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -latest -property installationPath
+    }
+
+    if (-not $installPath) {
+        $candidate = Join-Path ${env:ProgramFiles(x86)} "Microsoft Visual Studio\2022\BuildTools"
+        if (Test-Path -LiteralPath (Join-Path $candidate "Common7\Tools\VsDevCmd.bat")) {
+            $installPath = $candidate
+        }
+    }
+
+    $vsDevCmd = if ($installPath) { Join-Path $installPath "Common7\Tools\VsDevCmd.bat" } else { "" }
+    if ($vsDevCmd -and (Test-Path -LiteralPath $vsDevCmd)) {
+        $scriptPath = $PSCommandPath
+        $scriptDir = Split-Path -Parent $scriptPath
+        $argList = @(
+            "-NoProfile",
+            "-ExecutionPolicy", "Bypass",
+            "-File", "`"$scriptPath`"",
+            "-Version", "`"$Version`"",
+            "-OutputDir", "`"$OutputDir`""
+        )
+        if ($Aot) { $argList += "-Aot" }
+        $argList += "-VsDevReady"
+
+        $command = "call `"$vsDevCmd`" -arch=x64 -host_arch=x64 && pushd `"$scriptDir`" && powershell $($argList -join ' ') && popd"
+        cmd.exe /c $command
+        if ($LASTEXITCODE -ne 0) {
+            throw "NativeAOT release failed in Visual Studio developer environment with exit code $LASTEXITCODE."
+        }
+        exit 0
+    }
+
+    Write-Warning "Visual Studio C++ developer environment was not found. NativeAOT publish may fail if link.exe is not already available."
 }
 
 New-Item -ItemType Directory -Path $OutputDir -Force | Out-Null
@@ -37,6 +77,7 @@ if ($ManagedSingleFile) {
     $publishArgs += "-p:PublishSingleFile=true"
 } else {
     $publishArgs += "-p:PublishAot=true"
+    $publishArgs += "-p:IlcUseEnvironmentalTools=true"
 }
 
 dotnet @publishArgs

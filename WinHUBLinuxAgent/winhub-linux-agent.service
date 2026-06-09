@@ -1,0 +1,19 @@
+[Unit]
+Description=WinHUB Linux endpoint agent
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=notify
+User=root
+Group=root
+WorkingDirectory=/opt/winhub-linux-agent
+ExecStart=/opt/winhub-linux-agent/WinHUBLinuxAgent
+Restart=always
+RestartSec=10
+KillSignal=SIGTERM
+TimeoutStopSec=30
+NoNewPrivileges=false
+
+[Install]
+WantedBy=multi-user.target

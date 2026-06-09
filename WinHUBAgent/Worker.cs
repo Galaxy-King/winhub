@@ -176,10 +176,16 @@ namespace WinHUBAgent
                 try
                 {
                     string json = File.ReadAllText(ConfigFilePath);
+                    bool needsBackfill = ConfigNeedsBackfill(json);
                     var loadedConfig = JsonSerializer.Deserialize(json, AppJsonSerializerContext.Default.AgentConfig);
                     if (loadedConfig != null) _config = loadedConfig;
                     _config.ServerUrl = (_config.ServerUrl ?? "").Trim().TrimEnd('/');
                     _httpClient.Timeout = TimeSpan.FromSeconds(Math.Max(10, Math.Min(300, _config.DefaultTaskTimeoutSeconds)));
+                    if (needsBackfill)
+                    {
+                        SaveConfig();
+                        _logger.LogInformation("Runtime config backfilled with missing default keys.");
+                    }
                     _logger.LogInformation($"Runtime config loaded. Server: {_config.ServerUrl}");
                     MigratePlaintextSecretsFromConfig();
                     MigrateSecretsFromBootstrapConfig();
@@ -207,6 +213,34 @@ namespace WinHUBAgent
         }
 
         // НОВЕ: Отримання людської назви ОС з Реєстру
+        private static bool ConfigNeedsBackfill(string json)
+        {
+            try
+            {
+                using var doc = JsonDocument.Parse(json);
+                if (doc.RootElement.ValueKind != JsonValueKind.Object) return true;
+                string[] required =
+                {
+                    nameof(AgentConfig.ServerUrl),
+                    nameof(AgentConfig.GlobalApiKey),
+                    nameof(AgentConfig.PollIntervalSeconds),
+                    nameof(AgentConfig.PollJitterSeconds),
+                    nameof(AgentConfig.StartupSpreadSeconds),
+                    nameof(AgentConfig.TaskHmacSecret),
+                    nameof(AgentConfig.DefaultTaskTimeoutSeconds),
+                    nameof(AgentConfig.MaxResultLogBytes),
+                    nameof(AgentConfig.IgnoreTlsCertificateErrors),
+                    nameof(AgentConfig.ServerCertificateSha256),
+                    nameof(AgentConfig.RequireTaskSignature)
+                };
+                return required.Any(key => !doc.RootElement.TryGetProperty(key, out _));
+            }
+            catch
+            {
+                return false;
+            }
+        }
+
         private string GetFriendlyOsName()
         {
             try

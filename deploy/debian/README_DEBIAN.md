@@ -95,9 +95,9 @@ WinHUB returns scheduling hints in `/api/agent/poll`. New agents use them; older
 Recommended defaults:
 
 ```ini
-AGENT_IDLE_POLL_SECONDS=75
-AGENT_TASK_POLL_SECONDS=15
-AGENT_PENDING_POLL_SECONDS=60
+AGENT_IDLE_POLL_SECONDS=30
+AGENT_TASK_POLL_SECONDS=30
+AGENT_PENDING_POLL_SECONDS=30
 AGENT_POLL_JITTER_SECONDS=30
 AGENT_TELEMETRY_SECONDS=300
 AGENT_PENDING_TASK_MISS_CACHE_SECONDS=10
@@ -317,6 +317,46 @@ Bootstrap config for first enrollment only:
   "GlobalApiKey": "same-value-as-AGENT_API_KEY",
   "TaskHmacSecret": "same-value-as-AGENT_TASK_HMAC_SECRET"
 }
+```
+
+## 10.1 Debian/Ubuntu endpoint agent
+
+The Debian server files above run the WinHUB backend. Debian/Ubuntu endpoints are handled by the separate Linux endpoint agent in:
+
+```text
+WinHUBLinuxAgent
+```
+
+Build a Linux package on a Debian/Ubuntu machine with the .NET 8 SDK installed:
+
+```bash
+cd /opt/winhub/WinHUBLinuxAgent
+./create-linux-agent-release.sh 1.2.14 linux-x64
+```
+
+Install on an endpoint:
+
+```bash
+sudo mkdir -p /tmp/winhub-linux-agent
+sudo tar -xzf WinHUBLinuxAgent-v1.2.14-linux-x64.tar.gz -C /tmp/winhub-linux-agent
+cd /tmp/winhub-linux-agent
+sudo ./install-linux-agent.sh
+```
+
+Configure:
+
+```bash
+sudo nano /etc/winhub-agent/winhub_agent.conf
+sudo cp /opt/winhub-linux-agent/winhub_agent.bootstrap.conf.example /etc/winhub-agent/winhub_agent.bootstrap.conf
+sudo nano /etc/winhub-agent/winhub_agent.bootstrap.conf
+sudo chmod 0600 /etc/winhub-agent/winhub_agent.bootstrap.conf
+sudo systemctl restart winhub-linux-agent
+```
+
+Check logs:
+
+```bash
+sudo journalctl -u winhub-linux-agent -f
 ```
 
 ## 11. Firewall

@@ -243,7 +243,12 @@ def load_agent_packages():
     try:
         with open(AGENT_PACKAGES_FILE, "r", encoding="utf-8") as f:
             data = json.load(f)
-            return data if isinstance(data, list) else []
+            if not isinstance(data, list):
+                return []
+            for package in data:
+                if isinstance(package, dict) and not package.get("platform"):
+                    package["platform"] = detect_agent_package_platform(package.get("original_filename") or package.get("filename") or "")
+            return data
     except Exception:
         logging.getLogger("winhub").exception("Failed to load agent package registry")
         return []
@@ -256,6 +261,29 @@ def save_agent_packages(packages):
 def find_agent_package(package_id):
     for package in load_agent_packages():
         if package.get("id") == package_id:
+            return package
+    return None
+
+def detect_agent_package_platform(filename):
+    value = str(filename or "").lower()
+    if "linux" in value or value.endswith(".tar.gz") or value.endswith(".tgz"):
+        return "linux"
+    if "win" in value or value.endswith(".zip"):
+        return "windows"
+    return "unknown"
+
+def endpoint_agent_platform(endpoint):
+    os_type = str(getattr(endpoint, "os_type", "") or "").lower()
+    os_version = str(getattr(endpoint, "os_version", "") or "").lower()
+    if "linux" in os_type or "debian" in os_version or "ubuntu" in os_version:
+        return "linux"
+    return "windows"
+
+def find_agent_package_for_platform(version, platform):
+    version = str(version or "").strip()
+    platform = str(platform or "").strip().lower()
+    for package in load_agent_packages():
+        if str(package.get("version") or "").strip() == version and str(package.get("platform") or "").lower() == platform:
             return package
     return None
 
@@ -2302,6 +2330,9 @@ def agent_packages():
         os.makedirs(AGENT_PACKAGES_DIR, exist_ok=True)
         package_id = str(uuid.uuid4())
         base_name = secure_filename(upload.filename) or f"WinHUBAgent-{version}.zip"
+        platform = detect_agent_package_platform(base_name)
+        if platform == "unknown":
+            return jsonify({"success": False, "message": "Package platform could not be detected. Use a win-x64 .zip or linux-x64 .tar.gz agent package name."}), 400
         filename = f"{package_id}_{base_name}"
         path = os.path.join(AGENT_PACKAGES_DIR, filename)
 
@@ -2323,6 +2354,7 @@ def agent_packages():
             "original_filename": base_name,
             "filename": filename,
             "sha256": sha256.hexdigest(),
+            "platform": platform,
             "size": size,
             "notes": str(request.form.get("notes") or "").strip(),
             "uploaded_by": session.get("username"),
@@ -2331,7 +2363,7 @@ def agent_packages():
         packages.insert(0, record)
         save_agent_packages(packages[:50])
         record["download_url"] = agent_package_public_url(package_id)
-        write_infra_audit("Agent Package Upload", "agent_package", package_id, {"version": version, "sha256": record["sha256"], "size": size})
+        write_infra_audit("Agent Package Upload", "agent_package", package_id, {"version": version, "platform": platform, "sha256": record["sha256"], "size": size})
         db.session.commit()
         return jsonify({"success": True, "package": record})
     except Exception as e:
@@ -2404,28 +2436,60 @@ def existing_endpoint_id_set(host_ids):
     return {row[0] for row in db.session.query(Endpoint.id).filter(Endpoint.id.in_(cleaned)).all()}
 
 
-def create_agent_update_wave(host_ids, package, created_by, wave_index, wave_total):
+def build_agent_update_plan(target_ids, selected_package):
+    selected_version = str(selected_package.get("version") or "").strip()
+    selected_platform = str(selected_package.get("platform") or detect_agent_package_platform(selected_package.get("original_filename") or selected_package.get("filename") or "")).lower()
+    endpoints = Endpoint.query.filter(Endpoint.id.in_(target_ids)).all()
+    endpoint_by_id = {endpoint.id: endpoint for endpoint in endpoints}
+    plan = []
+    skipped = []
+    for host_id in target_ids:
+        endpoint = endpoint_by_id.get(host_id)
+        if not endpoint:
+            skipped.append({"id": host_id, "reason": "missing_endpoint"})
+            continue
+        platform = endpoint_agent_platform(endpoint)
+        package = selected_package if selected_platform == platform else find_agent_package_for_platform(selected_version, platform)
+        if not package:
+            skipped.append({"id": host_id, "reason": f"missing_{platform}_package", "platform": platform})
+            continue
+        package = dict(package)
+        package["platform"] = str(package.get("platform") or platform).lower()
+        package["update_url"] = package.get("update_url") or agent_package_update_url(package["id"])
+        package["download_url"] = package.get("download_url") or agent_package_public_url(package["id"])
+        plan.append({"host_id": host_id, "platform": platform, "package": package})
+    return plan, skipped
+
+
+def create_agent_update_wave(update_items, created_by, wave_index, wave_total):
     job_id = str(uuid.uuid4())
     created_at = datetime.utcnow()
     updater_script = agent_updater_bootstrap_script()
-    payload = {
-        "package_url": package.get("update_url") or agent_package_update_url(package["id"]),
-        "package_sha256": package.get("sha256"),
-        "target_version": package.get("version"),
-    }
-    title = f"Agent Update {package.get('version')} - Wave {wave_index}/{wave_total}"
-    for host_id in host_ids:
-        db.session.add(AgentTask(
-            id=str(uuid.uuid4()),
-            job_id=job_id,
-            endpoint_id=host_id,
-            title=f"Prepare Agent Updater - Wave {wave_index}/{wave_total}",
-            module_source="Infrastructure",
-            action_type="run_script",
-            payload=json.dumps({"script": updater_script}, ensure_ascii=False),
-            created_by=created_by,
-            created_at=created_at,
-        ))
+    for item in update_items:
+        host_id = item["host_id"]
+        platform = item.get("platform") or "windows"
+        package = item["package"]
+        payload = {
+            "package_url": package.get("update_url") or agent_package_update_url(package["id"]),
+            "sha256": package.get("sha256"),
+            "target_version": package.get("version"),
+            "platform": platform,
+        }
+        title = f"Agent Update {package.get('version')} {platform} - Wave {wave_index}/{wave_total}"
+        task_created_at = created_at
+        if platform == "windows":
+            db.session.add(AgentTask(
+                id=str(uuid.uuid4()),
+                job_id=job_id,
+                endpoint_id=host_id,
+                title=f"Prepare Agent Updater - Wave {wave_index}/{wave_total}",
+                module_source="Infrastructure",
+                action_type="run_script",
+                payload=json.dumps({"script": updater_script}, ensure_ascii=False),
+                created_by=created_by,
+                created_at=created_at,
+            ))
+            task_created_at = created_at + timedelta(seconds=1)
         db.session.add(AgentTask(
             id=str(uuid.uuid4()),
             job_id=job_id,
@@ -2435,7 +2499,7 @@ def create_agent_update_wave(host_ids, package, created_by, wave_index, wave_tot
             action_type="agent_update",
             payload=json.dumps(payload, ensure_ascii=False),
             created_by=created_by,
-            created_at=created_at + timedelta(seconds=1),
+            created_at=task_created_at,
         ))
     db.session.commit()
     return job_id
@@ -2464,6 +2528,7 @@ def process_due_agent_update_rollouts():
                     "download_url": rollout.package_url,
                     "sha256": None,
                 }
+            package["platform"] = package.get("platform") or detect_agent_package_platform(package.get("original_filename") or package.get("filename") or "")
             package["update_url"] = rollout.package_url or agent_package_update_url(package["id"])
             package["download_url"] = package.get("download_url") or agent_package_public_url(package["id"])
 
@@ -2484,7 +2549,20 @@ def process_due_agent_update_rollouts():
                 rollout.updated_at = now
                 continue
 
-            recalculated_total_waves = max(1, (len(target_ids) + wave_size - 1) // wave_size)
+            update_plan, skipped = build_agent_update_plan(target_ids, package)
+            if skipped:
+                logging.getLogger("winhub").warning(
+                    "Skipping %s endpoint(s) from agent update rollout %s due to package/platform mismatch: %s",
+                    len(skipped),
+                    rollout.id,
+                    skipped[:20],
+                )
+            if not update_plan:
+                rollout.status = "Completed"
+                rollout.updated_at = now
+                continue
+
+            recalculated_total_waves = max(1, (len(update_plan) + wave_size - 1) // wave_size)
             rollout.total_waves = recalculated_total_waves
             index = max(1, int(rollout.next_wave_index or 1))
             if index > recalculated_total_waves:
@@ -2492,13 +2570,13 @@ def process_due_agent_update_rollouts():
                 rollout.updated_at = now
                 continue
             start = (index - 1) * wave_size
-            host_ids = target_ids[start:start + wave_size]
-            if not host_ids:
+            wave_items = update_plan[start:start + wave_size]
+            if not wave_items:
                 rollout.status = "Completed"
                 rollout.updated_at = now
                 continue
 
-            create_agent_update_wave(host_ids, package, rollout.created_by or "System", index, recalculated_total_waves)
+            create_agent_update_wave(wave_items, rollout.created_by or "System", index, recalculated_total_waves)
             rollout.next_wave_index = index + 1
             rollout.updated_at = datetime.utcnow()
             if rollout.next_wave_index > recalculated_total_waves:
@@ -3163,17 +3241,27 @@ def run_fleet_update():
     target_ids = list(dict.fromkeys(target_ids))
     if not target_ids:
         return jsonify({"success": False, "message": "No eligible targets selected"}), 400
+    update_plan, skipped_targets = build_agent_update_plan(target_ids, package)
+    if not update_plan:
+        return jsonify({"success": False, "message": "No selected targets match this agent package platform/version"}), 400
+    if skipped_targets:
+        logging.getLogger("winhub").warning(
+            "Agent rollout will skip %s target(s) without a matching package: %s",
+            len(skipped_targets),
+            skipped_targets[:20],
+        )
 
     wave_size = max(1, int(data.get("wave_size") or 50))
     wave_delay_seconds = max(0, int(data.get("wave_delay_seconds") or 0))
-    waves = [target_ids[i:i + wave_size] for i in range(0, len(target_ids), wave_size)]
+    waves = [update_plan[i:i + wave_size] for i in range(0, len(update_plan), wave_size)]
+    rollout_target_ids = [item["host_id"] for item in update_plan]
     created_by = current_actor_label()
 
     rollout = AgentUpdateRollout(
         package_id=package["id"],
         package_url=package["update_url"],
         package_version=package.get("version"),
-        target_ids=json.dumps(target_ids, ensure_ascii=False),
+        target_ids=json.dumps(rollout_target_ids, ensure_ascii=False),
         wave_size=wave_size,
         wave_delay_seconds=wave_delay_seconds,
         next_wave_index=1,
@@ -3190,7 +3278,8 @@ def run_fleet_update():
 
     write_infra_audit("Fleet Agent Update", "agent_package", package["id"], {
         "version": package.get("version"),
-        "targets": len(target_ids),
+        "targets": len(update_plan),
+        "skipped": len(skipped_targets),
         "waves": len(waves),
         "wave_size": wave_size,
         "wave_delay_seconds": wave_delay_seconds,
@@ -3201,7 +3290,8 @@ def run_fleet_update():
     return jsonify({
         "success": True,
         "job_id": job_id,
-        "targets": len(target_ids),
+        "targets": len(update_plan),
+        "skipped": len(skipped_targets),
         "waves": len(waves),
         "wave_size": wave_size,
         "wave_delay_seconds": wave_delay_seconds,

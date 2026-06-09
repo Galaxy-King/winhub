@@ -2077,7 +2077,7 @@ function renderFleetCenter() {
                 <div class="flex items-center justify-between gap-3">
                     <div class="min-w-0">
                         <div class="font-black text-slate-800 text-sm truncate">${escapeHtml(pkg.version)}</div>
-                        <div class="text-[10px] font-bold text-slate-400 uppercase mt-1">${Math.round((pkg.size || 0) / 1024 / 1024 * 10) / 10} MB</div>
+                        <div class="text-[10px] font-bold text-slate-400 uppercase mt-1">${escapeHtml(pkg.platform || 'unknown')} / ${Math.round((pkg.size || 0) / 1024 / 1024 * 10) / 10} MB</div>
                     </div>
                     <div class="flex items-center gap-2 shrink-0">
                         <button onclick="navigator.clipboard.writeText('${escapeHtml(pkg.sha256)}')" class="px-3 py-1.5 rounded-xl bg-white border border-slate-200 text-[9px] font-black uppercase text-slate-500 hover:text-indigo-600">SHA</button>
@@ -2090,7 +2090,7 @@ function renderFleetCenter() {
     }
     if (packageSelect) {
         packageSelect.innerHTML = (fleetCenterData.packages || []).map(pkg =>
-            `<option value="${escapeHtml(pkg.id)}">${escapeHtml(pkg.version)} (${escapeHtml(pkg.original_filename || 'package')})</option>`
+            `<option value="${escapeHtml(pkg.id)}">${escapeHtml(pkg.version)} / ${escapeHtml(pkg.platform || 'unknown')} (${escapeHtml(pkg.original_filename || 'package')})</option>`
         ).join('') || '<option value="">No packages available</option>';
     }
 }
@@ -2224,7 +2224,7 @@ async function runFleetUpdate(hostId=null) {
     });
     const data = await res.json().catch(() => ({}));
     if (!res.ok || !data.success) return alert(data.message || 'Fleet update failed.');
-    alert(`Rollout queued for ${data.targets} hosts in ${data.waves} wave(s).`);
+    alert(`Rollout queued for ${data.targets} hosts in ${data.waves} wave(s).${data.skipped ? ` Skipped ${data.skipped} host(s) without a matching OS package.` : ''}`);
     switchView('queue');
 }
 

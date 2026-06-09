@@ -12,6 +12,18 @@ def encryption_status_from_host_info(host_info):
     if isinstance(host_info, dict):
         security = host_info.get("security") or {}
 
+    linux_encryption = security.get("linux_encryption") or {}
+    linux_status = str(linux_encryption.get("status") or "").lower()
+    linux_methods = [
+        str(item).strip()
+        for item in (linux_encryption.get("methods") or [])
+        if str(item).strip()
+    ]
+    if linux_status == "encrypted" or linux_methods:
+        return {"status": "Encrypted", "level": "encrypted", "methods": linux_methods or ["LUKS/dm-crypt"]}
+    if linux_status in ("not_encrypted", "none"):
+        return {"status": "Not encrypted", "level": "none", "methods": []}
+
     bitlocker = security.get("bitlocker") or {}
     bitlocker_status = str(bitlocker.get("status") or "").lower()
     bitlocker_text = str(security.get("bitlocker_summary") or "")
