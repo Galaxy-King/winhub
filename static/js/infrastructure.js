@@ -3159,7 +3159,7 @@ async function loadQueue() {
         const t = document.getElementById('statQTotal');
         const p = document.getElementById('statQPending');
         if(t) t.innerText = allQueueJobs.length;
-        if(p) p.innerText = allQueueJobs.filter(j => j.status === 'Pending' || j.status === 'Running').length;
+        if(p) p.innerText = allQueueJobs.filter(j => j.status === 'Pending' || j.status === 'Running' || j.status === 'Scheduled').length;
     } catch(e) { console.error("Error loading queue:", e); }
 }
 
@@ -3194,11 +3194,13 @@ function renderQueue() {
     tbody.innerHTML = filtered.map(j => {
         const statusStr = j.status || 'Pending';
         let cls = statusStr === 'Pending' ? 'bg-amber-100 text-amber-700' : (statusStr === 'Success' ? 'bg-emerald-100 text-emerald-700' : 'bg-rose-100 text-rose-700');
+        if (statusStr === 'Scheduled') cls = 'bg-sky-100 text-sky-700';
         if (statusStr === 'Cancelled') cls = 'bg-slate-100 text-slate-500';
         if (j.error > 0 && j.success > 0) cls = 'bg-orange-100 text-orange-700';
 
-        let actionBtn = '';
-        if(infraPermissions.cleanup_tasks || infraPermissions.run_tasks) {
+        const hasActionColumn = infraPermissions.cleanup_tasks || infraPermissions.run_tasks;
+        let actionBtn = hasActionColumn ? '<td class="px-10 py-4 text-right"></td>' : '';
+        if(!j.planned && hasActionColumn) {
             actionBtn = `<td class="px-10 py-4 text-right">
                 <div class="flex justify-end gap-2">
                     ${infraPermissions.run_tasks && j.error > 0 ? `<button onclick="event.stopPropagation(); retryFailedJob('${j.job_id}')" class="queue-action-btn p-3 border rounded-2xl transition-colors shadow-sm" title="Retry failed hosts"><svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path d="M4 4v6h6M20 20v-6h-6M5 19A9 9 0 0119 5l1 1M19 5A9 9 0 005 19l-1-1" stroke-width="2.3" stroke-linecap="round" stroke-linejoin="round"/></svg></button>` : ''}
@@ -3496,6 +3498,7 @@ function normalizeJobTaskStatus(status) {
     if (value === 'success') return 'success';
     if (value === 'error') return 'error';
     if (value === 'cancelled' || value === 'canceled') return 'cancelled';
+    if (value === 'scheduled') return 'scheduled';
     if (value === 'pickedup' || value === 'picked_up' || value === 'running') return 'running';
     return 'pending';
 }
@@ -3505,6 +3508,7 @@ function jobStatusLabel(status) {
     if (normalized === 'success') return 'Success';
     if (normalized === 'error') return 'Error';
     if (normalized === 'cancelled') return 'Cancelled';
+    if (normalized === 'scheduled') return 'Scheduled';
     if (normalized === 'running') return 'Running';
     return 'Pending';
 }
@@ -3514,6 +3518,7 @@ function jobStatusBadgeClass(status) {
     if (normalized === 'success') return 'bg-emerald-50 text-emerald-700 border-emerald-100';
     if (normalized === 'error') return 'bg-rose-50 text-rose-700 border-rose-100';
     if (normalized === 'cancelled') return 'bg-slate-50 text-slate-500 border-slate-200';
+    if (normalized === 'scheduled') return 'bg-sky-50 text-sky-700 border-sky-100';
     if (normalized === 'running') return 'bg-indigo-50 text-indigo-700 border-indigo-100';
     return 'bg-amber-50 text-amber-700 border-amber-100';
 }
@@ -3524,10 +3529,11 @@ function renderJobStatusFilters() {
     const counts = currentJobTasks.reduce((acc, task) => {
         acc[normalizeJobTaskStatus(task.status)] += 1;
         return acc;
-    }, { all: currentJobTasks.length, pending: 0, running: 0, error: 0, success: 0, cancelled: 0 });
+    }, { all: currentJobTasks.length, pending: 0, scheduled: 0, running: 0, error: 0, success: 0, cancelled: 0 });
 
     const filters = [
         ['all', 'All', counts.all],
+        ['scheduled', 'Scheduled', counts.scheduled],
         ['pending', 'Pending', counts.pending],
         ['running', 'Running', counts.running],
         ['error', 'Errors', counts.error],
@@ -3560,10 +3566,13 @@ function renderJobTaskRows() {
         const hostCell = t.endpoint_id
             ? `<button onclick="viewHostFromJob('${escapeHtml(t.endpoint_id)}')" class="font-black text-slate-800 hover:text-indigo-600 text-left">${escapeHtml(t.name || t.display_name || t.hostname || 'Unknown')}</button>`
             : `<span class="font-black text-slate-700">${escapeHtml(t.name || t.display_name || t.hostname || 'Unknown')}</span>`;
+        const logCell = t.task_id
+            ? `<button onclick="viewTaskDetails('${t.task_id}')" class="px-4 py-2 bg-white border border-slate-200 rounded-xl text-xs font-black uppercase text-indigo-600 hover:bg-indigo-50 transition-colors shadow-sm">View Log</button>`
+            : `<span class="px-4 py-2 bg-sky-50 border border-sky-100 rounded-xl text-xs font-black uppercase text-sky-600">Planned</span>`;
         return `<tr class="hover:bg-slate-50 transition-colors">
             <td class="px-6 py-4 text-base">${hostCell}</td>
             <td class="px-6 py-4 text-center"><span class="font-black uppercase tracking-widest text-[10px] px-3 py-1 rounded-lg border ${jobStatusBadgeClass(statusStr)}">${jobStatusLabel(statusStr)}</span></td>
-            <td class="px-6 py-4 text-right"><button onclick="viewTaskDetails('${t.task_id}')" class="px-4 py-2 bg-white border border-slate-200 rounded-xl text-xs font-black uppercase text-indigo-600 hover:bg-indigo-50 transition-colors shadow-sm">View Log</button></td>
+            <td class="px-6 py-4 text-right">${logCell}</td>
         </tr>`;
     }).join('') || empty;
 }

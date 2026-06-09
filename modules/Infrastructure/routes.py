@@ -2584,93 +2584,203 @@ def create_agent_update_wave(update_items, created_by, wave_index, wave_total):
             created_by=created_by,
             created_at=task_created_at,
         ))
-    db.session.commit()
     return job_id
 
 
 def process_due_agent_update_rollouts():
     now = datetime.utcnow()
-    rollouts = AgentUpdateRollout.query.filter(
-        AgentUpdateRollout.status == "Running",
-        AgentUpdateRollout.next_run_at <= now
-    ).order_by(AgentUpdateRollout.created_at.asc()).all()
+    rollout_ids = [
+        row[0] for row in db.session.query(AgentUpdateRollout.id).filter(
+            AgentUpdateRollout.status == "Running",
+            AgentUpdateRollout.next_run_at <= now
+        ).order_by(AgentUpdateRollout.created_at.asc()).all()
+    ]
+    for rollout_id in rollout_ids:
+        rollout = AgentUpdateRollout.query.filter(
+            AgentUpdateRollout.id == rollout_id,
+            AgentUpdateRollout.status == "Running",
+            AgentUpdateRollout.next_run_at <= datetime.utcnow()
+        ).with_for_update(skip_locked=True).first()
+        if not rollout:
+            continue
+        try:
+            process_one_agent_update_rollout(rollout)
+            db.session.commit()
+        except Exception:
+            db.session.rollback()
+            logging.getLogger("winhub").exception("Failed to process agent update rollout %s", rollout_id)
+
+
+def process_one_agent_update_rollout(rollout):
+    now = datetime.utcnow()
+    target_ids = json.loads(rollout.target_ids or "[]")
+    target_ids = list(dict.fromkeys([str(item) for item in target_ids if str(item or "").strip()])) if isinstance(target_ids, list) else []
+    if not isinstance(target_ids, list) or not target_ids:
+        rollout.status = "Completed"
+        rollout.updated_at = now
+        return
+
+    package = find_agent_package(rollout.package_id)
+    if not package:
+        package = {
+            "id": rollout.package_id,
+            "version": rollout.package_version,
+            "download_url": rollout.package_url,
+            "sha256": None,
+        }
+    package["platform"] = package.get("platform") or detect_agent_package_platform(package.get("original_filename") or package.get("filename") or "")
+    package["update_url"] = resolved_agent_package_update_url(package["id"], rollout.package_url)
+    package["download_url"] = package.get("download_url") or agent_package_public_url(package["id"])
+
+    wave_size = max(1, int(rollout.wave_size or 50))
+    existing_ids = existing_endpoint_id_set(target_ids)
+    missing_ids = [host_id for host_id in target_ids if host_id not in existing_ids]
+    if missing_ids:
+        logging.getLogger("winhub").warning(
+            "Skipping %s missing endpoint(s) from agent update rollout %s: %s",
+            len(missing_ids),
+            rollout.id,
+            ", ".join(missing_ids[:8]) + ("..." if len(missing_ids) > 8 else "")
+        )
+        target_ids = [host_id for host_id in target_ids if host_id in existing_ids]
+        rollout.target_ids = json.dumps(target_ids, ensure_ascii=False)
+    if not target_ids:
+        rollout.status = "Completed"
+        rollout.updated_at = now
+        return
+
+    update_plan, skipped = build_agent_update_plan(target_ids, package)
+    if skipped:
+        logging.getLogger("winhub").warning(
+            "Skipping %s endpoint(s) from agent update rollout %s due to package/platform mismatch: %s",
+            len(skipped),
+            rollout.id,
+            skipped[:20],
+        )
+    if not update_plan:
+        rollout.status = "Completed"
+        rollout.updated_at = now
+        return
+
+    recalculated_total_waves = max(1, (len(update_plan) + wave_size - 1) // wave_size)
+    rollout.total_waves = recalculated_total_waves
+    index = max(1, int(rollout.next_wave_index or 1))
+    if index > recalculated_total_waves:
+        rollout.status = "Completed"
+        rollout.updated_at = now
+        return
+    start = (index - 1) * wave_size
+    wave_items = update_plan[start:start + wave_size]
+    if not wave_items:
+        rollout.status = "Completed"
+        rollout.updated_at = now
+        return
+
+    create_agent_update_wave(wave_items, rollout.created_by or "System", index, recalculated_total_waves)
+    rollout.next_wave_index = index + 1
+    rollout.updated_at = datetime.utcnow()
+    if rollout.next_wave_index > recalculated_total_waves:
+        rollout.status = "Completed"
+    else:
+        rollout.next_run_at = datetime.utcnow() + timedelta(seconds=max(0, int(rollout.wave_delay_seconds or 0)))
+
+
+def planned_agent_update_rollout_jobs(allowed_host_ids):
+    allowed = set(allowed_host_ids or [])
+    if not allowed:
+        return []
+
+    rollouts = AgentUpdateRollout.query.filter_by(status="Running").order_by(
+        AgentUpdateRollout.created_at.desc()
+    ).limit(25).all()
+    planned_jobs = []
+
     for rollout in rollouts:
         try:
             target_ids = json.loads(rollout.target_ids or "[]")
             target_ids = list(dict.fromkeys([str(item) for item in target_ids if str(item or "").strip()])) if isinstance(target_ids, list) else []
-            if not isinstance(target_ids, list) or not target_ids:
-                rollout.status = "Completed"
-                rollout.updated_at = now
+            if not target_ids:
                 continue
 
-            package = find_agent_package(rollout.package_id)
-            if not package:
-                package = {
-                    "id": rollout.package_id,
-                    "version": rollout.package_version,
-                    "download_url": rollout.package_url,
-                    "sha256": None,
-                }
+            package = find_agent_package(rollout.package_id) or {
+                "id": rollout.package_id,
+                "version": rollout.package_version,
+                "download_url": rollout.package_url,
+                "sha256": None,
+            }
             package["platform"] = package.get("platform") or detect_agent_package_platform(package.get("original_filename") or package.get("filename") or "")
             package["update_url"] = resolved_agent_package_update_url(package["id"], rollout.package_url)
-            package["download_url"] = package.get("download_url") or agent_package_public_url(package["id"])
+
+            update_plan, _ = build_agent_update_plan(target_ids, package)
+            if not update_plan:
+                continue
 
             wave_size = max(1, int(rollout.wave_size or 50))
-            existing_ids = existing_endpoint_id_set(target_ids)
-            missing_ids = [host_id for host_id in target_ids if host_id not in existing_ids]
-            if missing_ids:
-                logging.getLogger("winhub").warning(
-                    "Skipping %s missing endpoint(s) from agent update rollout %s: %s",
-                    len(missing_ids),
-                    rollout.id,
-                    ", ".join(missing_ids[:8]) + ("..." if len(missing_ids) > 8 else "")
-                )
-                target_ids = [host_id for host_id in target_ids if host_id in existing_ids]
-                rollout.target_ids = json.dumps(target_ids, ensure_ascii=False)
-            if not target_ids:
-                rollout.status = "Completed"
-                rollout.updated_at = now
+            total_waves = max(1, (len(update_plan) + wave_size - 1) // wave_size)
+            next_index = max(1, int(rollout.next_wave_index or 1))
+            if next_index > total_waves:
                 continue
 
-            update_plan, skipped = build_agent_update_plan(target_ids, package)
-            if skipped:
-                logging.getLogger("winhub").warning(
-                    "Skipping %s endpoint(s) from agent update rollout %s due to package/platform mismatch: %s",
-                    len(skipped),
-                    rollout.id,
-                    skipped[:20],
-                )
-            if not update_plan:
-                rollout.status = "Completed"
-                rollout.updated_at = now
-                continue
+            endpoint_ids = [item["host_id"] for item in update_plan if item["host_id"] in allowed]
+            endpoint_rows = db.session.query(Endpoint.id, Endpoint.hostname, Endpoint.display_name).filter(
+                Endpoint.id.in_(endpoint_ids)
+            ).all() if endpoint_ids else []
+            endpoint_map = {
+                endpoint_id: {"hostname": hostname, "display_name": display_name or ""}
+                for endpoint_id, hostname, display_name in endpoint_rows
+            }
 
-            recalculated_total_waves = max(1, (len(update_plan) + wave_size - 1) // wave_size)
-            rollout.total_waves = recalculated_total_waves
-            index = max(1, int(rollout.next_wave_index or 1))
-            if index > recalculated_total_waves:
-                rollout.status = "Completed"
-                rollout.updated_at = now
-                continue
-            start = (index - 1) * wave_size
-            wave_items = update_plan[start:start + wave_size]
-            if not wave_items:
-                rollout.status = "Completed"
-                rollout.updated_at = now
-                continue
+            base_due_at = rollout.next_run_at or rollout.updated_at or rollout.created_at or datetime.utcnow()
+            delay_seconds = max(0, int(rollout.wave_delay_seconds or 0))
+            for wave_index in range(next_index, total_waves + 1):
+                start = (wave_index - 1) * wave_size
+                wave_items = update_plan[start:start + wave_size]
+                visible_items = [item for item in wave_items if item["host_id"] in allowed]
+                if not visible_items:
+                    continue
 
-            create_agent_update_wave(wave_items, rollout.created_by or "System", index, recalculated_total_waves)
-            rollout.next_wave_index = index + 1
-            rollout.updated_at = datetime.utcnow()
-            if rollout.next_wave_index > recalculated_total_waves:
-                rollout.status = "Completed"
-            else:
-                rollout.next_run_at = datetime.utcnow() + timedelta(seconds=max(0, int(rollout.wave_delay_seconds or 0)))
+                due_at = base_due_at + timedelta(seconds=delay_seconds * max(0, wave_index - next_index))
+                platforms = sorted({str(item.get("platform") or "unknown").lower() for item in visible_items})
+                platform_label = platforms[0] if len(platforms) == 1 else "mixed"
+                title = f"Agent Update {rollout.package_version or package.get('version') or ''} {platform_label} - Wave {wave_index}/{total_waves}".strip()
+                tasks = []
+                for item in visible_items:
+                    host_id = item["host_id"]
+                    endpoint_info = endpoint_map.get(host_id, {})
+                    display_label = (endpoint_info.get("display_name") or endpoint_info.get("hostname") or host_id or "Unknown").strip()
+                    tasks.append({
+                        "task_id": "",
+                        "endpoint_id": host_id,
+                        "hostname": endpoint_info.get("hostname") or "",
+                        "display_name": endpoint_info.get("display_name") or "",
+                        "name": display_label,
+                        "status": "Scheduled",
+                    })
+
+                planned_jobs.append({
+                    "job_id": f"rollout:{rollout.id}:wave:{wave_index}",
+                    "rollout_id": rollout.id,
+                    "wave_index": wave_index,
+                    "planned": True,
+                    "title": title,
+                    "action": "agent_update",
+                    "created_at": to_kyiv_time(due_at),
+                    "_sort_at": due_at,
+                    "created_by": rollout.created_by or "System",
+                    "tasks": tasks,
+                    "total": len(tasks),
+                    "success": 0,
+                    "error": 0,
+                    "pending": len(tasks),
+                    "running": 0,
+                    "cancelled": 0,
+                    "status": "Scheduled",
+                    "target_summary": f"Scheduled wave ({len(tasks)} hosts)",
+                })
         except Exception:
-            db.session.rollback()
-            logging.getLogger("winhub").exception("Failed to process agent update rollout %s", rollout.id)
-    if rollouts:
-        db.session.commit()
+            logging.getLogger("winhub").exception("Failed to build planned rollout preview for %s", getattr(rollout, "id", "-"))
+
+    return planned_jobs
 
 
 @infrastructure_bp.route('/api/public/software-packages/<package_id>/download', methods=['GET'])
@@ -3358,7 +3468,7 @@ def run_fleet_update():
         updated_at=datetime.utcnow(),
     )
     db.session.add(rollout)
-    db.session.flush()
+    db.session.commit()
     process_due_agent_update_rollouts()
     job_id = rollout.id
 
@@ -3707,6 +3817,7 @@ def get_tasks():
     user_id = session.get('user_id')
     allowed_hosts = infra_allowed_host_ids(user_id)
     if not allowed_hosts: return jsonify({"success": True, "jobs": []})
+    planned_jobs = planned_agent_update_rollout_jobs(allowed_hosts)
 
     last_created_at = func.max(AgentTask.created_at).label("last_created_at")
     recent_jobs = db.session.query(
@@ -3721,7 +3832,9 @@ def get_tasks():
 
     job_ids = [job_id for job_id, _ in recent_jobs if job_id]
     if not job_ids:
-        return jsonify({"success": True, "jobs": []})
+        for job in planned_jobs:
+            job.pop("_sort_at", None)
+        return jsonify({"success": True, "jobs": planned_jobs})
 
     tasks = db.session.query(AgentTask, Endpoint.hostname, Endpoint.display_name).join(Endpoint).filter(
         AgentTask.endpoint_id.in_(allowed_hosts),
@@ -3729,10 +3842,11 @@ def get_tasks():
     ).order_by(AgentTask.created_at.desc()).all()
     
     jobs = {}
+    job_sort_at = {job_id: created_at for job_id, created_at in recent_jobs if job_id}
     for t, hostname, display_name in tasks:
         jid = t.job_id or t.id
         if jid not in jobs:
-            jobs[jid] = {"job_id": jid, "title": t.title or "Untitled Task", "action": t.action_type, "created_at": to_kyiv_time(t.created_at), "created_by": t.created_by, "tasks": [], "total": 0, "success": 0, "error": 0, "pending": 0, "running": 0, "cancelled": 0}
+            jobs[jid] = {"job_id": jid, "title": t.title or "Untitled Task", "action": t.action_type, "created_at": to_kyiv_time(t.created_at), "_sort_at": job_sort_at.get(jid) or t.created_at, "created_by": t.created_by, "tasks": [], "total": 0, "success": 0, "error": 0, "pending": 0, "running": 0, "cancelled": 0}
         if is_agent_updater_prepare_task(t):
             continue
         display_label = (display_name or hostname or t.endpoint_id or "Unknown").strip()
@@ -3762,7 +3876,12 @@ def get_tasks():
         elif data["pending"] > 0 or data["running"] > 0: data["status"] = "Pending"
         else: data["status"] = "Success"
         result.append(data)
-        
+
+    result.extend(planned_jobs)
+    result.sort(key=lambda item: item.get("_sort_at") or datetime.min, reverse=True)
+    for item in result:
+        item.pop("_sort_at", None)
+
     return jsonify({"success": True, "jobs": result})
 
 @infrastructure_bp.route('/api/infrastructure/task/<task_id>', methods=['GET'])

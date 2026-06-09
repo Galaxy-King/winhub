@@ -20,6 +20,8 @@
     <AgentDeployFile Include="install-linux-agent.sh" />
     <AgentDeployFile Include="uninstall-linux-agent.sh" />
     <AgentDeployFile Include="update-linux-agent.sh" />
+    <AgentDeployFile Include="deploy-linux-agents.sh" />
+    <AgentDeployFile Include="linux_hosts.txt.example" />
     <AgentDeployFile Include="README.md" />
   </ItemGroup>
 

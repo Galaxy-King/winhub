@@ -28,6 +28,35 @@ cd /tmp/winhub-linux-agent
 sudo ./install-linux-agent.sh
 ```
 
+## Bulk SSH rollout
+
+Put these files in one directory:
+
+```text
+WinHUBLinuxAgent-v1.2.18-linux-x64.tar.gz
+winhub_agent.conf
+winhub_agent.bootstrap.conf
+linux_hosts.txt
+deploy-linux-agents.sh
+```
+
+Example `linux_hosts.txt`:
+
+```text
+192.168.1.10
+192.168.1.11
+root@192.168.1.12
+```
+
+Run:
+
+```bash
+chmod +x deploy-linux-agents.sh
+./deploy-linux-agents.sh --hosts linux_hosts.txt --user root --identity ~/.ssh/id_ed25519
+```
+
+The script checks `/opt/winhub-linux-agent/WinHUBLinuxAgent --version` on every host. It installs or updates only when the agent is absent, older than the package version, or `--force` is used. Runtime and bootstrap configs are synchronized to `/etc/winhub-agent` and the service is restarted.
+
 Edit the runtime config:
 
 ```bash

@@ -11,6 +11,7 @@ if [[ $EUID -ne 0 ]]; then
   exit 1
 fi
 
+systemctl stop "$service_name" 2>/dev/null || true
 mkdir -p "$install_dir" "$config_dir" "$data_dir"
 cp -a . "$install_dir/"
 chmod 0755 "$install_dir"

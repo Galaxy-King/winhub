@@ -1,0 +1,5 @@
+# One host per line. Blank lines and comments are ignored.
+# Lines may include a user; otherwise --user is used.
+192.168.1.10
+192.168.1.11
+root@192.168.1.12
