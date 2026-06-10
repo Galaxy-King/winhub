@@ -1473,6 +1473,55 @@ def update_report_send_status(report_id, success, sent_count=0):
         report.status = 'Send Error'
     db.session.commit()
 
+def perform_auto_confluence_publish(report_id, profile_name, page_id, title=None, body_format="escaped_pre", custom_note=""):
+    profiles = load_confluence_profiles()
+    profile_name = str(profile_name or "").strip()
+    profile = profiles.get(profile_name)
+    if not profile:
+        return False, "Confluence profile was not found.", None
+
+    report = AggregatedJob.query.get(report_id)
+    if not report:
+        return False, "Report not found.", None
+
+    page_id = str(page_id or profile.get("default_page_id") or "").strip()
+    body_format = str(body_format or "escaped_pre").strip()
+    if body_format not in ("escaped_pre", "storage_html"):
+        body_format = "escaped_pre"
+
+    success, message, web_url = publish_report_to_confluence(
+        profile=profile,
+        report=report,
+        page_id=page_id,
+        title=str(title or "").strip() or None,
+        body_format=body_format,
+        custom_note=str(custom_note or "").strip(),
+        report_body=report.report_data or "",
+    )
+
+    now_str = datetime.now(kyiv_tz).strftime("%Y-%m-%d %H:%M:%S %Z")
+    profile["last_published_at"] = now_str if success else profile.get("last_published_at", "")
+    profile["last_status"] = "Published" if success else message
+    profiles[profile_name] = profile
+    save_confluence_profiles(profiles)
+    if not success:
+        logging.getLogger("winhub").error("[Auto-Confluence] %s", message)
+    return success, message, web_url
+
+def update_report_delivery_status(report_id, outcomes):
+    report = AggregatedJob.query.get(report_id)
+    if not report:
+        return
+    failures = [item for item in outcomes if not item.get("success")]
+    time_str = datetime.now(kyiv_tz).strftime("%H:%M")
+    if failures:
+        labels = ", ".join(item.get("label", "Delivery") for item in failures)
+        report.status = f"{labels} Error"
+    elif outcomes:
+        labels = "+".join(item.get("label", "Delivered") for item in outcomes)
+        report.status = f"{labels} {time_str}"
+    db.session.commit()
+
 def scheduled_report_period(period):
     now = datetime.now(kyiv_tz)
     if period == "week":
@@ -1733,15 +1782,27 @@ def auto_email_checker_thread(app):
                             continue
 
                         payload = get_task_payload(task)
-                        if not (payload.get('__auto_email_toggle') or payload.get('auto_email_toggle')):
+                        auto_email_enabled = bool(payload.get('__auto_email_toggle') or payload.get('auto_email_toggle'))
+                        auto_confluence_enabled = bool(payload.get('__auto_confluence_toggle') or payload.get('auto_confluence_toggle'))
+
+                        if not (auto_email_enabled or auto_confluence_enabled):
                             auto_email_skip_cache.add(cache_key)
                             continue
 
                         sender = payload.get('__auto_email_sender') or payload.get('auto_email_sender')
                         recipients = payload.get('__auto_email_recipients') or payload.get('auto_email_recipients')
                         use_gpg = payload.get('__auto_email_use_gpg', payload.get('auto_email_use_gpg', True))
+                        confluence_profile = payload.get('__auto_confluence_profile') or payload.get('auto_confluence_profile')
+                        confluence_page_id = payload.get('__auto_confluence_page_id') or payload.get('auto_confluence_page_id')
+                        confluence_title = payload.get('__auto_confluence_title') or payload.get('auto_confluence_title')
+                        confluence_format = payload.get('__auto_confluence_body_format') or payload.get('auto_confluence_body_format') or 'escaped_pre'
+                        confluence_note = payload.get('__auto_confluence_note') or payload.get('auto_confluence_note') or ''
 
-                        if not (sender and recipients):
+                        if auto_email_enabled and not (sender and recipients):
+                            auto_email_enabled = False
+                        if auto_confluence_enabled and not (confluence_profile and confluence_page_id):
+                            auto_confluence_enabled = False
+                        if not (auto_email_enabled or auto_confluence_enabled):
                             auto_email_skip_cache.add(cache_key)
                             continue
 
@@ -1749,20 +1810,34 @@ def auto_email_checker_thread(app):
                         report_title = job.title
                         report_body = job.report_data
 
-                        job.status = 'Sending...'
+                        job.status = 'Delivering...'
                         db.session.commit()
                         db.session.remove()
 
-                        success, message, sent_count = perform_auto_email_send(
-                            report_id,
-                            report_title,
-                            report_body,
-                            sender,
-                            recipients,
-                            use_gpg,
-                        )
+                        outcomes = []
+                        if auto_email_enabled:
+                            success, message, sent_count = perform_auto_email_send(
+                                report_id,
+                                report_title,
+                                report_body,
+                                sender,
+                                recipients,
+                                use_gpg,
+                            )
+                            outcomes.append({"label": "Sent", "success": success, "message": message, "count": sent_count})
 
-                        update_report_send_status(report_id, success, sent_count)
+                        if auto_confluence_enabled:
+                            success, message, web_url = perform_auto_confluence_publish(
+                                report_id,
+                                confluence_profile,
+                                confluence_page_id,
+                                title=confluence_title or report_title,
+                                body_format=confluence_format,
+                                custom_note=confluence_note,
+                            )
+                            outcomes.append({"label": "Published", "success": success, "message": message, "url": web_url})
+
+                        update_report_delivery_status(report_id, outcomes)
                         auto_email_skip_cache.discard(cache_key)
 
                     if len(auto_email_skip_cache) > AUTO_EMAIL_SKIP_CACHE_LIMIT:
@@ -3995,6 +4070,18 @@ def create_task():
         payload_dict['__auto_email_sender'] = data.get('auto_email_sender')
         payload_dict['__auto_email_recipients'] = data.get('auto_email_recipients')
         payload_dict['__auto_email_use_gpg'] = data.get('auto_email_use_gpg', True)
+    if data.get('auto_confluence_toggle'):
+        denied = require_permission("send_reports")
+        if denied:
+            return denied
+        if not data.get('auto_confluence_profile') or not data.get('auto_confluence_page_id'):
+            return jsonify({"success": False, "message": "Auto-Confluence profile and page ID are required"}), 400
+        payload_dict['__auto_confluence_toggle'] = True
+        payload_dict['__auto_confluence_profile'] = data.get('auto_confluence_profile')
+        payload_dict['__auto_confluence_page_id'] = data.get('auto_confluence_page_id')
+        payload_dict['__auto_confluence_title'] = data.get('auto_confluence_title')
+        payload_dict['__auto_confluence_body_format'] = data.get('auto_confluence_body_format', 'escaped_pre')
+        payload_dict['__auto_confluence_note'] = data.get('auto_confluence_note', '')
 
     # ЗАМІНА ДИНАМІЧНИХ ЗМІННИХ (VARIABLES) У СКРИПТІ
     tpl_vars = data.get('variables', {})
@@ -4115,6 +4202,18 @@ def run_template_api(template_id):
             payload_dict["__auto_email_sender"] = data.get("auto_email_sender")
             payload_dict["__auto_email_recipients"] = data.get("auto_email_recipients")
             payload_dict["__auto_email_use_gpg"] = data.get("auto_email_use_gpg", True)
+        if data.get("auto_confluence_toggle"):
+            denied = require_permission("send_reports")
+            if denied:
+                return denied
+            if not data.get("auto_confluence_profile") or not data.get("auto_confluence_page_id"):
+                return jsonify({"success": False, "message": "Auto-Confluence profile and page ID are required"}), 400
+            payload_dict["__auto_confluence_toggle"] = True
+            payload_dict["__auto_confluence_profile"] = data.get("auto_confluence_profile")
+            payload_dict["__auto_confluence_page_id"] = data.get("auto_confluence_page_id")
+            payload_dict["__auto_confluence_title"] = data.get("auto_confluence_title")
+            payload_dict["__auto_confluence_body_format"] = data.get("auto_confluence_body_format", "escaped_pre")
+            payload_dict["__auto_confluence_note"] = data.get("auto_confluence_note", "")
 
         title = data.get("title") or template.name or "API Template Run"
         job_id, task_ids = dispatch_infrastructure_task(

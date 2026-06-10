@@ -237,6 +237,43 @@
                                     <span class="text-[10px] font-black text-slate-500 uppercase tracking-widest">Encrypt with GPG</span>
                                 </label>
                             </div>
+
+                            <div class="pt-2 border-t border-slate-200">
+                                <label class="flex items-center gap-3 cursor-pointer group">
+                                    <input type="checkbox" id="depAutoConfluenceToggle" onchange="document.getElementById('depAutoConfluenceSettings').classList.toggle('hidden', !this.checked)" class="w-5 h-5 text-sky-600 rounded border-slate-300 focus:ring-sky-500">
+                                    <span class="text-sm font-bold text-slate-700 group-hover:text-sky-600 transition-colors">Automatically publish report to Confluence</span>
+                                </label>
+                            </div>
+
+                            <div id="depAutoConfluenceSettings" class="hidden space-y-3 bg-slate-950/95 p-4 rounded-2xl border border-sky-400/30 shadow-sm">
+                                <div>
+                                    <label class="text-[10px] font-black text-sky-200 uppercase tracking-widest block mb-1">Confluence Profile</label>
+                                    <select id="depAutoConfluenceProfile" onchange="updateDeploymentConfluenceDefaults(true)" class="w-full p-3 bg-slate-900 border border-sky-400/30 rounded-xl text-xs font-bold text-sky-50 outline-none focus:ring-2 focus:ring-sky-500/30">
+                                        <option value="">-- Select Confluence Profile --</option>
+                                    </select>
+                                </div>
+                                <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
+                                    <div>
+                                        <label class="text-[10px] font-black text-sky-200 uppercase tracking-widest block mb-1">Page ID</label>
+                                        <input type="text" id="depAutoConfluencePageId" placeholder="Confluence page ID" class="w-full p-3 bg-slate-900 border border-sky-400/30 rounded-xl text-xs font-bold text-sky-50 outline-none focus:ring-2 focus:ring-sky-500/30">
+                                    </div>
+                                    <div>
+                                        <label class="text-[10px] font-black text-sky-200 uppercase tracking-widest block mb-1">Page Title Override</label>
+                                        <input type="text" id="depAutoConfluenceTitle" placeholder="Optional" class="w-full p-3 bg-slate-900 border border-sky-400/30 rounded-xl text-xs font-bold text-sky-50 outline-none focus:ring-2 focus:ring-sky-500/30">
+                                    </div>
+                                </div>
+                                <div>
+                                    <label class="text-[10px] font-black text-sky-200 uppercase tracking-widest block mb-1">Body Format</label>
+                                    <select id="depAutoConfluenceBodyFormat" class="w-full p-3 bg-slate-900 border border-sky-400/30 rounded-xl text-xs font-bold text-sky-50 outline-none focus:ring-2 focus:ring-sky-500/30">
+                                        <option value="storage_html">Raw Confluence storage HTML</option>
+                                        <option value="escaped_pre">Safe escaped text block</option>
+                                    </select>
+                                </div>
+                                <div>
+                                    <label class="text-[10px] font-black text-sky-200 uppercase tracking-widest block mb-1">Optional Note</label>
+                                    <textarea id="depAutoConfluenceNote" placeholder="Shown above safe text reports only..." class="w-full h-20 p-3 bg-slate-900 border border-sky-400/30 rounded-xl text-xs font-bold text-sky-50 outline-none focus:ring-2 focus:ring-sky-500/30 resize-none"></textarea>
+                                </div>
+                            </div>
                         </div>
                     </div>
                 </div>

@@ -379,6 +379,7 @@ window.fetch = async function() {
                     delete body.payload.__auto_email_recipients;
                     delete body.payload.__auto_email_use_gpg;
                 }
+                applyAutoConfluencePayload(body.payload);
             }
             arguments[1].body = JSON.stringify(body);
         } catch(e) {}
@@ -396,6 +397,13 @@ window.fetch = async function() {
             } else {
                 body.auto_email_toggle = false;
             }
+            const autoConfluence = collectAutoConfluenceSettings();
+            body.auto_confluence_toggle = autoConfluence.enabled;
+            body.auto_confluence_profile = autoConfluence.profile;
+            body.auto_confluence_page_id = autoConfluence.page_id;
+            body.auto_confluence_title = autoConfluence.title;
+            body.auto_confluence_body_format = autoConfluence.body_format;
+            body.auto_confluence_note = autoConfluence.note;
             arguments[1].body = JSON.stringify(body);
         } catch(e) {}
     }
@@ -771,13 +779,21 @@ function renderConfluenceList() {
 
 function renderConfluenceProfileOptions() {
     const publishSelect = document.getElementById('reportConfluenceProfile');
+    const deploySelect = document.getElementById('depAutoConfluenceProfile');
+    const options = confluenceProfiles.length
+        ? confluenceProfiles.map(p => `<option value="${escapeHtml(p.name || '')}">${escapeHtml(p.name || '')}</option>`).join('')
+        : '<option value="">No Confluence profile configured</option>';
     if (publishSelect) {
         const current = publishSelect.value;
-        publishSelect.innerHTML = confluenceProfiles.length
-            ? confluenceProfiles.map(p => `<option value="${escapeHtml(p.name || '')}">${escapeHtml(p.name || '')}</option>`).join('')
-            : '<option value="">No Confluence profile configured</option>';
+        publishSelect.innerHTML = options;
         if (current) publishSelect.value = current;
         updateConfluencePublishDefaults();
+    }
+    if (deploySelect) {
+        const current = deploySelect.value;
+        deploySelect.innerHTML = options;
+        if (current) deploySelect.value = current;
+        updateDeploymentConfluenceDefaults(false);
     }
 }
 
@@ -888,6 +904,47 @@ function updateConfluencePublishDefaults(force = false) {
     }
 }
 
+function updateDeploymentConfluenceDefaults(force = false) {
+    const select = document.getElementById('depAutoConfluenceProfile');
+    const pageInput = document.getElementById('depAutoConfluencePageId');
+    if (!select || !pageInput) return;
+    const profile = confluenceProfiles.find(p => p.name === select.value);
+    if (profile && (force || !pageInput.value)) {
+        pageInput.value = profile.default_page_id || '';
+    }
+}
+
+function collectAutoConfluenceSettings() {
+    return {
+        enabled: document.getElementById('depAutoConfluenceToggle')?.checked || false,
+        profile: document.getElementById('depAutoConfluenceProfile')?.value || '',
+        page_id: document.getElementById('depAutoConfluencePageId')?.value || '',
+        title: document.getElementById('depAutoConfluenceTitle')?.value || '',
+        body_format: document.getElementById('depAutoConfluenceBodyFormat')?.value || 'storage_html',
+        note: document.getElementById('depAutoConfluenceNote')?.value || ''
+    };
+}
+
+function applyAutoConfluencePayload(payload, settings = collectAutoConfluenceSettings()) {
+    if (!payload) return payload;
+    if (settings.enabled) {
+        payload.__auto_confluence_toggle = true;
+        payload.__auto_confluence_profile = settings.profile;
+        payload.__auto_confluence_page_id = settings.page_id;
+        payload.__auto_confluence_title = settings.title;
+        payload.__auto_confluence_body_format = settings.body_format;
+        payload.__auto_confluence_note = settings.note;
+    } else {
+        delete payload.__auto_confluence_toggle;
+        delete payload.__auto_confluence_profile;
+        delete payload.__auto_confluence_page_id;
+        delete payload.__auto_confluence_title;
+        delete payload.__auto_confluence_body_format;
+        delete payload.__auto_confluence_note;
+    }
+    return payload;
+}
+
 async function publishReportToConfluence() {
     const reportId = document.getElementById('reportConfluenceModal')?.dataset.reportId || currentReportId || window.currentReportId;
     const profile = document.getElementById('reportConfluenceProfile')?.value || '';
@@ -944,6 +1001,7 @@ Object.assign(window, {
     testConfluenceProfile,
     openReportConfluenceModal,
     updateConfluencePublishDefaults,
+    updateDeploymentConfluenceDefaults,
     publishReportToConfluence,
 });
 
@@ -1675,6 +1733,16 @@ function resetWorkspace(clearPersistedState = true) {
     if (autoEmailRecipients) autoEmailRecipients.value = '';
     const autoEmailUseGpg = document.getElementById('depAutoEmailUseGpg');
     if (autoEmailUseGpg) autoEmailUseGpg.checked = true;
+    const autoConfluenceToggle = document.getElementById('depAutoConfluenceToggle');
+    if (autoConfluenceToggle) autoConfluenceToggle.checked = false;
+    const autoConfluenceSettings = document.getElementById('depAutoConfluenceSettings');
+    if (autoConfluenceSettings) autoConfluenceSettings.classList.add('hidden');
+    ['depAutoConfluenceProfile', 'depAutoConfluencePageId', 'depAutoConfluenceTitle', 'depAutoConfluenceNote'].forEach(id => {
+        const el = document.getElementById(id);
+        if(el) el.value = '';
+    });
+    const autoConfluenceFormat = document.getElementById('depAutoConfluenceBodyFormat');
+    if (autoConfluenceFormat) autoConfluenceFormat.value = 'storage_html';
     ['depPolicyHideCode', 'depPolicyLockEdit', 'depPolicyLockDelete', 'depPolicyDisableRun'].forEach(id => {
         const el = document.getElementById(id);
         if(el) el.checked = false;
@@ -1805,6 +1873,23 @@ function loadTemplate(el) {
                 if (aeRecipients) aeRecipients.value = payload.__auto_email_recipients || '';
             }
             if (aeUseGpg) aeUseGpg.checked = payload.__auto_email_use_gpg !== false;
+        }
+
+        const acToggle = document.getElementById('depAutoConfluenceToggle');
+        const acSettings = document.getElementById('depAutoConfluenceSettings');
+        if (acToggle) {
+            acToggle.checked = !!payload.__auto_confluence_toggle;
+            if (acSettings) acSettings.classList.toggle('hidden', !acToggle.checked);
+            const profile = document.getElementById('depAutoConfluenceProfile');
+            const pageId = document.getElementById('depAutoConfluencePageId');
+            const title = document.getElementById('depAutoConfluenceTitle');
+            const format = document.getElementById('depAutoConfluenceBodyFormat');
+            const note = document.getElementById('depAutoConfluenceNote');
+            if (profile) profile.value = payload.__auto_confluence_profile || '';
+            if (pageId) pageId.value = payload.__auto_confluence_page_id || '';
+            if (title) title.value = payload.__auto_confluence_title || '';
+            if (format) format.value = payload.__auto_confluence_body_format || 'storage_html';
+            if (note) note.value = payload.__auto_confluence_note || '';
         }
     }, 50);
 
@@ -1963,6 +2048,7 @@ function buildTemplatePayloadForSave() {
         __auto_email_sender: document.getElementById('depAutoEmailSender')?.value || '',
         __auto_email_recipients: document.getElementById('depAutoEmailRecipients')?.value || '',
         __auto_email_use_gpg: document.getElementById('depAutoEmailUseGpg')?.checked !== false,
+        ...applyAutoConfluencePayload({}),
         __template_policy: policy
     };
 }
@@ -2905,6 +2991,7 @@ async function submitDeployment() {
         tplVars[inp.dataset.var] = inp.value;
     });
 
+    const autoConfluence = collectAutoConfluenceSettings();
     const data = {
         title: document.getElementById('depTitle').value || "Manual Action",
         target_type: targetType,
@@ -2915,7 +3002,13 @@ async function submitDeployment() {
         auto_email_toggle: document.getElementById('depAutoEmailToggle')?.checked || false,
         auto_email_sender: document.getElementById('depAutoEmailSender')?.value || '',
         auto_email_recipients: document.getElementById('depAutoEmailRecipients')?.value || '',
-        auto_email_use_gpg: document.getElementById('depAutoEmailUseGpg')?.checked !== false
+        auto_email_use_gpg: document.getElementById('depAutoEmailUseGpg')?.checked !== false,
+        auto_confluence_toggle: autoConfluence.enabled,
+        auto_confluence_profile: autoConfluence.profile,
+        auto_confluence_page_id: autoConfluence.page_id,
+        auto_confluence_title: autoConfluence.title,
+        auto_confluence_body_format: autoConfluence.body_format,
+        auto_confluence_note: autoConfluence.note
     };
 
     if (targetType === 'hosts') {
