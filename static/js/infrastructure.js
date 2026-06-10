@@ -4,6 +4,7 @@
 let allQueueJobs = [];
 let allReports = [];
 let smtpProfiles = [];
+let confluenceProfiles = [];
 let scheduledReports = [];
 let currentJobTasks = [];
 let currentViewedJobId = null;
@@ -341,6 +342,17 @@ async function fetchSmtpProfilesGlobally() {
             }
         }
     } catch (e) { console.error("Error fetching SMTP", e); }
+}
+
+async function fetchConfluenceProfilesGlobally() {
+    try {
+        const res = await fetch('/api/infrastructure/confluence');
+        const data = await res.json();
+        if (data.success) {
+            confluenceProfiles = data.profiles || [];
+            renderConfluenceProfileOptions();
+        }
+    } catch (e) { console.error("Error fetching Confluence profiles", e); }
 }
 
 // Перехоплювач для безпечного збереження розширених налаштувань
@@ -735,6 +747,194 @@ async function deleteSmtpProfile(email) {
     } catch(e) { alert("Error deleting SMTP profile."); }
 }
 
+function renderConfluenceList() {
+    const list = document.getElementById('confluenceListContainer');
+    if(!list) return;
+    list.innerHTML = confluenceProfiles.map(p => `
+        <div class="flex justify-between items-start gap-4 bg-slate-50 p-4 rounded-xl border border-slate-100">
+            <div class="min-w-0">
+                <p class="font-black text-slate-800 text-sm truncate">${escapeHtml(p.name || '')}</p>
+                <p class="text-[10px] font-bold text-slate-400 uppercase tracking-widest mt-1 truncate">${escapeHtml(p.base_url || '')}</p>
+                <p class="text-[10px] font-mono font-bold text-sky-500 mt-1">Page: ${escapeHtml(p.default_page_id || '-')} / ${escapeHtml((p.auth_type || 'bearer').toUpperCase())}</p>
+                ${p.last_status ? `<p class="text-[10px] font-bold text-slate-500 mt-1 truncate">${escapeHtml(p.last_status)}</p>` : ''}
+            </div>
+            <div class="flex gap-2 shrink-0">
+                <button onclick="testConfluenceProfile('${escapeJsString(p.name || '')}')" class="px-3 py-2 text-[10px] font-black uppercase rounded-xl bg-sky-50 text-sky-700 border border-sky-100 hover:bg-sky-100">Test</button>
+                <button onclick="deleteConfluenceProfile('${escapeJsString(p.name || '')}')" class="p-2 text-rose-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition-colors">
+                    <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"></path></svg>
+                </button>
+            </div>
+        </div>
+    `).join('') || '<p class="text-center text-slate-400 text-sm font-bold p-6">No Confluence profiles configured.</p>';
+    renderConfluenceProfileOptions();
+}
+
+function renderConfluenceProfileOptions() {
+    const publishSelect = document.getElementById('reportConfluenceProfile');
+    if (publishSelect) {
+        const current = publishSelect.value;
+        publishSelect.innerHTML = confluenceProfiles.length
+            ? confluenceProfiles.map(p => `<option value="${escapeHtml(p.name || '')}">${escapeHtml(p.name || '')}</option>`).join('')
+            : '<option value="">No Confluence profile configured</option>';
+        if (current) publishSelect.value = current;
+        updateConfluencePublishDefaults();
+    }
+}
+
+function openConfluenceManager() {
+    fetchConfluenceProfilesGlobally().then(renderConfluenceList);
+    openModal('confluenceManagerModal');
+}
+
+async function saveConfluenceProfile() {
+    const name = document.getElementById('confluenceName')?.value.trim() || '';
+    const baseUrl = document.getElementById('confluenceBaseUrl')?.value.trim() || '';
+    const authType = document.getElementById('confluenceAuthType')?.value || 'bearer';
+    const username = document.getElementById('confluenceUsername')?.value.trim() || '';
+    const token = document.getElementById('confluenceToken')?.value || '';
+    const pageId = document.getElementById('confluenceDefaultPageId')?.value.trim() || '';
+
+    if(!name || !baseUrl) return alert("Fill profile name and Confluence URL.");
+    if(authType === 'basic' && !username) return alert("Basic auth requires username/email.");
+
+    try {
+        const res = await fetch('/api/infrastructure/confluence', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({
+                name,
+                base_url: baseUrl,
+                auth_type: authType,
+                username,
+                token,
+                default_page_id: pageId
+            })
+        });
+        const data = await res.json();
+        if(!data.success) return alert(data.message || "Failed to save Confluence profile.");
+        document.getElementById('confluenceToken').value = '';
+        await fetchConfluenceProfilesGlobally();
+        renderConfluenceList();
+    } catch(e) {
+        alert("Error saving Confluence profile: " + (e.message || e));
+    }
+}
+
+async function deleteConfluenceProfile(name) {
+    if(!confirm(`Delete Confluence profile ${name}?`)) return;
+    try {
+        const res = await fetch('/api/infrastructure/confluence', {
+            method: 'DELETE',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({name})
+        });
+        const data = await res.json();
+        if(!data.success) return alert(data.message || "Failed to delete Confluence profile.");
+        await fetchConfluenceProfilesGlobally();
+        renderConfluenceList();
+    } catch(e) {
+        alert("Error deleting Confluence profile.");
+    }
+}
+
+async function testConfluenceProfile(name) {
+    try {
+        const res = await fetch('/api/infrastructure/confluence/test', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({name})
+        });
+        const data = await res.json();
+        alert(data.message || (data.success ? 'Confluence OK' : 'Confluence test failed'));
+        await fetchConfluenceProfilesGlobally();
+        renderConfluenceList();
+    } catch(e) {
+        alert("Error testing Confluence profile: " + (e.message || e));
+    }
+}
+
+function openReportConfluenceModal(id) {
+    const resolvedId = id || currentReportId || window.currentReportId;
+    if (!resolvedId || resolvedId === 'undefined') {
+        alert('Cannot publish this report: report id is missing. Please reopen the report and try again.');
+        return;
+    }
+    currentReportId = resolvedId;
+    window.currentReportId = resolvedId;
+    const modal = document.getElementById('reportConfluenceModal');
+    if (modal) modal.dataset.reportId = resolvedId;
+    fetchConfluenceProfilesGlobally();
+
+    const r = allReports.find(x => x.id === resolvedId);
+    const titleInput = document.getElementById('reportConfluenceTitle');
+    if(titleInput) titleInput.value = r ? r.title : 'WinHUB Report';
+    const noteInput = document.getElementById('reportConfluenceNote');
+    if(noteInput) noteInput.value = '';
+    const pageInput = document.getElementById('reportConfluencePageId');
+    if(pageInput) pageInput.value = '';
+    const formatSelect = document.getElementById('reportConfluenceBodyFormat');
+    if(formatSelect) formatSelect.value = 'escaped_pre';
+    openModal('reportConfluenceModal');
+}
+
+function updateConfluencePublishDefaults(force = false) {
+    const select = document.getElementById('reportConfluenceProfile');
+    const pageInput = document.getElementById('reportConfluencePageId');
+    if (!select || !pageInput) return;
+    const profile = confluenceProfiles.find(p => p.name === select.value);
+    if (profile && (force || !pageInput.value)) {
+        pageInput.value = profile.default_page_id || '';
+    }
+}
+
+async function publishReportToConfluence() {
+    const reportId = document.getElementById('reportConfluenceModal')?.dataset.reportId || currentReportId || window.currentReportId;
+    const profile = document.getElementById('reportConfluenceProfile')?.value || '';
+    const pageId = document.getElementById('reportConfluencePageId')?.value || '';
+    const title = document.getElementById('reportConfluenceTitle')?.value || '';
+    const customNote = document.getElementById('reportConfluenceNote')?.value || '';
+    const bodyFormat = document.getElementById('reportConfluenceBodyFormat')?.value || 'escaped_pre';
+
+    if (!reportId || reportId === 'undefined') return alert('Cannot publish this report: report id is missing.');
+    if (!profile || !pageId) return alert('Select Confluence profile and page ID.');
+
+    const btn = document.getElementById('btnPublishConfluence');
+    const origContent = btn ? btn.innerHTML : '';
+    if(btn) {
+        btn.disabled = true;
+        btn.innerHTML = 'Publishing...';
+    }
+
+    try {
+        const res = await fetch(`/api/infrastructure/reports/${reportId}/confluence`, {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({
+                profile,
+                page_id: pageId,
+                title,
+                custom_note: customNote,
+                body_format: bodyFormat
+            })
+        });
+        const data = await res.json().catch(() => ({success: false, message: 'Server returned an invalid response'}));
+        if (data.success) {
+            alert(data.url ? `${data.message}\n${data.url}` : data.message);
+            closeModal('reportConfluenceModal');
+            if (typeof loadReports === 'function') loadReports();
+        } else {
+            alert('Confluence publish failed: ' + (data.message || 'Unknown error'));
+        }
+    } catch(e) {
+        alert('Confluence publish failed: ' + (e.message || e));
+    } finally {
+        if(btn) {
+            btn.disabled = false;
+            btn.innerHTML = origContent;
+        }
+    }
+}
+
 function renderScheduledReportSenderOptions() {
     const select = document.getElementById('scheduledReportSender');
     if (!select) return;
@@ -972,6 +1172,7 @@ window.closeModal = function(id) {
     else document.getElementById(id)?.classList.add('hidden');
 
     if (id === 'smtpManagerModal') fetchSmtpProfilesGlobally();
+    if (id === 'confluenceManagerModal') fetchConfluenceProfilesGlobally();
 };
 
 // --- CATEGORY MANAGER ---
@@ -1120,6 +1321,7 @@ document.addEventListener('DOMContentLoaded', () => {
         window.addEventListener('resize', updateInfraNavArrows);
 
         fetchSmtpProfilesGlobally(); // ГЛОБАЛЬНЕ ЗАВАНТАЖЕННЯ ПОШТ
+        fetchConfluenceProfilesGlobally();
         initAvailableHostsData();
 
         const hostSearchEl = document.getElementById('hostSearch');

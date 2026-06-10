@@ -298,8 +298,12 @@
                 <button onclick="dismissCurrentReport()" class="px-6 py-3.5 bg-white border border-slate-200 text-slate-600 hover:bg-slate-100 rounded-2xl text-xs font-black uppercase transition-all shadow-sm">Dismiss</button>
                 {% endif %}
                 {% if permissions.send_reports %}
+                <button onclick="openReportConfluenceModal(currentReportId)" class="px-8 py-3.5 bg-sky-600 hover:bg-sky-700 text-white rounded-2xl text-xs font-black uppercase transition-all shadow-lg flex items-center gap-3">
+                    <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M4 7h16M4 12h10M4 17h16"/></svg>
+                    Publish to Confluence
+                </button>
                 <button onclick="openReportEmailModal(currentReportId)" class="px-10 py-3.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-2xl text-xs font-black uppercase transition-all shadow-lg flex items-center gap-3">
-                    <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z"/></svg> 
+                    <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z"/></svg>
                     Send to Email
                 </button>
                 {% endif %}
@@ -361,6 +365,54 @@
             <button id="btnSendReport" onclick="sendReportEmail()" class="w-full py-4 bg-indigo-600 hover:bg-indigo-700 text-white rounded-2xl text-sm font-black uppercase shadow-lg transition-all flex justify-center items-center gap-2">
                 <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z"/></svg>
                 Send Securely
+            </button>
+        </div>
+    </div>
+</div>
+
+<!-- PUBLISH REPORT TO CONFLUENCE -->
+<div id="reportConfluenceModal" class="fixed inset-0 z-[122] hidden flex items-center justify-center bg-slate-900/60 backdrop-blur-md p-4 animate-in fade-in">
+    <div class="bg-white w-full max-w-xl rounded-[3rem] shadow-2xl p-8 sm:p-10 flex flex-col max-h-[90vh]">
+        <div class="flex justify-between items-center mb-6 shrink-0">
+            <h2 class="text-2xl font-black text-slate-800 uppercase tracking-tight">Publish to Confluence</h2>
+            <button onclick="closeModal('reportConfluenceModal')" class="text-slate-400 hover:text-slate-700 bg-slate-50 p-2 rounded-xl"><svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path></svg></button>
+        </div>
+        <div class="overflow-y-auto custom-scrollbar flex-1 pr-2 space-y-5">
+            <div>
+                <label class="text-[10px] font-black text-slate-400 uppercase tracking-widest block mb-2 ml-2">Confluence Profile</label>
+                <div class="flex gap-2">
+                    <select id="reportConfluenceProfile" onchange="updateConfluencePublishDefaults(true)" class="flex-1 p-4 bg-slate-50 border border-slate-200 rounded-2xl text-sm font-bold outline-none focus:ring-2 focus:ring-sky-500"></select>
+                    {% if permissions.manage_smtp %}
+                    <button type="button" onclick="openConfluenceManager()" class="p-4 bg-sky-100 hover:bg-sky-200 text-sky-700 rounded-2xl transition-colors shadow-sm" title="Manage Confluence Profiles">
+                        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z"></path><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"></path></svg>
+                    </button>
+                    {% endif %}
+                </div>
+            </div>
+            <div>
+                <label class="text-[10px] font-black text-slate-400 uppercase tracking-widest block mb-2 ml-2">Page ID</label>
+                <input type="text" id="reportConfluencePageId" placeholder="Confluence page ID" class="w-full p-4 bg-slate-50 border border-slate-200 rounded-2xl text-sm font-bold outline-none focus:bg-white focus:ring-4 focus:ring-sky-500/10 transition-all">
+            </div>
+            <div>
+                <label class="text-[10px] font-black text-slate-400 uppercase tracking-widest block mb-2 ml-2">Page Title</label>
+                <input type="text" id="reportConfluenceTitle" placeholder="Page title" class="w-full p-4 bg-slate-50 border border-slate-200 rounded-2xl text-sm font-bold outline-none focus:bg-white focus:ring-4 focus:ring-sky-500/10 transition-all">
+            </div>
+            <div>
+                <label class="text-[10px] font-black text-slate-400 uppercase tracking-widest block mb-2 ml-2">Body Format</label>
+                <select id="reportConfluenceBodyFormat" class="w-full p-4 bg-slate-50 border border-slate-200 rounded-2xl text-sm font-bold outline-none focus:ring-2 focus:ring-sky-500">
+                    <option value="escaped_pre">Safe text report in &lt;pre&gt;</option>
+                    <option value="storage_html">Raw Confluence storage HTML</option>
+                </select>
+                <p class="text-[10px] text-slate-400 mt-2 ml-2 font-medium">Safe mode escapes agent output. Raw HTML is for trusted templates only.</p>
+            </div>
+            <div>
+                <label class="text-[10px] font-black text-sky-500 uppercase tracking-widest block mb-2 ml-2">Publish Note (Optional)</label>
+                <textarea id="reportConfluenceNote" placeholder="Short note shown above the report..." class="w-full h-20 p-4 bg-sky-50/50 border border-sky-100 rounded-2xl text-sm font-medium outline-none focus:bg-white focus:ring-2 focus:ring-sky-500 transition-all resize-none custom-scrollbar"></textarea>
+            </div>
+        </div>
+        <div class="pt-6 shrink-0 border-t border-slate-100 mt-2">
+            <button id="btnPublishConfluence" onclick="publishReportToConfluence()" class="w-full py-4 bg-sky-600 hover:bg-sky-700 text-white rounded-2xl text-sm font-black uppercase shadow-lg transition-all flex justify-center items-center gap-2">
+                Publish Page
             </button>
         </div>
     </div>
@@ -457,6 +509,48 @@
         <div class="overflow-y-auto custom-scrollbar flex-1 pr-2 space-y-3" id="smtpListContainer">
             <!-- Заповнюється через JS -->
         </div>
+    </div>
+</div>
+
+<!-- CONFLUENCE PROFILE MANAGER -->
+<div id="confluenceManagerModal" class="fixed inset-0 z-[131] hidden flex items-center justify-center bg-slate-900/60 backdrop-blur-md p-4 animate-in fade-in">
+    <div class="bg-white w-full max-w-3xl rounded-[3rem] shadow-2xl p-8 sm:p-10 border border-slate-200 flex flex-col max-h-[90vh]">
+        <div class="flex justify-between items-center mb-6 shrink-0">
+            <div>
+                <h2 class="text-2xl font-black text-slate-800 uppercase tracking-tight">Confluence Profiles</h2>
+                <p class="text-[10px] font-bold text-slate-400 uppercase tracking-widest mt-1">Tokens stay encrypted on the WinHUB server</p>
+            </div>
+            <button onclick="closeModal('confluenceManagerModal')" class="text-slate-400 hover:text-slate-700 bg-slate-50 hover:bg-slate-100 p-2 rounded-xl transition-colors"><svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path></svg></button>
+        </div>
+
+        <div class="bg-slate-50 p-6 rounded-[2rem] border border-slate-200 mb-6 shrink-0 grid grid-cols-2 gap-4">
+            <div class="col-span-2 sm:col-span-1">
+                <input type="text" id="confluenceName" placeholder="Profile Name (e.g. Wiki Main)" class="w-full p-3 bg-white border border-slate-200 rounded-xl text-sm font-bold outline-none focus:ring-2 focus:ring-sky-500 shadow-sm">
+            </div>
+            <div class="col-span-2 sm:col-span-1">
+                <input type="text" id="confluenceBaseUrl" placeholder="https://wiki.example.com" class="w-full p-3 bg-white border border-slate-200 rounded-xl text-sm font-bold outline-none focus:ring-2 focus:ring-sky-500 shadow-sm">
+            </div>
+            <div class="col-span-2 sm:col-span-1">
+                <select id="confluenceAuthType" class="w-full p-3 bg-white border border-slate-200 rounded-xl text-sm font-bold outline-none focus:ring-2 focus:ring-sky-500 shadow-sm">
+                    <option value="bearer">Bearer token</option>
+                    <option value="basic">Basic email + API token</option>
+                </select>
+            </div>
+            <div class="col-span-2 sm:col-span-1">
+                <input type="text" id="confluenceUsername" placeholder="Email/username for Basic auth" class="w-full p-3 bg-white border border-slate-200 rounded-xl text-sm font-bold outline-none focus:ring-2 focus:ring-sky-500 shadow-sm">
+            </div>
+            <div class="col-span-2 sm:col-span-1">
+                <input type="password" id="confluenceToken" placeholder="Token / API token" class="w-full p-3 bg-white border border-slate-200 rounded-xl text-sm font-bold outline-none focus:ring-2 focus:ring-sky-500 shadow-sm">
+            </div>
+            <div class="col-span-2 sm:col-span-1">
+                <input type="text" id="confluenceDefaultPageId" placeholder="Default Page ID" class="w-full p-3 bg-white border border-slate-200 rounded-xl text-sm font-bold outline-none focus:ring-2 focus:ring-sky-500 shadow-sm">
+            </div>
+            <div class="col-span-2">
+                <button onclick="saveConfluenceProfile()" class="w-full bg-sky-600 hover:bg-sky-700 text-white rounded-xl text-xs font-black uppercase shadow-sm transition-all py-3">Save Profile</button>
+            </div>
+        </div>
+
+        <div class="overflow-y-auto custom-scrollbar flex-1 pr-2 space-y-3" id="confluenceListContainer"></div>
     </div>
 </div>
 

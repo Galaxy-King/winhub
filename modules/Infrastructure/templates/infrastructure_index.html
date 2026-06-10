@@ -353,6 +353,7 @@
                             <div id="infraMenuAdministration" class="infra-dropdown infra-dropdown-blue hidden absolute right-0 top-full mt-2 w-60 border rounded-2xl p-2 z-30">
                                 {% if permissions.manage_smtp %}
                                 <button onclick="openSmtpManager(); closeInfraMenus();" class="w-full text-left text-slate-500 hover:text-slate-700 px-4 py-3 rounded-xl font-black text-xs uppercase tracking-wider transition-all">SMTP Settings</button>
+                                <button onclick="openConfluenceManager(); closeInfraMenus();" class="w-full text-left text-slate-500 hover:text-slate-700 px-4 py-3 rounded-xl font-black text-xs uppercase tracking-wider transition-all">Confluence Settings</button>
                                 <button onclick="openScheduledReportsManager(); closeInfraMenus();" class="w-full text-left text-slate-500 hover:text-slate-700 px-4 py-3 rounded-xl font-black text-xs uppercase tracking-wider transition-all">Regular Reports</button>
                                 {% endif %}
                                 {% if permissions.manage_templates %}
@@ -702,6 +703,8 @@
     }
     #secretsManagerModal > div,
     #smtpManagerModal > div,
+    #confluenceManagerModal > div,
+    #reportConfluenceModal > div,
     #scheduledReportsModal > div,
     #triggerModal > div,
     #scheduleModal > div,
@@ -716,12 +719,16 @@
     }
     #secretsManagerModal h2,
     #smtpManagerModal h2,
+    #confluenceManagerModal h2,
+    #reportConfluenceModal h2,
     #scheduledReportsModal h2,
     #triggerModal h2,
     #scheduleModal h2,
     #categoryModal h2,
     #secretsManagerModal h3,
     #smtpManagerModal h3,
+    #confluenceManagerModal h3,
+    #reportConfluenceModal h3,
     #scheduledReportsModal h3,
     #triggerModal h3,
     #scheduleModal h3,
@@ -730,12 +737,16 @@
     }
     #secretsManagerModal p,
     #smtpManagerModal p,
+    #confluenceManagerModal p,
+    #reportConfluenceModal p,
     #scheduledReportsModal p,
     #triggerModal p,
     #scheduleModal p,
     #categoryModal p,
     #secretsManagerModal label,
     #smtpManagerModal label,
+    #confluenceManagerModal label,
+    #reportConfluenceModal label,
     #scheduledReportsModal label,
     #triggerModal label,
     #scheduleModal label,
@@ -745,6 +756,9 @@
     #secretsManagerModal .bg-slate-50,
     #secretsManagerModal .bg-amber-50,
     #smtpManagerModal .bg-slate-50,
+    #confluenceManagerModal .bg-slate-50,
+    #reportConfluenceModal .bg-slate-50,
+    #reportConfluenceModal .bg-sky-50\/50,
     #scheduledReportsModal .bg-slate-50,
     #scheduledReportsModal .bg-slate-50\/70,
     #triggerModal .bg-slate-50,
@@ -757,6 +771,11 @@
     }
     #secretsManagerModal input,
     #smtpManagerModal input,
+    #confluenceManagerModal input,
+    #confluenceManagerModal select,
+    #reportConfluenceModal input,
+    #reportConfluenceModal select,
+    #reportConfluenceModal textarea,
     #scheduledReportsModal input,
     #scheduledReportsModal select,
     #triggerModal input,
@@ -771,6 +790,9 @@
     }
     #secretsManagerModal input::placeholder,
     #smtpManagerModal input::placeholder,
+    #confluenceManagerModal input::placeholder,
+    #reportConfluenceModal input::placeholder,
+    #reportConfluenceModal textarea::placeholder,
     #scheduledReportsModal input::placeholder,
     #triggerModal input::placeholder,
     #scheduleModal input::placeholder,
@@ -779,11 +801,15 @@
     }
     #secretsManagerModal button.bg-slate-50,
     #smtpManagerModal button.bg-slate-50,
+    #confluenceManagerModal button.bg-slate-50,
+    #reportConfluenceModal button.bg-slate-50,
     #triggerModal button.bg-slate-50,
     #scheduleModal button.bg-slate-50,
     #categoryModal button.bg-slate-50,
     #secretsManagerModal button.bg-white,
     #smtpManagerModal button.bg-white,
+    #confluenceManagerModal button.bg-white,
+    #reportConfluenceModal button.bg-white,
     #scheduledReportsModal button.bg-white,
     #triggerModal button.bg-white,
     #scheduleModal button.bg-white,
@@ -794,11 +820,15 @@
     }
     #secretsManagerModal button.bg-slate-50:hover,
     #smtpManagerModal button.bg-slate-50:hover,
+    #confluenceManagerModal button.bg-slate-50:hover,
+    #reportConfluenceModal button.bg-slate-50:hover,
     #triggerModal button.bg-slate-50:hover,
     #scheduleModal button.bg-slate-50:hover,
     #categoryModal button.bg-slate-50:hover,
     #secretsManagerModal button.bg-white:hover,
     #smtpManagerModal button.bg-white:hover,
+    #confluenceManagerModal button.bg-white:hover,
+    #reportConfluenceModal button.bg-white:hover,
     #scheduledReportsModal button.bg-white:hover,
     #triggerModal button.bg-white:hover,
     #scheduleModal button.bg-white:hover,

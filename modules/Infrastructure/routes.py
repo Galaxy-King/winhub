@@ -3,6 +3,7 @@ import json
 import uuid
 import hashlib
 import base64
+import html
 import logging
 import threading
 import smtplib
@@ -14,7 +15,9 @@ import time
 from datetime import datetime, timedelta, timezone
 from email.mime.text import MIMEText
 from email.utils import parseaddr
-from urllib.parse import urlsplit
+from urllib.error import HTTPError, URLError
+from urllib.parse import quote, urlsplit
+from urllib.request import Request, urlopen
 from zoneinfo import ZoneInfo
 from flask import Blueprint, request, jsonify, render_template, session, redirect, url_for, current_app, Response, send_from_directory, stream_with_context
 from sqlalchemy import and_, func, or_
@@ -35,6 +38,7 @@ infrastructure_bp = Blueprint('infrastructure', __name__, template_folder='templ
 kyiv_tz = ZoneInfo("Europe/Kyiv")
 
 SMTP_FILE = os.path.join(Config.DATA_DIR, "infra_smtp_profiles.json")
+CONFLUENCE_FILE = os.path.join(Config.DATA_DIR, "infra_confluence_profiles.json")
 SCHEDULED_REPORTS_FILE = os.path.join(Config.DATA_DIR, "infra_scheduled_reports.json")
 SECRETS_FILE = os.path.join(Config.DATA_DIR, "infra_template_secrets.json")
 AGENT_PACKAGES_FILE = os.path.join(Config.DATA_DIR, "infra_agent_packages.json")
@@ -221,6 +225,156 @@ def load_smtp_profiles():
 def save_smtp_profiles(data):
     with open(SMTP_FILE, 'w', encoding='utf-8') as f:
         json.dump(data, f, indent=4)
+
+def load_confluence_profiles():
+    if not os.path.exists(CONFLUENCE_FILE):
+        return {}
+    try:
+        with open(CONFLUENCE_FILE, "r", encoding="utf-8") as f:
+            data = json.load(f)
+            return data if isinstance(data, dict) else {}
+    except Exception:
+        logging.getLogger("winhub").exception("Failed to load Confluence profiles")
+        return {}
+
+def save_confluence_profiles(data):
+    os.makedirs(os.path.dirname(CONFLUENCE_FILE), exist_ok=True)
+    with open(CONFLUENCE_FILE, "w", encoding="utf-8") as f:
+        json.dump(data, f, indent=2, ensure_ascii=False)
+
+def safe_confluence_profiles(profiles):
+    safe_profiles = []
+    for name, profile in sorted(profiles.items()):
+        safe_profiles.append({
+            "name": name,
+            "base_url": profile.get("base_url", ""),
+            "auth_type": profile.get("auth_type", "bearer"),
+            "username": profile.get("username", ""),
+            "default_page_id": profile.get("default_page_id", ""),
+            "last_published_at": profile.get("last_published_at", ""),
+            "last_status": profile.get("last_status", ""),
+        })
+    return safe_profiles
+
+def normalize_confluence_base_url(value):
+    base_url = str(value or "").strip().rstrip("/")
+    parsed = urlsplit(base_url)
+    if not parsed.scheme or parsed.scheme not in ("http", "https") or not parsed.netloc:
+        return None
+    return base_url
+
+def confluence_auth_headers(profile):
+    encrypted_token = profile.get("token", "")
+    if not encrypted_token:
+        raise ValueError("Confluence token is missing")
+    token = sec_manager.decrypt_data(encrypted_token)
+    auth_type = str(profile.get("auth_type") or "bearer").lower()
+    if auth_type == "basic":
+        username = str(profile.get("username") or "").strip()
+        if not username:
+            raise ValueError("Confluence Basic auth requires username/email")
+        raw = f"{username}:{token}".encode("utf-8")
+        return {"Authorization": "Basic " + base64.b64encode(raw).decode("ascii")}
+    return {"Authorization": f"Bearer {token}"}
+
+def confluence_request(profile, method, path, payload=None, timeout=20):
+    base_url = normalize_confluence_base_url(profile.get("base_url"))
+    if not base_url:
+        return False, None, "Invalid Confluence base URL"
+
+    url = base_url + path
+    data = None
+    headers = {
+        "Accept": "application/json",
+        "Content-Type": "application/json",
+        "User-Agent": "WinHUB-Confluence-Publisher/1.0",
+    }
+    try:
+        headers.update(confluence_auth_headers(profile))
+        if payload is not None:
+            data = json.dumps(payload).encode("utf-8")
+        req = Request(url, data=data, headers=headers, method=method.upper())
+        with urlopen(req, timeout=timeout) as response:
+            body = response.read().decode("utf-8", errors="replace")
+            if not body:
+                return True, {}, "OK"
+            return True, json.loads(body), "OK"
+    except HTTPError as exc:
+        body = exc.read().decode("utf-8", errors="replace")[:1000]
+        return False, None, f"Confluence HTTP {exc.code}: {body or exc.reason}"
+    except URLError as exc:
+        return False, None, f"Confluence connection failed: {exc.reason}"
+    except Exception as exc:
+        return False, None, str(exc)
+
+def confluence_report_storage_html(report, report_body, custom_note=""):
+    title = html.escape(str(report.title or "WinHUB Report"))
+    status = html.escape(str(report.status or ""))
+    created_at = html.escape(to_kyiv_time(report.created_at))
+    published_at = html.escape(datetime.now(kyiv_tz).strftime("%Y-%m-%d %H:%M:%S %Z"))
+    note_html = ""
+    if custom_note:
+        note_html = f"<p><strong>Note:</strong> {html.escape(str(custom_note))}</p>"
+    body_html = html.escape(str(report_body or ""))
+    return (
+        f"<h1>{title}</h1>"
+        f"<p><strong>Generated:</strong> {created_at}<br />"
+        f"<strong>Published:</strong> {published_at}<br />"
+        f"<strong>Status:</strong> {status}<br />"
+        f"<strong>Total:</strong> {int(report.total_count or 0)} / "
+        f"<strong>Success:</strong> {int(report.success_count or 0)} / "
+        f"<strong>Error:</strong> {int(report.error_count or 0)}</p>"
+        f"{note_html}"
+        f"<pre>{body_html}</pre>"
+    )
+
+def publish_report_to_confluence(profile, report, page_id, title=None, body_format="escaped_pre", custom_note="", report_body=None):
+    page_id = str(page_id or "").strip()
+    if not page_id:
+        return False, "Confluence page ID is required", None
+
+    ok, page, message = confluence_request(
+        profile,
+        "GET",
+        f"/rest/api/content/{quote(page_id, safe='')}?expand=version,body.storage",
+    )
+    if not ok:
+        return False, message, None
+
+    current_version = int(((page or {}).get("version") or {}).get("number") or 0)
+    if current_version <= 0:
+        return False, "Confluence page version was not returned by API", None
+
+    final_title = str(title or (page or {}).get("title") or report.title or "WinHUB Report").strip()
+    report_body = report.report_data if report_body is None else report_body
+    report_body = report_body or ""
+    if body_format == "storage_html":
+        storage_value = str(report_body or "")
+    else:
+        storage_value = confluence_report_storage_html(report, report_body, custom_note)
+
+    payload = {
+        "id": page_id,
+        "type": (page or {}).get("type") or "page",
+        "title": final_title,
+        "version": {"number": current_version + 1},
+        "body": {"storage": {"value": storage_value, "representation": "storage"}},
+    }
+
+    ok, updated, message = confluence_request(
+        profile,
+        "PUT",
+        f"/rest/api/content/{quote(page_id, safe='')}",
+        payload=payload,
+        timeout=30,
+    )
+    if not ok:
+        return False, message, None
+
+    base_url = normalize_confluence_base_url(profile.get("base_url")) or ""
+    links = (updated or {}).get("_links") or {}
+    web_url = links.get("base", base_url) + links.get("webui", "") if links.get("webui") else base_url
+    return True, "Published to Confluence", web_url
 
 def load_scheduled_reports():
     if not os.path.exists(SCHEDULED_REPORTS_FILE):
@@ -1983,6 +2137,89 @@ def manage_smtp():
         return jsonify({"success": True})
 
 
+@infrastructure_bp.route('/api/infrastructure/confluence', methods=['GET', 'POST', 'DELETE'])
+def manage_confluence_profiles():
+    profiles = load_confluence_profiles()
+
+    if request.method == 'GET':
+        if not (can("send_reports") or can("manage_smtp")):
+            return jsonify({"success": False, "message": "Permission denied"}), 403
+        return jsonify({"success": True, "profiles": safe_confluence_profiles(profiles)})
+
+    denied = require_permission("manage_smtp")
+    if denied:
+        return denied
+
+    data = request.json or {}
+    if request.method == 'POST':
+        name = str(data.get("name") or "").strip()
+        base_url = normalize_confluence_base_url(data.get("base_url"))
+        token = str(data.get("token") or "").strip()
+        auth_type = str(data.get("auth_type") or "bearer").strip().lower()
+        username = str(data.get("username") or "").strip()
+        default_page_id = str(data.get("default_page_id") or "").strip()
+
+        if not name:
+            return jsonify({"success": False, "message": "Profile name is required."}), 400
+        if not base_url:
+            return jsonify({"success": False, "message": "Valid Confluence URL is required."}), 400
+        if auth_type not in ("bearer", "basic"):
+            return jsonify({"success": False, "message": "Auth type must be bearer or basic."}), 400
+        if auth_type == "basic" and not username:
+            return jsonify({"success": False, "message": "Basic auth requires username/email."}), 400
+
+        existing = profiles.get(name, {})
+        if not token and not existing.get("token"):
+            return jsonify({"success": False, "message": "Token is required for a new profile."}), 400
+
+        profiles[name] = {
+            "base_url": base_url,
+            "auth_type": auth_type,
+            "username": username,
+            "default_page_id": default_page_id,
+            "token": sec_manager.encrypt_data(token) if token else existing.get("token", ""),
+            "last_published_at": existing.get("last_published_at", ""),
+            "last_status": existing.get("last_status", ""),
+        }
+        save_confluence_profiles(profiles)
+        write_infra_audit("confluence_profile_saved", "confluence_profile", name, {"base_url": base_url, "auth_type": auth_type})
+        db.session.commit()
+        return jsonify({"success": True, "profiles": safe_confluence_profiles(profiles)})
+
+    name = str(data.get("name") or "").strip()
+    if name in profiles:
+        del profiles[name]
+        save_confluence_profiles(profiles)
+        write_infra_audit("confluence_profile_deleted", "confluence_profile", name)
+        db.session.commit()
+    return jsonify({"success": True, "profiles": safe_confluence_profiles(profiles)})
+
+
+@infrastructure_bp.route('/api/infrastructure/confluence/test', methods=['POST'])
+def test_confluence_profile():
+    denied = require_permission("manage_smtp")
+    if denied:
+        return denied
+    profiles = load_confluence_profiles()
+    data = request.json or {}
+    name = str(data.get("name") or "").strip()
+    profile = profiles.get(name)
+    if not profile:
+        return jsonify({"success": False, "message": "Confluence profile was not found."}), 404
+
+    page_id = str(data.get("page_id") or profile.get("default_page_id") or "").strip()
+    path = f"/rest/api/content/{quote(page_id, safe='')}?expand=version" if page_id else "/rest/api/content?limit=1"
+    ok, payload, message = confluence_request(profile, "GET", path, timeout=15)
+    if not ok:
+        profile["last_status"] = message
+        save_confluence_profiles(profiles)
+        return jsonify({"success": False, "message": message}), 400
+
+    profile["last_status"] = "Connection OK"
+    save_confluence_profiles(profiles)
+    return jsonify({"success": True, "message": "Confluence connection OK", "data": payload})
+
+
 @infrastructure_bp.route('/api/infrastructure/scheduled-reports', methods=['GET', 'POST'])
 def manage_scheduled_reports():
     if request.method == 'GET':
@@ -2216,6 +2453,68 @@ def action_report(report_id):
         return jsonify({"success": False, "message": message}), 400
         
     return jsonify({"success": True})
+
+
+@infrastructure_bp.route('/api/infrastructure/reports/<report_id>/confluence', methods=['POST'])
+def publish_report_confluence(report_id):
+    denied = require_permission("send_reports")
+    if denied:
+        return denied
+
+    report = AggregatedJob.query.get(report_id)
+    if not report:
+        return jsonify({"success": False, "message": "Report not found"}), 404
+    if not can_access_report(report_id):
+        return jsonify({"success": False, "message": "Access denied"}), 403
+
+    profiles = load_confluence_profiles()
+    data = request.json or {}
+    profile_name = str(data.get("profile") or "").strip()
+    profile = profiles.get(profile_name)
+    if not profile:
+        return jsonify({"success": False, "message": "Confluence profile was not found."}), 404
+
+    page_id = str(data.get("page_id") or profile.get("default_page_id") or "").strip()
+    title = str(data.get("title") or "").strip() or None
+    body_format = str(data.get("body_format") or "escaped_pre").strip()
+    custom_note = str(data.get("custom_note") or "").strip()
+    if body_format not in ("escaped_pre", "storage_html"):
+        return jsonify({"success": False, "message": "Invalid Confluence body format."}), 400
+    if body_format == "storage_html" and not can_view_sensitive_reports():
+        return jsonify({"success": False, "message": "Raw Confluence HTML publishing requires sensitive report access."}), 403
+    visible_report_body = report.report_data if can_view_sensitive_reports() else report_body_for_current_user(report.report_data)
+
+    success, message, web_url = publish_report_to_confluence(
+        profile=profile,
+        report=report,
+        page_id=page_id,
+        title=title,
+        body_format=body_format,
+        custom_note=custom_note,
+        report_body=visible_report_body,
+    )
+
+    now_str = datetime.now(kyiv_tz).strftime("%Y-%m-%d %H:%M:%S %Z")
+    profile["last_published_at"] = now_str if success else profile.get("last_published_at", "")
+    profile["last_status"] = "Published" if success else message
+    profiles[profile_name] = profile
+    save_confluence_profiles(profiles)
+
+    write_infra_audit(
+        "report_publish_confluence",
+        "report",
+        report_id,
+        {"profile": profile_name, "page_id": page_id, "success": success, "message": message},
+        status="Success" if success else "Error",
+    )
+    if success:
+        time_str = datetime.now(kyiv_tz).strftime("%H:%M")
+        report.status = f"Published {time_str}"
+    db.session.commit()
+
+    if success:
+        return jsonify({"success": True, "message": message, "url": web_url})
+    return jsonify({"success": False, "message": message}), 400
 
 @infrastructure_bp.route('/api/infrastructure/reports/<report_id>', methods=['DELETE'])
 def delete_report(report_id):
