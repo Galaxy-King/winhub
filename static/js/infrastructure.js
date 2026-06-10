@@ -935,6 +935,16 @@ async function publishReportToConfluence() {
     }
 }
 
+Object.assign(window, {
+    openConfluenceManager,
+    saveConfluenceProfile,
+    deleteConfluenceProfile,
+    testConfluenceProfile,
+    openReportConfluenceModal,
+    updateConfluencePublishDefaults,
+    publishReportToConfluence,
+});
+
 function renderScheduledReportSenderOptions() {
     const select = document.getElementById('scheduledReportSender');
     if (!select) return;
