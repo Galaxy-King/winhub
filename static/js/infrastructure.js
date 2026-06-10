@@ -782,8 +782,9 @@ function renderConfluenceProfileOptions() {
 }
 
 function openConfluenceManager() {
-    fetchConfluenceProfilesGlobally().then(renderConfluenceList);
+    renderConfluenceList();
     openModal('confluenceManagerModal');
+    fetchConfluenceProfilesGlobally().then(renderConfluenceList);
 }
 
 async function saveConfluenceProfile() {
