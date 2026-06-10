@@ -937,6 +937,7 @@ async function publishReportToConfluence() {
 
 Object.assign(window, {
     openConfluenceManager,
+    fetchConfluenceProfilesGlobally,
     saveConfluenceProfile,
     deleteConfluenceProfile,
     testConfluenceProfile,
