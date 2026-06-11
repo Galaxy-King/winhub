@@ -2095,14 +2095,15 @@ function toggleActionView() {
     if (!actionEl) return;
 
     const isAdmin = checkIsAdmin();
-    const isScriptMode = actionEl.value === 'run_script';
+    const checkedType = document.querySelector('input[name="depTemplateType"]:checked')?.value || 'action';
+    const showPayloadEditor = ['run_script', 'aggregation_report'].includes(actionEl.value) || ['action', 'metric', 'report'].includes(checkedType);
 
     const payArea = document.getElementById('payloadArea');
     const tplArea = document.getElementById('templateInfoArea');
 
     if (isAdmin) {
-        if(payArea) payArea.classList.toggle('hidden', !isScriptMode);
-        if(tplArea) tplArea.classList.toggle('hidden', isScriptMode);
+        if(payArea) payArea.classList.toggle('hidden', !showPayloadEditor);
+        if(tplArea) tplArea.classList.toggle('hidden', showPayloadEditor);
     } else {
         if(payArea) payArea.classList.add('hidden');
         if(tplArea) tplArea.classList.remove('hidden');
