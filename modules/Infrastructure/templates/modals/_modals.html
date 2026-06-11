@@ -809,17 +809,17 @@
             </div>
 
             <!-- ВИБІР ЧАСУ -->
-            <div class="bg-indigo-50/50 p-6 rounded-3xl border border-indigo-100">
+            <div class="schedule-timing-panel p-6 rounded-3xl border">
                 <label class="text-[10px] font-black text-indigo-500 uppercase tracking-widest block mb-4 ml-2">Execution Timing (Kyiv Time)</label>
-                
+
                 <div class="flex gap-4 mb-6">
                     <label class="flex-1 cursor-pointer">
-                        <input type="radio" name="schType" value="once" onchange="toggleSchType()" class="peer hidden" checked>
-                        <div class="p-4 bg-white border border-slate-200 rounded-2xl text-center peer-checked:border-indigo-500 peer-checked:bg-indigo-50 peer-checked:text-indigo-700 font-bold transition-all shadow-sm">Execute Once</div>
+                        <input type="radio" name="schType" value="once" onchange="toggleSchType()" class="schedule-type-input peer hidden" checked>
+                        <div class="schedule-type-card p-4 border rounded-2xl text-center font-bold transition-all shadow-sm">Execute Once</div>
                     </label>
                     <label class="flex-1 cursor-pointer">
-                        <input type="radio" name="schType" value="recurring" onchange="toggleSchType()" class="peer hidden">
-                        <div class="p-4 bg-white border border-slate-200 rounded-2xl text-center peer-checked:border-indigo-500 peer-checked:bg-indigo-50 peer-checked:text-indigo-700 font-bold transition-all shadow-sm">Recurring Weekly</div>
+                        <input type="radio" name="schType" value="recurring" onchange="toggleSchType()" class="schedule-type-input peer hidden">
+                        <div class="schedule-type-card p-4 border rounded-2xl text-center font-bold transition-all shadow-sm">Recurring Weekly</div>
                     </label>
                 </div>
 
@@ -842,13 +842,13 @@
                     <div>
                         <label class="text-[10px] font-bold text-slate-500 uppercase tracking-widest block mb-2 ml-1">Days of Week</label>
                         <div class="flex flex-wrap gap-2">
-                            <label><input type="checkbox" class="sch-day peer hidden" value="1"><div class="w-12 h-12 flex items-center justify-center rounded-xl bg-white border border-slate-200 text-slate-400 font-black peer-checked:bg-indigo-500 peer-checked:text-white peer-checked:border-indigo-600 cursor-pointer transition-colors shadow-sm text-sm hover:border-indigo-300">Mon</div></label>
-                            <label><input type="checkbox" class="sch-day peer hidden" value="2"><div class="w-12 h-12 flex items-center justify-center rounded-xl bg-white border border-slate-200 text-slate-400 font-black peer-checked:bg-indigo-500 peer-checked:text-white peer-checked:border-indigo-600 cursor-pointer transition-colors shadow-sm text-sm hover:border-indigo-300">Tue</div></label>
-                            <label><input type="checkbox" class="sch-day peer hidden" value="3"><div class="w-12 h-12 flex items-center justify-center rounded-xl bg-white border border-slate-200 text-slate-400 font-black peer-checked:bg-indigo-500 peer-checked:text-white peer-checked:border-indigo-600 cursor-pointer transition-colors shadow-sm text-sm hover:border-indigo-300">Wed</div></label>
-                            <label><input type="checkbox" class="sch-day peer hidden" value="4"><div class="w-12 h-12 flex items-center justify-center rounded-xl bg-white border border-slate-200 text-slate-400 font-black peer-checked:bg-indigo-500 peer-checked:text-white peer-checked:border-indigo-600 cursor-pointer transition-colors shadow-sm text-sm hover:border-indigo-300">Thu</div></label>
-                            <label><input type="checkbox" class="sch-day peer hidden" value="5"><div class="w-12 h-12 flex items-center justify-center rounded-xl bg-white border border-slate-200 text-slate-400 font-black peer-checked:bg-indigo-500 peer-checked:text-white peer-checked:border-indigo-600 cursor-pointer transition-colors shadow-sm text-sm hover:border-indigo-300">Fri</div></label>
-                            <label><input type="checkbox" class="sch-day peer hidden" value="6"><div class="w-12 h-12 flex items-center justify-center rounded-xl bg-white border border-slate-200 text-slate-400 font-black peer-checked:bg-indigo-500 peer-checked:text-white peer-checked:border-indigo-600 cursor-pointer transition-colors shadow-sm text-sm hover:border-indigo-300">Sat</div></label>
-                            <label><input type="checkbox" class="sch-day peer hidden" value="0"><div class="w-12 h-12 flex items-center justify-center rounded-xl bg-white border border-slate-200 text-slate-400 font-black peer-checked:bg-rose-500 peer-checked:text-white peer-checked:border-rose-600 cursor-pointer transition-colors shadow-sm text-sm hover:border-rose-300">Sun</div></label>
+                            <label onclick="handleScheduleDayClick(event)"><input type="checkbox" class="sch-day peer hidden" value="1"><div class="schedule-day-chip w-12 h-12 flex items-center justify-center rounded-xl border font-black cursor-pointer transition-colors shadow-sm text-sm">Mon</div></label>
+                            <label onclick="handleScheduleDayClick(event)"><input type="checkbox" class="sch-day peer hidden" value="2"><div class="schedule-day-chip w-12 h-12 flex items-center justify-center rounded-xl border font-black cursor-pointer transition-colors shadow-sm text-sm">Tue</div></label>
+                            <label onclick="handleScheduleDayClick(event)"><input type="checkbox" class="sch-day peer hidden" value="3"><div class="schedule-day-chip w-12 h-12 flex items-center justify-center rounded-xl border font-black cursor-pointer transition-colors shadow-sm text-sm">Wed</div></label>
+                            <label onclick="handleScheduleDayClick(event)"><input type="checkbox" class="sch-day peer hidden" value="4"><div class="schedule-day-chip w-12 h-12 flex items-center justify-center rounded-xl border font-black cursor-pointer transition-colors shadow-sm text-sm">Thu</div></label>
+                            <label onclick="handleScheduleDayClick(event)"><input type="checkbox" class="sch-day peer hidden" value="5"><div class="schedule-day-chip w-12 h-12 flex items-center justify-center rounded-xl border font-black cursor-pointer transition-colors shadow-sm text-sm">Fri</div></label>
+                            <label onclick="handleScheduleDayClick(event)"><input type="checkbox" class="sch-day peer hidden" value="6"><div class="schedule-day-chip w-12 h-12 flex items-center justify-center rounded-xl border font-black cursor-pointer transition-colors shadow-sm text-sm">Sat</div></label>
+                            <label onclick="handleScheduleDayClick(event)"><input type="checkbox" class="sch-day peer hidden" value="0"><div class="schedule-day-chip w-12 h-12 flex items-center justify-center rounded-xl border font-black cursor-pointer transition-colors shadow-sm text-sm">Sun</div></label>
                         </div>
                     </div>
                 </div>

@@ -2425,19 +2425,19 @@ function renderFleetPagination() {
             return '<span class="px-2 py-2 text-[10px] font-black text-slate-400">...</span>';
         }
         const active = item === page;
-        return `<button onclick="changeFleetPage(${item})" class="px-3 py-2 rounded-xl border text-[10px] font-black uppercase transition-all ${active ? 'bg-slate-900 text-white border-slate-900' : 'bg-white text-slate-600 border-slate-200 hover:bg-indigo-50 hover:text-indigo-700'}">${item}</button>`;
+        return `<button onclick="changeFleetPage(${item})" class="px-3 py-2 rounded-xl border text-[10px] font-black uppercase transition-all ${active ? 'fleet-page-active' : ''}">${item}</button>`;
     }).join('');
     const html = `
         <div class="text-[10px] font-black uppercase tracking-widest text-slate-500">
             Showing ${first}-${last} of ${total} nodes
         </div>
         <div class="flex flex-wrap items-center gap-2">
-            <select onchange="setFleetPageSize(this.value)" class="p-2 rounded-xl bg-white border border-slate-200 text-[10px] font-black uppercase text-slate-600">
+            <select onchange="setFleetPageSize(this.value)" class="p-2 rounded-xl border text-[10px] font-black uppercase">
                 ${[25, 50, 100].map(size => `<option value="${size}" ${size === pageSize ? 'selected' : ''}>${size} / page</option>`).join('')}
             </select>
-            <button onclick="changeFleetPage(${page - 1})" ${page <= 1 ? 'disabled' : ''} class="px-3 py-2 rounded-xl border border-slate-200 bg-white text-[10px] font-black uppercase text-slate-600 disabled:opacity-40">Prev</button>
+            <button onclick="changeFleetPage(${page - 1})" ${page <= 1 ? 'disabled' : ''} class="px-3 py-2 rounded-xl border text-[10px] font-black uppercase disabled:opacity-40">Prev</button>
             ${pageButtons}
-            <button onclick="changeFleetPage(${page + 1})" ${page >= pages ? 'disabled' : ''} class="px-3 py-2 rounded-xl border border-slate-200 bg-white text-[10px] font-black uppercase text-slate-600 disabled:opacity-40">Next</button>
+            <button onclick="changeFleetPage(${page + 1})" ${page >= pages ? 'disabled' : ''} class="px-3 py-2 rounded-xl border text-[10px] font-black uppercase disabled:opacity-40">Next</button>
         </div>
     `;
     boxes.forEach(box => { box.innerHTML = html; });
@@ -3653,6 +3653,22 @@ function toggleSchType() {
 
     if(uiOnce) uiOnce.classList.toggle('hidden', type !== 'once');
     if(uiRec) uiRec.classList.toggle('hidden', type !== 'recurring');
+}
+
+function toggleScheduleDay(inputOrValue, forceState = null) {
+    const input = typeof inputOrValue === 'string'
+        ? document.querySelector(`.sch-day[value="${inputOrValue}"]`)
+        : inputOrValue;
+    if (!input) return;
+    input.checked = forceState === null ? !input.checked : !!forceState;
+}
+
+function handleScheduleDayClick(event) {
+    event.preventDefault();
+    const input = event.currentTarget?.querySelector('.sch-day');
+    if (!input) return;
+    input.checked = !input.checked;
+    input.dispatchEvent(new Event('change', { bubbles: true }));
 }
 
 function buildCronString() {

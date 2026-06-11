@@ -50,26 +50,29 @@
 		    }
 		    .cm-s-winhub-neon div.CodeMirror-selected,
 		    .cm-s-winhub-neon .CodeMirror-selected {
-		        background: rgba(14, 165, 233, 0.38) !important;
+		        background: rgba(250, 204, 21, 0.34) !important;
 		    }
 		    .cm-s-winhub-neon.CodeMirror-focused div.CodeMirror-selected,
 		    .cm-s-winhub-neon.CodeMirror-focused .CodeMirror-selected {
-		        background: rgba(45, 212, 191, 0.42) !important;
+		        background: rgba(250, 204, 21, 0.52) !important;
 		    }
 		    .cm-s-winhub-neon .CodeMirror-selectedtext {
-		        color: #ffffff !important;
+		        color: #f8fafc !important;
+		        text-shadow: 0 1px 1px rgba(0, 0, 0, 0.85);
 		    }
 		    .cm-s-winhub-neon .CodeMirror-line::selection,
 		    .cm-s-winhub-neon .CodeMirror-line > span::selection,
 		    .cm-s-winhub-neon .CodeMirror-line > span > span::selection {
-		        background: rgba(45, 212, 191, 0.46);
-		        color: #ffffff;
+		        background: rgba(250, 204, 21, 0.52);
+		        color: #f8fafc;
+		        text-shadow: 0 1px 1px rgba(0, 0, 0, 0.85);
 		    }
 		    .cm-s-winhub-neon .CodeMirror-line::-moz-selection,
 		    .cm-s-winhub-neon .CodeMirror-line > span::-moz-selection,
 		    .cm-s-winhub-neon .CodeMirror-line > span > span::-moz-selection {
-		        background: rgba(45, 212, 191, 0.46);
-		        color: #ffffff;
+		        background: rgba(250, 204, 21, 0.52);
+		        color: #f8fafc;
+		        text-shadow: 0 1px 1px rgba(0, 0, 0, 0.85);
 		    }
 		    .cm-s-winhub-neon .CodeMirror-activeline-background {
 		        background: rgba(30, 64, 175, 0.24) !important;
@@ -98,8 +101,9 @@
 		        caret-color: #67e8f9;
 		    }
 		    #depPayload::selection {
-		        background: rgba(45, 212, 191, 0.46);
-		        color: #ffffff;
+		        background: rgba(250, 204, 21, 0.52);
+		        color: #f8fafc;
+		        text-shadow: 0 1px 1px rgba(0, 0, 0, 0.85);
 		    }
     #infraNavScroller {
         scrollbar-width: none;
@@ -836,6 +840,62 @@
         background: rgba(8, 145, 178, 0.24) !important;
         color: #ffffff !important;
         border-color: rgba(34, 211, 238, 0.55) !important;
+    }
+    #scheduleModal .schedule-timing-panel {
+        background:
+            radial-gradient(circle at top left, rgba(99, 102, 241, 0.18), transparent 16rem),
+            linear-gradient(135deg, rgba(15, 23, 42, 0.96), rgba(8, 47, 73, 0.70)) !important;
+        border-color: rgba(34, 211, 238, 0.30) !important;
+        box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.06), 0 18px 42px rgba(2, 6, 23, 0.28);
+    }
+    #scheduleModal .schedule-type-card,
+    #scheduleModal .schedule-day-chip {
+        background: rgba(3, 10, 23, 0.82) !important;
+        color: #bfefff !important;
+        border-color: rgba(34, 211, 238, 0.30) !important;
+    }
+    #scheduleModal .schedule-type-input:checked + .schedule-type-card,
+    #scheduleModal .sch-day:checked + .schedule-day-chip {
+        background: linear-gradient(135deg, rgba(14, 165, 233, 0.88), rgba(16, 185, 129, 0.70)) !important;
+        color: #ffffff !important;
+        border-color: rgba(125, 211, 252, 0.90) !important;
+        box-shadow: 0 0 22px rgba(34, 211, 238, 0.22);
+    }
+    #scheduleModal .sch-day[value="0"]:checked + .schedule-day-chip {
+        background: linear-gradient(135deg, rgba(244, 63, 94, 0.88), rgba(249, 115, 22, 0.70)) !important;
+        border-color: rgba(253, 164, 175, 0.90) !important;
+    }
+    #scheduleModal .schedule-type-card:hover,
+    #scheduleModal .schedule-day-chip:hover {
+        background: rgba(8, 145, 178, 0.24) !important;
+        color: #ffffff !important;
+        border-color: rgba(34, 211, 238, 0.58) !important;
+    }
+    .fleet-pagination {
+        background:
+            radial-gradient(circle at top left, rgba(34, 211, 238, 0.16), transparent 18rem),
+            linear-gradient(135deg, rgba(8, 17, 31, 0.98), rgba(8, 47, 73, 0.72)) !important;
+        border-color: rgba(34, 211, 238, 0.28) !important;
+        color: #dff7ff !important;
+        box-shadow: inset 0 1px 0 rgba(255,255,255,0.06), 0 12px 32px rgba(2, 6, 23, 0.18);
+    }
+    .fleet-pagination select,
+    .fleet-pagination button {
+        background: rgba(3, 10, 23, 0.86) !important;
+        color: #dff7ff !important;
+        border-color: rgba(34, 211, 238, 0.30) !important;
+    }
+    .fleet-pagination button:hover:not(:disabled),
+    .fleet-pagination select:hover {
+        background: rgba(8, 145, 178, 0.24) !important;
+        color: #ffffff !important;
+        border-color: rgba(34, 211, 238, 0.58) !important;
+    }
+    .fleet-pagination .fleet-page-active {
+        background: linear-gradient(135deg, #0ea5e9, #10b981) !important;
+        color: #ffffff !important;
+        border-color: rgba(125, 211, 252, 0.95) !important;
+        box-shadow: 0 0 18px rgba(34, 211, 238, 0.22);
     }
     #secretsManagerModal .template-secret-row {
         background:
