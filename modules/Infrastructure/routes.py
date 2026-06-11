@@ -100,6 +100,7 @@ ENDPOINT_LIST_COLUMNS = (
     Endpoint.enrollment_attempts,
     Endpoint.identity_fingerprint,
     Endpoint.identity_warning,
+    Endpoint.reenroll_allowed_until,
     Endpoint.last_seen,
     Endpoint.is_blocked,
 )
@@ -4578,7 +4579,11 @@ def host_operations(host_id):
         host_info = json.loads(agent.host_info or "{}")
     except Exception:
         host_info = {}
-    return jsonify({"success": True, "data": {"id": agent.id, "hostname": agent.hostname, "display_name": getattr(agent, "display_name", None) or "", "name": endpoint_display_name(agent), "os": agent.os_version, "ip": getattr(agent, "connection_ip", None) or agent.ip_address, "os_type": getattr(agent, 'os_type', 'Windows'), "last_seen": to_kyiv_time(agent.last_seen), "first_seen": to_kyiv_time(getattr(agent, "first_seen", None)), "last_enrollment_at": to_kyiv_time(getattr(agent, "last_enrollment_at", None)), "last_enrollment_ip": getattr(agent, "last_enrollment_ip", None), "enrollment_attempts": int(getattr(agent, "enrollment_attempts", 0) or 0), "identity_fingerprint": getattr(agent, "identity_fingerprint", None), "agent_identity_key_enrolled": bool(getattr(agent, "public_key_pem_plain", None) or getattr(agent, "public_key_pem", None)), "duplicate_matches": getattr(agent, "duplicate_matches", []), "identity_warning": getattr(agent, "identity_warning", None), "is_blocked": agent.is_blocked, "approval_status": getattr(agent, "approval_status", "Approved"), "agent_version": getattr(agent, "agent_version", None), "network_info": network_info, "host_info": host_info, "encryption": encryption_status_from_host_info(host_info), "groups": [{"id": g.id, "name": g.name} for g in agent.groups], "history": [{"id": h.id, "title": h.title, "status": h.status or "Pending", "date": to_kyiv_time_short(h.created_at), "by": h.created_by} for h in history]}})
+    reenroll_until = getattr(agent, "reenroll_allowed_until", None)
+    if reenroll_until and getattr(reenroll_until, "tzinfo", None):
+        reenroll_until = reenroll_until.replace(tzinfo=None)
+    active_reenroll_until = reenroll_until if reenroll_until and reenroll_until >= datetime.utcnow() else None
+    return jsonify({"success": True, "data": {"id": agent.id, "hostname": agent.hostname, "display_name": getattr(agent, "display_name", None) or "", "name": endpoint_display_name(agent), "os": agent.os_version, "ip": getattr(agent, "connection_ip", None) or agent.ip_address, "os_type": getattr(agent, 'os_type', 'Windows'), "last_seen": to_kyiv_time(agent.last_seen), "first_seen": to_kyiv_time(getattr(agent, "first_seen", None)), "last_enrollment_at": to_kyiv_time(getattr(agent, "last_enrollment_at", None)), "last_enrollment_ip": getattr(agent, "last_enrollment_ip", None), "enrollment_attempts": int(getattr(agent, "enrollment_attempts", 0) or 0), "identity_fingerprint": getattr(agent, "identity_fingerprint", None), "agent_identity_key_enrolled": bool(getattr(agent, "public_key_pem_plain", None) or getattr(agent, "public_key_pem", None)), "reenroll_allowed_until": to_kyiv_time(active_reenroll_until), "duplicate_matches": getattr(agent, "duplicate_matches", []), "identity_warning": getattr(agent, "identity_warning", None), "is_blocked": agent.is_blocked, "approval_status": getattr(agent, "approval_status", "Approved"), "agent_version": getattr(agent, "agent_version", None), "network_info": network_info, "host_info": host_info, "encryption": encryption_status_from_host_info(host_info), "groups": [{"id": g.id, "name": g.name} for g in agent.groups], "history": [{"id": h.id, "title": h.title, "status": h.status or "Pending", "date": to_kyiv_time_short(h.created_at), "by": h.created_by} for h in history]}})
 
 def build_activity_segments(host_id, telemetry_records, threshold, end_time, fallback_ip=""):
     records = sorted([r for r in telemetry_records if r.timestamp], key=lambda r: r.timestamp)
@@ -4728,6 +4733,40 @@ def toggle_block_host(host_id):
             status="Success"
         )
     return jsonify({"success": True})
+
+@infrastructure_bp.route('/api/infrastructure/host/<host_id>/allow-reenroll', methods=['POST'])
+def allow_host_reenroll(host_id):
+    denied = require_permission("manage_hosts")
+    if denied: return denied
+    agent = Endpoint.query.get(host_id)
+    if not agent:
+        return jsonify({"success": False, "message": "Host not found"}), 404
+    if not WinHubCore.can_manage_host(session.get('user_id'), host_id):
+        return jsonify({"success": False, "message": "Host denied"}), 403
+
+    minutes = 30
+    try:
+        requested = int((request.json or {}).get("minutes", minutes))
+        minutes = max(5, min(240, requested))
+    except Exception:
+        pass
+    allowed_until = datetime.utcnow() + timedelta(minutes=minutes)
+    agent.reenroll_allowed_until = allowed_until
+    db.session.add(RegistrationHistory(
+        hw_id=agent.id,
+        hostname=agent.hostname,
+        ip_address=agent.ip_address,
+        event_type="Re-enroll Allowed"
+    ))
+    db.session.commit()
+    WinHubCore.audit(
+        user_id=session.get("user_id"),
+        module="Infrastructure",
+        action="Allow Host Re-enroll",
+        details={"host_id": agent.id, "hostname": agent.hostname, "minutes": minutes, "allowed_until": allowed_until.isoformat()},
+        status="Success"
+    )
+    return jsonify({"success": True, "reenroll_allowed_until": to_kyiv_time(allowed_until)})
 
 @infrastructure_bp.route('/api/infrastructure/host/<host_id>/approval', methods=['POST'])
 def update_host_approval(host_id):

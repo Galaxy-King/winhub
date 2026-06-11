@@ -4050,6 +4050,15 @@ async function viewHost(id) {
         if (document.getElementById('btnBlockHost')) document.getElementById('btnBlockHost').innerText = d.is_blocked ? "Unblock Host" : "Block Host";
         if (document.getElementById('btnApproveHost')) document.getElementById('btnApproveHost').classList.toggle('hidden', approval === 'Approved');
         if (document.getElementById('btnRejectHost')) document.getElementById('btnRejectHost').classList.toggle('hidden', approval === 'Rejected');
+        const allowReenrollBtn = document.getElementById('btnAllowReenroll');
+        if (allowReenrollBtn) {
+            allowReenrollBtn.classList.toggle('hidden', approval !== 'Approved' || d.agent_identity_key_enrolled);
+        }
+        const recoveryEl = document.getElementById('mReenrollRecovery');
+        if (recoveryEl) {
+            recoveryEl.classList.toggle('hidden', !d.reenroll_allowed_until);
+            recoveryEl.innerText = d.reenroll_allowed_until ? `Re-enroll allowed until ${d.reenroll_allowed_until}` : '';
+        }
 
         document.getElementById('mHistory').innerHTML = d.history.map(h => `<div class="p-4 bg-white border border-slate-200 rounded-2xl flex justify-between items-center cursor-pointer hover:border-indigo-300 hover:shadow-md transition-all shadow-sm" onclick="viewTaskDetails('${h.id}')"><div><p class="font-black text-slate-800 text-sm">${h.title}</p><p class="text-[10px] text-slate-400 uppercase tracking-widest mt-1">By ${h.by} • ${h.date}</p></div><span class="px-3 py-1 rounded-lg text-[10px] font-black uppercase tracking-widest ${h.status === 'Success' ? 'bg-emerald-100 text-emerald-700' : (h.status === 'Error' ? 'bg-rose-100 text-rose-700' : 'bg-amber-100 text-amber-700')}">${h.status}</span></div>`).join('') || '<p class="text-slate-400 italic text-sm">No task history</p>';
     } catch(e) { console.error("Error loading host data", e); }
@@ -4123,6 +4132,21 @@ async function editCurrentHostDisplayName() {
 }
 
 async function toggleBlockHost() { await fetch('/api/infrastructure/host/' + currentViewedHostId + '/block', { method: 'POST' }); closeModal('hostModal'); location.reload(); }
+async function allowCurrentHostReenroll() {
+    if (!currentViewedHostId) return;
+    if (!confirm('Allow this approved host to re-enroll once during the next 30 minutes? The agent will receive a new token and can enroll its identity key.')) return;
+    const res = await fetch('/api/infrastructure/host/' + encodeURIComponent(currentViewedHostId) + '/allow-reenroll', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({minutes: 30})
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok || !data.success) {
+        alert(data.message || 'Failed to allow re-enroll.');
+        return;
+    }
+    await viewHost(currentViewedHostId);
+}
 async function setHostApprovalQuick(hostId, status) {
     await fetch('/api/infrastructure/host/' + hostId + '/approval', {
         method: 'POST',

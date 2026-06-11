@@ -517,6 +517,15 @@ def should_adopt_duplicate_enrollment(reasons):
     return "identity" in reason_set or "token_proof" in reason_set
 
 
+def endpoint_reenroll_allowed(agent):
+    allowed_until = getattr(agent, "reenroll_allowed_until", None)
+    if not allowed_until:
+        return False
+    if getattr(allowed_until, "tzinfo", None):
+        allowed_until = allowed_until.replace(tzinfo=None)
+    return allowed_until >= datetime.utcnow()
+
+
 def adopt_duplicate_endpoint_identity(existing_endpoint, new_hw_id, raw_token, data, source_ip, fingerprint, network_info, host_info, agent_version):
     old_id = existing_endpoint.id
     groups = list(existing_endpoint.groups)
@@ -685,7 +694,13 @@ def enroll_agent():
         adopted_identity = True
     if agent and agent.is_blocked:
         return jsonify({"status": "error", "message": "Blocked"}), 403
-    if agent and getattr(agent, "approval_status", "Approved") == "Approved" and not adopted_identity and not getattr(Config, "AGENT_ALLOW_REENROLL_EXISTING", False):
+    if (
+        agent
+        and getattr(agent, "approval_status", "Approved") == "Approved"
+        and not adopted_identity
+        and not getattr(Config, "AGENT_ALLOW_REENROLL_EXISTING", False)
+        and not endpoint_reenroll_allowed(agent)
+    ):
         return jsonify({"status": "error", "message": "Endpoint already enrolled. Delete or reset the endpoint record before re-enrollment."}), 409
     if not agent and duplicate_endpoint and should_adopt_duplicate_enrollment(duplicate_reasons):
         agent = adopt_duplicate_endpoint_identity(
@@ -759,6 +774,8 @@ def enroll_agent():
             )
         if not getattr(agent, "approval_status", None):
             agent.approval_status = "Approved"
+        if endpoint_reenroll_allowed(agent):
+            agent.reenroll_allowed_until = None
         db.session.add(RegistrationHistory(hw_id=hw_id, hostname=hostname, ip_address=source_ip, event_type="Re-enrolled"))
 
     if getattr(agent, "approval_status", "Approved") == "Approved":

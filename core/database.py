@@ -141,6 +141,7 @@ class Endpoint(db.Model):
     enrollment_attempts = db.Column(db.Integer, default=0)
     identity_fingerprint = db.Column(db.String(64))
     identity_warning = db.Column(db.String(255))
+    reenroll_allowed_until = db.Column(db.DateTime, nullable=True, index=True)
     
     last_seen = db.Column(db.DateTime, default=datetime.utcnow, index=True)
     is_blocked = db.Column(db.Boolean, default=False, index=True)

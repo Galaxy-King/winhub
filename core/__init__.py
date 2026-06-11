@@ -233,6 +233,8 @@ def ensure_endpoint_schema():
         statements.append("ALTER TABLE endpoints ADD COLUMN identity_fingerprint VARCHAR(64)")
     if "identity_warning" not in columns:
         statements.append("ALTER TABLE endpoints ADD COLUMN identity_warning VARCHAR(255)")
+    if "reenroll_allowed_until" not in columns:
+        statements.append("ALTER TABLE endpoints ADD COLUMN reenroll_allowed_until TIMESTAMP")
 
     for statement in statements:
         db.session.execute(text(statement))
