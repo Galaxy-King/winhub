@@ -34,6 +34,18 @@ let payloadEditor = null;
 const infraStateKeys = {
     view: 'infra_vfinal_view',
     nodeTab: 'infra_nodes_active_tab',
+    reviewTab: 'winhub_infra_review_tab',
+    fleetStatus: 'infra_fleet_status',
+    fleetSearch: 'infra_fleet_search',
+    fleetGroups: 'infra_fleet_groups',
+    fleetPage: 'infra_fleet_page',
+    fleetPageSize: 'infra_fleet_page_size',
+    fleetSort: 'infra_fleet_sort',
+    queueType: 'infra_queue_type',
+    queueStatus: 'infra_queue_status',
+    queueSearch: 'infra_queue_search',
+    queueUser: 'infra_queue_user',
+    workspaceTab: 'infra_workspace_tab',
     categories: 'infra_open_categories',
     template: 'infra_selected_template'
 };
@@ -43,7 +55,76 @@ let multiHostSelectedIds = new Set();
 let pendingTemplateImport = [];
 
 function currentInfraView() {
-    return localStorage.getItem(infraStateKeys.view) || 'hosts';
+    return infraUrlParam('view') || localStorage.getItem(infraStateKeys.view) || 'hosts';
+}
+
+function infraUrlParam(name) {
+    try {
+        return new URL(window.location.href).searchParams.get(name);
+    } catch (e) {
+        return null;
+    }
+}
+
+function readInfraState(param, storageKey, fallback = '') {
+    const value = infraUrlParam(param);
+    if (value !== null && value !== undefined) return value;
+    return localStorage.getItem(storageKey) ?? fallback;
+}
+
+function writeInfraState(params = {}, replace = true) {
+    if (!window.location.pathname.includes('/module/infrastructure')) return;
+    const url = new URL(window.location.href);
+    Object.entries(params).forEach(([key, value]) => {
+        if (value === null || value === undefined || value === '') url.searchParams.delete(key);
+        else url.searchParams.set(key, String(value));
+    });
+    const next = url.pathname + (url.search ? url.search : '') + url.hash;
+    if (replace) window.history.replaceState(null, '', next);
+    else window.history.pushState(null, '', next);
+}
+
+function scopedInfraState(view, params = {}) {
+    return {
+        view,
+        nodeTab: null,
+        reviewTab: null,
+        fleetStatus: null,
+        fleetSearch: null,
+        fleetGroups: null,
+        fleetPage: null,
+        fleetPageSize: null,
+        fleetSort: null,
+        queueType: null,
+        queueStatus: null,
+        queueSearch: null,
+        queueUser: null,
+        workspaceTab: null,
+        ...params,
+    };
+}
+
+function isNewTabNavigationEvent(event) {
+    return !!(event && (event.button === 1 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey));
+}
+
+function handleInfraNavClick(event, view) {
+    if (isNewTabNavigationEvent(event)) return;
+    if (event) event.preventDefault();
+    switchView(view);
+    closeInfraMenus();
+}
+
+function handleNodeTabClick(event, tab) {
+    if (isNewTabNavigationEvent(event)) return;
+    if (event) event.preventDefault();
+    switchNodeTab(tab);
+}
+
+function handleReviewTabClick(event, tab) {
+    if (isNewTabNavigationEvent(event)) return;
+    if (event) event.preventDefault();
+    switchReviewTab(tab);
 }
 
 function hasReviewSelections() {
@@ -234,6 +315,8 @@ function initPayloadEditor() {
 
 function switchWorkspaceTab(tab) {
     workspaceTab = tab || 'builder';
+    localStorage.setItem(infraStateKeys.workspaceTab, workspaceTab);
+    writeInfraState(scopedInfraState('deploy', { workspaceTab: workspaceTab === 'builder' ? null : workspaceTab }));
     const builder = document.getElementById('workspaceBuilderPanel');
     const guide = document.getElementById('workspaceGuidePanel');
     const builderBtn = document.getElementById('workspaceTabBuilder');
@@ -243,6 +326,10 @@ function switchWorkspaceTab(tab) {
     if (builderBtn) builderBtn.className = workspaceTab === 'builder' ? "px-4 py-2 bg-white text-indigo-700 rounded-lg text-[10px] font-black uppercase shadow-sm" : "px-4 py-2 text-slate-500 rounded-lg text-[10px] font-black uppercase";
     if (guideBtn) guideBtn.className = workspaceTab === 'guide' ? "px-4 py-2 bg-white text-indigo-700 rounded-lg text-[10px] font-black uppercase shadow-sm" : "px-4 py-2 text-slate-500 rounded-lg text-[10px] font-black uppercase";
     if (workspaceTab === 'builder') refreshPayloadEditor();
+}
+
+function restoreWorkspaceStateFromLocation() {
+    workspaceTab = readInfraState('workspaceTab', infraStateKeys.workspaceTab, 'builder') || 'builder';
 }
 
 function setGuideLanguage(lang) {
@@ -1382,7 +1469,11 @@ document.addEventListener('DOMContentLoaded', () => {
 
         const defaultView = ['hosts', 'groups', 'software', 'queue', 'reports', 'deploy', 'scheduler', 'triggers']
             .find(v => document.getElementById('view-' + v)) || 'hosts';
-        const saved = localStorage.getItem(infraStateKeys.view) || defaultView;
+        restoreFleetCenterState();
+        restoreQueueState();
+        restoreWorkspaceStateFromLocation();
+
+        const saved = infraUrlParam('view') || localStorage.getItem(infraStateKeys.view) || defaultView;
         switchView(document.getElementById('view-' + saved) ? saved : defaultView, false);
         renderCategoryListUI();
         restoreOpenCategories();
@@ -1426,7 +1517,10 @@ document.addEventListener('DOMContentLoaded', () => {
 });
 
 function switchView(view, save=true) {
-    if(save) localStorage.setItem(infraStateKeys.view, view);
+    if(save) {
+        localStorage.setItem(infraStateKeys.view, view);
+        writeInfraState(scopedInfraState(view));
+    }
     ['hosts', 'groups', 'group-detail', 'software', 'queue', 'deploy', 'scheduler', 'triggers', 'reports'].forEach(v => {
         const el = document.getElementById('view-' + v);
         const nav = document.getElementById('nav-' + v);
@@ -1447,8 +1541,11 @@ function switchView(view, save=true) {
     }
     if(view === 'queue') loadQueue();
     if(view === 'reports') loadReports();
-    if(view === 'deploy') refreshPayloadEditor();
-    if(view === 'hosts') switchNodeTab(localStorage.getItem(infraStateKeys.nodeTab) || 'approved', false);
+    if(view === 'deploy') {
+        switchWorkspaceTab(readInfraState('workspaceTab', infraStateKeys.workspaceTab, workspaceTab || 'builder'));
+        refreshPayloadEditor();
+    }
+    if(view === 'hosts') switchNodeTab(infraUrlParam('nodeTab') || localStorage.getItem(infraStateKeys.nodeTab) || 'approved', false);
     if(view === 'software') loadSoftwareRegistry();
     if(infraLivePollStarted) scheduleInfraLivePoll(1000);
 }
@@ -2191,6 +2288,63 @@ let fleetSelectedHostIds = new Set();
 let fleetSortState = { key: 'hostname', direction: 'asc' };
 let fleetPagination = { page: 1, page_size: 50, total: 0, pages: 1 };
 let fleetSearchTimer = null;
+
+function renderFleetStatusTabs(status = 'all') {
+    document.querySelectorAll('.fleet-status-tab').forEach(btn => {
+        const active = btn.dataset.fleetStatus === (status || 'all');
+        btn.className = `fleet-status-tab px-4 py-2 rounded-xl text-[10px] font-black uppercase border transition-all ${active ? 'bg-[#0f3d8a] text-white border-[#75a7f7] shadow-sm' : 'bg-white text-slate-700 border-slate-200 hover:bg-blue-50 hover:text-[#0f3d8a]'}`;
+    });
+}
+
+function restoreFleetCenterState() {
+    const status = readInfraState('fleetStatus', infraStateKeys.fleetStatus, 'all') || 'all';
+    const search = readInfraState('fleetSearch', infraStateKeys.fleetSearch, '');
+    const groups = (readInfraState('fleetGroups', infraStateKeys.fleetGroups, '') || '').split(',').filter(Boolean);
+    const page = Number(readInfraState('fleetPage', infraStateKeys.fleetPage, '1')) || 1;
+    const pageSize = Number(readInfraState('fleetPageSize', infraStateKeys.fleetPageSize, '50')) || 50;
+    const sortValue = readInfraState('fleetSort', infraStateKeys.fleetSort, 'hostname:asc') || 'hostname:asc';
+    const [sortKey, sortDirection] = sortValue.split(':');
+
+    const statusEl = document.getElementById('fleetStatusFilter');
+    if (statusEl) statusEl.value = status;
+    const searchEl = document.getElementById('fleetSearch');
+    if (searchEl) searchEl.value = search;
+    document.querySelectorAll('#fleetGroupFilters input[type="checkbox"]').forEach(cb => {
+        cb.checked = groups.includes(String(cb.value));
+    });
+    fleetPagination.page = page;
+    fleetPagination.page_size = pageSize;
+    fleetSortState = {
+        key: sortKey || 'hostname',
+        direction: sortDirection === 'desc' ? 'desc' : 'asc',
+    };
+    renderFleetStatusTabs(status);
+}
+
+function persistFleetCenterState(page = fleetPagination.page || 1) {
+    const status = document.getElementById('fleetStatusFilter')?.value || 'all';
+    const search = (document.getElementById('fleetSearch')?.value || '').trim();
+    const groups = fleetGroupFilterValues().join(',');
+    const pageSize = Number(fleetPagination.page_size || 50);
+    const sort = `${fleetSortState.key}:${fleetSortState.direction}`;
+
+    localStorage.setItem(infraStateKeys.fleetStatus, status);
+    localStorage.setItem(infraStateKeys.fleetSearch, search);
+    localStorage.setItem(infraStateKeys.fleetGroups, groups);
+    localStorage.setItem(infraStateKeys.fleetPage, String(page || 1));
+    localStorage.setItem(infraStateKeys.fleetPageSize, String(pageSize));
+    localStorage.setItem(infraStateKeys.fleetSort, sort);
+    writeInfraState(scopedInfraState('hosts', {
+        nodeTab: 'approved',
+        fleetStatus: status === 'all' ? null : status,
+        fleetSearch: search || null,
+        fleetGroups: groups || null,
+        fleetPage: Number(page || 1) === 1 ? null : page,
+        fleetPageSize: pageSize === 50 ? null : pageSize,
+        fleetSort: sort === 'hostname:asc' ? null : sort,
+    }));
+}
+
 let softwareRegistryData = { packages: [] };
 let softwareSelectedHostIds = new Set();
 let softwareSelectedPackageId = null;
@@ -2211,6 +2365,8 @@ function scheduleFleetLoad() {
 async function loadFleetCenter(page = fleetPagination.page || 1) {
     const body = document.getElementById('fleetHostsBody');
     if (!body) return;
+    page = Number(page || 1) || 1;
+    persistFleetCenterState(page);
     try {
         const params = new URLSearchParams({
             page: String(page || 1),
@@ -2304,21 +2460,21 @@ window.setFleetSort = function setFleetSort(key) {
         fleetSortState = { key, direction: 'desc' };
         if (key === 'hostname') fleetSortState.direction = 'asc';
     }
+    persistFleetCenterState(1);
     loadFleetCenter(1);
 };
 
 window.setFleetStatusFilter = function setFleetStatusFilter(status) {
     const select = document.getElementById('fleetStatusFilter');
     if (select) select.value = status || 'all';
-    document.querySelectorAll('.fleet-status-tab').forEach(btn => {
-        const active = btn.dataset.fleetStatus === (status || 'all');
-        btn.className = `fleet-status-tab px-4 py-2 rounded-xl text-[10px] font-black uppercase border transition-all ${active ? 'bg-[#0f3d8a] text-white border-[#75a7f7] shadow-sm' : 'bg-white text-slate-700 border-slate-200 hover:bg-blue-50 hover:text-[#0f3d8a]'}`;
-    });
+    renderFleetStatusTabs(status || 'all');
+    persistFleetCenterState(1);
     loadFleetCenter(1);
 };
 
 window.setFleetPageSize = function setFleetPageSize(value) {
     fleetPagination.page_size = Number(value) || 50;
+    persistFleetCenterState(1);
     loadFleetCenter(1);
 };
 
@@ -3061,7 +3217,10 @@ function switchHostTab(tab) {
 
 function switchNodeTab(tab, save = true) {
     if (!['approved', 'review'].includes(tab)) tab = 'approved';
-    if (save) localStorage.setItem(infraStateKeys.nodeTab, tab);
+    if (save) {
+        localStorage.setItem(infraStateKeys.nodeTab, tab);
+        writeInfraState(scopedInfraState('hosts', { nodeTab: tab }));
+    }
     const panels = {
         approved: document.getElementById('nodesApprovedPanel'),
         review: document.getElementById('nodesReviewPanel'),
@@ -3076,17 +3235,20 @@ function switchNodeTab(tab, save = true) {
     });
     Object.values(buttons).forEach(btn => {
         if (!btn) return;
-        btn.className = "node-tab-btn px-5 py-2.5 rounded-xl text-xs font-black uppercase text-slate-500 hover:text-amber-700";
+        btn.className = "node-tab-btn inline-flex items-center px-5 py-2.5 rounded-xl text-xs font-black uppercase text-slate-500 hover:text-amber-700";
     });
     const active = buttons[tab] || buttons.approved;
-    if (active) active.className = "node-tab-btn px-5 py-2.5 rounded-xl text-xs font-black uppercase bg-slate-900 text-white shadow-sm";
-    if (tab === 'review') switchReviewTab(localStorage.getItem('winhub_infra_review_tab') || 'pending', false);
+    if (active) active.className = "node-tab-btn inline-flex items-center px-5 py-2.5 rounded-xl text-xs font-black uppercase bg-slate-900 text-white shadow-sm";
+    if (tab === 'review') switchReviewTab(infraUrlParam('reviewTab') || localStorage.getItem(infraStateKeys.reviewTab) || 'pending', false);
     if (tab === 'approved') loadFleetCenter();
 }
 
 function switchReviewTab(tab, save = true) {
     if (!['pending', 'duplicates', 'rejected'].includes(tab)) tab = 'pending';
-    if (save) localStorage.setItem('winhub_infra_review_tab', tab);
+    if (save) {
+        localStorage.setItem(infraStateKeys.reviewTab, tab);
+        writeInfraState(scopedInfraState('hosts', { nodeTab: 'review', reviewTab: tab }));
+    }
     const panels = {
         pending: document.getElementById('nodesPendingPanel'),
         duplicates: document.getElementById('nodesApprovedDuplicatesPanel'),
@@ -3096,7 +3258,7 @@ function switchReviewTab(tab, save = true) {
         if (panel) panel.classList.toggle('hidden', key !== tab);
     });
     document.querySelectorAll('.review-tab-btn').forEach(btn => {
-        btn.className = "review-tab-btn px-4 py-2 rounded-xl text-[10px] font-black uppercase";
+        btn.className = "review-tab-btn inline-flex items-center px-4 py-2 rounded-xl text-[10px] font-black uppercase";
         btn.classList.remove('is-active');
     });
     const active = document.getElementById('reviewTab-' + tab);
@@ -3451,29 +3613,59 @@ async function loadIpHistory(hostId, days = 30) {
 }
 
 // --- QUEUE & HISTORY ---
+function restoreQueueState() {
+    queueTypeFilter = readInfraState('queueType', infraStateKeys.queueType, 'ALL') || 'ALL';
+    queueStatusFilter = readInfraState('queueStatus', infraStateKeys.queueStatus, 'ALL') || 'ALL';
+    const searchEl = document.getElementById('queueSearch');
+    if (searchEl) searchEl.value = readInfraState('queueSearch', infraStateKeys.queueSearch, '');
+    const userEl = document.getElementById('qFilterUser');
+    if (userEl) userEl.value = readInfraState('queueUser', infraStateKeys.queueUser, '');
+    renderQueueFilterButtons();
+}
+
+function persistQueueState() {
+    const search = (document.getElementById('queueSearch')?.value || '').trim();
+    const user = document.getElementById('qFilterUser')?.value || '';
+    localStorage.setItem(infraStateKeys.queueType, queueTypeFilter || 'ALL');
+    localStorage.setItem(infraStateKeys.queueStatus, queueStatusFilter || 'ALL');
+    localStorage.setItem(infraStateKeys.queueSearch, search);
+    localStorage.setItem(infraStateKeys.queueUser, user);
+    writeInfraState(scopedInfraState('queue', {
+        queueType: queueTypeFilter === 'ALL' ? null : queueTypeFilter,
+        queueStatus: queueStatusFilter === 'ALL' ? null : queueStatusFilter,
+        queueSearch: search || null,
+        queueUser: user || null,
+    }));
+}
+
+function renderQueueFilterButtons() {
+    document.querySelectorAll('.q-type-btn').forEach(btn => {
+        const active = (btn.getAttribute('onclick') || '').includes(`'${queueTypeFilter || 'ALL'}'`);
+        btn.classList.toggle('bg-white', active);
+        btn.classList.toggle('text-indigo-600', active);
+        btn.classList.toggle('shadow-sm', active);
+        btn.classList.toggle('text-slate-500', !active);
+    });
+    document.querySelectorAll('.q-status-btn').forEach(btn => {
+        const active = (btn.getAttribute('onclick') || '').includes(`'${queueStatusFilter || 'ALL'}'`);
+        btn.classList.toggle('bg-white', active);
+        btn.classList.toggle('text-indigo-600', active);
+        btn.classList.toggle('shadow-sm', active);
+        btn.classList.toggle('text-slate-500', !active);
+    });
+}
+
 function setQueueTypeFilter(type, btn) {
     queueTypeFilter = type;
-    document.querySelectorAll('.q-type-btn').forEach(b => {
-        b.classList.remove('bg-white', 'text-indigo-600', 'shadow-sm');
-        b.classList.add('text-slate-500');
-    });
-    if(btn) {
-        btn.classList.remove('text-slate-500');
-        btn.classList.add('bg-white', 'text-indigo-600', 'shadow-sm');
-    }
+    renderQueueFilterButtons();
+    persistQueueState();
     renderQueue();
 }
 
 function setQueueStatusFilter(status, btn) {
     queueStatusFilter = status || 'ALL';
-    document.querySelectorAll('.q-status-btn').forEach(b => {
-        b.classList.remove('bg-white', 'text-indigo-600', 'shadow-sm');
-        b.classList.add('text-slate-500');
-    });
-    if(btn) {
-        btn.classList.remove('text-slate-500');
-        btn.classList.add('bg-white', 'text-indigo-600', 'shadow-sm');
-    }
+    renderQueueFilterButtons();
+    persistQueueState();
     renderQueue();
 }
 
@@ -3491,6 +3683,7 @@ async function loadQueue() {
             uSelect.add(new Option('System (Auto)', 'System'));
         }
 
+        restoreQueueState();
         renderQueue();
         const t = document.getElementById('statQTotal');
         const p = document.getElementById('statQPending');
@@ -3502,6 +3695,8 @@ async function loadQueue() {
 function renderQueue() {
     const tbody = document.getElementById('queueBody');
     if(!tbody) return;
+    persistQueueState();
+    renderQueueFilterButtons();
 
     const searchEl = document.getElementById('queueSearch');
     const q = (searchEl ? searchEl.value : '').toLowerCase();

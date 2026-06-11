@@ -299,10 +299,10 @@
                             </button>
                             <div id="infraMenuInfrastructure" class="infra-dropdown infra-dropdown-blue hidden absolute right-0 lg:left-0 lg:right-auto top-full mt-2 w-56 border rounded-2xl p-2 z-30">
                                 {% if permissions.view_hosts %}
-                                <button id="nav-hosts" onclick="switchView('hosts'); closeInfraMenus();" class="active w-full text-left px-4 py-3 rounded-xl font-black text-xs uppercase tracking-wider transition-all bg-white text-indigo-600 shadow-sm border border-slate-200/50">Nodes</button>
+                                <a id="nav-hosts" href="?view=hosts" onclick="handleInfraNavClick(event, 'hosts')" class="active block w-full text-left px-4 py-3 rounded-xl font-black text-xs uppercase tracking-wider transition-all bg-white text-indigo-600 shadow-sm border border-slate-200/50">Nodes</a>
                                 {% endif %}
                                 {% if permissions.view_groups %}
-                                <button id="nav-groups" onclick="switchView('groups'); closeInfraMenus();" class="w-full text-left text-slate-500 hover:text-slate-700 px-4 py-3 rounded-xl font-black text-xs uppercase tracking-wider transition-all">Groups</button>
+                                <a id="nav-groups" href="?view=groups" onclick="handleInfraNavClick(event, 'groups')" class="block w-full text-left text-slate-500 hover:text-slate-700 px-4 py-3 rounded-xl font-black text-xs uppercase tracking-wider transition-all">Groups</a>
                                 {% endif %}
                             </div>
                         </div>
@@ -316,16 +316,16 @@
                             </button>
                             <div id="infraMenuOperations" class="infra-dropdown infra-dropdown-blue hidden absolute right-0 lg:left-0 lg:right-auto top-full mt-2 w-56 border rounded-2xl p-2 z-30">
                                 {% if permissions.run_tasks or permissions.manage_templates %}
-                                <button id="nav-deploy" onclick="switchView('deploy'); closeInfraMenus();" class="w-full text-left text-slate-500 hover:text-slate-700 px-4 py-3 rounded-xl font-black text-xs uppercase tracking-wider transition-all">Workspace</button>
+                                <a id="nav-deploy" href="?view=deploy" onclick="handleInfraNavClick(event, 'deploy')" class="block w-full text-left text-slate-500 hover:text-slate-700 px-4 py-3 rounded-xl font-black text-xs uppercase tracking-wider transition-all">Workspace</a>
                                 {% endif %}
                                 {% if permissions.run_tasks or permissions.manage_software %}
-                                <button id="nav-software" onclick="switchView('software'); closeInfraMenus();" class="w-full text-left text-slate-500 hover:text-slate-700 px-4 py-3 rounded-xl font-black text-xs uppercase tracking-wider transition-all">Software</button>
+                                <a id="nav-software" href="?view=software" onclick="handleInfraNavClick(event, 'software')" class="block w-full text-left text-slate-500 hover:text-slate-700 px-4 py-3 rounded-xl font-black text-xs uppercase tracking-wider transition-all">Software</a>
                                 {% endif %}
                                 {% if permissions.view_queue %}
-                                <button id="nav-queue" onclick="switchView('queue'); closeInfraMenus();" class="w-full text-left text-slate-500 hover:text-slate-700 px-4 py-3 rounded-xl font-black text-xs uppercase tracking-wider transition-all">Queue</button>
+                                <a id="nav-queue" href="?view=queue" onclick="handleInfraNavClick(event, 'queue')" class="block w-full text-left text-slate-500 hover:text-slate-700 px-4 py-3 rounded-xl font-black text-xs uppercase tracking-wider transition-all">Queue</a>
                                 {% endif %}
                                 {% if permissions.view_reports %}
-                                <button id="nav-reports" onclick="switchView('reports'); closeInfraMenus();" class="w-full text-left text-slate-500 hover:text-slate-700 px-4 py-3 rounded-xl font-black text-xs uppercase tracking-wider transition-all">Reports</button>
+                                <a id="nav-reports" href="?view=reports" onclick="handleInfraNavClick(event, 'reports')" class="block w-full text-left text-slate-500 hover:text-slate-700 px-4 py-3 rounded-xl font-black text-xs uppercase tracking-wider transition-all">Reports</a>
                                 {% endif %}
                             </div>
                         </div>
@@ -339,10 +339,10 @@
                             </button>
                             <div id="infraMenuAutomation" class="infra-dropdown infra-dropdown-blue hidden absolute right-0 lg:left-0 lg:right-auto top-full mt-2 w-56 border rounded-2xl p-2 z-30">
                                 {% if permissions.manage_scheduler %}
-                                <button id="nav-scheduler" onclick="switchView('scheduler'); closeInfraMenus();" class="w-full text-left text-slate-500 hover:text-slate-700 px-4 py-3 rounded-xl font-black text-xs uppercase tracking-wider transition-all">Scheduler</button>
+                                <a id="nav-scheduler" href="?view=scheduler" onclick="handleInfraNavClick(event, 'scheduler')" class="block w-full text-left text-slate-500 hover:text-slate-700 px-4 py-3 rounded-xl font-black text-xs uppercase tracking-wider transition-all">Scheduler</a>
                                 {% endif %}
                                 {% if permissions.manage_triggers %}
-                                <button id="nav-triggers" onclick="switchView('triggers'); closeInfraMenus();" class="w-full text-left text-slate-500 hover:text-slate-700 px-4 py-3 rounded-xl font-black text-xs uppercase tracking-wider transition-all">Triggers</button>
+                                <a id="nav-triggers" href="?view=triggers" onclick="handleInfraNavClick(event, 'triggers')" class="block w-full text-left text-slate-500 hover:text-slate-700 px-4 py-3 rounded-xl font-black text-xs uppercase tracking-wider transition-all">Triggers</a>
                                 {% endif %}
                             </div>
                         </div>
