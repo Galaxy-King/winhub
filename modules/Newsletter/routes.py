@@ -45,7 +45,7 @@ DEFAULT_RECIPIENT_DOMAIN = os.environ.get("NEWSLETTER_RECIPIENT_DOMAIN", "@synef
 MAX_ATTACHMENTS = int(os.environ.get("NEWSLETTER_MAX_ATTACHMENTS", "8"))
 MAX_ATTACHMENT_BYTES = int(os.environ.get("NEWSLETTER_MAX_ATTACHMENT_BYTES", str(10 * 1024 * 1024)))
 MAX_TOTAL_ATTACHMENT_BYTES = int(os.environ.get("NEWSLETTER_MAX_TOTAL_ATTACHMENT_BYTES", str(25 * 1024 * 1024)))
-INBOUND_SUBJECT_RE = re.compile(r"^\s*\[list:([A-Za-z0-9_.-]+)\]\s*(.*)$", re.IGNORECASE)
+INBOUND_SUBJECT_RE = re.compile(r"^\s*\[(list|ldap):([A-Za-z0-9_.-]+)\]\s*(.*)$", re.IGNORECASE)
 _inbound_worker_started = False
 _inbound_worker_lock = threading.Lock()
 
@@ -203,10 +203,84 @@ def inbound_gpg_passphrase():
 def parse_inbound_subject(subject):
     match = INBOUND_SUBJECT_RE.match(str(subject or ""))
     if not match:
-        return None, None
-    list_name = match.group(1).strip()
-    clean_subject = match.group(2).strip() or "Newsletter"
-    return list_name, clean_subject
+        return None, None, None
+    target_type = match.group(1).strip().lower()
+    target_name = match.group(2).strip()
+    clean_subject = match.group(3).strip() or "Newsletter"
+    return target_type, target_name, clean_subject
+
+def env_csv_set(name):
+    raw = os.environ.get(name, "")
+    return {item.strip().lower() for item in raw.split(",") if item.strip()}
+
+def ldap_enabled():
+    return env_bool("NEWSLETTER_LDAP_ENABLED", False)
+
+def ldap_allowed_group(group_name):
+    allowed = env_csv_set("NEWSLETTER_LDAP_ALLOWED_GROUPS")
+    return not allowed or "*" in allowed or str(group_name or "").strip().lower() in allowed
+
+def ldap_recipients_from_group(group_name):
+    if not ldap_enabled():
+        raise ValueError("LDAP group targets are disabled. Set NEWSLETTER_LDAP_ENABLED=true.")
+    if not ldap_allowed_group(group_name):
+        raise PermissionError(f"LDAP group '{group_name}' is not allowed for inbound newsletter relay.")
+
+    try:
+        from ldap3 import ALL, BASE, SUBTREE, Connection, Server
+        from ldap3.utils.conv import escape_filter_chars
+    except ImportError as e:
+        raise RuntimeError("Python package 'ldap3' is not installed.") from e
+
+    uri = os.environ.get("NEWSLETTER_LDAP_URI", "").strip()
+    bind_dn = os.environ.get("NEWSLETTER_LDAP_BIND_DN", "").strip()
+    bind_password = os.environ.get("NEWSLETTER_LDAP_BIND_PASSWORD", "")
+    base_dn = os.environ.get("NEWSLETTER_LDAP_BASE_DN", "").strip()
+    group_base_dn = os.environ.get("NEWSLETTER_LDAP_GROUP_BASE_DN", base_dn).strip()
+    group_name_attr = os.environ.get("NEWSLETTER_LDAP_GROUP_NAME_ATTR", "cn").strip() or "cn"
+    group_member_attr = os.environ.get("NEWSLETTER_LDAP_GROUP_MEMBER_ATTR", "member").strip() or "member"
+    user_email_attr = os.environ.get("NEWSLETTER_LDAP_USER_EMAIL_ATTR", "mail").strip() or "mail"
+
+    if not uri or not bind_dn or not bind_password or not group_base_dn:
+        raise ValueError("LDAP settings are incomplete. Check NEWSLETTER_LDAP_URI, BIND_DN, BIND_PASSWORD and BASE_DN.")
+
+    server = Server(uri, get_info=ALL)
+    conn = Connection(server, user=bind_dn, password=bind_password, auto_bind=True, receive_timeout=15)
+    try:
+        group_filter = f"({group_name_attr}={escape_filter_chars(group_name)})"
+        if not conn.search(group_base_dn, group_filter, search_scope=SUBTREE, attributes=[group_member_attr]):
+            raise ValueError(f"LDAP group '{group_name}' was not found.")
+        if not conn.entries:
+            raise ValueError(f"LDAP group '{group_name}' was not found.")
+
+        group_entry = conn.entries[0]
+        member_dns = []
+        if hasattr(group_entry, group_member_attr):
+            member_dns = [str(value) for value in getattr(group_entry, group_member_attr).values if str(value).strip()]
+        if not member_dns:
+            raise ValueError(f"LDAP group '{group_name}' has no members.")
+
+        recipients = []
+        skipped_without_email = 0
+        for member_dn in member_dns:
+            if not conn.search(member_dn, "(objectClass=*)", search_scope=BASE, attributes=[user_email_attr]):
+                skipped_without_email += 1
+                continue
+            if not conn.entries or not hasattr(conn.entries[0], user_email_attr):
+                skipped_without_email += 1
+                continue
+            values = [str(value).strip() for value in getattr(conn.entries[0], user_email_attr).values if str(value).strip()]
+            if values:
+                recipients.append(values[0])
+            else:
+                skipped_without_email += 1
+
+        unique_recipients = sorted({normalize_recipient(item) for item in recipients if normalize_recipient(item)})
+        if not unique_recipients:
+            raise ValueError(f"LDAP group '{group_name}' has no members with email attribute '{user_email_attr}'.")
+        return unique_recipients, {"skipped_without_email": skipped_without_email, "members_count": len(member_dns)}
+    finally:
+        conn.unbind()
 
 def extract_pgp_encrypted_payload(msg):
     content_type = msg.get_content_type()
@@ -353,19 +427,30 @@ def system_user_id():
     user = User.query.order_by(User.id.asc()).first()
     return user.id if user else 1
 
-def dispatch_inbound_newsletter(app, source_msg, decrypted_msg, list_name, subject):
-    with app.app_context():
+def resolve_inbound_recipients(target_type, target_name):
+    if target_type == "list":
         lists = load_lists()
-        if list_name not in lists:
-            raise ValueError(f"Mailing list '{list_name}' not found.")
-
-        target_users = {
+        if target_name not in lists:
+            raise ValueError(f"Mailing list '{target_name}' not found.")
+        recipients = sorted({
             normalize_recipient(item)
-            for item in lists.get(list_name, [])
+            for item in lists.get(target_name, [])
             if normalize_recipient(item)
-        }
-        if not target_users:
-            raise ValueError(f"Mailing list '{list_name}' has no recipients.")
+        })
+        meta = {"source": "list", "target": target_name}
+    elif target_type == "ldap":
+        recipients, ldap_meta = ldap_recipients_from_group(target_name)
+        meta = {"source": "ldap", "target": target_name, **ldap_meta}
+    else:
+        raise ValueError("Subject must start with [list:<name>] or [ldap:<group>].")
+
+    if not recipients:
+        raise ValueError(f"Inbound target '{target_name}' has no recipients.")
+    return recipients, meta
+
+def dispatch_inbound_newsletter(app, source_msg, decrypted_msg, target_type, target_name, subject):
+    with app.app_context():
+        target_users, target_meta = resolve_inbound_recipients(target_type, target_name)
 
         profiles = load_smtp_profiles()
         mailbox_user = os.environ.get("NEWSLETTER_INBOUND_IMAP_USER", "")
@@ -389,7 +474,7 @@ def dispatch_inbound_newsletter(app, source_msg, decrypted_msg, list_name, subje
             user_id=user_id,
             module_name="Newsletter",
             action="Inbound Mailing",
-            targets=list_name[:50],
+            targets=f"{target_type}:{target_name}"[:50],
             status="Running",
             log_file=log_file,
         )
@@ -403,12 +488,14 @@ def dispatch_inbound_newsletter(app, source_msg, decrypted_msg, list_name, subje
             action="Inbound Mailing",
             details={
                 "from": from_email,
-                "list": list_name,
+                "target_type": target_type,
+                "target": target_name,
                 "subject": subject,
                 "recipients_count": len(target_users),
                 "message_id": message_id,
                 "use_gpg": True,
                 "attachments_count": len(attachments),
+                **target_meta,
             },
             status="Success",
         )
@@ -442,9 +529,9 @@ def process_inbound_message(app, imap, uid, raw_message):
     if "*" not in allowed and from_email not in allowed:
         raise PermissionError(f"Sender '{from_email}' is not allowed.")
 
-    list_name, subject = parse_inbound_subject(msg.get("Subject", ""))
-    if not list_name:
-        raise ValueError("Subject must start with [list:<list-name>].")
+    target_type, target_name, subject = parse_inbound_subject(msg.get("Subject", ""))
+    if not target_type or not target_name:
+        raise ValueError("Subject must start with [list:<list-name>] or [ldap:<group-name>].")
 
     encrypted_payload = extract_pgp_encrypted_payload(msg)
     if not encrypted_payload:
@@ -457,7 +544,7 @@ def process_inbound_message(app, imap, uid, raw_message):
         raise ValueError(f"Could not decrypt inbound message: {decrypted}")
 
     decrypted_msg = parse_decrypted_message(decrypted)
-    task_id = dispatch_inbound_newsletter(app, msg, decrypted_msg, list_name, subject)
+    task_id = dispatch_inbound_newsletter(app, msg, decrypted_msg, target_type, target_name, subject)
     imap.uid("STORE", uid, "+FLAGS", r"(\Seen)")
     return task_id
 

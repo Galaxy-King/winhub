@@ -202,20 +202,30 @@ GPG_PATH=gpg
 
 ```text
 [list:<назва-списку>] <тема для отримувачів>
+[ldap:<назва-групи>] <тема для отримувачів>
 ```
 
 Приклад:
 
 ```text
 [list:it-support] Планові роботи у п'ятницю
+[ldap:it-support] Планові роботи у п'ятницю
 ```
 
-У цьому прикладі WinHUB:
+У прикладі з `[list:it-support]` WinHUB:
 
 1. знайде список `it-support`;
 2. прибере префікс `[list:it-support]` з теми;
 3. відправить отримувачам лист із темою `Планові роботи у п'ятницю`;
 4. примусово використає `GPG Encryption` для вихідної розсилки.
+
+У прикладі з `[ldap:it-support]` WinHUB:
+
+1. підключиться до FreeIPA/LDAP;
+2. знайде LDAP-групу `it-support`;
+3. візьме `member` користувачів групи;
+4. прочитає email кожного користувача з атрибута `mail`;
+5. відправить зашифрований лист на знайдені email-адреси.
 
 ### Обов'язкові умови
 
@@ -225,6 +235,7 @@ GPG_PATH=gpg
 4. Для кожного отримувача у списку має бути доступний публічний GPG-ключ.
 5. Адреса відправника має бути дозволена у `NEWSLETTER_INBOUND_ALLOWED_SENDERS`.
 6. У WinHUB має існувати SMTP-профіль, через який буде виконана розсилка.
+7. Для `[ldap:...]` має бути налаштований доступ до FreeIPA/LDAP.
 
 GPG-підпис не є обов'язковим. Перевірка доступу виконується за дозволеними email-відправниками.
 
@@ -265,6 +276,53 @@ NEWSLETTER_INBOUND_GPG_PASSPHRASE=private-key-passphrase
 ```
 
 Якщо значення збережені через веб-інтерфейс, вони мають пріоритет над `NEWSLETTER_INBOUND_ALLOWED_SENDERS`, `NEWSLETTER_INBOUND_SENDER_PROFILE` і `NEWSLETTER_INBOUND_GPG_PASSPHRASE`.
+
+### Налаштування FreeIPA/LDAP груп
+
+Щоб використовувати тему `[ldap:<назва-групи>]`, додайте LDAP-конфіг у env:
+
+```ini
+NEWSLETTER_LDAP_ENABLED=true
+NEWSLETTER_LDAP_URI=ldaps://ipa.syneforge.com:636
+NEWSLETTER_LDAP_BIND_DN=uid=spock,cn=users,cn=accounts,dc=syneforge,dc=com
+NEWSLETTER_LDAP_BIND_PASSWORD=ldap-password
+NEWSLETTER_LDAP_BASE_DN=dc=syneforge,dc=com
+NEWSLETTER_LDAP_GROUP_BASE_DN=cn=groups,cn=accounts,dc=syneforge,dc=com
+NEWSLETTER_LDAP_GROUP_NAME_ATTR=cn
+NEWSLETTER_LDAP_GROUP_MEMBER_ATTR=member
+NEWSLETTER_LDAP_USER_EMAIL_ATTR=mail
+NEWSLETTER_LDAP_ALLOWED_GROUPS=it-support,devops
+```
+
+Для першого тесту можна використовувати власного FreeIPA-користувача. Для production краще створити окремий read-only service account.
+
+`NEWSLETTER_LDAP_ALLOWED_GROUPS` обмежує групи, на які можна запускати розсилку через email. Якщо залишити порожнім, WinHUB дозволить усі LDAP-групи. Для явного дозволу всіх груп можна вказати:
+
+```ini
+NEWSLETTER_LDAP_ALLOWED_GROUPS=*
+```
+
+Перевірка LDAP вручну:
+
+```bash
+ldapsearch -x \
+  -H ldaps://ipa.syneforge.com:636 \
+  -D "uid=spock,cn=users,cn=accounts,dc=syneforge,dc=com" \
+  -W \
+  -b "cn=groups,cn=accounts,dc=syneforge,dc=com" \
+  "(cn=it-support)" cn member
+```
+
+Перевірка email користувача:
+
+```bash
+ldapsearch -x \
+  -H ldaps://ipa.syneforge.com:636 \
+  -D "uid=spock,cn=users,cn=accounts,dc=syneforge,dc=com" \
+  -W \
+  -b "cn=users,cn=accounts,dc=syneforge,dc=com" \
+  "(uid=some-user)" uid mail
+```
 
 ### Як додати приватний ключ
 
