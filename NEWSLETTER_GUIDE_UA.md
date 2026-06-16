@@ -230,7 +230,7 @@ GPG-підпис не є обов'язковим. Перевірка досту�
 
 ### Налаштування env
 
-Приклад мінімальної конфігурації:
+Через env налаштовується підключення до IMAP mailbox і вмикається сам фоновий воркер:
 
 ```ini
 NEWSLETTER_INBOUND_ENABLED=true
@@ -243,10 +243,28 @@ NEWSLETTER_INBOUND_IMAP_FOLDER=INBOX
 NEWSLETTER_INBOUND_PROCESSED_FOLDER=Processed
 NEWSLETTER_INBOUND_FAILED_FOLDER=Failed
 NEWSLETTER_INBOUND_POLL_SECONDS=60
+```
+
+Allowed senders, outbound sender profile і GPG passphrase можна налаштувати у веб-інтерфейсі:
+
+1. Відкрийте модуль `Newsletter`.
+2. Натисніть `SMTP Settings`.
+3. У секції `Inbound Relay` заповніть `Allowed Senders`.
+4. Виберіть `Outbound Sender Profile`, якщо не хочете автоматичний вибір.
+5. Введіть `GPG Private Key Passphrase`, якщо приватний ключ захищений парольною фразою.
+6. Натисніть `Save Inbound Relay`.
+
+Секція `Inbound Relay` не показує збережену парольну фразу назад у браузер. Вона показує тільки статус `passphrase saved`.
+
+Для аварійного або первинного налаштування ці значення також можна задати через env:
+
+```ini
 NEWSLETTER_INBOUND_ALLOWED_SENDERS=operator@example.com
 NEWSLETTER_INBOUND_SENDER_PROFILE=news@example.com
 NEWSLETTER_INBOUND_GPG_PASSPHRASE=private-key-passphrase
 ```
+
+Якщо значення збережені через веб-інтерфейс, вони мають пріоритет над `NEWSLETTER_INBOUND_ALLOWED_SENDERS`, `NEWSLETTER_INBOUND_SENDER_PROFILE` і `NEWSLETTER_INBOUND_GPG_PASSPHRASE`.
 
 ### Як додати приватний ключ
 
@@ -263,7 +281,9 @@ sudo -u winhub env GNUPGHOME=/var/lib/winhub/gnupg gpg --list-secret-keys
 NEWSLETTER_INBOUND_GPG_PASSPHRASE=private-key-passphrase
 ```
 
-WinHUB передає парольну фразу в GPG через `--pinentry-mode loopback`, тому вводити її вручну під час кожного листа не потрібно.
+Або збережіть її через `SMTP Settings` -> `Inbound Relay` у веб-інтерфейсі.
+
+WinHUB зберігає парольну фразу у зашифрованому вигляді та передає її в GPG через `--pinentry-mode loopback`, тому вводити її вручну під час кожного листа не потрібно.
 
 ### Що відбувається з листами у mailbox
 

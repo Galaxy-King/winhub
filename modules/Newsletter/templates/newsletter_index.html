@@ -544,7 +544,7 @@
 <!-- Modal: Admin SMTP Settings -->
 {% if permissions.manage_smtp %}
 <div id="smtpModal" class="hidden fixed inset-0 z-50 flex items-center justify-center bg-slate-900/80 p-6 backdrop-blur-sm">
-    <div class="bg-white rounded-2xl shadow-2xl w-full max-w-4xl p-6 flex flex-col max-h-[85vh]">
+    <div class="bg-white rounded-2xl shadow-2xl w-full max-w-5xl p-6 flex flex-col max-h-[88vh]">
         <h3 class="text-xl font-bold text-slate-800 mb-4 flex items-center gap-2 border-b border-slate-200 pb-3">
             <svg class="w-6 h-6 text-slate-700" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z"></path><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"></path></svg>
             SMTP & GPG Profiles Management
@@ -588,6 +588,43 @@
             <div class="w-1/2 flex flex-col">
                 <h4 class="font-bold text-sm text-slate-600 mb-3 uppercase">Saved Profiles</h4>
                 <div id="smtpSavedList" class="flex-1 overflow-y-auto space-y-2 border border-slate-200 rounded-xl p-2 bg-slate-50"></div>
+            </div>
+        </div>
+
+        <div class="mt-5 p-4 rounded-xl border border-cyan-400/25 bg-slate-50">
+            <div class="flex items-start justify-between gap-4 mb-4">
+                <div>
+                    <h4 class="font-bold text-sm text-slate-600 uppercase">Inbound Relay</h4>
+                    <p class="text-xs text-slate-500 mt-1 font-bold">Controls who can trigger encrypted forwarding by sending mail to the configured inbound mailbox.</p>
+                </div>
+                <div id="inboundRelayStatus" class="text-xs font-bold px-3 py-1.5 rounded border border-cyan-300/25 bg-slate-950/30 text-cyan-100">Loading...</div>
+            </div>
+
+            <div class="grid grid-cols-1 lg:grid-cols-2 gap-4">
+                <div>
+                    <label class="block text-xs font-bold text-slate-500 mb-1">Outbound Sender Profile</label>
+                    <select id="inboundSenderProfile" class="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500 outline-none"></select>
+                    <p class="text-xs text-slate-500 mt-1">Used when an inbound encrypted message starts a mailing.</p>
+                </div>
+                <div>
+                    <label class="block text-xs font-bold text-slate-500 mb-1">GPG Private Key Passphrase</label>
+                    <input type="password" id="inboundGpgPassphrase" placeholder="Leave blank to keep saved passphrase" class="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500 outline-none">
+                    <label class="mt-2 flex items-center gap-2 text-xs font-bold text-slate-500">
+                        <input type="checkbox" id="inboundClearPassphrase" class="w-4 h-4 rounded border-slate-300">
+                        Clear saved passphrase
+                    </label>
+                </div>
+            </div>
+
+            <div class="mt-4">
+                <label class="block text-xs font-bold text-slate-500 mb-1">Allowed Senders</label>
+                <textarea id="inboundAllowedSenders" rows="4" placeholder="operator@example.com&#10;security@example.com" class="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm font-mono resize-y focus:ring-2 focus:ring-indigo-500 outline-none"></textarea>
+                <p class="text-xs text-slate-500 mt-1">One sender email per line. Use * only for isolated testing.</p>
+            </div>
+
+            <div class="flex items-center justify-between gap-3 mt-4">
+                <div id="inboundSaveMessage" class="text-xs font-bold text-cyan-100"></div>
+                <button onclick="saveInboundRelaySettings()" class="bg-emerald-600 hover:bg-emerald-700 text-white font-bold py-2 px-5 rounded-lg transition-colors">Save Inbound Relay</button>
             </div>
         </div>
 
@@ -674,7 +711,7 @@
             renderUI();
             restoreNewsletterDraft();
             bindNewsletterDraftPersistence();
-            {% if permissions.manage_smtp %} renderSmtpModalList(); {% endif %}
+            {% if permissions.manage_smtp %} renderSmtpModalList(); renderInboundRelaySettings(); {% endif %}
         } catch (e) { console.error("Config load error", e); }
     }
 
@@ -997,7 +1034,10 @@
 
     {% if permissions.manage_smtp %}
     // --- SMTP Management ---
-    function openSmtpModal() { document.getElementById('smtpModal').classList.remove('hidden'); }
+    function openSmtpModal() {
+        renderInboundRelaySettings();
+        document.getElementById('smtpModal').classList.remove('hidden');
+    }
     function closeSmtpModal() { document.getElementById('smtpModal').classList.add('hidden'); }
 
     function renderSmtpModalList() {
@@ -1049,6 +1089,66 @@
             });
             loadConfig();
         } catch(e) { alert("Network Error"); }
+    }
+
+    function renderInboundRelaySettings() {
+        const inbound = moduleData.inbound || {};
+        const profileSelect = document.getElementById('inboundSenderProfile');
+        const allowed = document.getElementById('inboundAllowedSenders');
+        const status = document.getElementById('inboundRelayStatus');
+        const passphrase = document.getElementById('inboundGpgPassphrase');
+        const clearPassphrase = document.getElementById('inboundClearPassphrase');
+        const saveMessage = document.getElementById('inboundSaveMessage');
+        if (!profileSelect || !allowed) return;
+
+        const senderOptions = ['<option value="">Auto-select sender profile</option>'].concat(
+            moduleData.senders.map(s => `<option value="${s.email}">${s.email}</option>`)
+        );
+        profileSelect.innerHTML = senderOptions.join('');
+        profileSelect.value = inbound.sender_profile || '';
+        allowed.value = (inbound.allowed_senders || []).join('\n');
+        if (passphrase) passphrase.value = '';
+        if (clearPassphrase) clearPassphrase.checked = false;
+        if (saveMessage) saveMessage.innerText = '';
+
+        const enabledText = inbound.env_enabled ? 'Inbound enabled' : 'Inbound disabled in env';
+        const passText = inbound.passphrase_saved ? 'passphrase saved' : 'no passphrase saved';
+        status.innerText = `${enabledText} • ${passText}`;
+        status.className = inbound.env_enabled
+            ? 'text-xs font-bold px-3 py-1.5 rounded border border-emerald-300/25 bg-emerald-500/10 text-emerald-100'
+            : 'text-xs font-bold px-3 py-1.5 rounded border border-amber-300/25 bg-amber-500/10 text-amber-100';
+    }
+
+    async function saveInboundRelaySettings() {
+        const saveMessage = document.getElementById('inboundSaveMessage');
+        const payload = {
+            sender_profile: document.getElementById('inboundSenderProfile').value,
+            allowed_senders: document.getElementById('inboundAllowedSenders').value.split(/\r?\n/).map(v => v.trim()).filter(Boolean),
+            gpg_passphrase: document.getElementById('inboundGpgPassphrase').value,
+            clear_gpg_passphrase: document.getElementById('inboundClearPassphrase').checked
+        };
+
+        if (payload.clear_gpg_passphrase && payload.gpg_passphrase) {
+            return alert('Choose either a new passphrase or clear the saved passphrase.');
+        }
+
+        try {
+            const res = await fetch('/api/newsletter/inbound', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify(payload)
+            });
+            const data = await res.json();
+            if (!data.success) {
+                if (saveMessage) saveMessage.innerText = data.message || 'Save failed.';
+                return;
+            }
+            moduleData.inbound = data.inbound;
+            renderInboundRelaySettings();
+            if (saveMessage) saveMessage.innerText = 'Inbound relay settings saved.';
+        } catch(e) {
+            if (saveMessage) saveMessage.innerText = 'Network error.';
+        }
     }
     {% endif %}
 </script>

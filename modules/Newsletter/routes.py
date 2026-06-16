@@ -40,6 +40,7 @@ MODULE_DIR = os.path.dirname(os.path.abspath(__file__))
 DATA_DIR = os.environ.get("NEWSLETTER_DATA_DIR") or os.path.join(Config.DATA_DIR, "newsletter")
 LISTS_DIR = os.path.join(DATA_DIR, "lists")
 SMTP_FILE = os.path.join(DATA_DIR, "smtp_profiles.json")
+INBOUND_FILE = os.path.join(DATA_DIR, "inbound_relay.json")
 DEFAULT_RECIPIENT_DOMAIN = os.environ.get("NEWSLETTER_RECIPIENT_DOMAIN", "@syneforge.com")
 MAX_ATTACHMENTS = int(os.environ.get("NEWSLETTER_MAX_ATTACHMENTS", "8"))
 MAX_ATTACHMENT_BYTES = int(os.environ.get("NEWSLETTER_MAX_ATTACHMENT_BYTES", str(10 * 1024 * 1024)))
@@ -181,8 +182,23 @@ def env_int(name, default, minimum=None):
     return value
 
 def inbound_allowed_senders():
+    settings = load_inbound_settings()
+    configured = settings.get("allowed_senders")
+    if isinstance(configured, list):
+        return {str(item).strip().lower() for item in configured if str(item).strip()}
     raw = os.environ.get("NEWSLETTER_INBOUND_ALLOWED_SENDERS", "")
     return {item.strip().lower() for item in raw.split(",") if item.strip()}
+
+def inbound_sender_profile_setting():
+    settings = load_inbound_settings()
+    return str(settings.get("sender_profile") or os.environ.get("NEWSLETTER_INBOUND_SENDER_PROFILE", "")).strip()
+
+def inbound_gpg_passphrase():
+    settings = load_inbound_settings()
+    encrypted = settings.get("gpg_passphrase")
+    if encrypted:
+        return decrypt_pass(encrypted)
+    return os.environ.get("NEWSLETTER_INBOUND_GPG_PASSPHRASE", "")
 
 def parse_inbound_subject(subject):
     match = INBOUND_SUBJECT_RE.match(str(subject or ""))
@@ -307,7 +323,7 @@ def extract_body_and_attachments(msg):
     return body_text, body_html, attachments
 
 def resolve_inbound_sender_profile(profiles, mailbox_user):
-    configured = os.environ.get("NEWSLETTER_INBOUND_SENDER_PROFILE", "").strip()
+    configured = inbound_sender_profile_setting()
     if configured and configured in profiles:
         return configured, profiles[configured]
     mailbox_user = (mailbox_user or "").strip()
@@ -434,7 +450,7 @@ def process_inbound_message(app, imap, uid, raw_message):
     if not encrypted_payload:
         raise ValueError("Inbound message is not PGP encrypted.")
 
-    passphrase = os.environ.get("NEWSLETTER_INBOUND_GPG_PASSPHRASE", "")
+    passphrase = inbound_gpg_passphrase()
     gpg_path = app.config.get("GPG_PATH") or os.environ.get("GPG_PATH", "gpg")
     ok, decrypted = decrypt_with_gpg(gpg_path, encrypted_payload, passphrase)
     if not ok:
@@ -507,7 +523,8 @@ def inbound_worker(app):
     log.info("Newsletter inbound relay worker started; polling every %s seconds.", poll_seconds)
     while True:
         try:
-            poll_inbound_mailbox(app)
+            with app.app_context():
+                poll_inbound_mailbox(app)
         except Exception:
             log.error("Newsletter inbound relay poll failed: %s", traceback.format_exc())
         time.sleep(poll_seconds)
@@ -551,6 +568,54 @@ def save_smtp_profiles(data):
     ensure_parent_dir(SMTP_FILE)
     with open(SMTP_FILE, 'w', encoding='utf-8') as f:
         json.dump(data, f, indent=4)
+
+def load_inbound_settings():
+    if not os.path.exists(INBOUND_FILE):
+        return {}
+    try:
+        with open(INBOUND_FILE, "r", encoding="utf-8") as f:
+            data = json.load(f)
+        return data if isinstance(data, dict) else {}
+    except Exception:
+        return {}
+
+def save_inbound_settings(data):
+    ensure_parent_dir(INBOUND_FILE)
+    with open(INBOUND_FILE, "w", encoding="utf-8") as f:
+        json.dump(data, f, indent=4)
+
+def safe_inbound_settings():
+    settings = load_inbound_settings()
+    allowed = settings.get("allowed_senders")
+    if not isinstance(allowed, list):
+        allowed = sorted(inbound_allowed_senders())
+    return {
+        "allowed_senders": allowed,
+        "sender_profile": inbound_sender_profile_setting(),
+        "passphrase_saved": bool(settings.get("gpg_passphrase") or os.environ.get("NEWSLETTER_INBOUND_GPG_PASSPHRASE")),
+        "env_enabled": env_bool("NEWSLETTER_INBOUND_ENABLED", False),
+        "imap_user": os.environ.get("NEWSLETTER_INBOUND_IMAP_USER", ""),
+    }
+
+def normalize_email_list(raw):
+    if isinstance(raw, str):
+        items = raw.splitlines()
+    elif isinstance(raw, list):
+        items = raw
+    else:
+        items = []
+    clean = []
+    seen = set()
+    for item in items:
+        value = str(item or "").strip().lower()
+        if not value:
+            continue
+        if value != "*" and "@" not in value:
+            raise ValueError(f"Invalid sender email: {value}")
+        if value not in seen:
+            seen.add(value)
+            clean.append(value)
+    return clean
 
 def load_lists():
     lists = {}
@@ -611,7 +676,10 @@ def get_config():
     if not can_manage_lists:
         all_lists = {k: [] for k in all_lists.keys()}
             
-    return jsonify({"success": True, "senders": senders, "lists": all_lists})
+    payload = {"success": True, "senders": senders, "lists": all_lists}
+    if can_manage_smtp:
+        payload["inbound"] = safe_inbound_settings()
+    return jsonify(payload)
 
 @newsletter_bp.route("/api/newsletter/smtp", methods=["POST"])
 def manage_smtp():
@@ -649,6 +717,54 @@ def manage_smtp():
             save_smtp_profiles(profiles)
             
     return jsonify({"success": True, "message": "SMTP configuration updated."})
+
+@newsletter_bp.route("/api/newsletter/inbound", methods=["GET", "POST"])
+def manage_inbound_relay():
+    denied = require_permission("manage_smtp")
+    if denied:
+        return denied
+
+    if request.method == "GET":
+        return jsonify({"success": True, "inbound": safe_inbound_settings()})
+
+    data = request.json or {}
+    settings = load_inbound_settings()
+
+    try:
+        settings["allowed_senders"] = normalize_email_list(data.get("allowed_senders", []))
+    except ValueError as e:
+        return jsonify({"success": False, "message": str(e)}), 400
+
+    sender_profile = str(data.get("sender_profile") or "").strip()
+    profiles = load_smtp_profiles()
+    if sender_profile and sender_profile not in profiles:
+        return jsonify({"success": False, "message": "Sender profile not found."}), 400
+    settings["sender_profile"] = sender_profile
+
+    passphrase = str(data.get("gpg_passphrase") or "")
+    if passphrase:
+        settings["gpg_passphrase"] = encrypt_pass(passphrase)
+    if bool(data.get("clear_gpg_passphrase")):
+        settings.pop("gpg_passphrase", None)
+
+    save_inbound_settings(settings)
+    try:
+        WinHubCore.audit(
+            user_id=session.get("user_id"),
+            username=session.get("username"),
+            module="Newsletter",
+            action="Inbound Relay Settings Updated",
+            details={
+                "allowed_senders_count": len(settings.get("allowed_senders", [])),
+                "sender_profile": settings.get("sender_profile", ""),
+                "passphrase_saved": bool(settings.get("gpg_passphrase")),
+            },
+            status="Success",
+        )
+    except Exception as e:
+        log.error(f"Failed to audit Newsletter inbound settings update: {e}")
+
+    return jsonify({"success": True, "inbound": safe_inbound_settings()})
 
 @newsletter_bp.route("/api/newsletter/lists", methods=["POST"])
 def save_list():
