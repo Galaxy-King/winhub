@@ -3,6 +3,8 @@ import json
 import logging
 import traceback
 import threading
+import imaplib
+import re
 import urllib.request
 import urllib.parse
 import subprocess
@@ -14,6 +16,8 @@ import smtplib
 import ssl
 from email.message import EmailMessage
 from email import policy
+from email.parser import BytesParser
+from email.utils import parseaddr
 import uuid
 from datetime import datetime
 from zoneinfo import ZoneInfo
@@ -40,6 +44,9 @@ DEFAULT_RECIPIENT_DOMAIN = os.environ.get("NEWSLETTER_RECIPIENT_DOMAIN", "@synef
 MAX_ATTACHMENTS = int(os.environ.get("NEWSLETTER_MAX_ATTACHMENTS", "8"))
 MAX_ATTACHMENT_BYTES = int(os.environ.get("NEWSLETTER_MAX_ATTACHMENT_BYTES", str(10 * 1024 * 1024)))
 MAX_TOTAL_ATTACHMENT_BYTES = int(os.environ.get("NEWSLETTER_MAX_TOTAL_ATTACHMENT_BYTES", str(25 * 1024 * 1024)))
+INBOUND_SUBJECT_RE = re.compile(r"^\s*\[list:([A-Za-z0-9_.-]+)\]\s*(.*)$", re.IGNORECASE)
+_inbound_worker_started = False
+_inbound_worker_lock = threading.Lock()
 
 try:
     KYIV_TZ = ZoneInfo("Europe/Kyiv")
@@ -157,6 +164,364 @@ def build_encrypted_message(sender_email, recipient, subject, encrypted_payload)
     msg.attach(version_part)
     msg.attach(encrypted_part)
     return msg
+
+def env_bool(name, default=False):
+    raw = os.environ.get(name)
+    if raw is None:
+        return default
+    return str(raw).strip().lower() in {"1", "true", "yes", "on", "enabled"}
+
+def env_int(name, default, minimum=None):
+    try:
+        value = int(os.environ.get(name, str(default)))
+    except (TypeError, ValueError):
+        value = default
+    if minimum is not None:
+        value = max(minimum, value)
+    return value
+
+def inbound_allowed_senders():
+    raw = os.environ.get("NEWSLETTER_INBOUND_ALLOWED_SENDERS", "")
+    return {item.strip().lower() for item in raw.split(",") if item.strip()}
+
+def parse_inbound_subject(subject):
+    match = INBOUND_SUBJECT_RE.match(str(subject or ""))
+    if not match:
+        return None, None
+    list_name = match.group(1).strip()
+    clean_subject = match.group(2).strip() or "Newsletter"
+    return list_name, clean_subject
+
+def extract_pgp_encrypted_payload(msg):
+    content_type = msg.get_content_type()
+    protocol = (msg.get_param("protocol") or "").lower()
+    if content_type == "multipart/encrypted" and protocol == "application/pgp-encrypted":
+        for part in msg.iter_parts():
+            if part.get_content_type() == "application/octet-stream":
+                payload = part.get_payload(decode=True)
+                if payload:
+                    return payload
+            filename = (part.get_filename() or "").lower()
+            if filename.endswith((".asc", ".pgp", ".gpg")):
+                payload = part.get_payload(decode=True)
+                if payload:
+                    return payload
+
+    for part in msg.walk():
+        if part.is_multipart():
+            continue
+        payload = part.get_payload(decode=True)
+        if not payload:
+            continue
+        text = payload.decode(part.get_content_charset() or "utf-8", errors="replace")
+        begin = text.find("-----BEGIN PGP MESSAGE-----")
+        end = text.find("-----END PGP MESSAGE-----")
+        if begin >= 0 and end >= begin:
+            end += len("-----END PGP MESSAGE-----")
+            return text[begin:end].encode("utf-8")
+    return None
+
+def decrypt_with_gpg(gpg_path, encrypted_payload, passphrase):
+    fd, tmp_path = tempfile.mkstemp(suffix=".asc")
+    try:
+        with os.fdopen(fd, "wb") as f:
+            f.write(encrypted_payload if isinstance(encrypted_payload, (bytes, bytearray)) else str(encrypted_payload).encode("utf-8"))
+
+        cmd = [
+            gpg_path,
+            "--batch",
+            "--yes",
+            "--pinentry-mode",
+            "loopback",
+            "--passphrase-fd",
+            "0",
+            "--decrypt",
+            tmp_path,
+        ]
+        stdin = ((passphrase or "") + "\n").encode("utf-8")
+        proc = subprocess.run(
+            cmd,
+            input=stdin,
+            capture_output=True,
+            text=False,
+            timeout=30,
+            env=gpg_env(),
+            **hidden_subprocess_kwargs(),
+        )
+        if proc.returncode != 0:
+            error_text = (proc.stderr or b"").decode("utf-8", errors="replace").strip()
+            return False, error_text or f"GPG decrypt failed with exit code {proc.returncode}"
+        return True, proc.stdout
+    except subprocess.TimeoutExpired:
+        return False, "GPG decrypt timed out after 30 seconds"
+    except Exception as e:
+        return False, str(e)
+    finally:
+        try:
+            os.remove(tmp_path)
+        except Exception:
+            pass
+
+def parse_decrypted_message(decrypted_payload):
+    try:
+        return BytesParser(policy=policy.default).parsebytes(decrypted_payload)
+    except Exception:
+        msg = EmailMessage(policy=policy.default)
+        msg.set_content(decrypted_payload.decode("utf-8", errors="replace"))
+        return msg
+
+def extract_body_and_attachments(msg):
+    body_text_parts = []
+    body_html_parts = []
+    attachments = []
+    total_size = 0
+
+    parts = msg.walk() if msg.is_multipart() else [msg]
+    for part in parts:
+        if part.is_multipart():
+            continue
+        disposition = (part.get_content_disposition() or "").lower()
+        content_type = part.get_content_type()
+        payload = part.get_payload(decode=True) or b""
+        if disposition == "attachment" or part.get_filename():
+            if len(attachments) >= MAX_ATTACHMENTS:
+                raise ValueError(f"Too many attachments. Maximum is {MAX_ATTACHMENTS}.")
+            filename = secure_filename(part.get_filename() or "attachment")
+            if not filename:
+                filename = "attachment"
+            if len(payload) > MAX_ATTACHMENT_BYTES:
+                raise ValueError(f"Attachment '{filename}' is too large.")
+            total_size += len(payload)
+            if total_size > MAX_TOTAL_ATTACHMENT_BYTES:
+                raise ValueError("Total attachment size is too large.")
+            attachments.append({"filename": filename, "content_type": content_type, "content": payload})
+        elif content_type == "text/plain":
+            body_text_parts.append(payload.decode(part.get_content_charset() or "utf-8", errors="replace"))
+        elif content_type == "text/html":
+            body_html_parts.append(payload.decode(part.get_content_charset() or "utf-8", errors="replace"))
+
+    body_text = "\n\n".join(part.strip() for part in body_text_parts if part.strip())
+    body_html = "\n\n".join(part.strip() for part in body_html_parts if part.strip())
+    if not body_text and body_html:
+        body_text = html_to_text(body_html)
+    return body_text, body_html, attachments
+
+def resolve_inbound_sender_profile(profiles, mailbox_user):
+    configured = os.environ.get("NEWSLETTER_INBOUND_SENDER_PROFILE", "").strip()
+    if configured and configured in profiles:
+        return configured, profiles[configured]
+    mailbox_user = (mailbox_user or "").strip()
+    if mailbox_user and mailbox_user in profiles:
+        return mailbox_user, profiles[mailbox_user]
+    if profiles:
+        first_sender = sorted(profiles.keys())[0]
+        return first_sender, profiles[first_sender]
+    return None, None
+
+def move_imap_message(imap, uid, folder):
+    folder = (folder or "").strip()
+    if not folder:
+        return
+    try:
+        imap.create(folder)
+    except Exception:
+        pass
+    typ, _ = imap.uid("COPY", uid, folder)
+    if typ == "OK":
+        imap.uid("STORE", uid, "+FLAGS", r"(\Deleted)")
+
+def system_user_id():
+    admin = User.query.filter_by(is_admin=True).order_by(User.id.asc()).first()
+    if admin:
+        return admin.id
+    user = User.query.order_by(User.id.asc()).first()
+    return user.id if user else 1
+
+def dispatch_inbound_newsletter(app, source_msg, decrypted_msg, list_name, subject):
+    with app.app_context():
+        lists = load_lists()
+        if list_name not in lists:
+            raise ValueError(f"Mailing list '{list_name}' not found.")
+
+        target_users = {
+            normalize_recipient(item)
+            for item in lists.get(list_name, [])
+            if normalize_recipient(item)
+        }
+        if not target_users:
+            raise ValueError(f"Mailing list '{list_name}' has no recipients.")
+
+        profiles = load_smtp_profiles()
+        mailbox_user = os.environ.get("NEWSLETTER_INBOUND_IMAP_USER", "")
+        sender_email, smtp_config = resolve_inbound_sender_profile(profiles, mailbox_user)
+        if not sender_email:
+            raise ValueError("No SMTP profile available for inbound newsletter relay.")
+
+        body_text, body_html, attachments = extract_body_and_attachments(decrypted_msg)
+        if not (body_text or html_to_text(body_html)):
+            raise ValueError("Decrypted message body is empty.")
+
+        user_id = system_user_id()
+        task_id = str(uuid.uuid4())
+        log_file = os.path.join(app.config["DATA_DIR"], "logs", f"task_{task_id}.log")
+        ensure_parent_dir(log_file)
+        from_email = parseaddr(source_msg.get("From", ""))[1].lower()
+        message_id = str(source_msg.get("Message-ID") or "").strip()
+
+        task = Task(
+            id=task_id,
+            user_id=user_id,
+            module_name="Newsletter",
+            action="Inbound Mailing",
+            targets=list_name[:50],
+            status="Running",
+            log_file=log_file,
+        )
+        db.session.add(task)
+        db.session.commit()
+
+        WinHubCore.audit(
+            user_id=user_id,
+            username="Newsletter Inbound",
+            module="Newsletter",
+            action="Inbound Mailing",
+            details={
+                "from": from_email,
+                "list": list_name,
+                "subject": subject,
+                "recipients_count": len(target_users),
+                "message_id": message_id,
+                "use_gpg": True,
+                "attachments_count": len(attachments),
+            },
+            status="Success",
+        )
+
+        thread = threading.Thread(
+            target=bg_send_execution,
+            args=(
+                app,
+                task_id,
+                sender_email,
+                smtp_config,
+                list(target_users),
+                subject,
+                body_text,
+                body_html,
+                attachments,
+                True,
+                log_file,
+                None,
+                True,
+            ),
+            daemon=True,
+        )
+        thread.start()
+        return task_id
+
+def process_inbound_message(app, imap, uid, raw_message):
+    msg = BytesParser(policy=policy.default).parsebytes(raw_message)
+    from_email = parseaddr(msg.get("From", ""))[1].lower()
+    allowed = inbound_allowed_senders()
+    if "*" not in allowed and from_email not in allowed:
+        raise PermissionError(f"Sender '{from_email}' is not allowed.")
+
+    list_name, subject = parse_inbound_subject(msg.get("Subject", ""))
+    if not list_name:
+        raise ValueError("Subject must start with [list:<list-name>].")
+
+    encrypted_payload = extract_pgp_encrypted_payload(msg)
+    if not encrypted_payload:
+        raise ValueError("Inbound message is not PGP encrypted.")
+
+    passphrase = os.environ.get("NEWSLETTER_INBOUND_GPG_PASSPHRASE", "")
+    gpg_path = app.config.get("GPG_PATH") or os.environ.get("GPG_PATH", "gpg")
+    ok, decrypted = decrypt_with_gpg(gpg_path, encrypted_payload, passphrase)
+    if not ok:
+        raise ValueError(f"Could not decrypt inbound message: {decrypted}")
+
+    decrypted_msg = parse_decrypted_message(decrypted)
+    task_id = dispatch_inbound_newsletter(app, msg, decrypted_msg, list_name, subject)
+    imap.uid("STORE", uid, "+FLAGS", r"(\Seen)")
+    return task_id
+
+def poll_inbound_mailbox(app):
+    host = os.environ.get("NEWSLETTER_INBOUND_IMAP_HOST", "").strip()
+    user = os.environ.get("NEWSLETTER_INBOUND_IMAP_USER", "").strip()
+    password = os.environ.get("NEWSLETTER_INBOUND_IMAP_PASSWORD", "")
+    if not host or not user or not password:
+        log.warning("Newsletter inbound relay is enabled but IMAP host/user/password is incomplete.")
+        return
+
+    port = env_int("NEWSLETTER_INBOUND_IMAP_PORT", 993, 1)
+    use_ssl = env_bool("NEWSLETTER_INBOUND_IMAP_SSL", True)
+    folder = os.environ.get("NEWSLETTER_INBOUND_IMAP_FOLDER", "INBOX")
+    processed_folder = os.environ.get("NEWSLETTER_INBOUND_PROCESSED_FOLDER", "Processed")
+    failed_folder = os.environ.get("NEWSLETTER_INBOUND_FAILED_FOLDER", "Failed")
+
+    imap = None
+    try:
+        imap = imaplib.IMAP4_SSL(host, port) if use_ssl else imaplib.IMAP4(host, port)
+        imap.login(user, password)
+        imap.select(folder)
+        typ, data = imap.uid("SEARCH", None, "UNSEEN")
+        if typ != "OK":
+            raise RuntimeError("IMAP search failed.")
+        for uid in (data[0] or b"").split():
+            try:
+                typ, fetched = imap.uid("FETCH", uid, "(RFC822)")
+                if typ != "OK" or not fetched:
+                    raise RuntimeError("IMAP fetch failed.")
+                raw = None
+                for item in fetched:
+                    if isinstance(item, tuple):
+                        raw = item[1]
+                        break
+                if not raw:
+                    raise RuntimeError("IMAP message body is empty.")
+                task_id = process_inbound_message(app, imap, uid, raw)
+                log.info("Newsletter inbound relay accepted UID %s as task %s", uid.decode(errors="replace"), task_id)
+                move_imap_message(imap, uid, processed_folder)
+            except Exception as e:
+                log.error("Newsletter inbound relay rejected UID %s: %s", uid.decode(errors="replace"), e)
+                try:
+                    imap.uid("STORE", uid, "+FLAGS", r"(\Seen)")
+                    move_imap_message(imap, uid, failed_folder)
+                except Exception:
+                    log.error("Newsletter inbound relay could not move failed UID %s", uid.decode(errors="replace"))
+        try:
+            imap.expunge()
+        except Exception:
+            pass
+    finally:
+        if imap:
+            try:
+                imap.logout()
+            except Exception:
+                pass
+
+def inbound_worker(app):
+    startup_delay = env_int("NEWSLETTER_INBOUND_STARTUP_DELAY_SECONDS", 5, 0)
+    poll_seconds = env_int("NEWSLETTER_INBOUND_POLL_SECONDS", 60, 10)
+    time.sleep(startup_delay)
+    log.info("Newsletter inbound relay worker started; polling every %s seconds.", poll_seconds)
+    while True:
+        try:
+            poll_inbound_mailbox(app)
+        except Exception:
+            log.error("Newsletter inbound relay poll failed: %s", traceback.format_exc())
+        time.sleep(poll_seconds)
+
+def start_module(app):
+    global _inbound_worker_started
+    if not env_bool("NEWSLETTER_INBOUND_ENABLED", False):
+        return
+    with _inbound_worker_lock:
+        if _inbound_worker_started:
+            return
+        _inbound_worker_started = True
+        thread = threading.Thread(target=inbound_worker, args=(app,), daemon=True)
+        thread.start()
 
 # --- Encryption Helper for SMTP Passwords ---
 def get_cipher():
@@ -593,7 +958,7 @@ def bg_send_execution(app, task_id, sender_email, smtp_config, target_users, sub
                 f.write(display_line + "\n")
         
         actual_emit = full_line if is_admin else display_line
-        if actual_emit != "__HIDE__":
+        if room_id and actual_emit != "__HIDE__":
             socketio.emit('log_update', {'data': actual_emit}, to=room_id)
 
     with app.app_context():

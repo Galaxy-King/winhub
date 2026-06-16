@@ -581,6 +581,9 @@ def load_modules(app):
                         if isinstance(item, Blueprint):
                             app.register_blueprint(item)
                             set_module_status(module_id, status="loaded", error_message=None)
+                            starter = getattr(routes_module, "start_module", None)
+                            if callable(starter):
+                                starter(app)
                             break
                     else:
                         raise RuntimeError("Blueprint not found")
