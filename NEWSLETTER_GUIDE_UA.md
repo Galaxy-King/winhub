@@ -302,6 +302,17 @@ NEWSLETTER_LDAP_ALLOWED_GROUPS=it-support,devops
 NEWSLETTER_LDAP_ALLOWED_GROUPS=*
 ```
 
+Якщо з WinHUB доступний HTTPS FreeIPA API, але прямий `ldaps://` не працює або DNS для LDAP-імені не резолвиться, можна використовувати FreeIPA JSON API:
+
+```ini
+NEWSLETTER_FREEIPA_API_URL=https://ipa02.syneforge.com
+NEWSLETTER_FREEIPA_API_USER=spock
+NEWSLETTER_FREEIPA_API_PASSWORD=ldap-password
+NEWSLETTER_FREEIPA_API_VERIFY_TLS=true
+```
+
+Якщо `NEWSLETTER_FREEIPA_API_URL` заданий, WinHUB для теми `[ldap:<назва-групи>]` використовує FreeIPA API: `group_show` для отримання `member_user` і `user_show` для читання `mail`. Якщо `NEWSLETTER_FREEIPA_API_USER` і `NEWSLETTER_FREEIPA_API_PASSWORD` порожні, WinHUB спробує використати `uid` із `NEWSLETTER_LDAP_BIND_DN` і пароль `NEWSLETTER_LDAP_BIND_PASSWORD`.
+
 Перевірка LDAP вручну:
 
 ```bash

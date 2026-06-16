@@ -220,11 +220,122 @@ def ldap_allowed_group(group_name):
     allowed = env_csv_set("NEWSLETTER_LDAP_ALLOWED_GROUPS")
     return not allowed or "*" in allowed or str(group_name or "").strip().lower() in allowed
 
+def freeipa_api_base_url():
+    value = os.environ.get("NEWSLETTER_FREEIPA_API_URL", "").strip()
+    if not value:
+        return ""
+    if not value.startswith(("http://", "https://")):
+        value = f"https://{value}"
+    return value.rstrip("/")
+
+def freeipa_api_recipients_from_group(group_name):
+    base_url = freeipa_api_base_url()
+    if not base_url:
+        return None
+
+    try:
+        import requests
+    except ImportError as e:
+        raise RuntimeError("Python package 'requests' is not installed.") from e
+
+    username = os.environ.get("NEWSLETTER_FREEIPA_API_USER", "").strip()
+    password = os.environ.get("NEWSLETTER_FREEIPA_API_PASSWORD", "")
+    if not username:
+        bind_dn = os.environ.get("NEWSLETTER_LDAP_BIND_DN", "").strip()
+        match = re.search(r"uid=([^,]+)", bind_dn, re.IGNORECASE)
+        username = match.group(1) if match else ""
+    if not password:
+        password = os.environ.get("NEWSLETTER_LDAP_BIND_PASSWORD", "")
+    if not username or not password:
+        raise ValueError("FreeIPA API settings are incomplete. Check NEWSLETTER_FREEIPA_API_USER/PASSWORD or LDAP bind settings.")
+
+    verify_tls = env_bool("NEWSLETTER_FREEIPA_API_VERIFY_TLS", True)
+    session = requests.Session()
+    session.verify = verify_tls
+    login_url = f"{base_url}/ipa/session/login_password"
+    api_url = f"{base_url}/ipa/session/json"
+    referer = f"{base_url}/ipa"
+
+    login = session.post(
+        login_url,
+        data={"user": username, "password": password},
+        headers={
+            "Referer": referer,
+            "Content-Type": "application/x-www-form-urlencoded",
+            "Accept": "text/plain",
+        },
+        timeout=20,
+    )
+    login.raise_for_status()
+
+    group_payload = {
+        "method": "group_show",
+        "params": [[group_name], {"all": True, "rights": False}],
+        "id": 0,
+    }
+    group_response = session.post(
+        api_url,
+        json=group_payload,
+        headers={"Referer": referer, "Content-Type": "application/json", "Accept": "application/json"},
+        timeout=20,
+    )
+    group_response.raise_for_status()
+    group_data = group_response.json()
+    if group_data.get("error"):
+        raise ValueError(f"FreeIPA group lookup failed: {group_data['error']}")
+    members = group_data.get("result", {}).get("result", {}).get("member_user", []) or []
+    if not members:
+        raise ValueError(f"FreeIPA group '{group_name}' has no user members.")
+
+    user_email_attr = os.environ.get("NEWSLETTER_LDAP_USER_EMAIL_ATTR", "mail").strip() or "mail"
+    recipients = []
+    skipped_without_email = 0
+    for uid in members:
+        user_payload = {
+            "method": "user_show",
+            "params": [[uid], {"all": True, "rights": False}],
+            "id": 0,
+        }
+        user_response = session.post(
+            api_url,
+            json=user_payload,
+            headers={"Referer": referer, "Content-Type": "application/json", "Accept": "application/json"},
+            timeout=20,
+        )
+        user_response.raise_for_status()
+        user_data = user_response.json()
+        if user_data.get("error"):
+            skipped_without_email += 1
+            continue
+        raw_mail = user_data.get("result", {}).get("result", {}).get(user_email_attr)
+        if isinstance(raw_mail, list):
+            email_value = raw_mail[0] if raw_mail else ""
+        else:
+            email_value = raw_mail or ""
+        email_value = str(email_value).strip()
+        if email_value:
+            recipients.append(email_value)
+        else:
+            skipped_without_email += 1
+
+    unique_recipients = sorted({normalize_recipient(item) for item in recipients if normalize_recipient(item)})
+    if not unique_recipients:
+        raise ValueError(f"FreeIPA group '{group_name}' has no members with email attribute '{user_email_attr}'.")
+    return unique_recipients, {
+        "resolver": "freeipa_api",
+        "members_count": len(members),
+        "skipped_without_email": skipped_without_email,
+    }
+
 def ldap_recipients_from_group(group_name):
     if not ldap_enabled():
         raise ValueError("LDAP group targets are disabled. Set NEWSLETTER_LDAP_ENABLED=true.")
     if not ldap_allowed_group(group_name):
         raise PermissionError(f"LDAP group '{group_name}' is not allowed for inbound newsletter relay.")
+
+    api_result = freeipa_api_recipients_from_group(group_name)
+    if api_result is not None:
+        return api_result
 
     try:
         from ldap3 import ALL, BASE, SUBTREE, Connection, Server
@@ -451,6 +562,13 @@ def resolve_inbound_recipients(target_type, target_name):
 def dispatch_inbound_newsletter(app, source_msg, decrypted_msg, target_type, target_name, subject):
     with app.app_context():
         target_users, target_meta = resolve_inbound_recipients(target_type, target_name)
+        log.info(
+            "Newsletter inbound relay resolved %s:%s to %s recipients via %s.",
+            target_type,
+            target_name,
+            len(target_users),
+            target_meta.get("resolver") or target_meta.get("source") or target_type,
+        )
 
         profiles = load_smtp_profiles()
         mailbox_user = os.environ.get("NEWSLETTER_INBOUND_IMAP_USER", "")
