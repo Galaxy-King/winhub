@@ -237,7 +237,7 @@ scp dist/winhub-v0.1.0.tar.gz SERVER:/tmp/
 ssh SERVER 'sudo /opt/winhub/deploy/debian/update_winhub.sh /tmp/winhub-v0.1.0.tar.gz'
 ```
 
-The update script creates a PostgreSQL/runtime backup, updates code, refreshes dependencies, runs Alembic migrations, restarts WinHUB and checks `/api/health`.
+The update script creates a PostgreSQL/runtime backup, updates code, appends missing variables from `deploy/debian/winhub.env.example` to `/etc/winhub/winhub.env` without overwriting existing values, refreshes dependencies, runs Alembic migrations, restarts WinHUB and checks `/api/health`.
 
 Manual backup:
 

@@ -12,6 +12,61 @@ RELEASE_ARCHIVE=""
 export APP_DIR ENV_FILE
 UPDATE_LOG_DIR="${UPDATE_LOG_DIR:-/var/log/winhub/updates}"
 
+sync_env_file() {
+  local example_file="${APP_DIR}/deploy/debian/winhub.env.example"
+  if [[ ! -f "${example_file}" ]]; then
+    echo "[WinHUB] Env example not found, skipping env sync: ${example_file}" >&2
+    return
+  fi
+
+  mkdir -p "$(dirname "${ENV_FILE}")"
+  if [[ ! -f "${ENV_FILE}" ]]; then
+    install -m 0640 -o root -g winhub "${example_file}" "${ENV_FILE}"
+    echo "[WinHUB] Created ${ENV_FILE} from winhub.env.example"
+    return
+  fi
+
+  python3 - "${ENV_FILE}" "${example_file}" <<'PY'
+import datetime as _dt
+import re
+import sys
+from pathlib import Path
+
+env_path = Path(sys.argv[1])
+example_path = Path(sys.argv[2])
+key_re = re.compile(r"^\s*([A-Za-z_][A-Za-z0-9_]*)\s*=")
+
+existing = set()
+for line in env_path.read_text(encoding="utf-8", errors="replace").splitlines():
+    match = key_re.match(line)
+    if match:
+        existing.add(match.group(1))
+
+missing = []
+for line in example_path.read_text(encoding="utf-8", errors="replace").splitlines():
+    match = key_re.match(line)
+    if not match:
+        continue
+    key = match.group(1)
+    if key not in existing:
+        missing.append(line)
+        existing.add(key)
+
+if not missing:
+    print("[WinHUB] Env sync: no missing variables")
+    raise SystemExit(0)
+
+stamp = _dt.datetime.now(_dt.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+with env_path.open("a", encoding="utf-8") as f:
+    f.write("\n")
+    f.write(f"# Added by WinHUB update from winhub.env.example at {stamp}\n")
+    for line in missing:
+        f.write(line + "\n")
+
+print("[WinHUB] Env sync: added missing variables: " + ", ".join(line.split("=", 1)[0].strip() for line in missing))
+PY
+}
+
 if [[ "${EUID}" -ne 0 ]]; then
   echo "Run as root: sudo bash deploy/debian/update_winhub.sh [git-ref]"
   exit 1
@@ -69,6 +124,8 @@ elif [[ -d .git ]]; then
 else
   echo "[WinHUB] No .git repository and no release archive argument. Only refreshing dependencies/service."
 fi
+
+sync_env_file
 
 python3 -m venv "${APP_DIR}/venv"
 "${APP_DIR}/venv/bin/python" -m pip install --upgrade pip wheel
