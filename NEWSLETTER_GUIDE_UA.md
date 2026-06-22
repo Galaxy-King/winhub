@@ -465,3 +465,16 @@ SMTP-профілі ще не створені або у вас немає до�
 5. Оператор натискає `Send Newsletter`.
 6. Оператор перевіряє `Newsletter Sending Logs`.
 7. Адміністратор за потреби переглядає аудит і серверні логи.
+
+### LDAP/FreeIPA через веб-інтерфейс
+
+LDAP/FreeIPA можна налаштувати через `Newsletter` -> `SMTP Settings` -> `Inbound Relay` -> `FreeIPA / LDAP Groups`.
+
+1. Увімкніть `Enabled`.
+2. Для FreeIPA API вкажіть `FreeIPA API URL`, користувача та пароль.
+3. Для прямого LDAP fallback відкрийте `Direct LDAP fallback` і заповніть LDAP URI, Bind DN, пароль та DN/атрибути.
+4. У `Allowed LDAP Groups` вкажіть дозволені групи через кому. Якщо залишити поле порожнім, WinHUB дозволить усі LDAP-групи.
+5. Якщо поле пароля залишити порожнім, попередній збережений пароль не зміниться.
+6. Для видалення збереженого пароля використовуйте `Clear saved password`.
+
+Паролі, введені у веб-інтерфейсі, зберігаються у `/var/lib/winhub/newsletter/inbound_relay.json` у зашифрованому вигляді та не повертаються назад у браузер.

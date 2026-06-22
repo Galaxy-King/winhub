@@ -213,15 +213,43 @@ def env_csv_set(name):
     raw = os.environ.get(name, "")
     return {item.strip().lower() for item in raw.split(",") if item.strip()}
 
+def csv_set_from_value(value):
+    if isinstance(value, list):
+        items = value
+    else:
+        items = str(value or "").split(",")
+    return {str(item).strip().lower() for item in items if str(item).strip()}
+
+def inbound_plain_setting(key, env_name=None, default=""):
+    settings = load_inbound_settings()
+    value = settings.get(key)
+    if value is None or value == "":
+        value = os.environ.get(env_name or key.upper(), default)
+    return str(value or "").strip()
+
+def inbound_secret_setting(key, env_name):
+    settings = load_inbound_settings()
+    encrypted = settings.get(key)
+    if encrypted:
+        return decrypt_pass(encrypted)
+    return os.environ.get(env_name, "")
+
+def inbound_bool_setting(key, env_name, default=False):
+    settings = load_inbound_settings()
+    if key in settings:
+        return bool(settings.get(key))
+    return env_bool(env_name, default)
+
 def ldap_enabled():
-    return env_bool("NEWSLETTER_LDAP_ENABLED", False)
+    return inbound_bool_setting("ldap_enabled", "NEWSLETTER_LDAP_ENABLED", False)
 
 def ldap_allowed_group(group_name):
-    allowed = env_csv_set("NEWSLETTER_LDAP_ALLOWED_GROUPS")
+    configured = inbound_plain_setting("ldap_allowed_groups", "NEWSLETTER_LDAP_ALLOWED_GROUPS", "")
+    allowed = csv_set_from_value(configured)
     return not allowed or "*" in allowed or str(group_name or "").strip().lower() in allowed
 
 def freeipa_api_base_url():
-    value = os.environ.get("NEWSLETTER_FREEIPA_API_URL", "").strip()
+    value = inbound_plain_setting("freeipa_api_url", "NEWSLETTER_FREEIPA_API_URL", "")
     if not value:
         return ""
     if not value.startswith(("http://", "https://")):
@@ -238,18 +266,18 @@ def freeipa_api_recipients_from_group(group_name):
     except ImportError as e:
         raise RuntimeError("Python package 'requests' is not installed.") from e
 
-    username = os.environ.get("NEWSLETTER_FREEIPA_API_USER", "").strip()
-    password = os.environ.get("NEWSLETTER_FREEIPA_API_PASSWORD", "")
+    username = inbound_plain_setting("freeipa_api_user", "NEWSLETTER_FREEIPA_API_USER", "")
+    password = inbound_secret_setting("freeipa_api_password", "NEWSLETTER_FREEIPA_API_PASSWORD")
     if not username:
-        bind_dn = os.environ.get("NEWSLETTER_LDAP_BIND_DN", "").strip()
+        bind_dn = inbound_plain_setting("ldap_bind_dn", "NEWSLETTER_LDAP_BIND_DN", "")
         match = re.search(r"uid=([^,]+)", bind_dn, re.IGNORECASE)
         username = match.group(1) if match else ""
     if not password:
-        password = os.environ.get("NEWSLETTER_LDAP_BIND_PASSWORD", "")
+        password = inbound_secret_setting("ldap_bind_password", "NEWSLETTER_LDAP_BIND_PASSWORD")
     if not username or not password:
         raise ValueError("FreeIPA API settings are incomplete. Check NEWSLETTER_FREEIPA_API_USER/PASSWORD or LDAP bind settings.")
 
-    verify_tls = env_bool("NEWSLETTER_FREEIPA_API_VERIFY_TLS", True)
+    verify_tls = inbound_bool_setting("freeipa_api_verify_tls", "NEWSLETTER_FREEIPA_API_VERIFY_TLS", True)
     session = requests.Session()
     session.verify = verify_tls
     login_url = f"{base_url}/ipa/session/login_password"
@@ -287,7 +315,7 @@ def freeipa_api_recipients_from_group(group_name):
     if not members:
         raise ValueError(f"FreeIPA group '{group_name}' has no user members.")
 
-    user_email_attr = os.environ.get("NEWSLETTER_LDAP_USER_EMAIL_ATTR", "mail").strip() or "mail"
+    user_email_attr = inbound_plain_setting("ldap_user_email_attr", "NEWSLETTER_LDAP_USER_EMAIL_ATTR", "mail") or "mail"
     recipients = []
     skipped_without_email = 0
     for uid in members:
@@ -343,14 +371,14 @@ def ldap_recipients_from_group(group_name):
     except ImportError as e:
         raise RuntimeError("Python package 'ldap3' is not installed.") from e
 
-    uri = os.environ.get("NEWSLETTER_LDAP_URI", "").strip()
-    bind_dn = os.environ.get("NEWSLETTER_LDAP_BIND_DN", "").strip()
-    bind_password = os.environ.get("NEWSLETTER_LDAP_BIND_PASSWORD", "")
-    base_dn = os.environ.get("NEWSLETTER_LDAP_BASE_DN", "").strip()
-    group_base_dn = os.environ.get("NEWSLETTER_LDAP_GROUP_BASE_DN", base_dn).strip()
-    group_name_attr = os.environ.get("NEWSLETTER_LDAP_GROUP_NAME_ATTR", "cn").strip() or "cn"
-    group_member_attr = os.environ.get("NEWSLETTER_LDAP_GROUP_MEMBER_ATTR", "member").strip() or "member"
-    user_email_attr = os.environ.get("NEWSLETTER_LDAP_USER_EMAIL_ATTR", "mail").strip() or "mail"
+    uri = inbound_plain_setting("ldap_uri", "NEWSLETTER_LDAP_URI", "")
+    bind_dn = inbound_plain_setting("ldap_bind_dn", "NEWSLETTER_LDAP_BIND_DN", "")
+    bind_password = inbound_secret_setting("ldap_bind_password", "NEWSLETTER_LDAP_BIND_PASSWORD")
+    base_dn = inbound_plain_setting("ldap_base_dn", "NEWSLETTER_LDAP_BASE_DN", "")
+    group_base_dn = inbound_plain_setting("ldap_group_base_dn", "NEWSLETTER_LDAP_GROUP_BASE_DN", base_dn)
+    group_name_attr = inbound_plain_setting("ldap_group_name_attr", "NEWSLETTER_LDAP_GROUP_NAME_ATTR", "cn") or "cn"
+    group_member_attr = inbound_plain_setting("ldap_group_member_attr", "NEWSLETTER_LDAP_GROUP_MEMBER_ATTR", "member") or "member"
+    user_email_attr = inbound_plain_setting("ldap_user_email_attr", "NEWSLETTER_LDAP_USER_EMAIL_ATTR", "mail") or "mail"
 
     if not uri or not bind_dn or not bind_password or not group_base_dn:
         raise ValueError("LDAP settings are incomplete. Check NEWSLETTER_LDAP_URI, BIND_DN, BIND_PASSWORD and BASE_DN.")
@@ -800,6 +828,22 @@ def safe_inbound_settings():
         "passphrase_saved": bool(settings.get("gpg_passphrase") or os.environ.get("NEWSLETTER_INBOUND_GPG_PASSPHRASE")),
         "env_enabled": env_bool("NEWSLETTER_INBOUND_ENABLED", False),
         "imap_user": os.environ.get("NEWSLETTER_INBOUND_IMAP_USER", ""),
+        "ldap": {
+            "enabled": inbound_bool_setting("ldap_enabled", "NEWSLETTER_LDAP_ENABLED", False),
+            "uri": inbound_plain_setting("ldap_uri", "NEWSLETTER_LDAP_URI", ""),
+            "bind_dn": inbound_plain_setting("ldap_bind_dn", "NEWSLETTER_LDAP_BIND_DN", ""),
+            "bind_password_saved": bool(settings.get("ldap_bind_password") or os.environ.get("NEWSLETTER_LDAP_BIND_PASSWORD")),
+            "base_dn": inbound_plain_setting("ldap_base_dn", "NEWSLETTER_LDAP_BASE_DN", ""),
+            "group_base_dn": inbound_plain_setting("ldap_group_base_dn", "NEWSLETTER_LDAP_GROUP_BASE_DN", ""),
+            "group_name_attr": inbound_plain_setting("ldap_group_name_attr", "NEWSLETTER_LDAP_GROUP_NAME_ATTR", "cn"),
+            "group_member_attr": inbound_plain_setting("ldap_group_member_attr", "NEWSLETTER_LDAP_GROUP_MEMBER_ATTR", "member"),
+            "user_email_attr": inbound_plain_setting("ldap_user_email_attr", "NEWSLETTER_LDAP_USER_EMAIL_ATTR", "mail"),
+            "allowed_groups": inbound_plain_setting("ldap_allowed_groups", "NEWSLETTER_LDAP_ALLOWED_GROUPS", ""),
+            "freeipa_api_url": inbound_plain_setting("freeipa_api_url", "NEWSLETTER_FREEIPA_API_URL", ""),
+            "freeipa_api_user": inbound_plain_setting("freeipa_api_user", "NEWSLETTER_FREEIPA_API_USER", ""),
+            "freeipa_api_password_saved": bool(settings.get("freeipa_api_password") or os.environ.get("NEWSLETTER_FREEIPA_API_PASSWORD")),
+            "freeipa_api_verify_tls": inbound_bool_setting("freeipa_api_verify_tls", "NEWSLETTER_FREEIPA_API_VERIFY_TLS", True),
+        },
     }
 
 def normalize_email_list(raw):
@@ -952,6 +996,35 @@ def manage_inbound_relay():
     if bool(data.get("clear_gpg_passphrase")):
         settings.pop("gpg_passphrase", None)
 
+    ldap_data = data.get("ldap") if isinstance(data.get("ldap"), dict) else {}
+    settings["ldap_enabled"] = bool(ldap_data.get("enabled"))
+    for key in (
+        "ldap_uri",
+        "ldap_bind_dn",
+        "ldap_base_dn",
+        "ldap_group_base_dn",
+        "ldap_group_name_attr",
+        "ldap_group_member_attr",
+        "ldap_user_email_attr",
+        "ldap_allowed_groups",
+        "freeipa_api_url",
+        "freeipa_api_user",
+    ):
+        settings[key] = str(ldap_data.get(key) or "").strip()
+    settings["freeipa_api_verify_tls"] = bool(ldap_data.get("freeipa_api_verify_tls", True))
+
+    ldap_bind_password = str(ldap_data.get("ldap_bind_password") or "")
+    if ldap_bind_password:
+        settings["ldap_bind_password"] = encrypt_pass(ldap_bind_password)
+    if bool(ldap_data.get("clear_ldap_bind_password")):
+        settings.pop("ldap_bind_password", None)
+
+    freeipa_api_password = str(ldap_data.get("freeipa_api_password") or "")
+    if freeipa_api_password:
+        settings["freeipa_api_password"] = encrypt_pass(freeipa_api_password)
+    if bool(ldap_data.get("clear_freeipa_api_password")):
+        settings.pop("freeipa_api_password", None)
+
     save_inbound_settings(settings)
     try:
         WinHubCore.audit(
@@ -963,6 +1036,9 @@ def manage_inbound_relay():
                 "allowed_senders_count": len(settings.get("allowed_senders", [])),
                 "sender_profile": settings.get("sender_profile", ""),
                 "passphrase_saved": bool(settings.get("gpg_passphrase")),
+                "ldap_enabled": bool(settings.get("ldap_enabled")),
+                "ldap_bind_password_saved": bool(settings.get("ldap_bind_password")),
+                "freeipa_api_password_saved": bool(settings.get("freeipa_api_password")),
             },
             status="Success",
         )

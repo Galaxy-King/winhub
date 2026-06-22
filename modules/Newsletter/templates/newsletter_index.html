@@ -622,6 +622,42 @@
                 <p class="text-xs text-slate-500 mt-1">One sender email per line. Use * only for isolated testing.</p>
             </div>
 
+            <div class="mt-5 p-4 rounded-xl border border-slate-200 bg-white">
+                <div class="flex items-center justify-between gap-3 mb-4">
+                    <div>
+                        <h4 class="font-bold text-sm text-slate-600 uppercase">FreeIPA / LDAP Groups</h4>
+                        <p class="text-xs text-slate-500 mt-1">Used for inbound subjects like [ldap:team-it-support].</p>
+                    </div>
+                    <label class="flex items-center gap-2 text-xs font-bold text-slate-600">
+                        <input type="checkbox" id="ldapEnabled" class="w-4 h-4 rounded border-slate-300">
+                        Enabled
+                    </label>
+                </div>
+                <div class="grid grid-cols-1 lg:grid-cols-2 gap-4">
+                    <div><label class="block text-xs font-bold text-slate-500 mb-1">FreeIPA API URL</label><input type="url" id="freeipaApiUrl" placeholder="https://ipa02.example.com" class="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500 outline-none"></div>
+                    <div><label class="block text-xs font-bold text-slate-500 mb-1">FreeIPA API User</label><input type="text" id="freeipaApiUser" placeholder="winhub-ldap-reader" class="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500 outline-none"></div>
+                    <div>
+                        <label class="block text-xs font-bold text-slate-500 mb-1">FreeIPA API Password</label>
+                        <input type="password" id="freeipaApiPassword" placeholder="Leave blank to keep saved password" class="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500 outline-none">
+                        <label class="mt-2 flex items-center gap-2 text-xs font-bold text-slate-500"><input type="checkbox" id="freeipaClearPassword" class="w-4 h-4 rounded border-slate-300">Clear saved password</label>
+                    </div>
+                    <div><label class="block text-xs font-bold text-slate-500 mb-1">Allowed LDAP Groups</label><input type="text" id="ldapAllowedGroups" placeholder="team-it-support,devops" class="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm font-mono focus:ring-2 focus:ring-indigo-500 outline-none"><p class="text-xs text-slate-500 mt-1">Leave blank to allow all groups.</p></div>
+                </div>
+                <details class="mt-4">
+                    <summary class="cursor-pointer text-xs font-bold uppercase text-slate-500">Direct LDAP fallback</summary>
+                    <div class="grid grid-cols-1 lg:grid-cols-2 gap-4 mt-3">
+                        <input type="text" id="ldapUri" placeholder="ldaps://ldap.example.com:636" class="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500 outline-none">
+                        <input type="text" id="ldapBindDn" placeholder="uid=winhub-ldap-reader,cn=users,cn=accounts,dc=example,dc=com" class="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500 outline-none">
+                        <div><input type="password" id="ldapBindPassword" placeholder="Leave blank to keep saved password" class="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500 outline-none"><label class="mt-2 flex items-center gap-2 text-xs font-bold text-slate-500"><input type="checkbox" id="ldapClearPassword" class="w-4 h-4 rounded border-slate-300">Clear saved password</label></div>
+                        <input type="text" id="ldapBaseDn" placeholder="dc=example,dc=com" class="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500 outline-none">
+                        <input type="text" id="ldapGroupBaseDn" placeholder="cn=groups,cn=accounts,dc=example,dc=com" class="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500 outline-none">
+                        <input type="text" id="ldapGroupNameAttr" placeholder="cn" class="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500 outline-none">
+                        <input type="text" id="ldapGroupMemberAttr" placeholder="member" class="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500 outline-none">
+                        <input type="text" id="ldapUserEmailAttr" placeholder="mail" class="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500 outline-none">
+                    </div>
+                </details>
+            </div>
+
             <div class="flex items-center justify-between gap-3 mt-4">
                 <div id="inboundSaveMessage" class="text-xs font-bold text-cyan-100"></div>
                 <button onclick="saveInboundRelaySettings()" class="bg-emerald-600 hover:bg-emerald-700 text-white font-bold py-2 px-5 rounded-lg transition-colors">Save Inbound Relay</button>
@@ -1099,7 +1135,11 @@
         const passphrase = document.getElementById('inboundGpgPassphrase');
         const clearPassphrase = document.getElementById('inboundClearPassphrase');
         const saveMessage = document.getElementById('inboundSaveMessage');
+        const ldap = inbound.ldap || {};
         if (!profileSelect || !allowed) return;
+
+        const setValue = (id, value) => { const el = document.getElementById(id); if (el) el.value = value || ''; };
+        const setChecked = (id, value) => { const el = document.getElementById(id); if (el) el.checked = !!value; };
 
         const senderOptions = ['<option value="">Auto-select sender profile</option>'].concat(
             moduleData.senders.map(s => `<option value="${s.email}">${s.email}</option>`)
@@ -1109,11 +1149,27 @@
         allowed.value = (inbound.allowed_senders || []).join('\n');
         if (passphrase) passphrase.value = '';
         if (clearPassphrase) clearPassphrase.checked = false;
+        setChecked('ldapEnabled', ldap.enabled);
+        setValue('freeipaApiUrl', ldap.freeipa_api_url);
+        setValue('freeipaApiUser', ldap.freeipa_api_user);
+        setValue('freeipaApiPassword', '');
+        setChecked('freeipaClearPassword', false);
+        setValue('ldapAllowedGroups', ldap.allowed_groups);
+        setValue('ldapUri', ldap.uri);
+        setValue('ldapBindDn', ldap.bind_dn);
+        setValue('ldapBindPassword', '');
+        setChecked('ldapClearPassword', false);
+        setValue('ldapBaseDn', ldap.base_dn);
+        setValue('ldapGroupBaseDn', ldap.group_base_dn);
+        setValue('ldapGroupNameAttr', ldap.group_name_attr || 'cn');
+        setValue('ldapGroupMemberAttr', ldap.group_member_attr || 'member');
+        setValue('ldapUserEmailAttr', ldap.user_email_attr || 'mail');
         if (saveMessage) saveMessage.innerText = '';
 
         const enabledText = inbound.env_enabled ? 'Inbound enabled' : 'Inbound disabled in env';
-        const passText = inbound.passphrase_saved ? 'passphrase saved' : 'no passphrase saved';
-        status.innerText = `${enabledText} • ${passText}`;
+        const passText = inbound.passphrase_saved ? 'GPG saved' : 'no GPG passphrase';
+        const ldapText = ldap.enabled ? `LDAP enabled${ldap.freeipa_api_password_saved || ldap.bind_password_saved ? ' | LDAP password saved' : ''}` : 'LDAP disabled';
+        status.innerText = `${enabledText} | ${passText} | ${ldapText}`;
         status.className = inbound.env_enabled
             ? 'text-xs font-bold px-3 py-1.5 rounded border border-emerald-300/25 bg-emerald-500/10 text-emerald-100'
             : 'text-xs font-bold px-3 py-1.5 rounded border border-amber-300/25 bg-amber-500/10 text-amber-100';
@@ -1121,15 +1177,41 @@
 
     async function saveInboundRelaySettings() {
         const saveMessage = document.getElementById('inboundSaveMessage');
+        const valueOf = id => document.getElementById(id)?.value || '';
+        const checkedOf = id => !!document.getElementById(id)?.checked;
         const payload = {
-            sender_profile: document.getElementById('inboundSenderProfile').value,
-            allowed_senders: document.getElementById('inboundAllowedSenders').value.split(/\r?\n/).map(v => v.trim()).filter(Boolean),
-            gpg_passphrase: document.getElementById('inboundGpgPassphrase').value,
-            clear_gpg_passphrase: document.getElementById('inboundClearPassphrase').checked
+            sender_profile: valueOf('inboundSenderProfile'),
+            allowed_senders: valueOf('inboundAllowedSenders').split(/\r?\n/).map(v => v.trim()).filter(Boolean),
+            gpg_passphrase: valueOf('inboundGpgPassphrase'),
+            clear_gpg_passphrase: checkedOf('inboundClearPassphrase'),
+            ldap: {
+                enabled: checkedOf('ldapEnabled'),
+                freeipa_api_url: valueOf('freeipaApiUrl'),
+                freeipa_api_user: valueOf('freeipaApiUser'),
+                freeipa_api_password: valueOf('freeipaApiPassword'),
+                clear_freeipa_api_password: checkedOf('freeipaClearPassword'),
+                ldap_allowed_groups: valueOf('ldapAllowedGroups'),
+                ldap_uri: valueOf('ldapUri'),
+                ldap_bind_dn: valueOf('ldapBindDn'),
+                ldap_bind_password: valueOf('ldapBindPassword'),
+                clear_ldap_bind_password: checkedOf('ldapClearPassword'),
+                ldap_base_dn: valueOf('ldapBaseDn'),
+                ldap_group_base_dn: valueOf('ldapGroupBaseDn'),
+                ldap_group_name_attr: valueOf('ldapGroupNameAttr'),
+                ldap_group_member_attr: valueOf('ldapGroupMemberAttr'),
+                ldap_user_email_attr: valueOf('ldapUserEmailAttr'),
+                freeipa_api_verify_tls: true
+            }
         };
 
         if (payload.clear_gpg_passphrase && payload.gpg_passphrase) {
             return alert('Choose either a new passphrase or clear the saved passphrase.');
+        }
+        if (payload.ldap.clear_freeipa_api_password && payload.ldap.freeipa_api_password) {
+            return alert('Choose either a new FreeIPA password or clear the saved password.');
+        }
+        if (payload.ldap.clear_ldap_bind_password && payload.ldap.ldap_bind_password) {
+            return alert('Choose either a new LDAP password or clear the saved password.');
         }
 
         try {
