@@ -670,14 +670,14 @@ def dispatch_inbound_newsletter(app, source_msg, decrypted_msg, target_type, tar
 
 def process_inbound_message(app, imap, uid, raw_message):
     msg = BytesParser(policy=policy.default).parsebytes(raw_message)
+    target_type, target_name, subject = parse_inbound_subject(msg.get("Subject", ""))
+    if not target_type or not target_name:
+        return None
+
     from_email = parseaddr(msg.get("From", ""))[1].lower()
     allowed = inbound_allowed_senders()
     if "*" not in allowed and from_email not in allowed:
         raise PermissionError(f"Sender '{from_email}' is not allowed.")
-
-    target_type, target_name, subject = parse_inbound_subject(msg.get("Subject", ""))
-    if not target_type or not target_name:
-        raise ValueError("Subject must start with [list:<list-name>] or [ldap:<group-name>].")
 
     encrypted_payload = extract_pgp_encrypted_payload(msg)
     if not encrypted_payload:
@@ -718,7 +718,7 @@ def poll_inbound_mailbox(app):
             raise RuntimeError("IMAP search failed.")
         for uid in (data[0] or b"").split():
             try:
-                typ, fetched = imap.uid("FETCH", uid, "(RFC822)")
+                typ, fetched = imap.uid("FETCH", uid, "(BODY.PEEK[])")
                 if typ != "OK" or not fetched:
                     raise RuntimeError("IMAP fetch failed.")
                 raw = None
@@ -729,6 +729,9 @@ def poll_inbound_mailbox(app):
                 if not raw:
                     raise RuntimeError("IMAP message body is empty.")
                 task_id = process_inbound_message(app, imap, uid, raw)
+                if not task_id:
+                    log.debug("Newsletter inbound relay ignored UID %s: subject has no relay prefix.", uid.decode(errors="replace"))
+                    continue
                 log.info("Newsletter inbound relay accepted UID %s as task %s", uid.decode(errors="replace"), task_id)
                 move_imap_message(imap, uid, processed_folder)
             except Exception as e:
