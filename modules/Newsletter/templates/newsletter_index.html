@@ -350,7 +350,7 @@
             {% if permissions.manage_smtp %}
             <button onclick="openSmtpModal()" class="flex items-center gap-2 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold py-2 px-4 rounded-lg border border-slate-300 transition-colors text-sm">
                 <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z"></path><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"></path></svg>
-                SMTP Settings
+                Settings
             </button>
             {% endif %}
             <div class="flex items-center gap-2 border-l border-slate-200 pl-4">
@@ -541,16 +541,22 @@
 </div>
 {% endif %}
 
-<!-- Modal: Admin SMTP Settings -->
+<!-- Modal: Newsletter Settings -->
 {% if permissions.manage_smtp %}
 <div id="smtpModal" class="hidden fixed inset-0 z-50 flex items-center justify-center bg-slate-900/80 p-6 backdrop-blur-sm">
     <div class="bg-white rounded-2xl shadow-2xl w-full max-w-5xl p-6 flex flex-col max-h-[88vh]">
         <h3 class="text-xl font-bold text-slate-800 mb-4 flex items-center gap-2 border-b border-slate-200 pb-3">
             <svg class="w-6 h-6 text-slate-700" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z"></path><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"></path></svg>
-            SMTP & GPG Profiles Management
+            Newsletter Settings
         </h3>
+
+        <div class="flex items-center gap-2 border-b border-slate-200 pb-3 mb-4">
+            <button type="button" data-settings-tab="smtp" onclick="switchNewsletterSettingsTab('smtp')" class="newsletter-settings-tab px-4 py-2 rounded-lg text-sm font-bold bg-slate-800 text-white">SMTP Profiles</button>
+            <button type="button" data-settings-tab="inbound" onclick="switchNewsletterSettingsTab('inbound')" class="newsletter-settings-tab px-4 py-2 rounded-lg text-sm font-bold bg-slate-100 text-slate-600 hover:bg-slate-200">Inbound Relay</button>
+            <button type="button" data-settings-tab="ldap" onclick="switchNewsletterSettingsTab('ldap')" class="newsletter-settings-tab px-4 py-2 rounded-lg text-sm font-bold bg-slate-100 text-slate-600 hover:bg-slate-200">LDAP / FreeIPA</button>
+        </div>
         
-        <div class="flex gap-6 flex-1 min-h-0">
+        <div id="settingsTabSmtp" class="newsletter-settings-panel flex gap-6 flex-1 min-h-0">
             <!-- Add New Form -->
             <div class="w-1/2 flex flex-col bg-slate-50 p-4 rounded-xl border border-slate-200 overflow-y-auto">
                 <h4 class="font-bold text-sm text-slate-600 mb-3 uppercase">Add New Profile</h4>
@@ -591,7 +597,7 @@
             </div>
         </div>
 
-        <div class="mt-5 p-4 rounded-xl border border-cyan-400/25 bg-slate-50">
+        <div id="settingsTabInbound" class="newsletter-settings-panel hidden mt-5 p-4 rounded-xl border border-cyan-400/25 bg-slate-50 overflow-y-auto">
             <div class="flex items-start justify-between gap-4 mb-4">
                 <div>
                     <h4 class="font-bold text-sm text-slate-600 uppercase">Inbound Relay</h4>
@@ -622,47 +628,52 @@
                 <p class="text-xs text-slate-500 mt-1">One sender email per line. Use * only for isolated testing.</p>
             </div>
 
-            <div class="mt-5 p-4 rounded-xl border border-slate-200 bg-white">
-                <div class="flex items-center justify-between gap-3 mb-4">
-                    <div>
-                        <h4 class="font-bold text-sm text-slate-600 uppercase">FreeIPA / LDAP Groups</h4>
-                        <p class="text-xs text-slate-500 mt-1">Used for inbound subjects like [ldap:team-it-support].</p>
-                    </div>
-                    <label class="flex items-center gap-2 text-xs font-bold text-slate-600">
-                        <input type="checkbox" id="ldapEnabled" class="w-4 h-4 rounded border-slate-300">
-                        Enabled
-                    </label>
-                </div>
-                <div class="grid grid-cols-1 lg:grid-cols-2 gap-4">
-                    <div><label class="block text-xs font-bold text-slate-500 mb-1">FreeIPA API URL</label><input type="url" id="freeipaApiUrl" placeholder="https://ipa02.example.com" class="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500 outline-none"></div>
-                    <div><label class="block text-xs font-bold text-slate-500 mb-1">FreeIPA API User</label><input type="text" id="freeipaApiUser" placeholder="winhub-ldap-reader" class="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500 outline-none"></div>
-                    <div>
-                        <label class="block text-xs font-bold text-slate-500 mb-1">FreeIPA API Password</label>
-                        <input type="password" id="freeipaApiPassword" placeholder="Leave blank to keep saved password" class="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500 outline-none">
-                        <label class="mt-2 flex items-center gap-2 text-xs font-bold text-slate-500"><input type="checkbox" id="freeipaClearPassword" class="w-4 h-4 rounded border-slate-300">Clear saved password</label>
-                    </div>
-                    <div><label class="block text-xs font-bold text-slate-500 mb-1">Allowed LDAP Groups</label><input type="text" id="ldapAllowedGroups" placeholder="team-it-support,devops" class="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm font-mono focus:ring-2 focus:ring-indigo-500 outline-none"><p class="text-xs text-slate-500 mt-1">Leave blank to allow all groups.</p></div>
-                </div>
-                <details class="mt-4">
-                    <summary class="cursor-pointer text-xs font-bold uppercase text-slate-500">Direct LDAP fallback</summary>
-                    <div class="grid grid-cols-1 lg:grid-cols-2 gap-4 mt-3">
-                        <input type="text" id="ldapUri" placeholder="ldaps://ldap.example.com:636" class="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500 outline-none">
-                        <input type="text" id="ldapBindDn" placeholder="uid=winhub-ldap-reader,cn=users,cn=accounts,dc=example,dc=com" class="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500 outline-none">
-                        <div><input type="password" id="ldapBindPassword" placeholder="Leave blank to keep saved password" class="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500 outline-none"><label class="mt-2 flex items-center gap-2 text-xs font-bold text-slate-500"><input type="checkbox" id="ldapClearPassword" class="w-4 h-4 rounded border-slate-300">Clear saved password</label></div>
-                        <input type="text" id="ldapBaseDn" placeholder="dc=example,dc=com" class="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500 outline-none">
-                        <input type="text" id="ldapGroupBaseDn" placeholder="cn=groups,cn=accounts,dc=example,dc=com" class="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500 outline-none">
-                        <input type="text" id="ldapGroupNameAttr" placeholder="cn" class="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500 outline-none">
-                        <input type="text" id="ldapGroupMemberAttr" placeholder="member" class="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500 outline-none">
-                        <input type="text" id="ldapUserEmailAttr" placeholder="mail" class="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500 outline-none">
-                    </div>
-                </details>
-            </div>
-
             <div class="flex items-center justify-between gap-3 mt-4">
                 <div id="inboundSaveMessage" class="text-xs font-bold text-cyan-100"></div>
                 <button onclick="saveInboundRelaySettings()" class="bg-emerald-600 hover:bg-emerald-700 text-white font-bold py-2 px-5 rounded-lg transition-colors">Save Inbound Relay</button>
             </div>
         </div>
+
+        <div id="settingsTabLdap" class="newsletter-settings-panel hidden mt-5 p-4 rounded-xl border border-slate-200 bg-white overflow-y-auto">
+            <div class="flex items-center justify-between gap-3 mb-4">
+                <div>
+                    <h4 class="font-bold text-sm text-slate-600 uppercase">FreeIPA / LDAP Groups</h4>
+                    <p class="text-xs text-slate-500 mt-1">Used for inbound subjects like [ldap:team-it-support].</p>
+                </div>
+                <label class="flex items-center gap-2 text-xs font-bold text-slate-600">
+                    <input type="checkbox" id="ldapEnabled" class="w-4 h-4 rounded border-slate-300">
+                    Enabled
+                </label>
+            </div>
+            <div class="grid grid-cols-1 lg:grid-cols-2 gap-4">
+                <div><label class="block text-xs font-bold text-slate-500 mb-1">FreeIPA API URL</label><input type="url" id="freeipaApiUrl" placeholder="https://ipa02.example.com" class="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500 outline-none"></div>
+                <div><label class="block text-xs font-bold text-slate-500 mb-1">FreeIPA API User</label><input type="text" id="freeipaApiUser" placeholder="winhub-ldap-reader" class="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500 outline-none"></div>
+                <div>
+                    <label class="block text-xs font-bold text-slate-500 mb-1">FreeIPA API Password</label>
+                    <input type="password" id="freeipaApiPassword" placeholder="Leave blank to keep saved password" class="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500 outline-none">
+                    <label class="mt-2 flex items-center gap-2 text-xs font-bold text-slate-500"><input type="checkbox" id="freeipaClearPassword" class="w-4 h-4 rounded border-slate-300">Clear saved password</label>
+                </div>
+                <div><label class="block text-xs font-bold text-slate-500 mb-1">Allowed LDAP Groups</label><input type="text" id="ldapAllowedGroups" placeholder="team-it-support,devops" class="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm font-mono focus:ring-2 focus:ring-indigo-500 outline-none"><p class="text-xs text-slate-500 mt-1">Leave blank to allow all groups.</p></div>
+            </div>
+            <details class="mt-4">
+                <summary class="cursor-pointer text-xs font-bold uppercase text-slate-500">Direct LDAP fallback</summary>
+                <div class="grid grid-cols-1 lg:grid-cols-2 gap-4 mt-3">
+                    <input type="text" id="ldapUri" placeholder="ldaps://ldap.example.com:636" class="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500 outline-none">
+                    <input type="text" id="ldapBindDn" placeholder="uid=winhub-ldap-reader,cn=users,cn=accounts,dc=example,dc=com" class="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500 outline-none">
+                    <div><input type="password" id="ldapBindPassword" placeholder="Leave blank to keep saved password" class="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500 outline-none"><label class="mt-2 flex items-center gap-2 text-xs font-bold text-slate-500"><input type="checkbox" id="ldapClearPassword" class="w-4 h-4 rounded border-slate-300">Clear saved password</label></div>
+                    <input type="text" id="ldapBaseDn" placeholder="dc=example,dc=com" class="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500 outline-none">
+                    <input type="text" id="ldapGroupBaseDn" placeholder="cn=groups,cn=accounts,dc=example,dc=com" class="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500 outline-none">
+                    <input type="text" id="ldapGroupNameAttr" placeholder="cn" class="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500 outline-none">
+                    <input type="text" id="ldapGroupMemberAttr" placeholder="member" class="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500 outline-none">
+                    <input type="text" id="ldapUserEmailAttr" placeholder="mail" class="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500 outline-none">
+                </div>
+            </details>
+        </div>
+
+
+            <div class="flex items-center justify-end gap-3 mt-4">
+                <button onclick="saveInboundRelaySettings()" class="bg-emerald-600 hover:bg-emerald-700 text-white font-bold py-2 px-5 rounded-lg transition-colors">Save LDAP Settings</button>
+            </div>
 
         <div class="flex justify-end pt-4 border-t border-slate-200 mt-4">
             <button onclick="closeSmtpModal()" class="bg-slate-200 hover:bg-slate-300 text-slate-700 font-bold py-2 px-6 rounded-lg transition-colors">Close</button>
@@ -816,7 +827,7 @@
             cbContainer.innerHTML = '<span class="text-slate-500 text-sm italic">No lists created yet.</span>';
             if (rightPanel) rightPanel.innerHTML = '<div class="text-center text-slate-400 italic text-sm mt-10">No lists created. Click "Create New".</div>';
         } else {
-            // Для звичайних юзерів ми не показуємо бейдж з кількістю
+            // Regular users do not see the count badge
             cbContainer.innerHTML = listNames.map(name => `
                 <label class="nl-list-option flex items-center gap-3 p-3 hover:bg-cyan-500/10 rounded-lg cursor-pointer transition-all">
                     <input type="checkbox" value="${name}" class="nl-list-cb w-4 h-4 text-indigo-600 border-slate-300 rounded cursor-pointer">
@@ -825,7 +836,7 @@
                 </label>
             `).join('');
 
-            // Панель списків для адмінів
+            // Admin list panel
             if (rightPanel) {
                 rightPanel.innerHTML = listNames.map(name => `
                     <div class="flex justify-between items-center p-3 bg-slate-950/35 border border-cyan-400/20 rounded-lg hover:border-cyan-300/45 hover:bg-cyan-500/10 transition-colors">
@@ -1069,9 +1080,24 @@
     {% endif %}
 
     {% if permissions.manage_smtp %}
+    // --- Settings Tabs ---
+    function switchNewsletterSettingsTab(tab) {
+        document.querySelectorAll('.newsletter-settings-panel').forEach(panel => panel.classList.add('hidden'));
+        const activePanel = document.getElementById(`settingsTab${tab.charAt(0).toUpperCase()}${tab.slice(1)}`);
+        if (activePanel) activePanel.classList.remove('hidden');
+
+        document.querySelectorAll('.newsletter-settings-tab').forEach(button => {
+            const active = button.dataset.settingsTab === tab;
+            button.className = active
+                ? 'newsletter-settings-tab px-4 py-2 rounded-lg text-sm font-bold bg-slate-800 text-white'
+                : 'newsletter-settings-tab px-4 py-2 rounded-lg text-sm font-bold bg-slate-100 text-slate-600 hover:bg-slate-200';
+        });
+    }
+
     // --- SMTP Management ---
     function openSmtpModal() {
         renderInboundRelaySettings();
+        switchNewsletterSettingsTab('smtp');
         document.getElementById('smtpModal').classList.remove('hidden');
     }
     function closeSmtpModal() { document.getElementById('smtpModal').classList.add('hidden'); }
