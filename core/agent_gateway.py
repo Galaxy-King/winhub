@@ -205,7 +205,8 @@ def verify_agent_signature(public_key_pem, data, path, auth_token, agent_version
         return False, "missing_signature"
     try:
         signed_ts = int(signed_at)
-        if abs(int(time.time()) - signed_ts) > 900:
+        max_skew_seconds = int(getattr(Config, "AGENT_SIGNATURE_MAX_SKEW_SECONDS", 0) or 0)
+        if max_skew_seconds > 0 and abs(int(time.time()) - signed_ts) > max_skew_seconds:
             return False, "signature_expired"
     except Exception:
         return False, "invalid_signature_timestamp"
@@ -236,10 +237,33 @@ def agent_request_signature_timestamp_valid(data):
     if not data.get("signature") or not data.get("signed_at") or not data.get("signed_nonce"):
         return False
     try:
+        max_skew_seconds = int(getattr(Config, "AGENT_SIGNATURE_MAX_SKEW_SECONDS", 0) or 0)
+        if max_skew_seconds <= 0:
+            return True
         signed_ts = int(str(data.get("signed_at") or "").strip())
-        return abs(int(time.time()) - signed_ts) <= 900
+        return abs(int(time.time()) - signed_ts) <= max_skew_seconds
     except Exception:
         return False
+
+
+def agent_signature_timestamp_debug(data):
+    try:
+        signed_ts = int(str(data.get("signed_at") or "").strip())
+        server_ts = int(time.time())
+        return {
+            "server_time": server_ts,
+            "signed_at": signed_ts,
+            "skew_seconds": server_ts - signed_ts,
+        }
+    except Exception:
+        return {"server_time": int(time.time())}
+
+
+def agent_signature_error_payload(reason, data):
+    payload = {"status": "error", "message": reason}
+    if reason in {"signature_expired", "invalid_signature_timestamp"}:
+        payload.update(agent_signature_timestamp_debug(data))
+    return payload
 
 
 def poll_signature_cache_key(agent, data, auth_token):
@@ -799,7 +823,7 @@ def agent_poll():
     if getattr(agent, "approval_status", "Approved") != "Approved":
         signature_ok, signature_reason = verify_or_bind_agent_key(agent, data, "/api/agent/poll", data.get("auth_token"))
         if not signature_ok:
-            return jsonify({"status": "error", "message": signature_reason}), 403
+            return jsonify(agent_signature_error_payload(signature_reason, data)), 403
         source_ip = current_client_ip() or getattr(agent, "connection_ip", None) or agent.ip_address
         duplicate_endpoint, duplicate_reasons = find_approved_duplicate_endpoint(
             agent.id,
@@ -848,7 +872,7 @@ def agent_poll():
         else verify_poll_signature_cached(agent, data, data.get("auth_token"))
     )
     if not signature_ok:
-        return jsonify({"status": "error", "message": signature_reason}), 403
+        return jsonify(agent_signature_error_payload(signature_reason, data)), 403
     if task:
         remember_poll_signature(agent, data, data.get("auth_token"))
 
@@ -917,7 +941,7 @@ def agent_result():
         return jsonify({"status": "error"}), 403
     signature_ok, signature_reason = verify_or_bind_agent_key(agent, data, "/api/agent/result", data.get("auth_token"))
     if not signature_ok:
-        return jsonify({"status": "error", "message": signature_reason}), 403
+        return jsonify(agent_signature_error_payload(signature_reason, data)), 403
     update_agent_connection(agent)
 
     task = AgentTask.query.options(load_only(*TASK_RESULT_COLUMNS)).filter_by(
@@ -991,7 +1015,7 @@ def agent_telemetry():
         return jsonify({"status": "error"}), 403
     signature_ok, signature_reason = verify_or_bind_agent_key(agent, data, "/api/agent/telemetry", data.get("auth_token"))
     if not signature_ok:
-        return jsonify({"status": "error", "message": signature_reason}), 403
+        return jsonify(agent_signature_error_payload(signature_reason, data)), 403
 
     agent_version = str(data.get('agent_version') or '').strip()[:50]
     if agent_version:

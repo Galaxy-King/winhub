@@ -47,6 +47,7 @@ namespace WinHUBAgent
         public bool IgnoreTlsCertificateErrors { get; set; } = false;
         public string ServerCertificateSha256 { get; set; } = "";
         public bool RequireTaskSignature { get; set; } = true;
+        public int RestartAfterConsecutivePollFailures { get; set; } = 10;
     }
 
     public class AgentSecrets
@@ -231,7 +232,8 @@ namespace WinHUBAgent
                     nameof(AgentConfig.MaxResultLogBytes),
                     nameof(AgentConfig.IgnoreTlsCertificateErrors),
                     nameof(AgentConfig.ServerCertificateSha256),
-                    nameof(AgentConfig.RequireTaskSignature)
+                    nameof(AgentConfig.RequireTaskSignature),
+                    nameof(AgentConfig.RestartAfterConsecutivePollFailures)
                 };
                 return required.Any(key => !doc.RootElement.TryGetProperty(key, out _));
             }
@@ -284,11 +286,13 @@ namespace WinHUBAgent
             int pollJitterSeconds = GetPollJitterSeconds();
             int telemetryIntervalSeconds = 300;
             int startupSpreadSeconds = GetStartupSpreadSeconds();
+            int restartAfterPollFailures = GetRestartAfterConsecutivePollFailures();
             int startupDelaySeconds = GetStableDelaySeconds("startup-poll-spread-v1", startupSpreadSeconds + 1);
             int telemetryDelaySeconds = GetStableDelaySeconds("startup-telemetry-spread-v1", telemetryIntervalSeconds + 1);
+            int consecutivePollFailures = 0;
 
             _logger.LogInformation(
-                $"Polling cadence: base={pollIntervalSeconds}s, jitter=0-{pollJitterSeconds}s, startup_spread=0-{startupSpreadSeconds}s, startup_delay={startupDelaySeconds}s"
+                $"Polling cadence: base={pollIntervalSeconds}s, jitter=0-{pollJitterSeconds}s, startup_spread=0-{startupSpreadSeconds}s, startup_delay={startupDelaySeconds}s, restart_after_failures={restartAfterPollFailures}"
             );
 
             if (startupDelaySeconds > 0)
@@ -313,6 +317,31 @@ namespace WinHUBAgent
                 }
 
                 PollTiming? serverTiming = await PollServerAsync(stoppingToken);
+                if (serverTiming.HasValue)
+                {
+                    if (consecutivePollFailures > 0)
+                    {
+                        _logger.LogInformation($"Poll recovered after {consecutivePollFailures} consecutive failure(s).");
+                    }
+                    consecutivePollFailures = 0;
+                }
+                else
+                {
+                    consecutivePollFailures++;
+                    if (restartAfterPollFailures > 0 && consecutivePollFailures >= restartAfterPollFailures)
+                    {
+                        RestartThroughServiceRecovery(consecutivePollFailures);
+                    }
+                    if (restartAfterPollFailures > 0)
+                    {
+                        _logger.LogWarning($"Poll failure streak: {consecutivePollFailures}/{restartAfterPollFailures}.");
+                    }
+                    else
+                    {
+                        _logger.LogWarning($"Poll failure streak: {consecutivePollFailures}. Automatic recovery restart is disabled.");
+                    }
+                }
+
                 if (serverTiming?.TelemetryAfterSeconds is int telemetryAfter)
                 {
                     telemetryIntervalSeconds = ClampSeconds(telemetryAfter, 60, 86400);
@@ -342,6 +371,17 @@ namespace WinHUBAgent
         private int GetStartupSpreadSeconds()
         {
             return Math.Max(0, Math.Min(3600, _config.StartupSpreadSeconds));
+        }
+
+        private int GetRestartAfterConsecutivePollFailures()
+        {
+            return Math.Max(0, Math.Min(1000, _config.RestartAfterConsecutivePollFailures));
+        }
+
+        private void RestartThroughServiceRecovery(int failureCount)
+        {
+            _logger.LogCritical($"Poll failed {failureCount} consecutive times. Exiting with code 1 so Windows Service Recovery can restart WinHUBAgent.");
+            Environment.Exit(1);
         }
 
         private static int ClampSeconds(int value, int min, int max)
@@ -497,11 +537,18 @@ namespace WinHUBAgent
                 var response = await _httpClient.PostAsync($"{_config.ServerUrl}/api/agent/poll", content, stoppingToken);
                 if (!response.IsSuccessStatusCode)
                 {
+                    string serverMessage = await ReadServerErrorMessageAsync(response, stoppingToken);
                     if (response.StatusCode == System.Net.HttpStatusCode.Forbidden || response.StatusCode == System.Net.HttpStatusCode.Unauthorized)
                     {
+                        if (IsClockSkewSignatureFailure(serverMessage))
+                        {
+                            _logger.LogWarning($"Server rejected poll signature as {serverMessage}. Waiting for system time to recover before retrying.");
+                            return null;
+                        }
+
                         string previousAuthToken = AuthToken;
                         string previousHwId = HardwareId;
-                        _logger.LogWarning("Server rejected poll token. Attempting secure re-enrollment with previous token proof.");
+                        _logger.LogWarning($"Server rejected poll token ({serverMessage}). Attempting secure re-enrollment with previous token proof.");
                         await EnrollAgentAsync(stoppingToken, previousAuthToken, previousHwId);
                     }
                     return null;
@@ -559,6 +606,48 @@ namespace WinHUBAgent
                 _logger.LogError($"Polling failed: {ex.Message}");
                 return null;
             }
+        }
+
+        private static async Task<string> ReadServerErrorMessageAsync(HttpResponseMessage response, CancellationToken stoppingToken)
+        {
+            try
+            {
+                string body = await response.Content.ReadAsStringAsync(stoppingToken);
+                if (string.IsNullOrWhiteSpace(body)) return response.StatusCode.ToString();
+                using var doc = JsonDocument.Parse(body);
+                if (doc.RootElement.TryGetProperty("message", out var message))
+                {
+                    string value = message.GetString() ?? response.StatusCode.ToString();
+                    if (doc.RootElement.TryGetProperty("skew_seconds", out var skew) && skew.TryGetInt64(out long skewSeconds))
+                    {
+                        value += $" (skew_seconds={skewSeconds}";
+                        if (doc.RootElement.TryGetProperty("server_time", out var serverTime) && serverTime.TryGetInt64(out long serverTs))
+                        {
+                            value += $", server_time={serverTs}";
+                        }
+                        if (doc.RootElement.TryGetProperty("signed_at", out var signedAt) && signedAt.TryGetInt64(out long signedTs))
+                        {
+                            value += $", signed_at={signedTs}";
+                        }
+                        value += ")";
+                    }
+                    return value;
+                }
+                if (doc.RootElement.TryGetProperty("status", out var status))
+                {
+                    return status.GetString() ?? response.StatusCode.ToString();
+                }
+            }
+            catch
+            {
+            }
+            return response.StatusCode.ToString();
+        }
+
+        private static bool IsClockSkewSignatureFailure(string serverMessage)
+        {
+            return serverMessage.StartsWith("signature_expired", StringComparison.OrdinalIgnoreCase)
+                || serverMessage.StartsWith("invalid_signature_timestamp", StringComparison.OrdinalIgnoreCase);
         }
 
         private static PollTiming ReadPollTiming(JsonElement root)

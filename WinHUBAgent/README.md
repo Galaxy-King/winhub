@@ -72,7 +72,8 @@ Runtime config:
   "MaxResultLogBytes": 262144,
   "IgnoreTlsCertificateErrors": false,
   "ServerCertificateSha256": "SERVER_CERT_SHA256_WITHOUT_COLONS",
-  "RequireTaskSignature": true
+  "RequireTaskSignature": true,
+  "RestartAfterConsecutivePollFailures": 10
 }
 ```
 
@@ -81,6 +82,7 @@ Polling cadence:
 - `PollIntervalSeconds` is the base polling interval.
 - `PollJitterSeconds` adds a random `0..N` second delay after every poll, preventing many agents from polling in the same second.
 - `StartupSpreadSeconds` adds a stable per-host startup delay before the first poll, so GPO deployments, service restarts, and mass updates do not create a synchronized request burst.
+- `RestartAfterConsecutivePollFailures` exits the agent after N failed polls in a row so Windows Service Recovery can restart it. Use `0` to disable this self-heal.
 - Newer servers can return `next_poll_after`, `poll_jitter_seconds`, and `telemetry_after` in `/api/agent/poll`; the agent treats those as bounded scheduling hints and falls back to the local config when they are absent.
 
 Bootstrap config:

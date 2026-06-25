@@ -9,5 +9,6 @@
   "MaxResultLogBytes": 262144,
   "IgnoreTlsCertificateErrors": false,
   "ServerCertificateSha256": "PASTE_SERVER_CERT_SHA256_WITHOUT_COLONS",
-  "RequireTaskSignature": true
+  "RequireTaskSignature": true,
+  "RestartAfterConsecutivePollFailures": 10
 }
