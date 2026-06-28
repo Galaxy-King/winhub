@@ -45,7 +45,6 @@ DEFAULT_RECIPIENT_DOMAIN = os.environ.get("NEWSLETTER_RECIPIENT_DOMAIN", "@synef
 MAX_ATTACHMENTS = int(os.environ.get("NEWSLETTER_MAX_ATTACHMENTS", "8"))
 MAX_ATTACHMENT_BYTES = int(os.environ.get("NEWSLETTER_MAX_ATTACHMENT_BYTES", str(10 * 1024 * 1024)))
 MAX_TOTAL_ATTACHMENT_BYTES = int(os.environ.get("NEWSLETTER_MAX_TOTAL_ATTACHMENT_BYTES", str(25 * 1024 * 1024)))
-INBOUND_SUBJECT_RE = re.compile(r"^\s*\[(list|ldap):([A-Za-z0-9_.-]+)\]\s*(.*)$", re.IGNORECASE)
 _inbound_worker_started = False
 _inbound_worker_lock = threading.Lock()
 
@@ -200,15 +199,6 @@ def inbound_gpg_passphrase():
         return decrypt_pass(encrypted)
     return os.environ.get("NEWSLETTER_INBOUND_GPG_PASSPHRASE", "")
 
-def parse_inbound_subject(subject):
-    match = INBOUND_SUBJECT_RE.match(str(subject or ""))
-    if not match:
-        return None, None, None
-    target_type = match.group(1).strip().lower()
-    target_name = match.group(2).strip()
-    clean_subject = match.group(3).strip() or "Newsletter"
-    return target_type, target_name, clean_subject
-
 def env_csv_set(name):
     raw = os.environ.get(name, "")
     return {item.strip().lower() for item in raw.split(",") if item.strip()}
@@ -219,6 +209,24 @@ def csv_set_from_value(value):
     else:
         items = str(value or "").split(",")
     return {str(item).strip().lower() for item in items if str(item).strip()}
+
+def split_config_values(value):
+    if isinstance(value, list):
+        raw_items = value
+    else:
+        raw_items = re.split(r"[\n,]+", str(value or ""))
+    clean = []
+    seen = set()
+    for item in raw_items:
+        text = str(item or "").strip()
+        if not text:
+            continue
+        key = text.lower()
+        if key in seen:
+            continue
+        seen.add(key)
+        clean.append(text)
+    return clean
 
 def inbound_plain_setting(key, env_name=None, default=""):
     settings = load_inbound_settings()
@@ -234,11 +242,125 @@ def inbound_secret_setting(key, env_name):
         return decrypt_pass(encrypted)
     return os.environ.get(env_name, "")
 
+def decrypt_optional_secret(value):
+    if not value:
+        return ""
+    return decrypt_pass(value)
+
 def inbound_bool_setting(key, env_name, default=False):
     settings = load_inbound_settings()
     if key in settings:
         return bool(settings.get(key))
     return env_bool(env_name, default)
+
+def legacy_env_mailbox():
+    user = os.environ.get("NEWSLETTER_INBOUND_IMAP_USER", "").strip()
+    host = os.environ.get("NEWSLETTER_INBOUND_IMAP_HOST", "").strip()
+    if not user or not host:
+        return None
+    lists = split_config_values(os.environ.get("NEWSLETTER_INBOUND_LISTS", ""))
+    ldap_groups = split_config_values(os.environ.get("NEWSLETTER_INBOUND_LDAP_GROUPS", ""))
+    if env_bool("NEWSLETTER_INBOUND_ENABLED", False) and not lists and not ldap_groups:
+        log.warning("NEWSLETTER_INBOUND_ENABLED is true, but no NEWSLETTER_INBOUND_LISTS or NEWSLETTER_INBOUND_LDAP_GROUPS are configured. Legacy inbound mailbox will be ignored.")
+        return None
+    return {
+        "id": "env-default",
+        "name": user,
+        "enabled": env_bool("NEWSLETTER_INBOUND_ENABLED", False),
+        "imap_host": host,
+        "imap_port": env_int("NEWSLETTER_INBOUND_IMAP_PORT", 993, 1),
+        "imap_ssl": env_bool("NEWSLETTER_INBOUND_IMAP_SSL", True),
+        "imap_user": user,
+        "imap_password_env": "NEWSLETTER_INBOUND_IMAP_PASSWORD",
+        "imap_folder": os.environ.get("NEWSLETTER_INBOUND_IMAP_FOLDER", "INBOX"),
+        "processed_folder": os.environ.get("NEWSLETTER_INBOUND_PROCESSED_FOLDER", "Processed"),
+        "failed_folder": os.environ.get("NEWSLETTER_INBOUND_FAILED_FOLDER", "Failed"),
+        "sender_profile": inbound_sender_profile_setting(),
+        "allowed_senders": sorted(inbound_allowed_senders()),
+        "lists": lists,
+        "ldap_groups": ldap_groups,
+        "legacy_env": True,
+    }
+
+def normalize_inbound_mailbox(raw, existing=None, for_save=False):
+    existing = existing or {}
+    mailbox_id = str(raw.get("id") or existing.get("id") or uuid.uuid4()).strip()
+    if not mailbox_id:
+        mailbox_id = str(uuid.uuid4())
+    imap_user = str(raw.get("imap_user") or existing.get("imap_user") or "").strip()
+    name = str(raw.get("name") or existing.get("name") or imap_user).strip()
+    sender_profile = str(raw.get("sender_profile") or existing.get("sender_profile") or "").strip()
+
+    mailbox = {
+        "id": mailbox_id,
+        "name": name or imap_user or mailbox_id,
+        "enabled": bool(raw.get("enabled", existing.get("enabled", True))),
+        "imap_host": str(raw.get("imap_host") or existing.get("imap_host") or "").strip(),
+        "imap_port": int(raw.get("imap_port") or existing.get("imap_port") or 993),
+        "imap_ssl": bool(raw.get("imap_ssl", existing.get("imap_ssl", True))),
+        "imap_user": imap_user,
+        "imap_folder": str(raw.get("imap_folder") or existing.get("imap_folder") or "INBOX").strip() or "INBOX",
+        "processed_folder": str(raw.get("processed_folder") or existing.get("processed_folder") or "Processed").strip(),
+        "failed_folder": str(raw.get("failed_folder") or existing.get("failed_folder") or "Failed").strip(),
+        "sender_profile": sender_profile,
+        "allowed_senders": normalize_email_list(raw.get("allowed_senders", existing.get("allowed_senders", []))),
+        "lists": split_config_values(raw.get("lists", existing.get("lists", []))),
+        "ldap_groups": split_config_values(raw.get("ldap_groups", existing.get("ldap_groups", []))),
+    }
+
+    password = str(raw.get("imap_password") or "")
+    if password:
+        mailbox["imap_password"] = encrypt_pass(password) if for_save else password
+    elif existing.get("imap_password") and not raw.get("clear_imap_password"):
+        mailbox["imap_password"] = existing.get("imap_password")
+    elif (raw.get("imap_password_env") or existing.get("imap_password_env")) and not raw.get("clear_imap_password"):
+        mailbox["imap_password_env"] = raw.get("imap_password_env") or existing.get("imap_password_env")
+
+    if raw.get("clear_imap_password"):
+        mailbox.pop("imap_password", None)
+        mailbox.pop("imap_password_env", None)
+
+    return mailbox
+
+def inbound_mailboxes(include_legacy=True):
+    settings = load_inbound_settings()
+    configured = settings.get("mailboxes")
+    mailboxes = []
+    if isinstance(configured, list):
+        for raw in configured:
+            if isinstance(raw, dict):
+                try:
+                    mailboxes.append(normalize_inbound_mailbox(raw))
+                except Exception:
+                    log.warning("Skipping invalid inbound mailbox configuration: %s", raw)
+    elif include_legacy:
+        legacy = legacy_env_mailbox()
+        if legacy:
+            mailboxes.append(normalize_inbound_mailbox(legacy))
+    return mailboxes
+
+def safe_inbound_mailboxes():
+    safe = []
+    for mailbox in inbound_mailboxes(include_legacy=True):
+        item = dict(mailbox)
+        item.pop("imap_password", None)
+        item.pop("imap_password_env", None)
+        item["imap_password_saved"] = bool(mailbox.get("imap_password") or mailbox.get("imap_password_env"))
+        safe.append(item)
+    return safe
+
+def mailbox_imap_password(mailbox):
+    if mailbox.get("imap_password"):
+        return decrypt_optional_secret(mailbox.get("imap_password"))
+    env_name = mailbox.get("imap_password_env")
+    if env_name:
+        return os.environ.get(env_name, "")
+    return ""
+
+def inbound_relay_enabled():
+    if env_bool("NEWSLETTER_INBOUND_ENABLED", False):
+        return True
+    return any(mailbox.get("enabled", True) for mailbox in inbound_mailboxes(include_legacy=False))
 
 def ldap_enabled():
     return inbound_bool_setting("ldap_enabled", "NEWSLETTER_LDAP_ENABLED", False)
@@ -566,41 +688,62 @@ def system_user_id():
     user = User.query.order_by(User.id.asc()).first()
     return user.id if user else 1
 
-def resolve_inbound_recipients(target_type, target_name):
-    if target_type == "list":
-        lists = load_lists()
-        if target_name not in lists:
-            raise ValueError(f"Mailing list '{target_name}' not found.")
-        recipients = sorted({
+def resolve_mailbox_recipients(mailbox):
+    configured_lists = split_config_values(mailbox.get("lists", []))
+    configured_ldap_groups = split_config_values(mailbox.get("ldap_groups", []))
+    if not configured_lists and not configured_ldap_groups:
+        raise ValueError("Inbound mailbox has no mailing lists or LDAP groups configured.")
+
+    recipients = set()
+    list_counts = {}
+    all_lists = load_lists()
+    for list_name in configured_lists:
+        if list_name not in all_lists:
+            raise ValueError(f"Mailing list '{list_name}' not found.")
+        resolved = {
             normalize_recipient(item)
-            for item in lists.get(target_name, [])
+            for item in all_lists.get(list_name, [])
             if normalize_recipient(item)
-        })
-        meta = {"source": "list", "target": target_name}
-    elif target_type == "ldap":
-        recipients, ldap_meta = ldap_recipients_from_group(target_name)
-        meta = {"source": "ldap", "target": target_name, **ldap_meta}
-    else:
-        raise ValueError("Subject must start with [list:<name>] or [ldap:<group>].")
+        }
+        recipients.update(resolved)
+        list_counts[list_name] = len(resolved)
 
-    if not recipients:
-        raise ValueError(f"Inbound target '{target_name}' has no recipients.")
-    return recipients, meta
+    ldap_meta = {}
+    for group_name in configured_ldap_groups:
+        group_recipients, group_meta = ldap_recipients_from_group(group_name)
+        recipients.update(group_recipients)
+        ldap_meta[group_name] = {
+            "recipients_count": len(group_recipients),
+            **group_meta,
+        }
 
-def dispatch_inbound_newsletter(app, source_msg, decrypted_msg, target_type, target_name, subject):
+    clean_recipients = sorted(item for item in recipients if item)
+    if not clean_recipients:
+        raise ValueError("Inbound mailbox targets resolved to zero recipients.")
+    return clean_recipients, {
+        "source": "mailbox_rules",
+        "mailbox": mailbox.get("name") or mailbox.get("imap_user"),
+        "lists": configured_lists,
+        "ldap_groups": configured_ldap_groups,
+        "list_counts": list_counts,
+        "ldap_meta": ldap_meta,
+    }
+
+def dispatch_inbound_newsletter(app, source_msg, decrypted_msg, mailbox, subject):
     with app.app_context():
-        target_users, target_meta = resolve_inbound_recipients(target_type, target_name)
+        target_users, target_meta = resolve_mailbox_recipients(mailbox)
         log.info(
-            "Newsletter inbound relay resolved %s:%s to %s recipients via %s.",
-            target_type,
-            target_name,
+            "Newsletter inbound relay resolved mailbox %s to %s recipients.",
+            mailbox.get("name") or mailbox.get("imap_user"),
             len(target_users),
-            target_meta.get("resolver") or target_meta.get("source") or target_type,
         )
 
         profiles = load_smtp_profiles()
-        mailbox_user = os.environ.get("NEWSLETTER_INBOUND_IMAP_USER", "")
-        sender_email, smtp_config = resolve_inbound_sender_profile(profiles, mailbox_user)
+        configured_sender = str(mailbox.get("sender_profile") or "").strip()
+        if configured_sender and configured_sender in profiles:
+            sender_email, smtp_config = configured_sender, profiles[configured_sender]
+        else:
+            sender_email, smtp_config = resolve_inbound_sender_profile(profiles, mailbox.get("imap_user", ""))
         if not sender_email:
             raise ValueError("No SMTP profile available for inbound newsletter relay.")
 
@@ -620,7 +763,7 @@ def dispatch_inbound_newsletter(app, source_msg, decrypted_msg, target_type, tar
             user_id=user_id,
             module_name="Newsletter",
             action="Inbound Mailing",
-            targets=f"{target_type}:{target_name}"[:50],
+            targets=(mailbox.get("name") or mailbox.get("imap_user") or "Inbound")[:50],
             status="Running",
             log_file=log_file,
         )
@@ -634,8 +777,7 @@ def dispatch_inbound_newsletter(app, source_msg, decrypted_msg, target_type, tar
             action="Inbound Mailing",
             details={
                 "from": from_email,
-                "target_type": target_type,
-                "target": target_name,
+                "mailbox": mailbox.get("name") or mailbox.get("imap_user"),
                 "subject": subject,
                 "recipients_count": len(target_users),
                 "message_id": message_id,
@@ -668,14 +810,12 @@ def dispatch_inbound_newsletter(app, source_msg, decrypted_msg, target_type, tar
         thread.start()
         return task_id
 
-def process_inbound_message(app, imap, uid, raw_message):
+def process_inbound_message(app, imap, uid, raw_message, mailbox):
     msg = BytesParser(policy=policy.default).parsebytes(raw_message)
-    target_type, target_name, subject = parse_inbound_subject(msg.get("Subject", ""))
-    if not target_type or not target_name:
-        return None
+    subject = str(msg.get("Subject") or "Newsletter").strip() or "Newsletter"
 
     from_email = parseaddr(msg.get("From", ""))[1].lower()
-    allowed = inbound_allowed_senders()
+    allowed = {str(item).strip().lower() for item in mailbox.get("allowed_senders", []) if str(item).strip()}
     if "*" not in allowed and from_email not in allowed:
         raise PermissionError(f"Sender '{from_email}' is not allowed.")
 
@@ -690,23 +830,26 @@ def process_inbound_message(app, imap, uid, raw_message):
         raise ValueError(f"Could not decrypt inbound message: {decrypted}")
 
     decrypted_msg = parse_decrypted_message(decrypted)
-    task_id = dispatch_inbound_newsletter(app, msg, decrypted_msg, target_type, target_name, subject)
+    task_id = dispatch_inbound_newsletter(app, msg, decrypted_msg, mailbox, subject)
     imap.uid("STORE", uid, "+FLAGS", r"(\Seen)")
     return task_id
 
-def poll_inbound_mailbox(app):
-    host = os.environ.get("NEWSLETTER_INBOUND_IMAP_HOST", "").strip()
-    user = os.environ.get("NEWSLETTER_INBOUND_IMAP_USER", "").strip()
-    password = os.environ.get("NEWSLETTER_INBOUND_IMAP_PASSWORD", "")
+def poll_inbound_mailbox(app, mailbox):
+    if not mailbox.get("enabled", True):
+        return
+    host = str(mailbox.get("imap_host") or "").strip()
+    user = str(mailbox.get("imap_user") or "").strip()
+    password = mailbox_imap_password(mailbox)
     if not host or not user or not password:
-        log.warning("Newsletter inbound relay is enabled but IMAP host/user/password is incomplete.")
+        log.warning("Newsletter inbound mailbox '%s' is incomplete; IMAP host/user/password is required.", mailbox.get("name") or user or "unnamed")
         return
 
-    port = env_int("NEWSLETTER_INBOUND_IMAP_PORT", 993, 1)
-    use_ssl = env_bool("NEWSLETTER_INBOUND_IMAP_SSL", True)
-    folder = os.environ.get("NEWSLETTER_INBOUND_IMAP_FOLDER", "INBOX")
-    processed_folder = os.environ.get("NEWSLETTER_INBOUND_PROCESSED_FOLDER", "Processed")
-    failed_folder = os.environ.get("NEWSLETTER_INBOUND_FAILED_FOLDER", "Failed")
+    port = int(mailbox.get("imap_port") or 993)
+    use_ssl = bool(mailbox.get("imap_ssl", True))
+    folder = mailbox.get("imap_folder") or "INBOX"
+    processed_folder = mailbox.get("processed_folder") or "Processed"
+    failed_folder = mailbox.get("failed_folder") or "Failed"
+    mailbox_label = mailbox.get("name") or user
 
     imap = None
     try:
@@ -728,19 +871,16 @@ def poll_inbound_mailbox(app):
                         break
                 if not raw:
                     raise RuntimeError("IMAP message body is empty.")
-                task_id = process_inbound_message(app, imap, uid, raw)
-                if not task_id:
-                    log.debug("Newsletter inbound relay ignored UID %s: subject has no relay prefix.", uid.decode(errors="replace"))
-                    continue
-                log.info("Newsletter inbound relay accepted UID %s as task %s", uid.decode(errors="replace"), task_id)
+                task_id = process_inbound_message(app, imap, uid, raw, mailbox)
+                log.info("Newsletter inbound relay accepted mailbox %s UID %s as task %s", mailbox_label, uid.decode(errors="replace"), task_id)
                 move_imap_message(imap, uid, processed_folder)
             except Exception as e:
-                log.error("Newsletter inbound relay rejected UID %s: %s", uid.decode(errors="replace"), e)
+                log.error("Newsletter inbound relay rejected mailbox %s UID %s: %s", mailbox_label, uid.decode(errors="replace"), e)
                 try:
                     imap.uid("STORE", uid, "+FLAGS", r"(\Seen)")
                     move_imap_message(imap, uid, failed_folder)
                 except Exception:
-                    log.error("Newsletter inbound relay could not move failed UID %s", uid.decode(errors="replace"))
+                    log.error("Newsletter inbound relay could not move failed mailbox %s UID %s", mailbox_label, uid.decode(errors="replace"))
         try:
             imap.expunge()
         except Exception:
@@ -760,14 +900,18 @@ def inbound_worker(app):
     while True:
         try:
             with app.app_context():
-                poll_inbound_mailbox(app)
+                mailboxes = [mailbox for mailbox in inbound_mailboxes(include_legacy=True) if mailbox.get("enabled", True)]
+                if not mailboxes:
+                    log.debug("Newsletter inbound relay has no enabled mailboxes.")
+                for mailbox in mailboxes:
+                    poll_inbound_mailbox(app, mailbox)
         except Exception:
             log.error("Newsletter inbound relay poll failed: %s", traceback.format_exc())
         time.sleep(poll_seconds)
 
 def start_module(app):
     global _inbound_worker_started
-    if not env_bool("NEWSLETTER_INBOUND_ENABLED", False):
+    if not inbound_relay_enabled():
         return
     with _inbound_worker_lock:
         if _inbound_worker_started:
@@ -829,8 +973,9 @@ def safe_inbound_settings():
         "allowed_senders": allowed,
         "sender_profile": inbound_sender_profile_setting(),
         "passphrase_saved": bool(settings.get("gpg_passphrase") or os.environ.get("NEWSLETTER_INBOUND_GPG_PASSPHRASE")),
-        "env_enabled": env_bool("NEWSLETTER_INBOUND_ENABLED", False),
+        "env_enabled": inbound_relay_enabled(),
         "imap_user": os.environ.get("NEWSLETTER_INBOUND_IMAP_USER", ""),
+        "mailboxes": safe_inbound_mailboxes(),
         "ldap": {
             "enabled": inbound_bool_setting("ldap_enabled", "NEWSLETTER_LDAP_ENABLED", False),
             "uri": inbound_plain_setting("ldap_uri", "NEWSLETTER_LDAP_URI", ""),
@@ -999,6 +1144,48 @@ def manage_inbound_relay():
     if bool(data.get("clear_gpg_passphrase")):
         settings.pop("gpg_passphrase", None)
 
+    incoming_mailboxes = data.get("mailboxes")
+    if isinstance(incoming_mailboxes, list):
+        existing_by_id = {
+            str(item.get("id")): item
+            for item in settings.get("mailboxes", [])
+            if isinstance(item, dict) and item.get("id")
+        }
+        known_lists = load_lists()
+        saved_mailboxes = []
+        seen_mailbox_ids = set()
+        for raw_mailbox in incoming_mailboxes:
+            if not isinstance(raw_mailbox, dict):
+                continue
+            existing = existing_by_id.get(str(raw_mailbox.get("id") or ""))
+            try:
+                mailbox = normalize_inbound_mailbox(raw_mailbox, existing=existing, for_save=True)
+            except ValueError as e:
+                return jsonify({"success": False, "message": str(e)}), 400
+            if mailbox["id"] in seen_mailbox_ids:
+                return jsonify({"success": False, "message": "Inbound mailbox IDs must be unique."}), 400
+            seen_mailbox_ids.add(mailbox["id"])
+            if mailbox.get("enabled"):
+                for required_key, label in (
+                    ("imap_host", "IMAP host"),
+                    ("imap_user", "IMAP user"),
+                ):
+                    if not mailbox.get(required_key):
+                        return jsonify({"success": False, "message": f"{label} is required for enabled inbound mailboxes."}), 400
+                if not (mailbox.get("imap_password") or mailbox.get("imap_password_env")):
+                    return jsonify({"success": False, "message": f"IMAP password is required for mailbox '{mailbox.get('name')}'."}), 400
+                if not mailbox.get("allowed_senders"):
+                    return jsonify({"success": False, "message": f"Allowed senders are required for mailbox '{mailbox.get('name')}'."}), 400
+                if not mailbox.get("lists") and not mailbox.get("ldap_groups"):
+                    return jsonify({"success": False, "message": f"At least one mailing list or LDAP group is required for mailbox '{mailbox.get('name')}'."}), 400
+            if mailbox.get("sender_profile") and mailbox["sender_profile"] not in profiles:
+                return jsonify({"success": False, "message": f"Sender profile '{mailbox['sender_profile']}' not found."}), 400
+            missing_lists = [name for name in mailbox.get("lists", []) if name not in known_lists]
+            if missing_lists:
+                return jsonify({"success": False, "message": f"Unknown mailing list: {', '.join(missing_lists)}"}), 400
+            saved_mailboxes.append(mailbox)
+        settings["mailboxes"] = saved_mailboxes
+
     ldap_data = data.get("ldap") if isinstance(data.get("ldap"), dict) else {}
     settings["ldap_enabled"] = bool(ldap_data.get("enabled"))
     for key in (
@@ -1039,6 +1226,7 @@ def manage_inbound_relay():
                 "allowed_senders_count": len(settings.get("allowed_senders", [])),
                 "sender_profile": settings.get("sender_profile", ""),
                 "passphrase_saved": bool(settings.get("gpg_passphrase")),
+                "mailboxes_count": len(settings.get("mailboxes", [])),
                 "ldap_enabled": bool(settings.get("ldap_enabled")),
                 "ldap_bind_password_saved": bool(settings.get("ldap_bind_password")),
                 "freeipa_api_password_saved": bool(settings.get("freeipa_api_password")),
@@ -1048,6 +1236,7 @@ def manage_inbound_relay():
     except Exception as e:
         log.error(f"Failed to audit Newsletter inbound settings update: {e}")
 
+    start_module(current_app._get_current_object())
     return jsonify({"success": True, "inbound": safe_inbound_settings()})
 
 @newsletter_bp.route("/api/newsletter/lists", methods=["POST"])

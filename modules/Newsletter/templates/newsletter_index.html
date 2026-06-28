@@ -544,7 +544,7 @@
 <!-- Modal: Newsletter Settings -->
 {% if permissions.manage_smtp %}
 <div id="smtpModal" class="hidden fixed inset-0 z-50 flex items-center justify-center bg-slate-900/80 p-6 backdrop-blur-sm">
-    <div class="bg-white rounded-2xl shadow-2xl w-full max-w-5xl p-6 flex flex-col max-h-[88vh]">
+    <div class="bg-white rounded-2xl shadow-2xl w-full max-w-6xl p-6 flex flex-col max-h-[90vh]">
         <h3 class="text-xl font-bold text-slate-800 mb-4 flex items-center gap-2 border-b border-slate-200 pb-3">
             <svg class="w-6 h-6 text-slate-700" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z"></path><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"></path></svg>
             Newsletter Settings
@@ -601,17 +601,12 @@
             <div class="flex items-start justify-between gap-4 mb-4">
                 <div>
                     <h4 class="font-bold text-sm text-slate-600 uppercase">Inbound Relay</h4>
-                    <p class="text-xs text-slate-500 mt-1 font-bold">Controls who can trigger encrypted forwarding by sending mail to the configured inbound mailbox.</p>
+                    <p class="text-xs text-slate-500 mt-1 font-bold">Route encrypted messages from dedicated inboxes to predefined lists and LDAP groups.</p>
                 </div>
                 <div id="inboundRelayStatus" class="text-xs font-bold px-3 py-1.5 rounded border border-cyan-300/25 bg-slate-950/30 text-cyan-100">Loading...</div>
             </div>
 
-            <div class="grid grid-cols-1 lg:grid-cols-2 gap-4">
-                <div>
-                    <label class="block text-xs font-bold text-slate-500 mb-1">Outbound Sender Profile</label>
-                    <select id="inboundSenderProfile" class="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500 outline-none"></select>
-                    <p class="text-xs text-slate-500 mt-1">Used when an inbound encrypted message starts a mailing.</p>
-                </div>
+            <div class="mb-4 p-3 rounded-lg border border-cyan-400/20 bg-white">
                 <div>
                     <label class="block text-xs font-bold text-slate-500 mb-1">GPG Private Key Passphrase</label>
                     <input type="password" id="inboundGpgPassphrase" placeholder="Leave blank to keep saved passphrase" class="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500 outline-none">
@@ -623,10 +618,97 @@
                 </div>
             </div>
 
-            <div class="mt-4">
-                <label class="block text-xs font-bold text-slate-500 mb-1">Allowed Senders</label>
-                <textarea id="inboundAllowedSenders" rows="4" placeholder="operator@example.com&#10;security@example.com" class="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm font-mono resize-y focus:ring-2 focus:ring-indigo-500 outline-none"></textarea>
-                <p class="text-xs text-slate-500 mt-1">One sender email per line. Use * only for isolated testing.</p>
+            <div class="grid grid-cols-1 xl:grid-cols-[0.9fr_1.1fr] gap-4">
+                <div>
+                    <div class="flex items-center justify-between mb-2">
+                        <h5 class="font-bold text-sm text-slate-600 uppercase">Mailbox Routes</h5>
+                        <button type="button" onclick="resetInboundMailboxForm()" class="text-xs font-bold px-3 py-1.5 rounded-lg bg-slate-800 text-white hover:bg-slate-900">New Route</button>
+                    </div>
+                    <div id="inboundMailboxList" class="space-y-2 max-h-[520px] overflow-y-auto pr-1"></div>
+                </div>
+
+                <div class="bg-white border border-slate-200 rounded-xl p-4">
+                    <div class="flex items-center justify-between gap-3 mb-3">
+                        <h5 id="inboundMailboxFormTitle" class="font-bold text-sm text-slate-600 uppercase">New Mailbox Route</h5>
+                        <label class="flex items-center gap-2 text-xs font-bold text-slate-600">
+                            <input type="checkbox" id="inboundMailboxEnabled" class="w-4 h-4 rounded border-slate-300" checked>
+                            Enabled
+                        </label>
+                    </div>
+
+                    <input type="hidden" id="inboundMailboxId">
+                    <div class="grid grid-cols-1 lg:grid-cols-2 gap-3">
+                        <div>
+                            <label class="block text-xs font-bold text-slate-500 mb-1">Route Name</label>
+                            <input type="text" id="inboundMailboxName" placeholder="IT Support Relay" class="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500 outline-none">
+                        </div>
+                        <div>
+                            <label class="block text-xs font-bold text-slate-500 mb-1">Outbound Sender Profile</label>
+                            <select id="inboundMailboxSenderProfile" class="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500 outline-none"></select>
+                        </div>
+                        <div>
+                            <label class="block text-xs font-bold text-slate-500 mb-1">IMAP Host</label>
+                            <input type="text" id="inboundMailboxHost" placeholder="mail.example.com" class="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500 outline-none">
+                        </div>
+                        <div class="grid grid-cols-[1fr_auto] gap-3">
+                            <div>
+                                <label class="block text-xs font-bold text-slate-500 mb-1">IMAP Port</label>
+                                <input type="number" id="inboundMailboxPort" value="993" class="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500 outline-none">
+                            </div>
+                            <label class="flex items-end gap-2 text-xs font-bold text-slate-600 pb-2">
+                                <input type="checkbox" id="inboundMailboxSsl" class="w-4 h-4 rounded border-slate-300" checked>
+                                SSL
+                            </label>
+                        </div>
+                        <div>
+                            <label class="block text-xs font-bold text-slate-500 mb-1">IMAP User</label>
+                            <input type="text" id="inboundMailboxUser" placeholder="relay@example.com" class="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500 outline-none">
+                        </div>
+                        <div>
+                            <label class="block text-xs font-bold text-slate-500 mb-1">IMAP Password</label>
+                            <input type="password" id="inboundMailboxPassword" placeholder="Leave blank to keep saved password" class="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500 outline-none">
+                            <div id="inboundMailboxPasswordStatus" class="mt-2 text-xs font-bold text-slate-500">Status: Not saved</div>
+                            <label class="mt-2 flex items-center gap-2 text-xs font-bold text-slate-500"><input type="checkbox" id="inboundMailboxClearPassword" class="w-4 h-4 rounded border-slate-300">Clear saved password</label>
+                        </div>
+                        <div>
+                            <label class="block text-xs font-bold text-slate-500 mb-1">Inbox Folder</label>
+                            <input type="text" id="inboundMailboxFolder" value="INBOX" class="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500 outline-none">
+                        </div>
+                        <div class="grid grid-cols-2 gap-3">
+                            <div>
+                                <label class="block text-xs font-bold text-slate-500 mb-1">Processed Folder</label>
+                                <input type="text" id="inboundMailboxProcessedFolder" value="Processed" class="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500 outline-none">
+                            </div>
+                            <div>
+                                <label class="block text-xs font-bold text-slate-500 mb-1">Failed Folder</label>
+                                <input type="text" id="inboundMailboxFailedFolder" value="Failed" class="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500 outline-none">
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="grid grid-cols-1 lg:grid-cols-2 gap-3 mt-3">
+                        <div>
+                            <label class="block text-xs font-bold text-slate-500 mb-1">Allowed Senders</label>
+                            <textarea id="inboundMailboxAllowedSenders" rows="4" placeholder="operator@example.com&#10;security@example.com" class="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm font-mono resize-y focus:ring-2 focus:ring-indigo-500 outline-none"></textarea>
+                            <p class="text-xs text-slate-500 mt-1">One sender email per line. Use * only for isolated testing.</p>
+                        </div>
+                        <div>
+                            <label class="block text-xs font-bold text-slate-500 mb-1">LDAP Groups</label>
+                            <textarea id="inboundMailboxLdapGroups" rows="4" placeholder="team-it-support&#10;devops" class="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm font-mono resize-y focus:ring-2 focus:ring-indigo-500 outline-none"></textarea>
+                            <p class="text-xs text-slate-500 mt-1">Each group resolves through the LDAP / FreeIPA tab.</p>
+                        </div>
+                    </div>
+
+                    <div class="mt-3">
+                        <label class="block text-xs font-bold text-slate-500 mb-1">Local Mailing Lists</label>
+                        <div id="inboundMailboxLists" class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2 max-h-36 overflow-y-auto border border-slate-200 rounded-lg p-2 bg-slate-50"></div>
+                    </div>
+
+                    <div class="flex items-center justify-end gap-3 mt-4">
+                        <button type="button" onclick="resetInboundMailboxForm()" class="px-4 py-2 rounded-lg bg-slate-200 hover:bg-slate-300 text-slate-700 font-bold text-sm">Clear</button>
+                        <button type="button" onclick="saveInboundMailboxDraft()" class="px-5 py-2 rounded-lg bg-slate-800 hover:bg-slate-900 text-white font-bold text-sm">Save Route</button>
+                    </div>
+                </div>
             </div>
 
             <div class="flex items-center justify-between gap-3 mt-4">
@@ -639,7 +721,7 @@
             <div class="flex items-center justify-between gap-3 mb-4">
                 <div>
                     <h4 class="font-bold text-sm text-slate-600 uppercase">FreeIPA / LDAP Groups</h4>
-                    <p class="text-xs text-slate-500 mt-1">Used for inbound subjects like [ldap:team-it-support].</p>
+                    <p class="text-xs text-slate-500 mt-1">Used by mailbox routes that target LDAP or FreeIPA groups.</p>
                 </div>
                 <label class="flex items-center gap-2 text-xs font-bold text-slate-600">
                     <input type="checkbox" id="ldapEnabled" class="w-4 h-4 rounded border-slate-300">
@@ -688,6 +770,8 @@
     let moduleData = { senders: [], lists: {} };
     let currentEditListUsers = [];
     let originalEditListName = null;
+    let inboundMailboxDrafts = [];
+    let currentInboundMailboxId = null;
     const newsletterStateKey = 'winhub_newsletter_draft';
     const maxAttachments = 8;
     const maxAttachmentBytes = 10 * 1024 * 1024;
@@ -1155,14 +1239,11 @@
 
     function renderInboundRelaySettings() {
         const inbound = moduleData.inbound || {};
-        const profileSelect = document.getElementById('inboundSenderProfile');
-        const allowed = document.getElementById('inboundAllowedSenders');
         const status = document.getElementById('inboundRelayStatus');
         const passphrase = document.getElementById('inboundGpgPassphrase');
         const clearPassphrase = document.getElementById('inboundClearPassphrase');
         const saveMessage = document.getElementById('inboundSaveMessage');
         const ldap = inbound.ldap || {};
-        if (!profileSelect || !allowed) return;
 
         const setValue = (id, value) => { const el = document.getElementById(id); if (el) el.value = value || ''; };
         const setChecked = (id, value) => { const el = document.getElementById(id); if (el) el.checked = !!value; };
@@ -1173,15 +1254,12 @@
             el.className = saved ? 'mt-2 text-xs font-bold text-emerald-600' : 'mt-2 text-xs font-bold text-slate-500';
         };
 
-        const senderOptions = ['<option value="">Auto-select sender profile</option>'].concat(
-            moduleData.senders.map(s => `<option value="${s.email}">${s.email}</option>`)
-        );
-        profileSelect.innerHTML = senderOptions.join('');
-        profileSelect.value = inbound.sender_profile || '';
-        allowed.value = (inbound.allowed_senders || []).join('\n');
+        inboundMailboxDrafts = (inbound.mailboxes || []).map(mailbox => ({...mailbox}));
         if (passphrase) passphrase.value = '';
         if (clearPassphrase) clearPassphrase.checked = false;
+        if (saveMessage) saveMessage.innerText = '';
         setSecretStatus('inboundGpgPassphraseStatus', inbound.passphrase_saved);
+
         setChecked('ldapEnabled', ldap.enabled);
         setValue('freeipaApiUrl', ldap.freeipa_api_url);
         setValue('freeipaApiUser', ldap.freeipa_api_user);
@@ -1199,15 +1277,186 @@
         setValue('ldapGroupNameAttr', ldap.group_name_attr || 'cn');
         setValue('ldapGroupMemberAttr', ldap.group_member_attr || 'member');
         setValue('ldapUserEmailAttr', ldap.user_email_attr || 'mail');
-        if (saveMessage) saveMessage.innerText = '';
 
-        const enabledText = inbound.env_enabled ? 'Inbound enabled' : 'Inbound disabled in env';
+        renderInboundMailboxList();
+        resetInboundMailboxForm(false);
+
+        const enabledCount = inboundMailboxDrafts.filter(mailbox => mailbox.enabled !== false).length;
         const passText = inbound.passphrase_saved ? 'GPG saved' : 'no GPG passphrase';
-        const ldapText = ldap.enabled ? `LDAP enabled${ldap.freeipa_api_password_saved || ldap.bind_password_saved ? ' | LDAP password saved' : ''}` : 'LDAP disabled';
-        status.innerText = `${enabledText} | ${passText} | ${ldapText}`;
-        status.className = inbound.env_enabled
-            ? 'text-xs font-bold px-3 py-1.5 rounded border border-emerald-300/25 bg-emerald-500/10 text-emerald-100'
-            : 'text-xs font-bold px-3 py-1.5 rounded border border-amber-300/25 bg-amber-500/10 text-amber-100';
+        const ldapText = ldap.enabled ? 'LDAP enabled' : 'LDAP disabled';
+        if (status) {
+            status.innerText = `${enabledCount} route${enabledCount === 1 ? '' : 's'} enabled | ${passText} | ${ldapText}`;
+            status.className = enabledCount
+                ? 'text-xs font-bold px-3 py-1.5 rounded border border-emerald-300/25 bg-emerald-500/10 text-emerald-100'
+                : 'text-xs font-bold px-3 py-1.5 rounded border border-amber-300/25 bg-amber-500/10 text-amber-100';
+        }
+    }
+
+    function routeArray(value) {
+        if (Array.isArray(value)) return value.filter(Boolean);
+        return String(value || '').split(/\r?\n|,/).map(v => v.trim()).filter(Boolean);
+    }
+
+    function routeText(value) {
+        return routeArray(value).join('\n');
+    }
+
+    function escapeHtml(value) {
+        return String(value || '').replace(/[&<>"']/g, ch => ({
+            '&': '&amp;',
+            '<': '&lt;',
+            '>': '&gt;',
+            '"': '&quot;',
+            "'": '&#039;'
+        }[ch]));
+    }
+
+    function renderInboundMailboxList() {
+        const container = document.getElementById('inboundMailboxList');
+        if (!container) return;
+        if (!inboundMailboxDrafts.length) {
+            container.innerHTML = '<div class="text-sm text-slate-500 italic bg-white border border-slate-200 rounded-lg p-4">No inbound mailbox routes configured.</div>';
+            return;
+        }
+        container.innerHTML = inboundMailboxDrafts.map(mailbox => {
+            const routeName = mailbox.name || mailbox.imap_user || 'Unnamed route';
+            const lists = routeArray(mailbox.lists);
+            const groups = routeArray(mailbox.ldap_groups);
+            const allowed = routeArray(mailbox.allowed_senders);
+            return `
+                <div class="bg-white border border-slate-200 rounded-lg p-3 shadow-sm ${mailbox.enabled === false ? 'opacity-60' : ''}">
+                    <div class="flex items-start justify-between gap-3">
+                        <div class="min-w-0">
+                            <div class="font-bold text-sm text-slate-800 truncate">${escapeHtml(routeName)}</div>
+                            <div class="text-xs text-slate-500 font-mono truncate">${escapeHtml(mailbox.imap_user || 'no user')} @ ${escapeHtml(mailbox.imap_host || 'no host')}</div>
+                        </div>
+                        <span class="text-[11px] font-bold px-2 py-0.5 rounded-full ${mailbox.enabled === false ? 'bg-slate-200 text-slate-600' : 'bg-emerald-100 text-emerald-700'}">${mailbox.enabled === false ? 'Disabled' : 'Enabled'}</span>
+                    </div>
+                    <div class="grid grid-cols-3 gap-2 mt-3 text-xs text-slate-600">
+                        <div><span class="font-bold">Senders:</span> ${allowed.length}</div>
+                        <div><span class="font-bold">Lists:</span> ${lists.length}</div>
+                        <div><span class="font-bold">LDAP:</span> ${groups.length}</div>
+                    </div>
+                    <div class="flex items-center justify-end gap-2 mt-3">
+                        <button type="button" onclick="editInboundMailbox('${mailbox.id}')" class="px-3 py-1.5 rounded bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-bold">Edit</button>
+                        <button type="button" onclick="deleteInboundMailbox('${mailbox.id}')" class="px-3 py-1.5 rounded bg-rose-50 hover:bg-rose-100 text-rose-700 text-xs font-bold">Delete</button>
+                    </div>
+                </div>`;
+        }).join('');
+    }
+
+    function renderInboundMailboxListChoices(selected = []) {
+        const container = document.getElementById('inboundMailboxLists');
+        if (!container) return;
+        const selectedSet = new Set(routeArray(selected).map(v => v.toLowerCase()));
+        const listNames = Object.keys(moduleData.lists || {}).sort();
+        if (!listNames.length) {
+            container.innerHTML = '<div class="text-xs text-slate-500 italic">No local mailing lists available.</div>';
+            return;
+        }
+        container.innerHTML = listNames.map(name => `
+            <label class="flex items-center gap-2 text-xs font-bold text-slate-600 bg-white border border-slate-200 rounded px-2 py-1.5">
+                <input type="checkbox" class="inbound-route-list w-4 h-4 rounded border-slate-300" value="${escapeHtml(name)}" ${selectedSet.has(name.toLowerCase()) ? 'checked' : ''}>
+                <span class="truncate">${escapeHtml(name)}</span>
+            </label>
+        `).join('');
+    }
+
+    function senderOptionsHtml(selected = '') {
+        const options = ['<option value="">Auto-select sender profile</option>'].concat(
+            moduleData.senders.map(s => `<option value="${s.email}" ${s.email === selected ? 'selected' : ''}>${s.email}</option>`)
+        );
+        return options.join('');
+    }
+
+    function resetInboundMailboxForm(clearEditing = true) {
+        if (clearEditing) currentInboundMailboxId = null;
+        const selected = currentInboundMailboxId ? inboundMailboxDrafts.find(item => item.id === currentInboundMailboxId) : null;
+        const mailbox = selected || {};
+        const setValue = (id, value) => { const el = document.getElementById(id); if (el) el.value = value || ''; };
+        const setChecked = (id, value) => { const el = document.getElementById(id); if (el) el.checked = !!value; };
+        const title = document.getElementById('inboundMailboxFormTitle');
+        if (title) title.innerText = selected ? 'Edit Mailbox Route' : 'New Mailbox Route';
+        setValue('inboundMailboxId', mailbox.id || '');
+        setChecked('inboundMailboxEnabled', mailbox.enabled !== false);
+        setValue('inboundMailboxName', mailbox.name || '');
+        const profile = document.getElementById('inboundMailboxSenderProfile');
+        if (profile) profile.innerHTML = senderOptionsHtml(mailbox.sender_profile || '');
+        setValue('inboundMailboxHost', mailbox.imap_host || '');
+        setValue('inboundMailboxPort', mailbox.imap_port || 993);
+        setChecked('inboundMailboxSsl', mailbox.imap_ssl !== false);
+        setValue('inboundMailboxUser', mailbox.imap_user || '');
+        setValue('inboundMailboxPassword', '');
+        setChecked('inboundMailboxClearPassword', false);
+        const passwordStatus = document.getElementById('inboundMailboxPasswordStatus');
+        if (passwordStatus) {
+            const saved = !!mailbox.imap_password_saved;
+            passwordStatus.innerText = saved ? 'Status: Saved' : 'Status: Not saved';
+            passwordStatus.className = saved ? 'mt-2 text-xs font-bold text-emerald-600' : 'mt-2 text-xs font-bold text-slate-500';
+        }
+        setValue('inboundMailboxFolder', mailbox.imap_folder || 'INBOX');
+        setValue('inboundMailboxProcessedFolder', mailbox.processed_folder || 'Processed');
+        setValue('inboundMailboxFailedFolder', mailbox.failed_folder || 'Failed');
+        setValue('inboundMailboxAllowedSenders', routeText(mailbox.allowed_senders));
+        setValue('inboundMailboxLdapGroups', routeText(mailbox.ldap_groups));
+        renderInboundMailboxListChoices(mailbox.lists || []);
+    }
+
+    function editInboundMailbox(id) {
+        currentInboundMailboxId = id;
+        resetInboundMailboxForm(false);
+    }
+
+    function deleteInboundMailbox(id) {
+        if (!confirm('Delete this inbound mailbox route?')) return;
+        inboundMailboxDrafts = inboundMailboxDrafts.filter(mailbox => mailbox.id !== id);
+        if (currentInboundMailboxId === id) currentInboundMailboxId = null;
+        renderInboundMailboxList();
+        resetInboundMailboxForm(false);
+    }
+
+    function selectedInboundLists() {
+        return Array.from(document.querySelectorAll('.inbound-route-list:checked')).map(el => el.value);
+    }
+
+    function saveInboundMailboxDraft() {
+        const valueOf = id => document.getElementById(id)?.value || '';
+        const checkedOf = id => !!document.getElementById(id)?.checked;
+        const id = valueOf('inboundMailboxId') || (window.crypto && window.crypto.randomUUID ? window.crypto.randomUUID() : `route-${Date.now()}`);
+        const existing = inboundMailboxDrafts.find(item => item.id === id);
+        const mailbox = {
+            id,
+            enabled: checkedOf('inboundMailboxEnabled'),
+            name: valueOf('inboundMailboxName').trim(),
+            sender_profile: valueOf('inboundMailboxSenderProfile'),
+            imap_host: valueOf('inboundMailboxHost').trim(),
+            imap_port: parseInt(valueOf('inboundMailboxPort') || '993', 10),
+            imap_ssl: checkedOf('inboundMailboxSsl'),
+            imap_user: valueOf('inboundMailboxUser').trim(),
+            imap_password: valueOf('inboundMailboxPassword'),
+            clear_imap_password: checkedOf('inboundMailboxClearPassword'),
+            imap_password_saved: false,
+            imap_folder: valueOf('inboundMailboxFolder').trim() || 'INBOX',
+            processed_folder: valueOf('inboundMailboxProcessedFolder').trim() || 'Processed',
+            failed_folder: valueOf('inboundMailboxFailedFolder').trim() || 'Failed',
+            allowed_senders: routeArray(valueOf('inboundMailboxAllowedSenders')),
+            lists: selectedInboundLists(),
+            ldap_groups: routeArray(valueOf('inboundMailboxLdapGroups')),
+        };
+        mailbox.imap_password_saved = !!(mailbox.imap_password || (!mailbox.clear_imap_password && existing?.imap_password_saved));
+
+        if (!mailbox.name) mailbox.name = mailbox.imap_user || mailbox.imap_host || 'Inbound route';
+        if (!mailbox.imap_host || !mailbox.imap_user) return alert('IMAP host and user are required.');
+        if (!mailbox.imap_password_saved) return alert('IMAP password is required.');
+        if (!mailbox.allowed_senders.length) return alert('Add at least one allowed sender.');
+        if (!mailbox.lists.length && !mailbox.ldap_groups.length) return alert('Select at least one local list or LDAP group.');
+
+        const index = inboundMailboxDrafts.findIndex(item => item.id === id);
+        if (index >= 0) inboundMailboxDrafts[index] = mailbox;
+        else inboundMailboxDrafts.push(mailbox);
+        currentInboundMailboxId = id;
+        renderInboundMailboxList();
+        resetInboundMailboxForm(false);
     }
 
     async function saveInboundRelaySettings() {
@@ -1215,10 +1464,11 @@
         const valueOf = id => document.getElementById(id)?.value || '';
         const checkedOf = id => !!document.getElementById(id)?.checked;
         const payload = {
-            sender_profile: valueOf('inboundSenderProfile'),
-            allowed_senders: valueOf('inboundAllowedSenders').split(/\r?\n/).map(v => v.trim()).filter(Boolean),
+            sender_profile: '',
+            allowed_senders: [],
             gpg_passphrase: valueOf('inboundGpgPassphrase'),
             clear_gpg_passphrase: checkedOf('inboundClearPassphrase'),
+            mailboxes: inboundMailboxDrafts,
             ldap: {
                 enabled: checkedOf('ldapEnabled'),
                 freeipa_api_url: valueOf('freeipaApiUrl'),
