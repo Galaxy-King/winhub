@@ -247,6 +247,77 @@ def decrypt_optional_secret(value):
         return ""
     return decrypt_pass(value)
 
+def profile_secret(value):
+    if not value:
+        return ""
+    decrypted = decrypt_optional_secret(value)
+    return decrypted or str(value)
+
+def normalize_mail_profile(email, raw, existing=None, for_save=False):
+    existing = existing or {}
+    email = str(email or raw.get("email") or existing.get("email") or "").strip().lower()
+    if not email or "@" not in email:
+        raise ValueError("Valid email is required.")
+
+    profile = {
+        "email": email,
+        "host": str(raw.get("host") or raw.get("smtp_host") or existing.get("host") or "").strip(),
+        "port": int(raw.get("port") or raw.get("smtp_port") or existing.get("port") or 587),
+        "keyserver": str(raw.get("keyserver") or existing.get("keyserver") or "").strip(),
+        "imap_host": str(raw.get("imap_host") or existing.get("imap_host") or "").strip(),
+        "imap_port": int(raw.get("imap_port") or existing.get("imap_port") or 993),
+        "imap_ssl": bool(raw.get("imap_ssl", existing.get("imap_ssl", True))),
+        "imap_user": str(raw.get("imap_user") or existing.get("imap_user") or email).strip(),
+        "imap_folder": str(raw.get("imap_folder") or existing.get("imap_folder") or "INBOX").strip() or "INBOX",
+        "processed_folder": str(raw.get("processed_folder") or existing.get("processed_folder") or "Processed").strip(),
+        "failed_folder": str(raw.get("failed_folder") or existing.get("failed_folder") or "Failed").strip(),
+    }
+
+    smtp_password = str(raw.get("password") or raw.get("smtp_password") or "")
+    if smtp_password:
+        profile["password"] = encrypt_pass(smtp_password) if for_save else smtp_password
+    elif existing.get("password") and not raw.get("clear_smtp_password"):
+        profile["password"] = existing.get("password")
+    if raw.get("clear_smtp_password"):
+        profile.pop("password", None)
+
+    imap_password = str(raw.get("imap_password") or "")
+    if imap_password:
+        profile["imap_password"] = encrypt_pass(imap_password) if for_save else imap_password
+    elif existing.get("imap_password") and not raw.get("clear_imap_password"):
+        profile["imap_password"] = existing.get("imap_password")
+    if raw.get("clear_imap_password"):
+        profile.pop("imap_password", None)
+
+    gpg_passphrase = str(raw.get("gpg_passphrase") or "")
+    if gpg_passphrase:
+        profile["gpg_passphrase"] = encrypt_pass(gpg_passphrase) if for_save else gpg_passphrase
+    elif existing.get("gpg_passphrase") and not raw.get("clear_gpg_passphrase"):
+        profile["gpg_passphrase"] = existing.get("gpg_passphrase")
+    if raw.get("clear_gpg_passphrase"):
+        profile.pop("gpg_passphrase", None)
+
+    return profile
+
+def safe_mail_profile(email, profile):
+    item = {
+        "email": email,
+        "host": profile.get("host", ""),
+        "port": profile.get("port", 587),
+        "keyserver": profile.get("keyserver", ""),
+        "imap_host": profile.get("imap_host", ""),
+        "imap_port": profile.get("imap_port", 993),
+        "imap_ssl": profile.get("imap_ssl", True),
+        "imap_user": profile.get("imap_user", email),
+        "imap_folder": profile.get("imap_folder", "INBOX"),
+        "processed_folder": profile.get("processed_folder", "Processed"),
+        "failed_folder": profile.get("failed_folder", "Failed"),
+        "smtp_password_saved": bool(profile.get("password")),
+        "imap_password_saved": bool(profile.get("imap_password")),
+        "gpg_passphrase_saved": bool(profile.get("gpg_passphrase")),
+    }
+    return item
+
 def inbound_bool_setting(key, env_name, default=False):
     settings = load_inbound_settings()
     if key in settings:
@@ -287,14 +358,19 @@ def normalize_inbound_mailbox(raw, existing=None, for_save=False):
     mailbox_id = str(raw.get("id") or existing.get("id") or uuid.uuid4()).strip()
     if not mailbox_id:
         mailbox_id = str(uuid.uuid4())
-    imap_user = str(raw.get("imap_user") or existing.get("imap_user") or "").strip()
-    name = str(raw.get("name") or existing.get("name") or imap_user).strip()
-    sender_profile = str(raw.get("sender_profile") or existing.get("sender_profile") or "").strip()
+    inbound_profile = str(raw.get("inbound_profile") or raw.get("inbound_profile_email") or existing.get("inbound_profile") or "").strip().lower()
+    outbound_profile = str(raw.get("outbound_profile") or raw.get("sender_profile") or existing.get("outbound_profile") or existing.get("sender_profile") or "").strip().lower()
+    ldap_profile = str(raw.get("ldap_profile") or existing.get("ldap_profile") or "").strip()
+    imap_user = str(raw.get("imap_user") or existing.get("imap_user") or inbound_profile).strip()
+    name = str(raw.get("name") or existing.get("name") or inbound_profile or imap_user).strip()
 
     mailbox = {
         "id": mailbox_id,
         "name": name or imap_user or mailbox_id,
         "enabled": bool(raw.get("enabled", existing.get("enabled", True))),
+        "inbound_profile": inbound_profile,
+        "outbound_profile": outbound_profile,
+        "ldap_profile": ldap_profile,
         "imap_host": str(raw.get("imap_host") or existing.get("imap_host") or "").strip(),
         "imap_port": int(raw.get("imap_port") or existing.get("imap_port") or 993),
         "imap_ssl": bool(raw.get("imap_ssl", existing.get("imap_ssl", True))),
@@ -302,7 +378,6 @@ def normalize_inbound_mailbox(raw, existing=None, for_save=False):
         "imap_folder": str(raw.get("imap_folder") or existing.get("imap_folder") or "INBOX").strip() or "INBOX",
         "processed_folder": str(raw.get("processed_folder") or existing.get("processed_folder") or "Processed").strip(),
         "failed_folder": str(raw.get("failed_folder") or existing.get("failed_folder") or "Failed").strip(),
-        "sender_profile": sender_profile,
         "allowed_senders": normalize_email_list(raw.get("allowed_senders", existing.get("allowed_senders", []))),
         "lists": split_config_values(raw.get("lists", existing.get("lists", []))),
         "ldap_groups": split_config_values(raw.get("ldap_groups", existing.get("ldap_groups", []))),
@@ -319,6 +394,15 @@ def normalize_inbound_mailbox(raw, existing=None, for_save=False):
     if raw.get("clear_imap_password"):
         mailbox.pop("imap_password", None)
         mailbox.pop("imap_password_env", None)
+
+    passphrase = str(raw.get("gpg_passphrase") or "")
+    if passphrase:
+        mailbox["gpg_passphrase"] = encrypt_pass(passphrase) if for_save else passphrase
+    elif existing.get("gpg_passphrase") and not raw.get("clear_gpg_passphrase"):
+        mailbox["gpg_passphrase"] = existing.get("gpg_passphrase")
+
+    if raw.get("clear_gpg_passphrase"):
+        mailbox.pop("gpg_passphrase", None)
 
     return mailbox
 
@@ -345,11 +429,16 @@ def safe_inbound_mailboxes():
         item = dict(mailbox)
         item.pop("imap_password", None)
         item.pop("imap_password_env", None)
+        item.pop("gpg_passphrase", None)
         item["imap_password_saved"] = bool(mailbox.get("imap_password") or mailbox.get("imap_password_env"))
+        item["gpg_passphrase_saved"] = bool(mailbox.get("gpg_passphrase") or load_inbound_settings().get("gpg_passphrase") or os.environ.get("NEWSLETTER_INBOUND_GPG_PASSPHRASE"))
         safe.append(item)
     return safe
 
 def mailbox_imap_password(mailbox):
+    profile = load_smtp_profiles().get(str(mailbox.get("inbound_profile") or "").strip().lower())
+    if profile and profile.get("imap_password"):
+        return decrypt_optional_secret(profile.get("imap_password"))
     if mailbox.get("imap_password"):
         return decrypt_optional_secret(mailbox.get("imap_password"))
     env_name = mailbox.get("imap_password_env")
@@ -357,10 +446,106 @@ def mailbox_imap_password(mailbox):
         return os.environ.get(env_name, "")
     return ""
 
+def mailbox_gpg_passphrase(mailbox):
+    profile = load_smtp_profiles().get(str(mailbox.get("inbound_profile") or "").strip().lower())
+    if profile and profile.get("gpg_passphrase"):
+        return decrypt_optional_secret(profile.get("gpg_passphrase"))
+    if mailbox.get("gpg_passphrase"):
+        return decrypt_optional_secret(mailbox.get("gpg_passphrase"))
+    return inbound_gpg_passphrase()
+
 def inbound_relay_enabled():
     if env_bool("NEWSLETTER_INBOUND_ENABLED", False):
         return True
     return any(mailbox.get("enabled", True) for mailbox in inbound_mailboxes(include_legacy=False))
+
+def normalize_ldap_profile(raw, existing=None, for_save=False):
+    existing = existing or {}
+    profile_id = str(raw.get("id") or existing.get("id") or uuid.uuid4()).strip()
+    profile = {
+        "id": profile_id,
+        "name": str(raw.get("name") or existing.get("name") or raw.get("freeipa_api_user") or raw.get("ldap_bind_dn") or "LDAP Profile").strip(),
+        "enabled": bool(raw.get("enabled", existing.get("enabled", True))),
+        "freeipa_api_url": str(raw.get("freeipa_api_url") or existing.get("freeipa_api_url") or "").strip(),
+        "freeipa_api_user": str(raw.get("freeipa_api_user") or existing.get("freeipa_api_user") or "").strip(),
+        "freeipa_api_verify_tls": bool(raw.get("freeipa_api_verify_tls", existing.get("freeipa_api_verify_tls", True))),
+        "ldap_uri": str(raw.get("ldap_uri") or existing.get("ldap_uri") or "").strip(),
+        "ldap_bind_dn": str(raw.get("ldap_bind_dn") or existing.get("ldap_bind_dn") or "").strip(),
+        "ldap_base_dn": str(raw.get("ldap_base_dn") or existing.get("ldap_base_dn") or "").strip(),
+        "ldap_group_base_dn": str(raw.get("ldap_group_base_dn") or existing.get("ldap_group_base_dn") or "").strip(),
+        "ldap_group_name_attr": str(raw.get("ldap_group_name_attr") or existing.get("ldap_group_name_attr") or "cn").strip() or "cn",
+        "ldap_group_member_attr": str(raw.get("ldap_group_member_attr") or existing.get("ldap_group_member_attr") or "member").strip() or "member",
+        "ldap_user_email_attr": str(raw.get("ldap_user_email_attr") or existing.get("ldap_user_email_attr") or "mail").strip() or "mail",
+        "ldap_allowed_groups": str(raw.get("ldap_allowed_groups") or existing.get("ldap_allowed_groups") or "").strip(),
+    }
+
+    freeipa_password = str(raw.get("freeipa_api_password") or "")
+    if freeipa_password:
+        profile["freeipa_api_password"] = encrypt_pass(freeipa_password) if for_save else freeipa_password
+    elif existing.get("freeipa_api_password") and not raw.get("clear_freeipa_api_password"):
+        profile["freeipa_api_password"] = existing.get("freeipa_api_password")
+    if raw.get("clear_freeipa_api_password"):
+        profile.pop("freeipa_api_password", None)
+
+    ldap_password = str(raw.get("ldap_bind_password") or "")
+    if ldap_password:
+        profile["ldap_bind_password"] = encrypt_pass(ldap_password) if for_save else ldap_password
+    elif existing.get("ldap_bind_password") and not raw.get("clear_ldap_bind_password"):
+        profile["ldap_bind_password"] = existing.get("ldap_bind_password")
+    if raw.get("clear_ldap_bind_password"):
+        profile.pop("ldap_bind_password", None)
+
+    return profile
+
+def ldap_profiles():
+    settings = load_inbound_settings()
+    configured = settings.get("ldap_profiles")
+    profiles = []
+    if isinstance(configured, list):
+        for raw in configured:
+            if isinstance(raw, dict):
+                profiles.append(normalize_ldap_profile(raw))
+    if not profiles and (
+        inbound_plain_setting("freeipa_api_url", "NEWSLETTER_FREEIPA_API_URL", "")
+        or inbound_plain_setting("ldap_uri", "NEWSLETTER_LDAP_URI", "")
+    ):
+        profiles.append(normalize_ldap_profile({
+            "id": "default",
+            "name": "Default LDAP",
+            "enabled": inbound_bool_setting("ldap_enabled", "NEWSLETTER_LDAP_ENABLED", False),
+            "freeipa_api_url": inbound_plain_setting("freeipa_api_url", "NEWSLETTER_FREEIPA_API_URL", ""),
+            "freeipa_api_user": inbound_plain_setting("freeipa_api_user", "NEWSLETTER_FREEIPA_API_USER", ""),
+            "freeipa_api_password": inbound_secret_setting("freeipa_api_password", "NEWSLETTER_FREEIPA_API_PASSWORD"),
+            "freeipa_api_verify_tls": inbound_bool_setting("freeipa_api_verify_tls", "NEWSLETTER_FREEIPA_API_VERIFY_TLS", True),
+            "ldap_uri": inbound_plain_setting("ldap_uri", "NEWSLETTER_LDAP_URI", ""),
+            "ldap_bind_dn": inbound_plain_setting("ldap_bind_dn", "NEWSLETTER_LDAP_BIND_DN", ""),
+            "ldap_bind_password": inbound_secret_setting("ldap_bind_password", "NEWSLETTER_LDAP_BIND_PASSWORD"),
+            "ldap_base_dn": inbound_plain_setting("ldap_base_dn", "NEWSLETTER_LDAP_BASE_DN", ""),
+            "ldap_group_base_dn": inbound_plain_setting("ldap_group_base_dn", "NEWSLETTER_LDAP_GROUP_BASE_DN", ""),
+            "ldap_group_name_attr": inbound_plain_setting("ldap_group_name_attr", "NEWSLETTER_LDAP_GROUP_NAME_ATTR", "cn"),
+            "ldap_group_member_attr": inbound_plain_setting("ldap_group_member_attr", "NEWSLETTER_LDAP_GROUP_MEMBER_ATTR", "member"),
+            "ldap_user_email_attr": inbound_plain_setting("ldap_user_email_attr", "NEWSLETTER_LDAP_USER_EMAIL_ATTR", "mail"),
+            "ldap_allowed_groups": inbound_plain_setting("ldap_allowed_groups", "NEWSLETTER_LDAP_ALLOWED_GROUPS", ""),
+        }))
+    return profiles
+
+def ldap_profile_by_id(profile_id):
+    profile_id = str(profile_id or "").strip()
+    for profile in ldap_profiles():
+        if profile.get("id") == profile_id:
+            return profile
+    return None
+
+def safe_ldap_profiles():
+    safe = []
+    for profile in ldap_profiles():
+        item = dict(profile)
+        item.pop("freeipa_api_password", None)
+        item.pop("ldap_bind_password", None)
+        item["freeipa_api_password_saved"] = bool(profile.get("freeipa_api_password"))
+        item["ldap_bind_password_saved"] = bool(profile.get("ldap_bind_password"))
+        safe.append(item)
+    return safe
 
 def ldap_enabled():
     return inbound_bool_setting("ldap_enabled", "NEWSLETTER_LDAP_ENABLED", False)
@@ -370,16 +555,17 @@ def ldap_allowed_group(group_name):
     allowed = csv_set_from_value(configured)
     return not allowed or "*" in allowed or str(group_name or "").strip().lower() in allowed
 
-def freeipa_api_base_url():
-    value = inbound_plain_setting("freeipa_api_url", "NEWSLETTER_FREEIPA_API_URL", "")
+def freeipa_api_base_url(profile=None):
+    value = (profile or {}).get("freeipa_api_url") or inbound_plain_setting("freeipa_api_url", "NEWSLETTER_FREEIPA_API_URL", "")
     if not value:
         return ""
     if not value.startswith(("http://", "https://")):
         value = f"https://{value}"
     return value.rstrip("/")
 
-def freeipa_api_recipients_from_group(group_name):
-    base_url = freeipa_api_base_url()
+def freeipa_api_recipients_from_group(group_name, profile=None):
+    profile = profile or {}
+    base_url = freeipa_api_base_url(profile)
     if not base_url:
         return None
 
@@ -388,18 +574,18 @@ def freeipa_api_recipients_from_group(group_name):
     except ImportError as e:
         raise RuntimeError("Python package 'requests' is not installed.") from e
 
-    username = inbound_plain_setting("freeipa_api_user", "NEWSLETTER_FREEIPA_API_USER", "")
-    password = inbound_secret_setting("freeipa_api_password", "NEWSLETTER_FREEIPA_API_PASSWORD")
+    username = profile.get("freeipa_api_user") or inbound_plain_setting("freeipa_api_user", "NEWSLETTER_FREEIPA_API_USER", "")
+    password = profile_secret(profile.get("freeipa_api_password")) if profile.get("freeipa_api_password") else inbound_secret_setting("freeipa_api_password", "NEWSLETTER_FREEIPA_API_PASSWORD")
     if not username:
-        bind_dn = inbound_plain_setting("ldap_bind_dn", "NEWSLETTER_LDAP_BIND_DN", "")
+        bind_dn = profile.get("ldap_bind_dn") or inbound_plain_setting("ldap_bind_dn", "NEWSLETTER_LDAP_BIND_DN", "")
         match = re.search(r"uid=([^,]+)", bind_dn, re.IGNORECASE)
         username = match.group(1) if match else ""
     if not password:
-        password = inbound_secret_setting("ldap_bind_password", "NEWSLETTER_LDAP_BIND_PASSWORD")
+        password = profile_secret(profile.get("ldap_bind_password")) if profile.get("ldap_bind_password") else inbound_secret_setting("ldap_bind_password", "NEWSLETTER_LDAP_BIND_PASSWORD")
     if not username or not password:
         raise ValueError("FreeIPA API settings are incomplete. Check NEWSLETTER_FREEIPA_API_USER/PASSWORD or LDAP bind settings.")
 
-    verify_tls = inbound_bool_setting("freeipa_api_verify_tls", "NEWSLETTER_FREEIPA_API_VERIFY_TLS", True)
+    verify_tls = bool(profile.get("freeipa_api_verify_tls", inbound_bool_setting("freeipa_api_verify_tls", "NEWSLETTER_FREEIPA_API_VERIFY_TLS", True)))
     session = requests.Session()
     session.verify = verify_tls
     login_url = f"{base_url}/ipa/session/login_password"
@@ -437,7 +623,7 @@ def freeipa_api_recipients_from_group(group_name):
     if not members:
         raise ValueError(f"FreeIPA group '{group_name}' has no user members.")
 
-    user_email_attr = inbound_plain_setting("ldap_user_email_attr", "NEWSLETTER_LDAP_USER_EMAIL_ATTR", "mail") or "mail"
+    user_email_attr = profile.get("ldap_user_email_attr") or inbound_plain_setting("ldap_user_email_attr", "NEWSLETTER_LDAP_USER_EMAIL_ATTR", "mail") or "mail"
     recipients = []
     skipped_without_email = 0
     for uid in members:
@@ -477,13 +663,19 @@ def freeipa_api_recipients_from_group(group_name):
         "skipped_without_email": skipped_without_email,
     }
 
-def ldap_recipients_from_group(group_name):
-    if not ldap_enabled():
+def ldap_recipients_from_group(group_name, profile=None):
+    profile = profile or {}
+    if profile and not profile.get("enabled", True):
+        raise ValueError("Selected LDAP profile is disabled.")
+    if not profile and not ldap_enabled():
         raise ValueError("LDAP group targets are disabled. Set NEWSLETTER_LDAP_ENABLED=true.")
-    if not ldap_allowed_group(group_name):
+    allowed = csv_set_from_value(profile.get("ldap_allowed_groups", "")) if profile else set()
+    if profile and allowed and "*" not in allowed and str(group_name or "").strip().lower() not in allowed:
+        raise PermissionError(f"LDAP group '{group_name}' is not allowed for selected LDAP profile.")
+    if not profile and not ldap_allowed_group(group_name):
         raise PermissionError(f"LDAP group '{group_name}' is not allowed for inbound newsletter relay.")
 
-    api_result = freeipa_api_recipients_from_group(group_name)
+    api_result = freeipa_api_recipients_from_group(group_name, profile)
     if api_result is not None:
         return api_result
 
@@ -493,14 +685,14 @@ def ldap_recipients_from_group(group_name):
     except ImportError as e:
         raise RuntimeError("Python package 'ldap3' is not installed.") from e
 
-    uri = inbound_plain_setting("ldap_uri", "NEWSLETTER_LDAP_URI", "")
-    bind_dn = inbound_plain_setting("ldap_bind_dn", "NEWSLETTER_LDAP_BIND_DN", "")
-    bind_password = inbound_secret_setting("ldap_bind_password", "NEWSLETTER_LDAP_BIND_PASSWORD")
-    base_dn = inbound_plain_setting("ldap_base_dn", "NEWSLETTER_LDAP_BASE_DN", "")
-    group_base_dn = inbound_plain_setting("ldap_group_base_dn", "NEWSLETTER_LDAP_GROUP_BASE_DN", base_dn)
-    group_name_attr = inbound_plain_setting("ldap_group_name_attr", "NEWSLETTER_LDAP_GROUP_NAME_ATTR", "cn") or "cn"
-    group_member_attr = inbound_plain_setting("ldap_group_member_attr", "NEWSLETTER_LDAP_GROUP_MEMBER_ATTR", "member") or "member"
-    user_email_attr = inbound_plain_setting("ldap_user_email_attr", "NEWSLETTER_LDAP_USER_EMAIL_ATTR", "mail") or "mail"
+    uri = profile.get("ldap_uri") or inbound_plain_setting("ldap_uri", "NEWSLETTER_LDAP_URI", "")
+    bind_dn = profile.get("ldap_bind_dn") or inbound_plain_setting("ldap_bind_dn", "NEWSLETTER_LDAP_BIND_DN", "")
+    bind_password = profile_secret(profile.get("ldap_bind_password")) if profile.get("ldap_bind_password") else inbound_secret_setting("ldap_bind_password", "NEWSLETTER_LDAP_BIND_PASSWORD")
+    base_dn = profile.get("ldap_base_dn") or inbound_plain_setting("ldap_base_dn", "NEWSLETTER_LDAP_BASE_DN", "")
+    group_base_dn = profile.get("ldap_group_base_dn") or inbound_plain_setting("ldap_group_base_dn", "NEWSLETTER_LDAP_GROUP_BASE_DN", base_dn)
+    group_name_attr = profile.get("ldap_group_name_attr") or inbound_plain_setting("ldap_group_name_attr", "NEWSLETTER_LDAP_GROUP_NAME_ATTR", "cn") or "cn"
+    group_member_attr = profile.get("ldap_group_member_attr") or inbound_plain_setting("ldap_group_member_attr", "NEWSLETTER_LDAP_GROUP_MEMBER_ATTR", "member") or "member"
+    user_email_attr = profile.get("ldap_user_email_attr") or inbound_plain_setting("ldap_user_email_attr", "NEWSLETTER_LDAP_USER_EMAIL_ATTR", "mail") or "mail"
 
     if not uri or not bind_dn or not bind_password or not group_base_dn:
         raise ValueError("LDAP settings are incomplete. Check NEWSLETTER_LDAP_URI, BIND_DN, BIND_PASSWORD and BASE_DN.")
@@ -709,8 +901,11 @@ def resolve_mailbox_recipients(mailbox):
         list_counts[list_name] = len(resolved)
 
     ldap_meta = {}
+    selected_ldap_profile = ldap_profile_by_id(mailbox.get("ldap_profile")) if mailbox.get("ldap_profile") else None
+    if configured_ldap_groups and mailbox.get("ldap_profile") and not selected_ldap_profile:
+        raise ValueError(f"LDAP profile '{mailbox.get('ldap_profile')}' not found.")
     for group_name in configured_ldap_groups:
-        group_recipients, group_meta = ldap_recipients_from_group(group_name)
+        group_recipients, group_meta = ldap_recipients_from_group(group_name, selected_ldap_profile)
         recipients.update(group_recipients)
         ldap_meta[group_name] = {
             "recipients_count": len(group_recipients),
@@ -739,11 +934,11 @@ def dispatch_inbound_newsletter(app, source_msg, decrypted_msg, mailbox, subject
         )
 
         profiles = load_smtp_profiles()
-        configured_sender = str(mailbox.get("sender_profile") or "").strip()
+        configured_sender = str(mailbox.get("outbound_profile") or mailbox.get("sender_profile") or "").strip().lower()
         if configured_sender and configured_sender in profiles:
             sender_email, smtp_config = configured_sender, profiles[configured_sender]
         else:
-            sender_email, smtp_config = resolve_inbound_sender_profile(profiles, mailbox.get("imap_user", ""))
+            sender_email, smtp_config = resolve_inbound_sender_profile(profiles, mailbox.get("inbound_profile") or mailbox.get("imap_user", ""))
         if not sender_email:
             raise ValueError("No SMTP profile available for inbound newsletter relay.")
 
@@ -823,7 +1018,7 @@ def process_inbound_message(app, imap, uid, raw_message, mailbox):
     if not encrypted_payload:
         raise ValueError("Inbound message is not PGP encrypted.")
 
-    passphrase = inbound_gpg_passphrase()
+    passphrase = mailbox_gpg_passphrase(mailbox)
     gpg_path = app.config.get("GPG_PATH") or os.environ.get("GPG_PATH", "gpg")
     ok, decrypted = decrypt_with_gpg(gpg_path, encrypted_payload, passphrase)
     if not ok:
@@ -837,18 +1032,20 @@ def process_inbound_message(app, imap, uid, raw_message, mailbox):
 def poll_inbound_mailbox(app, mailbox):
     if not mailbox.get("enabled", True):
         return
-    host = str(mailbox.get("imap_host") or "").strip()
-    user = str(mailbox.get("imap_user") or "").strip()
+    profiles = load_smtp_profiles()
+    inbound_profile = profiles.get(str(mailbox.get("inbound_profile") or "").strip().lower()) or {}
+    host = str(inbound_profile.get("imap_host") or mailbox.get("imap_host") or "").strip()
+    user = str(inbound_profile.get("imap_user") or mailbox.get("imap_user") or inbound_profile.get("email") or "").strip()
     password = mailbox_imap_password(mailbox)
     if not host or not user or not password:
         log.warning("Newsletter inbound mailbox '%s' is incomplete; IMAP host/user/password is required.", mailbox.get("name") or user or "unnamed")
         return
 
-    port = int(mailbox.get("imap_port") or 993)
-    use_ssl = bool(mailbox.get("imap_ssl", True))
-    folder = mailbox.get("imap_folder") or "INBOX"
-    processed_folder = mailbox.get("processed_folder") or "Processed"
-    failed_folder = mailbox.get("failed_folder") or "Failed"
+    port = int(inbound_profile.get("imap_port") or mailbox.get("imap_port") or 993)
+    use_ssl = bool(inbound_profile.get("imap_ssl", mailbox.get("imap_ssl", True)))
+    folder = inbound_profile.get("imap_folder") or mailbox.get("imap_folder") or "INBOX"
+    processed_folder = inbound_profile.get("processed_folder") or mailbox.get("processed_folder") or "Processed"
+    failed_folder = inbound_profile.get("failed_folder") or mailbox.get("failed_folder") or "Failed"
     mailbox_label = mailbox.get("name") or user
 
     imap = None
@@ -976,6 +1173,7 @@ def safe_inbound_settings():
         "env_enabled": inbound_relay_enabled(),
         "imap_user": os.environ.get("NEWSLETTER_INBOUND_IMAP_USER", ""),
         "mailboxes": safe_inbound_mailboxes(),
+        "ldap_profiles": safe_ldap_profiles(),
         "ldap": {
             "enabled": inbound_bool_setting("ldap_enabled", "NEWSLETTER_LDAP_ENABLED", False),
             "uri": inbound_plain_setting("ldap_uri", "NEWSLETTER_LDAP_URI", ""),
@@ -1058,12 +1256,7 @@ def get_config():
     senders = []
     for email, conf in profiles.items():
         if can_manage_smtp:
-            senders.append({
-                "email": email, 
-                "host": conf.get("host", ""), 
-                "port": conf.get("port", 587),
-                "keyserver": conf.get("keyserver", "")
-            })
+            senders.append(safe_mail_profile(email, conf))
         else:
             senders.append({"email": email})
             
@@ -1092,20 +1285,16 @@ def manage_smtp():
     profiles = load_smtp_profiles()
     
     if action == "add":
-        host = data.get("host", "").strip()
-        port = data.get("port", 587)
-        password = data.get("password", "")
-        keyserver = data.get("keyserver", "").strip()
-        
-        if not host or not password:
-            return jsonify({"success": False, "message": "Host and Password are required."}), 400
-            
-        profiles[email] = {
-            "host": host,
-            "port": int(port),
-            "password": encrypt_pass(password),
-            "keyserver": keyserver
-        }
+        existing = profiles.get(email, {})
+        try:
+            profile = normalize_mail_profile(email, data, existing=existing, for_save=True)
+        except ValueError as e:
+            return jsonify({"success": False, "message": str(e)}), 400
+        if not profile.get("host"):
+            return jsonify({"success": False, "message": "SMTP host is required."}), 400
+        if not profile.get("password"):
+            return jsonify({"success": False, "message": "SMTP password is required."}), 400
+        profiles[email] = profile
         save_smtp_profiles(profiles)
         
     elif action == "delete":
@@ -1144,6 +1333,30 @@ def manage_inbound_relay():
     if bool(data.get("clear_gpg_passphrase")):
         settings.pop("gpg_passphrase", None)
 
+    incoming_ldap_profiles = data.get("ldap_profiles")
+    if isinstance(incoming_ldap_profiles, list):
+        existing_ldap_by_id = {
+            str(item.get("id")): item
+            for item in settings.get("ldap_profiles", [])
+            if isinstance(item, dict) and item.get("id")
+        }
+        saved_ldap_profiles = []
+        seen_ldap_ids = set()
+        for raw_profile in incoming_ldap_profiles:
+            if not isinstance(raw_profile, dict):
+                continue
+            existing = existing_ldap_by_id.get(str(raw_profile.get("id") or ""))
+            profile = normalize_ldap_profile(raw_profile, existing=existing, for_save=True)
+            if profile["id"] in seen_ldap_ids:
+                return jsonify({"success": False, "message": "LDAP profile IDs must be unique."}), 400
+            seen_ldap_ids.add(profile["id"])
+            if profile.get("enabled") and not (profile.get("freeipa_api_url") or profile.get("ldap_uri")):
+                return jsonify({"success": False, "message": f"LDAP profile '{profile.get('name')}' needs a FreeIPA API URL or LDAP URI."}), 400
+            if profile.get("enabled") and profile.get("freeipa_api_url") and not (profile.get("freeipa_api_user") and profile.get("freeipa_api_password")):
+                return jsonify({"success": False, "message": f"FreeIPA user and password are required for LDAP profile '{profile.get('name')}'."}), 400
+            saved_ldap_profiles.append(profile)
+        settings["ldap_profiles"] = saved_ldap_profiles
+
     incoming_mailboxes = data.get("mailboxes")
     if isinstance(incoming_mailboxes, list):
         existing_by_id = {
@@ -1166,20 +1379,21 @@ def manage_inbound_relay():
                 return jsonify({"success": False, "message": "Inbound mailbox IDs must be unique."}), 400
             seen_mailbox_ids.add(mailbox["id"])
             if mailbox.get("enabled"):
-                for required_key, label in (
-                    ("imap_host", "IMAP host"),
-                    ("imap_user", "IMAP user"),
-                ):
-                    if not mailbox.get(required_key):
-                        return jsonify({"success": False, "message": f"{label} is required for enabled inbound mailboxes."}), 400
-                if not (mailbox.get("imap_password") or mailbox.get("imap_password_env")):
-                    return jsonify({"success": False, "message": f"IMAP password is required for mailbox '{mailbox.get('name')}'."}), 400
+                if not mailbox.get("inbound_profile"):
+                    return jsonify({"success": False, "message": f"Inbound mail profile is required for route '{mailbox.get('name')}'."}), 400
+                if mailbox.get("inbound_profile") not in profiles:
+                    return jsonify({"success": False, "message": f"Inbound mail profile '{mailbox.get('inbound_profile')}' not found."}), 400
+                inbound_profile = profiles[mailbox.get("inbound_profile")]
+                if not (inbound_profile.get("imap_host") and inbound_profile.get("imap_user") and inbound_profile.get("imap_password")):
+                    return jsonify({"success": False, "message": f"Inbound mail profile '{mailbox.get('inbound_profile')}' needs IMAP host, user and password."}), 400
                 if not mailbox.get("allowed_senders"):
                     return jsonify({"success": False, "message": f"Allowed senders are required for mailbox '{mailbox.get('name')}'."}), 400
                 if not mailbox.get("lists") and not mailbox.get("ldap_groups"):
                     return jsonify({"success": False, "message": f"At least one mailing list or LDAP group is required for mailbox '{mailbox.get('name')}'."}), 400
-            if mailbox.get("sender_profile") and mailbox["sender_profile"] not in profiles:
-                return jsonify({"success": False, "message": f"Sender profile '{mailbox['sender_profile']}' not found."}), 400
+            if mailbox.get("outbound_profile") and mailbox["outbound_profile"] not in profiles:
+                return jsonify({"success": False, "message": f"Outbound mail profile '{mailbox['outbound_profile']}' not found."}), 400
+            if mailbox.get("ldap_profile") and not any(item.get("id") == mailbox.get("ldap_profile") for item in settings.get("ldap_profiles", [])):
+                return jsonify({"success": False, "message": f"LDAP profile '{mailbox['ldap_profile']}' not found."}), 400
             missing_lists = [name for name in mailbox.get("lists", []) if name not in known_lists]
             if missing_lists:
                 return jsonify({"success": False, "message": f"Unknown mailing list: {', '.join(missing_lists)}"}), 400
@@ -1227,6 +1441,7 @@ def manage_inbound_relay():
                 "sender_profile": settings.get("sender_profile", ""),
                 "passphrase_saved": bool(settings.get("gpg_passphrase")),
                 "mailboxes_count": len(settings.get("mailboxes", [])),
+                "mailbox_passphrases_saved": sum(1 for item in settings.get("mailboxes", []) if isinstance(item, dict) and item.get("gpg_passphrase")),
                 "ldap_enabled": bool(settings.get("ldap_enabled")),
                 "ldap_bind_password_saved": bool(settings.get("ldap_bind_password")),
                 "freeipa_api_password_saved": bool(settings.get("freeipa_api_password")),

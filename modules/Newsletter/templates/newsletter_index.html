@@ -551,48 +551,91 @@
         </h3>
 
         <div class="flex items-center gap-2 border-b border-slate-200 pb-3 mb-4">
-            <button type="button" data-settings-tab="smtp" onclick="switchNewsletterSettingsTab('smtp')" class="newsletter-settings-tab px-4 py-2 rounded-lg text-sm font-bold bg-slate-800 text-white">SMTP Profiles</button>
+            <button type="button" data-settings-tab="smtp" onclick="switchNewsletterSettingsTab('smtp')" class="newsletter-settings-tab px-4 py-2 rounded-lg text-sm font-bold bg-slate-800 text-white">Mail Profiles</button>
             <button type="button" data-settings-tab="inbound" onclick="switchNewsletterSettingsTab('inbound')" class="newsletter-settings-tab px-4 py-2 rounded-lg text-sm font-bold bg-slate-100 text-slate-600 hover:bg-slate-200">Inbound Relay</button>
             <button type="button" data-settings-tab="ldap" onclick="switchNewsletterSettingsTab('ldap')" class="newsletter-settings-tab px-4 py-2 rounded-lg text-sm font-bold bg-slate-100 text-slate-600 hover:bg-slate-200">LDAP / FreeIPA</button>
         </div>
 
-        <div id="settingsTabSmtp" class="newsletter-settings-panel flex gap-6 flex-1 min-h-0">
-            <!-- Add New Form -->
-            <div class="w-1/2 flex flex-col bg-slate-50 p-4 rounded-xl border border-slate-200 overflow-y-auto">
-                <h4 class="font-bold text-sm text-slate-600 mb-3 uppercase">Add New Profile</h4>
+        <div id="settingsTabSmtp" class="newsletter-settings-panel grid grid-cols-1 xl:grid-cols-[1fr_1fr] gap-6 flex-1 min-h-0">
+            <div class="flex flex-col bg-slate-50 p-4 rounded-xl border border-slate-200 overflow-y-auto">
+                <div class="flex items-center justify-between mb-3">
+                    <h4 id="mailProfileFormTitle" class="font-bold text-sm text-slate-600 uppercase">New Mail Profile</h4>
+                    <button type="button" onclick="resetMailProfileForm()" class="text-xs font-bold px-3 py-1.5 rounded-lg bg-slate-200 text-slate-700 hover:bg-slate-300">New</button>
+                </div>
 
-                <label class="block text-xs font-bold text-slate-500 mb-1">Sender Email</label>
-                <input type="email" id="smtpEmail" placeholder="e.g. news@domain.com" class="w-full px-3 py-2 border border-slate-300 rounded-lg mb-3 text-sm focus:ring-2 focus:ring-indigo-500 outline-none">
+                <label class="block text-xs font-bold text-slate-500 mb-1">Email Address</label>
+                <input type="email" id="smtpEmail" placeholder="relay@example.com" class="w-full px-3 py-2 border border-slate-300 rounded-lg mb-3 text-sm focus:ring-2 focus:ring-indigo-500 outline-none">
 
-                <label class="block text-xs font-bold text-slate-500 mb-1">SMTP Host</label>
-                <input type="text" id="smtpHost" placeholder="e.g. mail.domain.com" class="w-full px-3 py-2 border border-slate-300 rounded-lg mb-3 text-sm focus:ring-2 focus:ring-indigo-500 outline-none">
-
-                <div class="flex gap-3 mb-3">
-                    <div class="w-1/3">
-                        <label class="block text-xs font-bold text-slate-500 mb-1">Port</label>
-                        <input type="number" id="smtpPort" placeholder="587" value="587" class="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500 outline-none">
+                <div class="grid grid-cols-1 lg:grid-cols-2 gap-3">
+                    <div>
+                        <label class="block text-xs font-bold text-slate-500 mb-1">SMTP Host</label>
+                        <input type="text" id="smtpHost" placeholder="mail.example.com" class="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500 outline-none">
                     </div>
-                    <div class="w-2/3">
-                        <label class="block text-xs font-bold text-slate-500 mb-1">Password</label>
-                        <input type="password" id="smtpPass" placeholder="••••••••" class="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500 outline-none">
+                    <div>
+                        <label class="block text-xs font-bold text-slate-500 mb-1">SMTP Port</label>
+                        <input type="number" id="smtpPort" value="587" class="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500 outline-none">
+                    </div>
+                    <div class="lg:col-span-2">
+                        <label class="block text-xs font-bold text-slate-500 mb-1">SMTP Password</label>
+                        <input type="password" id="smtpPass" placeholder="Leave blank to keep saved password" class="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500 outline-none">
+                        <div id="smtpPassStatus" class="mt-2 text-xs font-bold text-slate-500">Status: Not saved</div>
+                    </div>
+                    <div>
+                        <label class="block text-xs font-bold text-slate-500 mb-1">IMAP Host</label>
+                        <input type="text" id="mailImapHost" placeholder="mail.example.com" class="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500 outline-none">
+                    </div>
+                    <div class="grid grid-cols-[1fr_auto] gap-3">
+                        <div>
+                            <label class="block text-xs font-bold text-slate-500 mb-1">IMAP Port</label>
+                            <input type="number" id="mailImapPort" value="993" class="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500 outline-none">
+                        </div>
+                        <label class="flex items-end gap-2 text-xs font-bold text-slate-600 pb-2">
+                            <input type="checkbox" id="mailImapSsl" class="w-4 h-4 rounded border-slate-300" checked>
+                            SSL
+                        </label>
+                    </div>
+                    <div>
+                        <label class="block text-xs font-bold text-slate-500 mb-1">IMAP User</label>
+                        <input type="text" id="mailImapUser" placeholder="relay@example.com" class="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500 outline-none">
+                    </div>
+                    <div>
+                        <label class="block text-xs font-bold text-slate-500 mb-1">IMAP Password</label>
+                        <input type="password" id="mailImapPassword" placeholder="Leave blank to keep saved password" class="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500 outline-none">
+                        <div id="mailImapPasswordStatus" class="mt-2 text-xs font-bold text-slate-500">Status: Not saved</div>
+                    </div>
+                    <div>
+                        <label class="block text-xs font-bold text-slate-500 mb-1">Inbox Folder</label>
+                        <input type="text" id="mailImapFolder" value="INBOX" class="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500 outline-none">
+                    </div>
+                    <div class="grid grid-cols-2 gap-3">
+                        <div>
+                            <label class="block text-xs font-bold text-slate-500 mb-1">Processed</label>
+                            <input type="text" id="mailProcessedFolder" value="Processed" class="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500 outline-none">
+                        </div>
+                        <div>
+                            <label class="block text-xs font-bold text-slate-500 mb-1">Failed</label>
+                            <input type="text" id="mailFailedFolder" value="Failed" class="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500 outline-none">
+                        </div>
+                    </div>
+                    <div class="lg:col-span-2">
+                        <label class="block text-xs font-bold text-slate-500 mb-1">GPG Key Passphrase</label>
+                        <input type="password" id="mailGpgPassphrase" placeholder="Leave blank to keep saved passphrase" class="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500 outline-none">
+                        <div id="mailGpgPassphraseStatus" class="mt-2 text-xs font-bold text-slate-500">Status: Not saved</div>
+                    </div>
+                    <div class="lg:col-span-2">
+                        <label class="block text-xs font-bold text-slate-500 mb-1">GPG Keyserver URL (Optional)</label>
+                        <input type="url" id="smtpKeyserver" placeholder="hkps://keys.example.com" class="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500 outline-none">
                     </div>
                 </div>
 
-                <div class="mt-2 mb-4 p-3 bg-blue-50 border border-blue-200 rounded-lg">
-                    <label class="block text-xs font-bold text-blue-700 mb-1">GPG Keyserver URL (Optional)</label>
-                    <p class="text-xs text-blue-600 mb-2">If provided, the system will automatically fetch missing GPG keys for this domain.</p>
-                    <input type="url" id="smtpKeyserver" placeholder="e.g. hkps://keys.domain.com" class="w-full px-3 py-2 border border-blue-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 outline-none">
+                <div class="text-xs text-amber-600 bg-amber-50 p-2 rounded my-4 border border-amber-200">
+                    Passwords and passphrases are encrypted before being saved and are never shown back in the web UI.
                 </div>
-
-                <div class="text-xs text-amber-600 bg-amber-50 p-2 rounded mb-4 border border-amber-200">
-                    🔒 Passwords are encrypted using AES-128 (Fernet) before being saved to the configuration file.
-                </div>
-                <button onclick="saveSmtpProfile()" class="w-full bg-slate-800 hover:bg-slate-900 text-white font-bold py-2.5 rounded-lg transition-colors mt-auto">Save Profile</button>
+                <button onclick="saveSmtpProfile()" class="w-full bg-slate-800 hover:bg-slate-900 text-white font-bold py-2.5 rounded-lg transition-colors mt-auto">Save Mail Profile</button>
             </div>
 
-            <!-- Existing Profiles -->
-            <div class="w-1/2 flex flex-col">
-                <h4 class="font-bold text-sm text-slate-600 mb-3 uppercase">Saved Profiles</h4>
+            <div class="flex flex-col min-h-0">
+                <h4 class="font-bold text-sm text-slate-600 mb-3 uppercase">Saved Mail Profiles</h4>
                 <div id="smtpSavedList" class="flex-1 overflow-y-auto space-y-2 border border-slate-200 rounded-xl p-2 bg-slate-50"></div>
             </div>
         </div>
@@ -604,18 +647,6 @@
                     <p class="text-xs text-slate-500 mt-1 font-bold">Route encrypted messages from dedicated inboxes to predefined lists and LDAP groups.</p>
                 </div>
                 <div id="inboundRelayStatus" class="text-xs font-bold px-3 py-1.5 rounded border border-cyan-300/25 bg-slate-950/30 text-cyan-100">Loading...</div>
-            </div>
-
-            <div class="mb-4 p-3 rounded-lg border border-cyan-400/20 bg-white">
-                <div>
-                    <label class="block text-xs font-bold text-slate-500 mb-1">GPG Private Key Passphrase</label>
-                    <input type="password" id="inboundGpgPassphrase" placeholder="Leave blank to keep saved passphrase" class="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500 outline-none">
-                    <div id="inboundGpgPassphraseStatus" class="mt-2 text-xs font-bold text-slate-500">Status: Not saved</div>
-                    <label class="mt-2 flex items-center gap-2 text-xs font-bold text-slate-500">
-                        <input type="checkbox" id="inboundClearPassphrase" class="w-4 h-4 rounded border-slate-300">
-                        Clear saved passphrase
-                    </label>
-                </div>
             </div>
 
             <div class="grid grid-cols-1 xl:grid-cols-[0.9fr_1.1fr] gap-4">
@@ -643,46 +674,17 @@
                             <input type="text" id="inboundMailboxName" placeholder="IT Support Relay" class="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500 outline-none">
                         </div>
                         <div>
-                            <label class="block text-xs font-bold text-slate-500 mb-1">Outbound Sender Profile</label>
-                            <select id="inboundMailboxSenderProfile" class="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500 outline-none"></select>
+                            <label class="block text-xs font-bold text-slate-500 mb-1">Read From Mail Profile</label>
+                            <select id="inboundMailboxProfile" class="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500 outline-none"></select>
                         </div>
                         <div>
-                            <label class="block text-xs font-bold text-slate-500 mb-1">IMAP Host</label>
-                            <input type="text" id="inboundMailboxHost" placeholder="mail.example.com" class="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500 outline-none">
-                        </div>
-                        <div class="grid grid-cols-[1fr_auto] gap-3">
-                            <div>
-                                <label class="block text-xs font-bold text-slate-500 mb-1">IMAP Port</label>
-                                <input type="number" id="inboundMailboxPort" value="993" class="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500 outline-none">
-                            </div>
-                            <label class="flex items-end gap-2 text-xs font-bold text-slate-600 pb-2">
-                                <input type="checkbox" id="inboundMailboxSsl" class="w-4 h-4 rounded border-slate-300" checked>
-                                SSL
-                            </label>
+                            <label class="block text-xs font-bold text-slate-500 mb-1">Send From Mail Profile</label>
+                            <select id="outboundMailboxProfile" class="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500 outline-none"></select>
+                            <p class="text-xs text-slate-500 mt-1">Leave Auto to send from the same profile used for reading.</p>
                         </div>
                         <div>
-                            <label class="block text-xs font-bold text-slate-500 mb-1">IMAP User</label>
-                            <input type="text" id="inboundMailboxUser" placeholder="relay@example.com" class="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500 outline-none">
-                        </div>
-                        <div>
-                            <label class="block text-xs font-bold text-slate-500 mb-1">IMAP Password</label>
-                            <input type="password" id="inboundMailboxPassword" placeholder="Leave blank to keep saved password" class="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500 outline-none">
-                            <div id="inboundMailboxPasswordStatus" class="mt-2 text-xs font-bold text-slate-500">Status: Not saved</div>
-                            <label class="mt-2 flex items-center gap-2 text-xs font-bold text-slate-500"><input type="checkbox" id="inboundMailboxClearPassword" class="w-4 h-4 rounded border-slate-300">Clear saved password</label>
-                        </div>
-                        <div>
-                            <label class="block text-xs font-bold text-slate-500 mb-1">Inbox Folder</label>
-                            <input type="text" id="inboundMailboxFolder" value="INBOX" class="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500 outline-none">
-                        </div>
-                        <div class="grid grid-cols-2 gap-3">
-                            <div>
-                                <label class="block text-xs font-bold text-slate-500 mb-1">Processed Folder</label>
-                                <input type="text" id="inboundMailboxProcessedFolder" value="Processed" class="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500 outline-none">
-                            </div>
-                            <div>
-                                <label class="block text-xs font-bold text-slate-500 mb-1">Failed Folder</label>
-                                <input type="text" id="inboundMailboxFailedFolder" value="Failed" class="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500 outline-none">
-                            </div>
+                            <label class="block text-xs font-bold text-slate-500 mb-1">LDAP Profile</label>
+                            <select id="routeLdapProfile" class="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500 outline-none"></select>
                         </div>
                     </div>
 
@@ -718,42 +720,64 @@
         </div>
 
         <div id="settingsTabLdap" class="newsletter-settings-panel hidden mt-5 p-4 rounded-xl border border-slate-200 bg-white overflow-y-auto">
-            <div class="flex items-center justify-between gap-3 mb-4">
+            <div class="grid grid-cols-1 xl:grid-cols-[1fr_1fr] gap-6">
+                <div class="bg-slate-50 border border-slate-200 rounded-xl p-4">
+                    <div class="flex items-center justify-between gap-3 mb-4">
+                        <div>
+                            <h4 id="ldapProfileFormTitle" class="font-bold text-sm text-slate-600 uppercase">New LDAP Profile</h4>
+                            <p class="text-xs text-slate-500 mt-1">Create reusable FreeIPA or direct LDAP access cards.</p>
+                        </div>
+                        <label class="flex items-center gap-2 text-xs font-bold text-slate-600">
+                            <input type="checkbox" id="ldapProfileEnabled" class="w-4 h-4 rounded border-slate-300" checked>
+                            Enabled
+                        </label>
+                    </div>
+                    <input type="hidden" id="ldapProfileId">
+                    <div class="grid grid-cols-1 lg:grid-cols-2 gap-3">
+                        <div>
+                            <label class="block text-xs font-bold text-slate-500 mb-1">Profile Name</label>
+                            <input type="text" id="ldapProfileName" placeholder="FreeIPA Reader" class="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500 outline-none">
+                        </div>
+                        <div>
+                            <label class="block text-xs font-bold text-slate-500 mb-1">Allowed LDAP Groups</label>
+                            <input type="text" id="ldapAllowedGroups" placeholder="team-it-support,devops" class="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm font-mono focus:ring-2 focus:ring-indigo-500 outline-none">
+                        </div>
+                        <div>
+                            <label class="block text-xs font-bold text-slate-500 mb-1">FreeIPA API URL</label>
+                            <input type="url" id="freeipaApiUrl" placeholder="https://ipa02.example.com" class="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500 outline-none">
+                        </div>
+                        <div>
+                            <label class="block text-xs font-bold text-slate-500 mb-1">FreeIPA API User</label>
+                            <input type="text" id="freeipaApiUser" placeholder="winhub-ldap-reader" class="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500 outline-none">
+                        </div>
+                        <div class="lg:col-span-2">
+                            <label class="block text-xs font-bold text-slate-500 mb-1">FreeIPA API Password</label>
+                            <input type="password" id="freeipaApiPassword" placeholder="Leave blank to keep saved password" class="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500 outline-none">
+                            <div id="freeipaApiPasswordStatus" class="mt-2 text-xs font-bold text-slate-500">Status: Not saved</div>
+                        </div>
+                    </div>
+                    <details class="mt-4">
+                        <summary class="cursor-pointer text-xs font-bold uppercase text-slate-500">Direct LDAP fallback</summary>
+                        <div class="grid grid-cols-1 lg:grid-cols-2 gap-3 mt-3">
+                            <input type="text" id="ldapUri" placeholder="ldaps://ldap.example.com:636" class="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500 outline-none">
+                            <input type="text" id="ldapBindDn" placeholder="uid=reader,cn=users,cn=accounts,dc=example,dc=com" class="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500 outline-none">
+                            <div><input type="password" id="ldapBindPassword" placeholder="Leave blank to keep saved password" class="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500 outline-none"><div id="ldapBindPasswordStatus" class="mt-2 text-xs font-bold text-slate-500">Status: Not saved</div></div>
+                            <input type="text" id="ldapBaseDn" placeholder="dc=example,dc=com" class="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500 outline-none">
+                            <input type="text" id="ldapGroupBaseDn" placeholder="cn=groups,cn=accounts,dc=example,dc=com" class="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500 outline-none">
+                            <input type="text" id="ldapGroupNameAttr" placeholder="cn" class="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500 outline-none">
+                            <input type="text" id="ldapGroupMemberAttr" placeholder="member" class="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500 outline-none">
+                            <input type="text" id="ldapUserEmailAttr" placeholder="mail" class="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500 outline-none">
+                        </div>
+                    </details>
+                    <div class="flex items-center justify-end gap-3 mt-4">
+                        <button type="button" onclick="resetLdapProfileForm()" class="px-4 py-2 rounded-lg bg-slate-200 hover:bg-slate-300 text-slate-700 font-bold text-sm">Clear</button>
+                        <button type="button" onclick="saveLdapProfileDraft()" class="bg-emerald-600 hover:bg-emerald-700 text-white font-bold py-2 px-5 rounded-lg transition-colors">Save LDAP Profile</button>
+                    </div>
+                </div>
                 <div>
-                    <h4 class="font-bold text-sm text-slate-600 uppercase">FreeIPA / LDAP Groups</h4>
-                    <p class="text-xs text-slate-500 mt-1">Used by mailbox routes that target LDAP or FreeIPA groups.</p>
+                    <h4 class="font-bold text-sm text-slate-600 mb-3 uppercase">Saved LDAP Profiles</h4>
+                    <div id="ldapProfileList" class="space-y-2 max-h-[560px] overflow-y-auto border border-slate-200 rounded-xl p-2 bg-slate-50"></div>
                 </div>
-                <label class="flex items-center gap-2 text-xs font-bold text-slate-600">
-                    <input type="checkbox" id="ldapEnabled" class="w-4 h-4 rounded border-slate-300">
-                    Enabled
-                </label>
-            </div>
-            <div class="grid grid-cols-1 lg:grid-cols-2 gap-4">
-                <div><label class="block text-xs font-bold text-slate-500 mb-1">FreeIPA API URL</label><input type="url" id="freeipaApiUrl" placeholder="https://ipa02.example.com" class="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500 outline-none"></div>
-                <div><label class="block text-xs font-bold text-slate-500 mb-1">FreeIPA API User</label><input type="text" id="freeipaApiUser" placeholder="winhub-ldap-reader" class="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500 outline-none"></div>
-                <div>
-                    <label class="block text-xs font-bold text-slate-500 mb-1">FreeIPA API Password</label>
-                    <input type="password" id="freeipaApiPassword" placeholder="Leave blank to keep saved password" class="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500 outline-none">
-                    <div id="freeipaApiPasswordStatus" class="mt-2 text-xs font-bold text-slate-500">Status: Not saved</div>
-                    <label class="mt-2 flex items-center gap-2 text-xs font-bold text-slate-500"><input type="checkbox" id="freeipaClearPassword" class="w-4 h-4 rounded border-slate-300">Clear saved password</label>
-                </div>
-                <div><label class="block text-xs font-bold text-slate-500 mb-1">Allowed LDAP Groups</label><input type="text" id="ldapAllowedGroups" placeholder="team-it-support,devops" class="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm font-mono focus:ring-2 focus:ring-indigo-500 outline-none"><p class="text-xs text-slate-500 mt-1">Leave blank to allow all groups.</p></div>
-            </div>
-            <details class="mt-4">
-                <summary class="cursor-pointer text-xs font-bold uppercase text-slate-500">Direct LDAP fallback</summary>
-                <div class="grid grid-cols-1 lg:grid-cols-2 gap-4 mt-3">
-                    <input type="text" id="ldapUri" placeholder="ldaps://ldap.example.com:636" class="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500 outline-none">
-                    <input type="text" id="ldapBindDn" placeholder="uid=winhub-ldap-reader,cn=users,cn=accounts,dc=example,dc=com" class="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500 outline-none">
-                    <div><input type="password" id="ldapBindPassword" placeholder="Leave blank to keep saved password" class="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500 outline-none"><div id="ldapBindPasswordStatus" class="mt-2 text-xs font-bold text-slate-500">Status: Not saved</div><label class="mt-2 flex items-center gap-2 text-xs font-bold text-slate-500"><input type="checkbox" id="ldapClearPassword" class="w-4 h-4 rounded border-slate-300">Clear saved password</label></div>
-                    <input type="text" id="ldapBaseDn" placeholder="dc=example,dc=com" class="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500 outline-none">
-                    <input type="text" id="ldapGroupBaseDn" placeholder="cn=groups,cn=accounts,dc=example,dc=com" class="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500 outline-none">
-                    <input type="text" id="ldapGroupNameAttr" placeholder="cn" class="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500 outline-none">
-                    <input type="text" id="ldapGroupMemberAttr" placeholder="member" class="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500 outline-none">
-                    <input type="text" id="ldapUserEmailAttr" placeholder="mail" class="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500 outline-none">
-                </div>
-            </details>
-            <div class="flex items-center justify-end gap-3 mt-4">
-                <button onclick="saveInboundRelaySettings()" class="bg-emerald-600 hover:bg-emerald-700 text-white font-bold py-2 px-5 rounded-lg transition-colors">Save LDAP Settings</button>
             </div>
         </div>
 
@@ -771,7 +795,10 @@
     let currentEditListUsers = [];
     let originalEditListName = null;
     let inboundMailboxDrafts = [];
+    let ldapProfileDrafts = [];
     let currentInboundMailboxId = null;
+    let currentEditMailProfileEmail = null;
+    let currentLdapProfileId = null;
     const newsletterStateKey = 'winhub_newsletter_draft';
     const maxAttachments = 8;
     const maxAttachmentBytes = 10 * 1024 * 1024;
@@ -1186,110 +1213,17 @@
     }
     function closeSmtpModal() { document.getElementById('smtpModal').classList.add('hidden'); }
 
-    function renderSmtpModalList() {
-        const container = document.getElementById('smtpSavedList');
-        if (moduleData.senders.length === 0) {
-            container.innerHTML = '<div class="text-center text-slate-400 italic text-sm mt-4">No profiles saved.</div>';
-            return;
-        }
-        container.innerHTML = moduleData.senders.map(s => `
-            <div class="flex justify-between items-start bg-slate-950/45 border border-cyan-400/20 p-3 rounded-lg shadow-sm">
-                <div>
-                    <div class="font-bold text-cyan-50 text-sm flex items-center gap-2"><svg class="w-4 h-4 text-emerald-300" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z"></path></svg> ${s.email}</div>
-                    <div class="text-xs text-cyan-100/70 font-mono mt-1">Host: ${s.host}:${s.port}</div>
-                    ${s.keyserver ? `<div class="text-xs text-sky-200 font-mono mt-1 flex items-center gap-1"><svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 12a9 9 0 01-9 9m9-9a9 9 0 00-9-9m9 9H3m9 9a9 9 0 01-9-9m9 9c1.657 0 3-4.03 3-9s-1.343-9-3-9m0 18c-1.657 0-3-4.03-3-9s1.343-9 3-9m-9 9a9 9 0 019-9"></path></svg> ${s.keyserver}</div>` : ''}
-                </div>
-                <button onclick="deleteSmtpProfile('${s.email}')" class="p-1.5 text-rose-300 hover:text-rose-100 hover:bg-rose-500/20 rounded transition-colors"><svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"></path></svg></button>
-            </div>
-        `).join('');
+    function escapeHtml(value) {
+        return String(value || '').replace(/[&<>"']/g, ch => ({
+            '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#039;'
+        }[ch]));
     }
 
-    async function saveSmtpProfile() {
-        const email = document.getElementById('smtpEmail').value;
-        const host = document.getElementById('smtpHost').value;
-        const port = document.getElementById('smtpPort').value;
-        const password = document.getElementById('smtpPass').value;
-        const keyserver = document.getElementById('smtpKeyserver').value;
-
-        if(!email || !host || !password) return alert("Please fill all required fields.");
-
-        try {
-            await fetch('/api/newsletter/smtp', {
-                method: 'POST', headers: {'Content-Type': 'application/json'},
-                body: JSON.stringify({ action: "add", email, host, port, password, keyserver })
-            });
-            document.getElementById('smtpEmail').value = '';
-            document.getElementById('smtpHost').value = '';
-            document.getElementById('smtpPass').value = '';
-            document.getElementById('smtpKeyserver').value = '';
-            loadConfig();
-        } catch(e) { alert("Network Error"); }
-    }
-
-    async function deleteSmtpProfile(email) {
-        if(!confirm(`Delete profile ${email}?`)) return;
-        try {
-            await fetch('/api/newsletter/smtp', {
-                method: 'POST', headers: {'Content-Type': 'application/json'},
-                body: JSON.stringify({ action: "delete", email })
-            });
-            loadConfig();
-        } catch(e) { alert("Network Error"); }
-    }
-
-    function renderInboundRelaySettings() {
-        const inbound = moduleData.inbound || {};
-        const status = document.getElementById('inboundRelayStatus');
-        const passphrase = document.getElementById('inboundGpgPassphrase');
-        const clearPassphrase = document.getElementById('inboundClearPassphrase');
-        const saveMessage = document.getElementById('inboundSaveMessage');
-        const ldap = inbound.ldap || {};
-
-        const setValue = (id, value) => { const el = document.getElementById(id); if (el) el.value = value || ''; };
-        const setChecked = (id, value) => { const el = document.getElementById(id); if (el) el.checked = !!value; };
-        const setSecretStatus = (id, saved) => {
-            const el = document.getElementById(id);
-            if (!el) return;
-            el.innerText = saved ? 'Status: Saved' : 'Status: Not saved';
-            el.className = saved ? 'mt-2 text-xs font-bold text-emerald-600' : 'mt-2 text-xs font-bold text-slate-500';
-        };
-
-        inboundMailboxDrafts = (inbound.mailboxes || []).map(mailbox => ({...mailbox}));
-        if (passphrase) passphrase.value = '';
-        if (clearPassphrase) clearPassphrase.checked = false;
-        if (saveMessage) saveMessage.innerText = '';
-        setSecretStatus('inboundGpgPassphraseStatus', inbound.passphrase_saved);
-
-        setChecked('ldapEnabled', ldap.enabled);
-        setValue('freeipaApiUrl', ldap.freeipa_api_url);
-        setValue('freeipaApiUser', ldap.freeipa_api_user);
-        setValue('freeipaApiPassword', '');
-        setChecked('freeipaClearPassword', false);
-        setSecretStatus('freeipaApiPasswordStatus', ldap.freeipa_api_password_saved);
-        setValue('ldapAllowedGroups', ldap.allowed_groups);
-        setValue('ldapUri', ldap.uri);
-        setValue('ldapBindDn', ldap.bind_dn);
-        setValue('ldapBindPassword', '');
-        setChecked('ldapClearPassword', false);
-        setSecretStatus('ldapBindPasswordStatus', ldap.bind_password_saved);
-        setValue('ldapBaseDn', ldap.base_dn);
-        setValue('ldapGroupBaseDn', ldap.group_base_dn);
-        setValue('ldapGroupNameAttr', ldap.group_name_attr || 'cn');
-        setValue('ldapGroupMemberAttr', ldap.group_member_attr || 'member');
-        setValue('ldapUserEmailAttr', ldap.user_email_attr || 'mail');
-
-        renderInboundMailboxList();
-        resetInboundMailboxForm(false);
-
-        const enabledCount = inboundMailboxDrafts.filter(mailbox => mailbox.enabled !== false).length;
-        const passText = inbound.passphrase_saved ? 'GPG saved' : 'no GPG passphrase';
-        const ldapText = ldap.enabled ? 'LDAP enabled' : 'LDAP disabled';
-        if (status) {
-            status.innerText = `${enabledCount} route${enabledCount === 1 ? '' : 's'} enabled | ${passText} | ${ldapText}`;
-            status.className = enabledCount
-                ? 'text-xs font-bold px-3 py-1.5 rounded border border-emerald-300/25 bg-emerald-500/10 text-emerald-100'
-                : 'text-xs font-bold px-3 py-1.5 rounded border border-amber-300/25 bg-amber-500/10 text-amber-100';
-        }
+    function setSecretStatus(id, saved) {
+        const el = document.getElementById(id);
+        if (!el) return;
+        el.innerText = saved ? 'Status: Saved' : 'Status: Not saved';
+        el.className = saved ? 'mt-2 text-xs font-bold text-emerald-600' : 'mt-2 text-xs font-bold text-slate-500';
     }
 
     function routeArray(value) {
@@ -1301,14 +1235,251 @@
         return routeArray(value).join('\n');
     }
 
-    function escapeHtml(value) {
-        return String(value || '').replace(/[&<>"']/g, ch => ({
-            '&': '&amp;',
-            '<': '&lt;',
-            '>': '&gt;',
-            '"': '&quot;',
-            "'": '&#039;'
-        }[ch]));
+    function renderSmtpModalList() {
+        const container = document.getElementById('smtpSavedList');
+        if (!container) return;
+        if (moduleData.senders.length === 0) {
+            container.innerHTML = '<div class="text-center text-slate-400 italic text-sm mt-4">No mail profiles saved.</div>';
+            return;
+        }
+        container.innerHTML = moduleData.senders.map(profile => `
+            <div class="bg-slate-950/45 border border-cyan-400/20 p-3 rounded-lg shadow-sm">
+                <div class="flex justify-between items-start gap-3">
+                    <div class="min-w-0">
+                        <div class="font-bold text-cyan-50 text-sm truncate">${escapeHtml(profile.email)}</div>
+                        <div class="text-xs text-cyan-100/70 font-mono mt-1 truncate">SMTP: ${escapeHtml(profile.host || 'not set')}:${profile.port || 587}</div>
+                        <div class="text-xs text-cyan-100/70 font-mono mt-1 truncate">IMAP: ${escapeHtml(profile.imap_user || profile.email)} @ ${escapeHtml(profile.imap_host || 'not set')}</div>
+                    </div>
+                    <div class="flex items-center gap-2">
+                        <button onclick="editMailProfile('${profile.email}')" class="px-3 py-1.5 rounded bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-bold">Edit</button>
+                        <button onclick="deleteSmtpProfile('${profile.email}')" class="px-3 py-1.5 rounded bg-rose-50 hover:bg-rose-100 text-rose-700 text-xs font-bold">Delete</button>
+                    </div>
+                </div>
+                <div class="grid grid-cols-3 gap-2 mt-3 text-xs">
+                    <span class="${profile.smtp_password_saved ? 'text-emerald-300' : 'text-slate-400'}">SMTP password</span>
+                    <span class="${profile.imap_password_saved ? 'text-emerald-300' : 'text-slate-400'}">IMAP password</span>
+                    <span class="${profile.gpg_passphrase_saved ? 'text-emerald-300' : 'text-slate-400'}">GPG passphrase</span>
+                </div>
+            </div>
+        `).join('');
+    }
+
+    function resetMailProfileForm() {
+        currentEditMailProfileEmail = null;
+        document.getElementById('mailProfileFormTitle').innerText = 'New Mail Profile';
+        ['smtpEmail','smtpHost','smtpPass','smtpKeyserver','mailImapHost','mailImapUser','mailImapPassword','mailGpgPassphrase'].forEach(id => {
+            const el = document.getElementById(id); if (el) el.value = '';
+        });
+        document.getElementById('smtpPort').value = 587;
+        document.getElementById('mailImapPort').value = 993;
+        document.getElementById('mailImapSsl').checked = true;
+        document.getElementById('mailImapFolder').value = 'INBOX';
+        document.getElementById('mailProcessedFolder').value = 'Processed';
+        document.getElementById('mailFailedFolder').value = 'Failed';
+        setSecretStatus('smtpPassStatus', false);
+        setSecretStatus('mailImapPasswordStatus', false);
+        setSecretStatus('mailGpgPassphraseStatus', false);
+    }
+
+    function editMailProfile(email) {
+        const profile = moduleData.senders.find(item => item.email === email);
+        if (!profile) return;
+        currentEditMailProfileEmail = email;
+        document.getElementById('mailProfileFormTitle').innerText = 'Edit Mail Profile';
+        document.getElementById('smtpEmail').value = profile.email || '';
+        document.getElementById('smtpHost').value = profile.host || '';
+        document.getElementById('smtpPort').value = profile.port || 587;
+        document.getElementById('smtpPass').value = '';
+        document.getElementById('smtpKeyserver').value = profile.keyserver || '';
+        document.getElementById('mailImapHost').value = profile.imap_host || '';
+        document.getElementById('mailImapPort').value = profile.imap_port || 993;
+        document.getElementById('mailImapSsl').checked = profile.imap_ssl !== false;
+        document.getElementById('mailImapUser').value = profile.imap_user || profile.email || '';
+        document.getElementById('mailImapPassword').value = '';
+        document.getElementById('mailImapFolder').value = profile.imap_folder || 'INBOX';
+        document.getElementById('mailProcessedFolder').value = profile.processed_folder || 'Processed';
+        document.getElementById('mailFailedFolder').value = profile.failed_folder || 'Failed';
+        document.getElementById('mailGpgPassphrase').value = '';
+        setSecretStatus('smtpPassStatus', profile.smtp_password_saved);
+        setSecretStatus('mailImapPasswordStatus', profile.imap_password_saved);
+        setSecretStatus('mailGpgPassphraseStatus', profile.gpg_passphrase_saved);
+    }
+
+    async function saveSmtpProfile() {
+        const email = document.getElementById('smtpEmail').value.trim().toLowerCase();
+        const payload = {
+            action: 'add',
+            email,
+            host: document.getElementById('smtpHost').value.trim(),
+            port: document.getElementById('smtpPort').value || 587,
+            password: document.getElementById('smtpPass').value,
+            keyserver: document.getElementById('smtpKeyserver').value.trim(),
+            imap_host: document.getElementById('mailImapHost').value.trim(),
+            imap_port: document.getElementById('mailImapPort').value || 993,
+            imap_ssl: document.getElementById('mailImapSsl').checked,
+            imap_user: document.getElementById('mailImapUser').value.trim() || email,
+            imap_password: document.getElementById('mailImapPassword').value,
+            imap_folder: document.getElementById('mailImapFolder').value.trim() || 'INBOX',
+            processed_folder: document.getElementById('mailProcessedFolder').value.trim() || 'Processed',
+            failed_folder: document.getElementById('mailFailedFolder').value.trim() || 'Failed',
+            gpg_passphrase: document.getElementById('mailGpgPassphrase').value,
+        };
+        const existing = moduleData.senders.find(item => item.email === email);
+        if (!email || !payload.host) return alert('Email and SMTP host are required.');
+        if (!payload.password && !existing?.smtp_password_saved) return alert('SMTP password is required.');
+        try {
+            const res = await fetch('/api/newsletter/smtp', {
+                method: 'POST', headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify(payload)
+            });
+            const data = await res.json();
+            if (!data.success) return alert(data.message || 'Save failed.');
+            resetMailProfileForm();
+            loadConfig();
+        } catch(e) { alert('Network Error'); }
+    }
+
+    async function deleteSmtpProfile(email) {
+        if(!confirm(`Delete mail profile ${email}?`)) return;
+        try {
+            await fetch('/api/newsletter/smtp', {
+                method: 'POST', headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({ action: 'delete', email })
+            });
+            loadConfig();
+        } catch(e) { alert('Network Error'); }
+    }
+
+    function renderLdapProfiles() {
+        const container = document.getElementById('ldapProfileList');
+        if (!container) return;
+        if (!ldapProfileDrafts.length) {
+            container.innerHTML = '<div class="text-sm text-slate-500 italic bg-white border border-slate-200 rounded-lg p-4">No LDAP profiles saved.</div>';
+            return;
+        }
+        container.innerHTML = ldapProfileDrafts.map(profile => `
+            <div class="bg-white border border-slate-200 rounded-lg p-3">
+                <div class="flex items-start justify-between gap-3">
+                    <div class="min-w-0">
+                        <div class="font-bold text-sm text-slate-800 truncate">${escapeHtml(profile.name)}</div>
+                        <div class="text-xs text-slate-500 truncate">${escapeHtml(profile.freeipa_api_url || profile.ldap_uri || 'no endpoint')}</div>
+                    </div>
+                    <span class="text-[11px] font-bold px-2 py-0.5 rounded-full ${profile.enabled === false ? 'bg-slate-200 text-slate-600' : 'bg-emerald-100 text-emerald-700'}">${profile.enabled === false ? 'Disabled' : 'Enabled'}</span>
+                </div>
+                <div class="flex items-center justify-end gap-2 mt-3">
+                    <button type="button" onclick="editLdapProfile('${profile.id}')" class="px-3 py-1.5 rounded bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-bold">Edit</button>
+                    <button type="button" onclick="deleteLdapProfile('${profile.id}')" class="px-3 py-1.5 rounded bg-rose-50 hover:bg-rose-100 text-rose-700 text-xs font-bold">Delete</button>
+                </div>
+            </div>
+        `).join('');
+    }
+
+    function resetLdapProfileForm() {
+        currentLdapProfileId = null;
+        document.getElementById('ldapProfileFormTitle').innerText = 'New LDAP Profile';
+        ['ldapProfileId','ldapProfileName','ldapAllowedGroups','freeipaApiUrl','freeipaApiUser','freeipaApiPassword','ldapUri','ldapBindDn','ldapBindPassword','ldapBaseDn','ldapGroupBaseDn'].forEach(id => {
+            const el = document.getElementById(id); if (el) el.value = '';
+        });
+        document.getElementById('ldapProfileEnabled').checked = true;
+        document.getElementById('ldapGroupNameAttr').value = 'cn';
+        document.getElementById('ldapGroupMemberAttr').value = 'member';
+        document.getElementById('ldapUserEmailAttr').value = 'mail';
+        setSecretStatus('freeipaApiPasswordStatus', false);
+        setSecretStatus('ldapBindPasswordStatus', false);
+    }
+
+    function editLdapProfile(id) {
+        const profile = ldapProfileDrafts.find(item => item.id === id);
+        if (!profile) return;
+        currentLdapProfileId = id;
+        document.getElementById('ldapProfileFormTitle').innerText = 'Edit LDAP Profile';
+        document.getElementById('ldapProfileId').value = profile.id || '';
+        document.getElementById('ldapProfileEnabled').checked = profile.enabled !== false;
+        document.getElementById('ldapProfileName').value = profile.name || '';
+        document.getElementById('ldapAllowedGroups').value = profile.ldap_allowed_groups || '';
+        document.getElementById('freeipaApiUrl').value = profile.freeipa_api_url || '';
+        document.getElementById('freeipaApiUser').value = profile.freeipa_api_user || '';
+        document.getElementById('freeipaApiPassword').value = '';
+        document.getElementById('ldapUri').value = profile.ldap_uri || '';
+        document.getElementById('ldapBindDn').value = profile.ldap_bind_dn || '';
+        document.getElementById('ldapBindPassword').value = '';
+        document.getElementById('ldapBaseDn').value = profile.ldap_base_dn || '';
+        document.getElementById('ldapGroupBaseDn').value = profile.ldap_group_base_dn || '';
+        document.getElementById('ldapGroupNameAttr').value = profile.ldap_group_name_attr || 'cn';
+        document.getElementById('ldapGroupMemberAttr').value = profile.ldap_group_member_attr || 'member';
+        document.getElementById('ldapUserEmailAttr').value = profile.ldap_user_email_attr || 'mail';
+        setSecretStatus('freeipaApiPasswordStatus', profile.freeipa_api_password_saved);
+        setSecretStatus('ldapBindPasswordStatus', profile.ldap_bind_password_saved);
+    }
+
+    function saveLdapProfileDraft() {
+        const id = document.getElementById('ldapProfileId').value || (window.crypto && window.crypto.randomUUID ? window.crypto.randomUUID() : `ldap-${Date.now()}`);
+        const existing = ldapProfileDrafts.find(item => item.id === id);
+        const profile = {
+            id,
+            enabled: document.getElementById('ldapProfileEnabled').checked,
+            name: document.getElementById('ldapProfileName').value.trim() || 'LDAP Profile',
+            ldap_allowed_groups: document.getElementById('ldapAllowedGroups').value.trim(),
+            freeipa_api_url: document.getElementById('freeipaApiUrl').value.trim(),
+            freeipa_api_user: document.getElementById('freeipaApiUser').value.trim(),
+            freeipa_api_password: document.getElementById('freeipaApiPassword').value,
+            freeipa_api_password_saved: !!(document.getElementById('freeipaApiPassword').value || existing?.freeipa_api_password_saved),
+            freeipa_api_verify_tls: true,
+            ldap_uri: document.getElementById('ldapUri').value.trim(),
+            ldap_bind_dn: document.getElementById('ldapBindDn').value.trim(),
+            ldap_bind_password: document.getElementById('ldapBindPassword').value,
+            ldap_bind_password_saved: !!(document.getElementById('ldapBindPassword').value || existing?.ldap_bind_password_saved),
+            ldap_base_dn: document.getElementById('ldapBaseDn').value.trim(),
+            ldap_group_base_dn: document.getElementById('ldapGroupBaseDn').value.trim(),
+            ldap_group_name_attr: document.getElementById('ldapGroupNameAttr').value.trim() || 'cn',
+            ldap_group_member_attr: document.getElementById('ldapGroupMemberAttr').value.trim() || 'member',
+            ldap_user_email_attr: document.getElementById('ldapUserEmailAttr').value.trim() || 'mail',
+        };
+        if (!profile.freeipa_api_url && !profile.ldap_uri) return alert('Add a FreeIPA API URL or direct LDAP URI.');
+        const index = ldapProfileDrafts.findIndex(item => item.id === id);
+        if (index >= 0) ldapProfileDrafts[index] = profile;
+        else ldapProfileDrafts.push(profile);
+        currentLdapProfileId = id;
+        renderLdapProfiles();
+        resetLdapProfileForm();
+    }
+
+    function deleteLdapProfile(id) {
+        if (!confirm('Delete this LDAP profile?')) return;
+        ldapProfileDrafts = ldapProfileDrafts.filter(item => item.id !== id);
+        inboundMailboxDrafts = inboundMailboxDrafts.map(route => route.ldap_profile === id ? {...route, ldap_profile: ''} : route);
+        renderLdapProfiles();
+        renderInboundMailboxList();
+        resetLdapProfileForm();
+    }
+
+    function profileOptionsHtml(selected = '', includeAuto = false) {
+        const prefix = includeAuto ? '<option value="">Auto-select same as inbound</option>' : '<option value="">Select mail profile</option>';
+        return prefix + moduleData.senders.map(profile => `<option value="${profile.email}" ${profile.email === selected ? 'selected' : ''}>${profile.email}</option>`).join('');
+    }
+
+    function ldapProfileOptionsHtml(selected = '') {
+        return '<option value="">No LDAP profile</option>' + ldapProfileDrafts.map(profile => `<option value="${profile.id}" ${profile.id === selected ? 'selected' : ''}>${escapeHtml(profile.name)}</option>`).join('');
+    }
+
+    function renderInboundRelaySettings() {
+        const inbound = moduleData.inbound || {};
+        ldapProfileDrafts = (inbound.ldap_profiles || []).map(profile => ({...profile}));
+        inboundMailboxDrafts = (inbound.mailboxes || []).map(mailbox => ({...mailbox}));
+        const status = document.getElementById('inboundRelayStatus');
+        const saveMessage = document.getElementById('inboundSaveMessage');
+        if (saveMessage) saveMessage.innerText = '';
+        renderLdapProfiles();
+        renderInboundMailboxList();
+        resetInboundMailboxForm(false);
+        resetLdapProfileForm();
+        const enabledCount = inboundMailboxDrafts.filter(mailbox => mailbox.enabled !== false).length;
+        if (status) {
+            status.innerText = `${enabledCount} route${enabledCount === 1 ? '' : 's'} enabled | ${ldapProfileDrafts.length} LDAP profile${ldapProfileDrafts.length === 1 ? '' : 's'}`;
+            status.className = enabledCount
+                ? 'text-xs font-bold px-3 py-1.5 rounded border border-emerald-300/25 bg-emerald-500/10 text-emerald-100'
+                : 'text-xs font-bold px-3 py-1.5 rounded border border-amber-300/25 bg-amber-500/10 text-amber-100';
+        }
     }
 
     function renderInboundMailboxList() {
@@ -1318,19 +1489,21 @@
             container.innerHTML = '<div class="text-sm text-slate-500 italic bg-white border border-slate-200 rounded-lg p-4">No inbound mailbox routes configured.</div>';
             return;
         }
-        container.innerHTML = inboundMailboxDrafts.map(mailbox => {
-            const routeName = mailbox.name || mailbox.imap_user || 'Unnamed route';
-            const lists = routeArray(mailbox.lists);
-            const groups = routeArray(mailbox.ldap_groups);
-            const allowed = routeArray(mailbox.allowed_senders);
+        container.innerHTML = inboundMailboxDrafts.map(route => {
+            const routeName = route.name || route.inbound_profile || 'Unnamed route';
+            const lists = routeArray(route.lists);
+            const groups = routeArray(route.ldap_groups);
+            const allowed = routeArray(route.allowed_senders);
+            const ldapProfile = ldapProfileDrafts.find(item => item.id === route.ldap_profile);
             return `
-                <div class="bg-white border border-slate-200 rounded-lg p-3 shadow-sm ${mailbox.enabled === false ? 'opacity-60' : ''}">
+                <div class="bg-white border border-slate-200 rounded-lg p-3 shadow-sm ${route.enabled === false ? 'opacity-60' : ''}">
                     <div class="flex items-start justify-between gap-3">
                         <div class="min-w-0">
                             <div class="font-bold text-sm text-slate-800 truncate">${escapeHtml(routeName)}</div>
-                            <div class="text-xs text-slate-500 font-mono truncate">${escapeHtml(mailbox.imap_user || 'no user')} @ ${escapeHtml(mailbox.imap_host || 'no host')}</div>
+                            <div class="text-xs text-slate-500 truncate">Read: ${escapeHtml(route.inbound_profile || 'not selected')} | Send: ${escapeHtml(route.outbound_profile || route.inbound_profile || 'auto')}</div>
+                            <div class="text-xs text-slate-500 truncate">LDAP: ${escapeHtml(ldapProfile?.name || 'none')}</div>
                         </div>
-                        <span class="text-[11px] font-bold px-2 py-0.5 rounded-full ${mailbox.enabled === false ? 'bg-slate-200 text-slate-600' : 'bg-emerald-100 text-emerald-700'}">${mailbox.enabled === false ? 'Disabled' : 'Enabled'}</span>
+                        <span class="text-[11px] font-bold px-2 py-0.5 rounded-full ${route.enabled === false ? 'bg-slate-200 text-slate-600' : 'bg-emerald-100 text-emerald-700'}">${route.enabled === false ? 'Disabled' : 'Enabled'}</span>
                     </div>
                     <div class="grid grid-cols-3 gap-2 mt-3 text-xs text-slate-600">
                         <div><span class="font-bold">Senders:</span> ${allowed.length}</div>
@@ -1338,8 +1511,8 @@
                         <div><span class="font-bold">LDAP:</span> ${groups.length}</div>
                     </div>
                     <div class="flex items-center justify-end gap-2 mt-3">
-                        <button type="button" onclick="editInboundMailbox('${mailbox.id}')" class="px-3 py-1.5 rounded bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-bold">Edit</button>
-                        <button type="button" onclick="deleteInboundMailbox('${mailbox.id}')" class="px-3 py-1.5 rounded bg-rose-50 hover:bg-rose-100 text-rose-700 text-xs font-bold">Delete</button>
+                        <button type="button" onclick="editInboundMailbox('${route.id}')" class="px-3 py-1.5 rounded bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-bold">Edit</button>
+                        <button type="button" onclick="deleteInboundMailbox('${route.id}')" class="px-3 py-1.5 rounded bg-rose-50 hover:bg-rose-100 text-rose-700 text-xs font-bold">Delete</button>
                     </div>
                 </div>`;
         }).join('');
@@ -1362,44 +1535,26 @@
         `).join('');
     }
 
-    function senderOptionsHtml(selected = '') {
-        const options = ['<option value="">Auto-select sender profile</option>'].concat(
-            moduleData.senders.map(s => `<option value="${s.email}" ${s.email === selected ? 'selected' : ''}>${s.email}</option>`)
-        );
-        return options.join('');
-    }
-
     function resetInboundMailboxForm(clearEditing = true) {
         if (clearEditing) currentInboundMailboxId = null;
         const selected = currentInboundMailboxId ? inboundMailboxDrafts.find(item => item.id === currentInboundMailboxId) : null;
-        const mailbox = selected || {};
+        const route = selected || {};
         const setValue = (id, value) => { const el = document.getElementById(id); if (el) el.value = value || ''; };
         const setChecked = (id, value) => { const el = document.getElementById(id); if (el) el.checked = !!value; };
         const title = document.getElementById('inboundMailboxFormTitle');
-        if (title) title.innerText = selected ? 'Edit Mailbox Route' : 'New Mailbox Route';
-        setValue('inboundMailboxId', mailbox.id || '');
-        setChecked('inboundMailboxEnabled', mailbox.enabled !== false);
-        setValue('inboundMailboxName', mailbox.name || '');
-        const profile = document.getElementById('inboundMailboxSenderProfile');
-        if (profile) profile.innerHTML = senderOptionsHtml(mailbox.sender_profile || '');
-        setValue('inboundMailboxHost', mailbox.imap_host || '');
-        setValue('inboundMailboxPort', mailbox.imap_port || 993);
-        setChecked('inboundMailboxSsl', mailbox.imap_ssl !== false);
-        setValue('inboundMailboxUser', mailbox.imap_user || '');
-        setValue('inboundMailboxPassword', '');
-        setChecked('inboundMailboxClearPassword', false);
-        const passwordStatus = document.getElementById('inboundMailboxPasswordStatus');
-        if (passwordStatus) {
-            const saved = !!mailbox.imap_password_saved;
-            passwordStatus.innerText = saved ? 'Status: Saved' : 'Status: Not saved';
-            passwordStatus.className = saved ? 'mt-2 text-xs font-bold text-emerald-600' : 'mt-2 text-xs font-bold text-slate-500';
-        }
-        setValue('inboundMailboxFolder', mailbox.imap_folder || 'INBOX');
-        setValue('inboundMailboxProcessedFolder', mailbox.processed_folder || 'Processed');
-        setValue('inboundMailboxFailedFolder', mailbox.failed_folder || 'Failed');
-        setValue('inboundMailboxAllowedSenders', routeText(mailbox.allowed_senders));
-        setValue('inboundMailboxLdapGroups', routeText(mailbox.ldap_groups));
-        renderInboundMailboxListChoices(mailbox.lists || []);
+        if (title) title.innerText = selected ? 'Edit Relay Route' : 'New Relay Route';
+        setValue('inboundMailboxId', route.id || '');
+        setChecked('inboundMailboxEnabled', route.enabled !== false);
+        setValue('inboundMailboxName', route.name || '');
+        const inboundProfile = document.getElementById('inboundMailboxProfile');
+        if (inboundProfile) inboundProfile.innerHTML = profileOptionsHtml(route.inbound_profile || '');
+        const outboundProfile = document.getElementById('outboundMailboxProfile');
+        if (outboundProfile) outboundProfile.innerHTML = profileOptionsHtml(route.outbound_profile || '', true);
+        const ldapProfile = document.getElementById('routeLdapProfile');
+        if (ldapProfile) ldapProfile.innerHTML = ldapProfileOptionsHtml(route.ldap_profile || '');
+        setValue('inboundMailboxAllowedSenders', routeText(route.allowed_senders));
+        setValue('inboundMailboxLdapGroups', routeText(route.ldap_groups));
+        renderInboundMailboxListChoices(route.lists || []);
     }
 
     function editInboundMailbox(id) {
@@ -1408,8 +1563,8 @@
     }
 
     function deleteInboundMailbox(id) {
-        if (!confirm('Delete this inbound mailbox route?')) return;
-        inboundMailboxDrafts = inboundMailboxDrafts.filter(mailbox => mailbox.id !== id);
+        if (!confirm('Delete this inbound relay route?')) return;
+        inboundMailboxDrafts = inboundMailboxDrafts.filter(route => route.id !== id);
         if (currentInboundMailboxId === id) currentInboundMailboxId = null;
         renderInboundMailboxList();
         resetInboundMailboxForm(false);
@@ -1423,37 +1578,25 @@
         const valueOf = id => document.getElementById(id)?.value || '';
         const checkedOf = id => !!document.getElementById(id)?.checked;
         const id = valueOf('inboundMailboxId') || (window.crypto && window.crypto.randomUUID ? window.crypto.randomUUID() : `route-${Date.now()}`);
-        const existing = inboundMailboxDrafts.find(item => item.id === id);
-        const mailbox = {
+        const route = {
             id,
             enabled: checkedOf('inboundMailboxEnabled'),
             name: valueOf('inboundMailboxName').trim(),
-            sender_profile: valueOf('inboundMailboxSenderProfile'),
-            imap_host: valueOf('inboundMailboxHost').trim(),
-            imap_port: parseInt(valueOf('inboundMailboxPort') || '993', 10),
-            imap_ssl: checkedOf('inboundMailboxSsl'),
-            imap_user: valueOf('inboundMailboxUser').trim(),
-            imap_password: valueOf('inboundMailboxPassword'),
-            clear_imap_password: checkedOf('inboundMailboxClearPassword'),
-            imap_password_saved: false,
-            imap_folder: valueOf('inboundMailboxFolder').trim() || 'INBOX',
-            processed_folder: valueOf('inboundMailboxProcessedFolder').trim() || 'Processed',
-            failed_folder: valueOf('inboundMailboxFailedFolder').trim() || 'Failed',
+            inbound_profile: valueOf('inboundMailboxProfile'),
+            outbound_profile: valueOf('outboundMailboxProfile'),
+            ldap_profile: valueOf('routeLdapProfile'),
             allowed_senders: routeArray(valueOf('inboundMailboxAllowedSenders')),
             lists: selectedInboundLists(),
             ldap_groups: routeArray(valueOf('inboundMailboxLdapGroups')),
         };
-        mailbox.imap_password_saved = !!(mailbox.imap_password || (!mailbox.clear_imap_password && existing?.imap_password_saved));
-
-        if (!mailbox.name) mailbox.name = mailbox.imap_user || mailbox.imap_host || 'Inbound route';
-        if (!mailbox.imap_host || !mailbox.imap_user) return alert('IMAP host and user are required.');
-        if (!mailbox.imap_password_saved) return alert('IMAP password is required.');
-        if (!mailbox.allowed_senders.length) return alert('Add at least one allowed sender.');
-        if (!mailbox.lists.length && !mailbox.ldap_groups.length) return alert('Select at least one local list or LDAP group.');
-
+        if (!route.name) route.name = route.inbound_profile || 'Inbound route';
+        if (!route.inbound_profile) return alert('Select a mail profile to read from.');
+        if (!route.allowed_senders.length) return alert('Add at least one allowed sender.');
+        if (!route.lists.length && !route.ldap_groups.length) return alert('Select at least one local list or LDAP group.');
+        if (route.ldap_groups.length && !route.ldap_profile) return alert('Select an LDAP profile for LDAP groups.');
         const index = inboundMailboxDrafts.findIndex(item => item.id === id);
-        if (index >= 0) inboundMailboxDrafts[index] = mailbox;
-        else inboundMailboxDrafts.push(mailbox);
+        if (index >= 0) inboundMailboxDrafts[index] = route;
+        else inboundMailboxDrafts.push(route);
         currentInboundMailboxId = id;
         renderInboundMailboxList();
         resetInboundMailboxForm(false);
@@ -1461,44 +1604,13 @@
 
     async function saveInboundRelaySettings() {
         const saveMessage = document.getElementById('inboundSaveMessage');
-        const valueOf = id => document.getElementById(id)?.value || '';
-        const checkedOf = id => !!document.getElementById(id)?.checked;
         const payload = {
             sender_profile: '',
             allowed_senders: [],
-            gpg_passphrase: valueOf('inboundGpgPassphrase'),
-            clear_gpg_passphrase: checkedOf('inboundClearPassphrase'),
             mailboxes: inboundMailboxDrafts,
-            ldap: {
-                enabled: checkedOf('ldapEnabled'),
-                freeipa_api_url: valueOf('freeipaApiUrl'),
-                freeipa_api_user: valueOf('freeipaApiUser'),
-                freeipa_api_password: valueOf('freeipaApiPassword'),
-                clear_freeipa_api_password: checkedOf('freeipaClearPassword'),
-                ldap_allowed_groups: valueOf('ldapAllowedGroups'),
-                ldap_uri: valueOf('ldapUri'),
-                ldap_bind_dn: valueOf('ldapBindDn'),
-                ldap_bind_password: valueOf('ldapBindPassword'),
-                clear_ldap_bind_password: checkedOf('ldapClearPassword'),
-                ldap_base_dn: valueOf('ldapBaseDn'),
-                ldap_group_base_dn: valueOf('ldapGroupBaseDn'),
-                ldap_group_name_attr: valueOf('ldapGroupNameAttr'),
-                ldap_group_member_attr: valueOf('ldapGroupMemberAttr'),
-                ldap_user_email_attr: valueOf('ldapUserEmailAttr'),
-                freeipa_api_verify_tls: true
-            }
+            ldap_profiles: ldapProfileDrafts,
+            ldap: { enabled: ldapProfileDrafts.some(profile => profile.enabled !== false) }
         };
-
-        if (payload.clear_gpg_passphrase && payload.gpg_passphrase) {
-            return alert('Choose either a new passphrase or clear the saved passphrase.');
-        }
-        if (payload.ldap.clear_freeipa_api_password && payload.ldap.freeipa_api_password) {
-            return alert('Choose either a new FreeIPA password or clear the saved password.');
-        }
-        if (payload.ldap.clear_ldap_bind_password && payload.ldap.ldap_bind_password) {
-            return alert('Choose either a new LDAP password or clear the saved password.');
-        }
-
         try {
             const res = await fetch('/api/newsletter/inbound', {
                 method: 'POST',
