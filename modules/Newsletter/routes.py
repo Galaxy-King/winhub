@@ -869,6 +869,9 @@ def decrypt_with_gpg(gpg_path, encrypted_payload, passphrase):
         )
         if proc.returncode != 0:
             error_text = (proc.stderr or b"").decode("utf-8", errors="replace").strip()
+            if proc.stdout and ("Can't check signature" in error_text or "No public key" in error_text):
+                log.warning("GPG decrypted inbound message, but signature could not be verified: %s", error_text)
+                return True, proc.stdout
             return False, error_text or f"GPG decrypt failed with exit code {proc.returncode}"
         return True, proc.stdout
     except subprocess.TimeoutExpired:
