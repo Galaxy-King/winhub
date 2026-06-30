@@ -690,6 +690,16 @@
                             <label class="block text-xs font-bold text-slate-500 mb-1">LDAP Profile</label>
                             <select id="routeLdapProfile" class="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500 outline-none"></select>
                         </div>
+                        <div>
+                            <label class="block text-xs font-bold text-slate-500 mb-1">Recipient Domain</label>
+                            <input type="text" id="routeRecipientDomain" placeholder="@example.com" class="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500 outline-none">
+                            <p class="text-xs text-slate-500 mt-1">Used only for local list entries without @.</p>
+                        </div>
+                        <div>
+                            <label class="block text-xs font-bold text-slate-500 mb-1">Recipient Keyserver</label>
+                            <input type="text" id="routeRecipientKeyserver" placeholder="hkps://keys.example.com" class="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500 outline-none">
+                            <p class="text-xs text-slate-500 mt-1">Overrides the send profile keyserver for this route.</p>
+                        </div>
                     </div>
 
                     <div class="grid grid-cols-1 lg:grid-cols-2 gap-3 mt-3">
@@ -1568,6 +1578,7 @@
                             <div class="font-bold text-sm text-slate-800 truncate">${escapeHtml(routeName)}</div>
                             <div class="text-xs text-slate-500 truncate">Read: ${escapeHtml(route.inbound_profile || 'not selected')} | Send: ${escapeHtml(route.outbound_profile || route.inbound_profile || 'auto')}</div>
                             <div class="text-xs text-slate-500 truncate">LDAP: ${escapeHtml(ldapProfile?.name || 'none')}</div>
+                            <div class="text-xs text-slate-500 truncate">Domain: ${escapeHtml(route.recipient_domain || 'default')} | Keys: ${escapeHtml(route.recipient_keyserver || 'send profile')}</div>
                         </div>
                         <span class="text-[11px] font-bold px-2 py-0.5 rounded-full ${route.enabled === false ? 'bg-slate-200 text-slate-600' : 'bg-emerald-100 text-emerald-700'}">${route.enabled === false ? 'Disabled' : 'Enabled'}</span>
                     </div>
@@ -1618,6 +1629,8 @@
         if (outboundProfile) outboundProfile.innerHTML = profileOptionsHtml(route.outbound_profile || '', true);
         const ldapProfile = document.getElementById('routeLdapProfile');
         if (ldapProfile) ldapProfile.innerHTML = ldapProfileOptionsHtml(route.ldap_profile || '');
+        setValue('routeRecipientDomain', route.recipient_domain || '');
+        setValue('routeRecipientKeyserver', route.recipient_keyserver || '');
         setValue('inboundMailboxAllowedSenders', routeText(route.allowed_senders));
         setValue('inboundMailboxLdapGroups', routeText(route.ldap_groups));
         renderInboundMailboxListChoices(route.lists || []);
@@ -1651,6 +1664,8 @@
             inbound_profile: valueOf('inboundMailboxProfile'),
             outbound_profile: valueOf('outboundMailboxProfile'),
             ldap_profile: valueOf('routeLdapProfile'),
+            recipient_domain: valueOf('routeRecipientDomain').trim(),
+            recipient_keyserver: valueOf('routeRecipientKeyserver').trim(),
             allowed_senders: routeArray(valueOf('inboundMailboxAllowedSenders')),
             lists: selectedInboundLists(),
             ldap_groups: routeArray(valueOf('inboundMailboxLdapGroups')),

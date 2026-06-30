@@ -73,16 +73,20 @@ def hidden_subprocess_kwargs():
 def kyiv_log_timestamp():
     return datetime.now(KYIV_TZ).strftime("%Y-%m-%d %H:%M:%S %Z")
 
-def normalize_recipient(value):
+def normalize_domain_suffix(value):
+    domain = str(value or "").strip()
+    if not domain:
+        return ""
+    return domain if domain.startswith("@") else f"@{domain}"
+
+def normalize_recipient(value, domain=None):
     recipient = str(value or "").strip()
     if not recipient:
         return ""
     if "@" in recipient:
-        return recipient
-    domain = DEFAULT_RECIPIENT_DOMAIN.strip()
-    if domain and not domain.startswith("@"):
-        domain = f"@{domain}"
-    return f"{recipient}{domain}"
+        return recipient.lower()
+    suffix = normalize_domain_suffix(domain) or normalize_domain_suffix(DEFAULT_RECIPIENT_DOMAIN)
+    return f"{recipient}{suffix}".lower() if suffix else recipient.lower()
 
 def html_to_text(html):
     import re
@@ -371,6 +375,8 @@ def normalize_inbound_mailbox(raw, existing=None, for_save=False):
         "inbound_profile": inbound_profile,
         "outbound_profile": outbound_profile,
         "ldap_profile": ldap_profile,
+        "recipient_domain": normalize_domain_suffix(raw.get("recipient_domain", existing.get("recipient_domain", ""))),
+        "recipient_keyserver": str(raw.get("recipient_keyserver") or existing.get("recipient_keyserver") or "").strip(),
         "imap_host": str(raw.get("imap_host") or existing.get("imap_host") or "").strip(),
         "imap_port": int(raw.get("imap_port") or existing.get("imap_port") or 993),
         "imap_ssl": bool(raw.get("imap_ssl", existing.get("imap_ssl", True))),
@@ -959,13 +965,14 @@ def resolve_mailbox_recipients(mailbox):
     recipients = set()
     list_counts = {}
     all_lists = load_lists()
+    recipient_domain = mailbox.get("recipient_domain") or None
     for list_name in configured_lists:
         if list_name not in all_lists:
             raise ValueError(f"Mailing list '{list_name}' not found.")
         resolved = {
-            normalize_recipient(item)
+            normalize_recipient(item, recipient_domain)
             for item in all_lists.get(list_name, [])
-            if normalize_recipient(item)
+            if normalize_recipient(item, recipient_domain)
         }
         recipients.update(resolved)
         list_counts[list_name] = len(resolved)
@@ -1011,6 +1018,10 @@ def dispatch_inbound_newsletter(app, source_msg, decrypted_msg, mailbox, subject
             sender_email, smtp_config = resolve_inbound_sender_profile(profiles, mailbox.get("inbound_profile") or mailbox.get("imap_user", ""))
         if not sender_email:
             raise ValueError("No SMTP profile available for inbound newsletter relay.")
+        smtp_runtime_config = dict(smtp_config)
+        route_keyserver = str(mailbox.get("recipient_keyserver") or "").strip()
+        if route_keyserver:
+            smtp_runtime_config["_recipient_keyserver"] = route_keyserver
 
         body_text, body_html, attachments = extract_body_and_attachments(decrypted_msg)
         if not (body_text or html_to_text(body_html)):
@@ -1059,7 +1070,7 @@ def dispatch_inbound_newsletter(app, source_msg, decrypted_msg, mailbox, subject
                 app,
                 task_id,
                 sender_email,
-                smtp_config,
+                smtp_runtime_config,
                 list(target_users),
                 subject,
                 body_text,
@@ -1907,7 +1918,7 @@ def bg_send_execution(app, task_id, sender_email, smtp_config, target_users, sub
     with app.app_context():
         server = None
         try:
-            keyserver = smtp_config.get('keyserver', '').strip()
+            keyserver = (smtp_config.get('_recipient_keyserver') or smtp_config.get('keyserver') or '').strip()
             use_gpg = bool(use_gpg)
             
             emit_and_write(f"========== [ {timestamp} ] NEWSLETTER MAILING ==========")
