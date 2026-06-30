@@ -547,6 +547,76 @@ def safe_ldap_profiles():
         safe.append(item)
     return safe
 
+def ldap_profile_groups(profile, limit=100):
+    profile = profile or {}
+    base_url = freeipa_api_base_url(profile)
+    if base_url:
+        try:
+            import requests
+        except ImportError as e:
+            raise RuntimeError("Python package 'requests' is not installed.") from e
+
+        username = profile.get("freeipa_api_user") or ""
+        password = profile_secret(profile.get("freeipa_api_password"))
+        if not username or not password:
+            raise ValueError("FreeIPA API user and password are required for this test.")
+
+        session = requests.Session()
+        session.verify = bool(profile.get("freeipa_api_verify_tls", True))
+        referer = f"{base_url}/ipa"
+        login = session.post(
+            f"{base_url}/ipa/session/login_password",
+            data={"user": username, "password": password},
+            headers={"Referer": referer, "Content-Type": "application/x-www-form-urlencoded", "Accept": "text/plain"},
+            timeout=20,
+        )
+        login.raise_for_status()
+        response = session.post(
+            f"{base_url}/ipa/session/json",
+            json={"method": "group_find", "params": [[], {"all": True, "sizelimit": int(limit)}], "id": 0},
+            headers={"Referer": referer, "Content-Type": "application/json", "Accept": "application/json"},
+            timeout=20,
+        )
+        response.raise_for_status()
+        payload = response.json()
+        if payload.get("error"):
+            raise ValueError(f"FreeIPA group lookup failed: {payload['error']}")
+        results = payload.get("result", {}).get("result", []) or []
+        groups = []
+        for item in results:
+            cn = item.get("cn")
+            if isinstance(cn, list):
+                cn = cn[0] if cn else ""
+            if cn:
+                groups.append(str(cn))
+        return sorted(set(groups))
+
+    try:
+        from ldap3 import ALL, SUBTREE, Connection, Server
+    except ImportError as e:
+        raise RuntimeError("Python package 'ldap3' is not installed.") from e
+
+    uri = profile.get("ldap_uri") or ""
+    bind_dn = profile.get("ldap_bind_dn") or ""
+    bind_password = profile_secret(profile.get("ldap_bind_password"))
+    group_base_dn = profile.get("ldap_group_base_dn") or profile.get("ldap_base_dn") or ""
+    group_name_attr = profile.get("ldap_group_name_attr") or "cn"
+    if not uri or not bind_dn or not bind_password or not group_base_dn:
+        raise ValueError("LDAP URI, bind DN, bind password and group base DN are required for this test.")
+
+    conn = Connection(Server(uri, get_info=ALL), user=bind_dn, password=bind_password, auto_bind=True, receive_timeout=15)
+    try:
+        if not conn.search(group_base_dn, "(objectClass=*)", search_scope=SUBTREE, attributes=[group_name_attr], size_limit=int(limit)):
+            return []
+        groups = []
+        for entry in conn.entries:
+            if hasattr(entry, group_name_attr):
+                values = [str(value) for value in getattr(entry, group_name_attr).values if str(value).strip()]
+                groups.extend(values)
+        return sorted(set(groups))
+    finally:
+        conn.unbind()
+
 def ldap_enabled():
     return inbound_bool_setting("ldap_enabled", "NEWSLETTER_LDAP_ENABLED", False)
 
@@ -1304,6 +1374,77 @@ def manage_smtp():
             
     return jsonify({"success": True, "message": "SMTP configuration updated."})
 
+@newsletter_bp.route("/api/newsletter/test/mail", methods=["POST"])
+def test_mail_profile():
+    denied = require_permission("manage_smtp")
+    if denied: return denied
+
+    data = request.json or {}
+    profiles = load_smtp_profiles()
+    email = str(data.get("email") or "").strip().lower()
+    existing = profiles.get(email, {})
+    try:
+        profile = normalize_mail_profile(email, data, existing=existing, for_save=False)
+    except ValueError as e:
+        return jsonify({"success": False, "message": str(e)}), 400
+
+    smtp_result = {"ok": False, "message": "SMTP not tested."}
+    imap_result = {"ok": False, "message": "IMAP not tested."}
+
+    if profile.get("host") and profile.get("password"):
+        try:
+            smtp_password = profile_secret(profile.get("password"))
+            if int(profile.get("port") or 587) == 465:
+                smtp = smtplib.SMTP_SSL(profile["host"], int(profile.get("port") or 465), timeout=15)
+            else:
+                smtp = smtplib.SMTP(profile["host"], int(profile.get("port") or 587), timeout=15)
+                smtp.starttls()
+            smtp.login(profile["email"], smtp_password)
+            smtp.quit()
+            smtp_result = {"ok": True, "message": "SMTP login OK."}
+        except Exception as e:
+            smtp_result = {"ok": False, "message": f"SMTP failed: {e}"}
+
+    if profile.get("imap_host") and profile.get("imap_user") and profile.get("imap_password"):
+        imap = None
+        try:
+            imap_password = profile_secret(profile.get("imap_password"))
+            imap = imaplib.IMAP4_SSL(profile["imap_host"], int(profile.get("imap_port") or 993)) if profile.get("imap_ssl", True) else imaplib.IMAP4(profile["imap_host"], int(profile.get("imap_port") or 143))
+            imap.login(profile["imap_user"], imap_password)
+            typ, _ = imap.select(profile.get("imap_folder") or "INBOX", readonly=True)
+            if typ != "OK":
+                raise RuntimeError(f"Cannot select folder {profile.get('imap_folder') or 'INBOX'}")
+            imap_result = {"ok": True, "message": "IMAP login and folder check OK."}
+        except Exception as e:
+            imap_result = {"ok": False, "message": f"IMAP failed: {e}"}
+        finally:
+            if imap:
+                try:
+                    imap.logout()
+                except Exception:
+                    pass
+
+    return jsonify({
+        "success": smtp_result["ok"] or imap_result["ok"],
+        "smtp": smtp_result,
+        "imap": imap_result,
+    })
+
+@newsletter_bp.route("/api/newsletter/test/ldap", methods=["POST"])
+def test_ldap_profile():
+    denied = require_permission("manage_smtp")
+    if denied: return denied
+
+    data = request.json or {}
+    profile_id = str(data.get("id") or "").strip()
+    existing = ldap_profile_by_id(profile_id) if profile_id else None
+    profile = normalize_ldap_profile(data, existing=existing, for_save=False)
+    try:
+        groups = ldap_profile_groups(profile)
+        return jsonify({"success": True, "message": "LDAP profile test OK.", "groups": groups, "groups_count": len(groups)})
+    except Exception as e:
+        return jsonify({"success": False, "message": str(e), "groups": []}), 400
+
 @newsletter_bp.route("/api/newsletter/inbound", methods=["GET", "POST"])
 def manage_inbound_relay():
     denied = require_permission("manage_smtp")
@@ -1350,10 +1491,6 @@ def manage_inbound_relay():
             if profile["id"] in seen_ldap_ids:
                 return jsonify({"success": False, "message": "LDAP profile IDs must be unique."}), 400
             seen_ldap_ids.add(profile["id"])
-            if profile.get("enabled") and not (profile.get("freeipa_api_url") or profile.get("ldap_uri")):
-                return jsonify({"success": False, "message": f"LDAP profile '{profile.get('name')}' needs a FreeIPA API URL or LDAP URI."}), 400
-            if profile.get("enabled") and profile.get("freeipa_api_url") and not (profile.get("freeipa_api_user") and profile.get("freeipa_api_password")):
-                return jsonify({"success": False, "message": f"FreeIPA user and password are required for LDAP profile '{profile.get('name')}'."}), 400
             saved_ldap_profiles.append(profile)
         settings["ldap_profiles"] = saved_ldap_profiles
 
@@ -1392,7 +1529,9 @@ def manage_inbound_relay():
                     return jsonify({"success": False, "message": f"At least one mailing list or LDAP group is required for mailbox '{mailbox.get('name')}'."}), 400
             if mailbox.get("outbound_profile") and mailbox["outbound_profile"] not in profiles:
                 return jsonify({"success": False, "message": f"Outbound mail profile '{mailbox['outbound_profile']}' not found."}), 400
-            if mailbox.get("ldap_profile") and not any(item.get("id") == mailbox.get("ldap_profile") for item in settings.get("ldap_profiles", [])):
+            if mailbox.get("ldap_groups") and not mailbox.get("ldap_profile"):
+                return jsonify({"success": False, "message": f"LDAP profile is required for route '{mailbox.get('name')}' because LDAP groups are configured."}), 400
+            if mailbox.get("ldap_groups") and mailbox.get("ldap_profile") and not any(item.get("id") == mailbox.get("ldap_profile") for item in settings.get("ldap_profiles", [])):
                 return jsonify({"success": False, "message": f"LDAP profile '{mailbox['ldap_profile']}' not found."}), 400
             missing_lists = [name for name in mailbox.get("lists", []) if name not in known_lists]
             if missing_lists:

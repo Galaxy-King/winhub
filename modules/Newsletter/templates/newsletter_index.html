@@ -631,7 +631,11 @@
                 <div class="text-xs text-amber-600 bg-amber-50 p-2 rounded my-4 border border-amber-200">
                     Passwords and passphrases are encrypted before being saved and are never shown back in the web UI.
                 </div>
-                <button onclick="saveSmtpProfile()" class="w-full bg-slate-800 hover:bg-slate-900 text-white font-bold py-2.5 rounded-lg transition-colors mt-auto">Save Mail Profile</button>
+                <div id="mailProfileTestMessage" class="text-xs font-bold text-slate-500 mb-3"></div>
+                <div class="grid grid-cols-2 gap-3 mt-auto">
+                    <button type="button" onclick="testMailProfile()" class="w-full bg-slate-200 hover:bg-slate-300 text-slate-700 font-bold py-2.5 rounded-lg transition-colors">Test Mail Profile</button>
+                    <button onclick="saveSmtpProfile()" class="w-full bg-slate-800 hover:bg-slate-900 text-white font-bold py-2.5 rounded-lg transition-colors">Save Mail Profile</button>
+                </div>
             </div>
 
             <div class="flex flex-col min-h-0">
@@ -770,9 +774,11 @@
                         </div>
                     </details>
                     <div class="flex items-center justify-end gap-3 mt-4">
+                        <button type="button" onclick="testLdapProfile()" class="px-4 py-2 rounded-lg bg-slate-200 hover:bg-slate-300 text-slate-700 font-bold text-sm">Test LDAP / Check Groups</button>
                         <button type="button" onclick="resetLdapProfileForm()" class="px-4 py-2 rounded-lg bg-slate-200 hover:bg-slate-300 text-slate-700 font-bold text-sm">Clear</button>
                         <button type="button" onclick="saveLdapProfileDraft()" class="bg-emerald-600 hover:bg-emerald-700 text-white font-bold py-2 px-5 rounded-lg transition-colors">Save LDAP Profile</button>
                     </div>
+                    <div id="ldapProfileTestMessage" class="text-xs font-bold text-slate-500 mt-3"></div>
                 </div>
                 <div>
                     <h4 class="font-bold text-sm text-slate-600 mb-3 uppercase">Saved LDAP Profiles</h4>
@@ -1305,9 +1311,9 @@
         setSecretStatus('mailGpgPassphraseStatus', profile.gpg_passphrase_saved);
     }
 
-    async function saveSmtpProfile() {
+    function currentMailProfilePayload() {
         const email = document.getElementById('smtpEmail').value.trim().toLowerCase();
-        const payload = {
+        return {
             action: 'add',
             email,
             host: document.getElementById('smtpHost').value.trim(),
@@ -1324,6 +1330,36 @@
             failed_folder: document.getElementById('mailFailedFolder').value.trim() || 'Failed',
             gpg_passphrase: document.getElementById('mailGpgPassphrase').value,
         };
+    }
+
+    async function testMailProfile() {
+        const message = document.getElementById('mailProfileTestMessage');
+        const payload = currentMailProfilePayload();
+        if (message) message.innerText = 'Testing mail profile...';
+        try {
+            const res = await fetch('/api/newsletter/test/mail', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify(payload)
+            });
+            const data = await res.json();
+            const smtp = data.smtp ? data.smtp.message : '';
+            const imap = data.imap ? data.imap.message : '';
+            if (message) {
+                message.innerText = `${smtp} ${imap}`.trim();
+                message.className = data.success ? 'text-xs font-bold text-emerald-600 mb-3' : 'text-xs font-bold text-rose-600 mb-3';
+            }
+        } catch(e) {
+            if (message) {
+                message.innerText = 'Network error while testing mail profile.';
+                message.className = 'text-xs font-bold text-rose-600 mb-3';
+            }
+        }
+    }
+
+    async function saveSmtpProfile() {
+        const payload = currentMailProfilePayload();
+        const email = payload.email;
         const existing = moduleData.senders.find(item => item.email === email);
         if (!email || !payload.host) return alert('Email and SMTP host are required.');
         if (!payload.password && !existing?.smtp_password_saved) return alert('SMTP password is required.');
@@ -1412,10 +1448,10 @@
         setSecretStatus('ldapBindPasswordStatus', profile.ldap_bind_password_saved);
     }
 
-    function saveLdapProfileDraft() {
+    function currentLdapProfilePayload() {
         const id = document.getElementById('ldapProfileId').value || (window.crypto && window.crypto.randomUUID ? window.crypto.randomUUID() : `ldap-${Date.now()}`);
         const existing = ldapProfileDrafts.find(item => item.id === id);
-        const profile = {
+        return {
             id,
             enabled: document.getElementById('ldapProfileEnabled').checked,
             name: document.getElementById('ldapProfileName').value.trim() || 'LDAP Profile',
@@ -1435,8 +1471,38 @@
             ldap_group_member_attr: document.getElementById('ldapGroupMemberAttr').value.trim() || 'member',
             ldap_user_email_attr: document.getElementById('ldapUserEmailAttr').value.trim() || 'mail',
         };
+    }
+
+    async function testLdapProfile() {
+        const message = document.getElementById('ldapProfileTestMessage');
+        const payload = currentLdapProfilePayload();
+        if (message) message.innerText = 'Testing LDAP profile...';
+        try {
+            const res = await fetch('/api/newsletter/test/ldap', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify(payload)
+            });
+            const data = await res.json();
+            if (message) {
+                const groups = (data.groups || []).slice(0, 20).join(', ');
+                message.innerText = data.success
+                    ? `OK. Groups visible: ${data.groups_count || 0}${groups ? ` | ${groups}` : ''}`
+                    : (data.message || 'LDAP test failed.');
+                message.className = data.success ? 'text-xs font-bold text-emerald-600 mt-3' : 'text-xs font-bold text-rose-600 mt-3';
+            }
+        } catch(e) {
+            if (message) {
+                message.innerText = 'Network error while testing LDAP profile.';
+                message.className = 'text-xs font-bold text-rose-600 mt-3';
+            }
+        }
+    }
+
+    function saveLdapProfileDraft() {
+        const profile = currentLdapProfilePayload();
         if (!profile.freeipa_api_url && !profile.ldap_uri) return alert('Add a FreeIPA API URL or direct LDAP URI.');
-        const index = ldapProfileDrafts.findIndex(item => item.id === id);
+        const index = ldapProfileDrafts.findIndex(item => item.id === profile.id);
         if (index >= 0) ldapProfileDrafts[index] = profile;
         else ldapProfileDrafts.push(profile);
         currentLdapProfileId = id;
