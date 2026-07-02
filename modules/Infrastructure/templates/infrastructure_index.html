@@ -50,11 +50,11 @@
 		    }
 		    .cm-s-winhub-neon div.CodeMirror-selected,
 		    .cm-s-winhub-neon .CodeMirror-selected {
-		        background: rgba(250, 204, 21, 0.34) !important;
+		        background: rgba(14, 165, 233, 0.42) !important;
 		    }
 		    .cm-s-winhub-neon.CodeMirror-focused div.CodeMirror-selected,
 		    .cm-s-winhub-neon.CodeMirror-focused .CodeMirror-selected {
-		        background: rgba(250, 204, 21, 0.52) !important;
+		        background: rgba(6, 182, 212, 0.58) !important;
 		    }
 		    .cm-s-winhub-neon .CodeMirror-selectedtext {
 		        color: #f8fafc !important;
@@ -63,14 +63,14 @@
 		    .cm-s-winhub-neon .CodeMirror-line::selection,
 		    .cm-s-winhub-neon .CodeMirror-line > span::selection,
 		    .cm-s-winhub-neon .CodeMirror-line > span > span::selection {
-		        background: rgba(250, 204, 21, 0.52);
+		        background: rgba(6, 182, 212, 0.62);
 		        color: #f8fafc;
 		        text-shadow: 0 1px 1px rgba(0, 0, 0, 0.85);
 		    }
 		    .cm-s-winhub-neon .CodeMirror-line::-moz-selection,
 		    .cm-s-winhub-neon .CodeMirror-line > span::-moz-selection,
 		    .cm-s-winhub-neon .CodeMirror-line > span > span::-moz-selection {
-		        background: rgba(250, 204, 21, 0.52);
+		        background: rgba(6, 182, 212, 0.62);
 		        color: #f8fafc;
 		        text-shadow: 0 1px 1px rgba(0, 0, 0, 0.85);
 		    }
@@ -101,10 +101,37 @@
 		        caret-color: #67e8f9;
 		    }
 		    #depPayload::selection {
-		        background: rgba(250, 204, 21, 0.52);
+		        background: rgba(6, 182, 212, 0.62);
 		        color: #f8fafc;
 		        text-shadow: 0 1px 1px rgba(0, 0, 0, 0.85);
 		    }
+            #payloadArea.payload-editor-expanded {
+                position: fixed;
+                inset: 1.25rem;
+                z-index: 90;
+                display: flex !important;
+                flex-direction: column;
+                padding: 1rem;
+                border: 1px solid rgba(34, 211, 238, 0.42);
+                border-radius: 1.75rem;
+                background:
+                    radial-gradient(circle at 10% 0%, rgba(34, 211, 238, 0.16), transparent 24rem),
+                    linear-gradient(135deg, rgba(2, 8, 23, 0.98), rgba(8, 17, 31, 0.98));
+                box-shadow: 0 30px 90px rgba(0, 0, 0, 0.55), 0 0 45px rgba(34, 211, 238, 0.14);
+            }
+            #payloadArea.payload-editor-expanded .CodeMirror {
+                height: calc(100vh - 8.5rem) !important;
+                flex: 1;
+            }
+            #payloadArea.payload-editor-expanded #depPayload {
+                height: calc(100vh - 8.5rem) !important;
+            }
+            #payloadArea.payload-editor-expanded .editor-expanded-only {
+                display: inline-flex !important;
+            }
+            #payloadArea.payload-editor-expanded .editor-normal-only {
+                display: none !important;
+            }
     #infraNavScroller {
         scrollbar-width: none;
         -ms-overflow-style: none;
@@ -127,20 +154,25 @@
         border-color: rgba(147, 178, 219, 0.42);
         box-shadow: 0 24px 55px rgba(7, 21, 46, 0.34);
     }
-    .infra-dropdown-blue button {
+    .infra-dropdown-blue :is(a, button) {
+        display: block;
+        width: 100%;
+        text-align: left;
         margin: 0.25rem 0;
         border: 1px solid rgba(191, 219, 254, 0.18);
         background: rgba(255, 255, 255, 0.08);
+        color: #dff7ff !important;
+        box-shadow: inset 0 1px 0 rgba(255,255,255,0.04);
     }
-    .infra-dropdown-blue button:not(.active) {
+    .infra-dropdown-blue :is(a, button):not(.active) {
         color: #eff6ff !important;
     }
-    .infra-dropdown-blue button:not(.active):hover {
+    .infra-dropdown-blue :is(a, button):not(.active):hover {
         background: rgba(255, 255, 255, 0.16);
         border-color: rgba(191, 219, 254, 0.34);
         color: #ffffff !important;
     }
-    .infra-dropdown-blue button.active {
+    .infra-dropdown-blue :is(a, button).active {
         background: linear-gradient(135deg, rgba(34, 211, 238, 0.28), rgba(59, 130, 246, 0.18)) !important;
         border-color: rgba(34, 211, 238, 0.72) !important;
         color: #ecfeff !important;
@@ -198,27 +230,32 @@
             linear-gradient(135deg, #4c1d95, #0f172a) !important;
         border-color: rgba(196, 181, 253, 0.42) !important;
     }
-    .infra-dropdown-blue button {
+    .infra-dropdown-blue :is(a, button) {
         color: #dff7ff !important;
         border-color: rgba(34, 211, 238, 0.16) !important;
     }
-    .infra-dropdown-blue button:nth-child(1) {
+    .infra-dropdown-blue :is(a, button):nth-child(1) {
         background: rgba(14, 165, 233, 0.13) !important;
         border-color: rgba(56, 189, 248, 0.34) !important;
     }
-    .infra-dropdown-blue button:nth-child(2) {
+    .infra-dropdown-blue :is(a, button):nth-child(2) {
         background: rgba(16, 185, 129, 0.12) !important;
         border-color: rgba(52, 211, 153, 0.30) !important;
     }
-    .infra-dropdown-blue button:nth-child(3) {
+    .infra-dropdown-blue :is(a, button):nth-child(3) {
         background: rgba(245, 158, 11, 0.13) !important;
         border-color: rgba(251, 191, 36, 0.30) !important;
     }
-    .infra-dropdown-blue button:nth-child(4) {
+    .infra-dropdown-blue :is(a, button):nth-child(4) {
         background: rgba(168, 85, 247, 0.13) !important;
         border-color: rgba(196, 181, 253, 0.30) !important;
     }
-    .infra-dropdown-blue button:hover {
+    .infra-dropdown-blue :is(a, button):nth-child(5),
+    .infra-dropdown-blue :is(a, button):nth-child(6) {
+        background: rgba(236, 72, 153, 0.12) !important;
+        border-color: rgba(244, 114, 182, 0.30) !important;
+    }
+    .infra-dropdown-blue :is(a, button):hover {
         background: rgba(34, 211, 238, 0.18) !important;
         color: #ffffff !important;
         box-shadow: inset 3px 0 0 rgba(34, 211, 238, 0.75) !important;
@@ -250,8 +287,8 @@
         border-color: rgba(34, 211, 238, 0.32) !important;
     }
     body .infra-menu-trigger:hover,
-    body .infra-dropdown-blue button:hover,
-    body .infra-dropdown-blue button.active {
+    body .infra-dropdown-blue :is(a, button):hover,
+    body .infra-dropdown-blue :is(a, button).active {
         color: #ffffff !important;
         text-shadow: 0 0 12px rgba(34, 211, 238, 0.20);
     }
@@ -261,7 +298,7 @@
             linear-gradient(145deg, rgba(7, 18, 35, 0.98), rgba(5, 10, 22, 0.98)) !important;
         border-color: rgba(34, 211, 238, 0.34) !important;
     }
-    body .infra-dropdown-blue button {
+    body .infra-dropdown-blue :is(a, button) {
         margin-bottom: 0.4rem !important;
         color: #dff7ff !important;
         box-shadow: inset 0 1px 0 rgba(255,255,255,0.04);

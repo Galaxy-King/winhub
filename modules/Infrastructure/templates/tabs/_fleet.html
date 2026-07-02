@@ -40,6 +40,11 @@
                         <input type="checkbox" value="{{ g.id }}" onchange="loadFleetCenter(1)" class="fleet-group-filter-cb w-3.5 h-3.5 rounded border-slate-300 text-indigo-600 focus:ring-indigo-500"> {{ g.name }}
                     </label>
                     {% endfor %}
+                    <div class="basis-full"></div>
+                    <label class="inline-flex items-center gap-2 px-3 py-2 rounded-lg bg-cyan-950/90 text-[10px] font-black uppercase text-cyan-50 border border-cyan-400/40 cursor-pointer shadow-sm" title="Show hosts that have exactly the selected group set and no additional groups. Example: select Windows + this option to find hosts that are only in Windows.">
+                        <input id="fleetExactGroupsOnly" type="checkbox" onchange="loadFleetCenter(1)" class="w-3.5 h-3.5 rounded border-cyan-200 text-cyan-500 focus:ring-cyan-400">
+                        Only selected groups
+                    </label>
                 </div>
                 </div>
                 <div class="fleet-pagination rounded-2xl border px-4 py-3 flex flex-col md:flex-row md:items-center justify-between gap-3">

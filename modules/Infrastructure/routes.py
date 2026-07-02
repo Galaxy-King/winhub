@@ -25,7 +25,7 @@ from sqlalchemy.orm import load_only, selectinload
 from werkzeug.exceptions import HTTPException
 from werkzeug.utils import secure_filename
 
-from core.database import db, User, Endpoint, EndpointGroup, AgentTask, TaskTemplate, TelemetryHistory, ConnectionIpHistory, ScheduledTask, EndpointMetric, AgentUpdateRollout, TriggerRule, AggregatedJob, ApiKey, RegistrationHistory, AuditLog
+from core.database import db, User, Endpoint, EndpointGroup, AgentTask, TaskTemplate, TelemetryHistory, ConnectionIpHistory, ScheduledTask, EndpointMetric, AgentUpdateRollout, TriggerRule, AggregatedJob, ApiKey, RegistrationHistory, AuditLog, endpoint_group_m2m
 from core.sdk import WinHubCore
 from core.admin import send_notification_email
 from core.security import sec_manager
@@ -2014,11 +2014,21 @@ def index():
         for template in templates
     })
 
+    def scheduled_task_variables(st):
+        try:
+            value = json.loads(st.variables) if st.variables else {}
+            return value if isinstance(value, dict) else {}
+        except Exception:
+            return {}
+
     scheduled_tasks = [{
         "id": st.id, "name": st.name, "category": st.category, "cron": st.cron_expr, "is_active": st.is_active,
         "target_type": st.target_type,
         "target_name": Endpoint.query.get(st.target_id).hostname if st.target_type == 'host' and Endpoint.query.get(st.target_id) else (EndpointGroup.query.get(st.target_id).name if EndpointGroup.query.get(st.target_id) else "Unknown Target"),
         "template_name": st.template.name if st.template else "Deleted Template",
+        "template_id": st.template_id,
+        "target_id": st.target_id,
+        "variables": scheduled_task_variables(st),
         "last_run": to_kyiv_time_short(st.last_run)
     } for st in scheduled_raw]
 
@@ -2635,13 +2645,30 @@ def manage_schedule():
     if denied: return denied
     data = request.json
     tid = data.get('id')
+    variables = data.get('variables') or {}
+    if not isinstance(variables, dict):
+        return jsonify({"success": False, "message": "Schedule variables must be an object"}), 400
+    clean_variables = {}
+    for key, value in variables.items():
+        if not re.match(r"^[A-Za-z_][A-Za-z0-9_]*$", str(key)):
+            return jsonify({"success": False, "message": f"Invalid variable name: {key}"}), 400
+        if isinstance(value, (dict, list)):
+            return jsonify({"success": False, "message": f"Variable '{key}' must be a scalar value"}), 400
+        value = "" if value is None else str(value)
+        if len(value) > 2048:
+            return jsonify({"success": False, "message": f"Variable '{key}' is too long"}), 400
+        if any(ch in value for ch in ("\x00", "\r")):
+            return jsonify({"success": False, "message": f"Variable '{key}' contains unsupported control characters"}), 400
+        clean_variables[str(key)] = value
+    variables_raw = json.dumps(clean_variables, ensure_ascii=False)
     if tid:
         st = ScheduledTask.query.get(tid)
         if st:
             st.name = data.get('name'); st.category = data.get('category', 'Scheduled'); st.template_id = data.get('template_id')
             st.target_type = data.get('target_type'); st.target_id = data.get('target_id'); st.cron_expr = data.get('cron'); st.is_active = data.get('is_active', True)
+            st.variables = variables_raw
     else:
-        db.session.add(ScheduledTask(name=data.get('name'), category=data.get('category', 'Scheduled'), template_id=data.get('template_id'), target_type=data.get('target_type'), target_id=data.get('target_id'), cron_expr=data.get('cron'), is_active=data.get('is_active', True), created_by=session.get('username')))
+        db.session.add(ScheduledTask(name=data.get('name'), category=data.get('category', 'Scheduled'), template_id=data.get('template_id'), target_type=data.get('target_type'), target_id=data.get('target_id'), cron_expr=data.get('cron'), is_active=data.get('is_active', True), variables=variables_raw, created_by=session.get('username')))
     db.session.commit()
     from core import reload_scheduler_jobs
     reload_scheduler_jobs(current_app)
@@ -3747,6 +3774,7 @@ def fleet_center():
         for item in str(request.args.get("groups") or "").split(",")
         if item.strip()
     ]
+    group_match = str(request.args.get("group_match") or "contains").strip().lower()
 
     access_note = None
     if user and not user.is_admin and not list(user.allowed_host_groups):
@@ -3775,6 +3803,14 @@ def fleet_center():
     if selected_group_ids:
         for group_id in selected_group_ids:
             query = query.filter(Endpoint.groups.any(EndpointGroup.id == group_id))
+        if group_match == "exact":
+            membership_count = (
+                db.session.query(func.count(endpoint_group_m2m.c.group_id))
+                .filter(endpoint_group_m2m.c.endpoint_id == Endpoint.id)
+                .correlate(Endpoint)
+                .scalar_subquery()
+            )
+            query = query.filter(membership_count == len(selected_group_ids))
     elif "ungrouped" in group_filters:
         query = query.filter(~Endpoint.groups.any())
 

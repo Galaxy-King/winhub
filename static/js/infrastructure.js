@@ -18,6 +18,7 @@ let currentReportId = null;
 let selectedTemplateId = null;
 let editingTemplateId = null;
 let currentTemplateVariables = [];
+let currentScheduleVariables = {};
 let teleChart = null;
 let diskChart = null;
 let activityChart = null;
@@ -38,6 +39,7 @@ const infraStateKeys = {
     fleetStatus: 'infra_fleet_status',
     fleetSearch: 'infra_fleet_search',
     fleetGroups: 'infra_fleet_groups',
+    fleetGroupMatch: 'infra_fleet_group_match',
     fleetPage: 'infra_fleet_page',
     fleetPageSize: 'infra_fleet_page_size',
     fleetSort: 'infra_fleet_sort',
@@ -92,6 +94,7 @@ function scopedInfraState(view, params = {}) {
         fleetStatus: null,
         fleetSearch: null,
         fleetGroups: null,
+        fleetGroupMatch: null,
         fleetPage: null,
         fleetPageSize: null,
         fleetSort: null,
@@ -268,6 +271,33 @@ function refreshPayloadEditor() {
         }, 40);
     }
 }
+
+function setPayloadEditorExpanded(expanded) {
+    const area = document.getElementById('payloadArea');
+    if (!area) return;
+    area.classList.toggle('payload-editor-expanded', !!expanded);
+    document.body.classList.toggle('overflow-hidden', !!expanded);
+    refreshPayloadEditor();
+    if (payloadEditor && expanded) {
+        setTimeout(() => payloadEditor.focus(), 80);
+    }
+}
+
+function togglePayloadEditorExpanded(force) {
+    const area = document.getElementById('payloadArea');
+    if (!area) return;
+    const next = typeof force === 'boolean' ? force : !area.classList.contains('payload-editor-expanded');
+    setPayloadEditorExpanded(next);
+}
+
+document.addEventListener('keydown', (event) => {
+    if (event.key === 'Escape') {
+        const area = document.getElementById('payloadArea');
+        if (area?.classList.contains('payload-editor-expanded')) {
+            setPayloadEditorExpanded(false);
+        }
+    }
+});
 
 function closeInfraMenus() {
     document.querySelectorAll('.infra-dropdown').forEach(menu => menu.classList.add('hidden'));
@@ -531,12 +561,19 @@ function updateVariablesUI() {
             currentValues[inp.dataset.var] = inp.value;
         });
 
-        varContainer.innerHTML = Array.from(vars).map(v => `
+        varContainer.innerHTML = Array.from(vars).map(v => {
+            const isLongValue = /folders|paths|list/i.test(v);
+            const currentValue = currentValues[v] || '';
+            const field = isLongValue
+                ? `<textarea data-var="${v}" class="tpl-var-input w-full p-4 bg-white border border-indigo-100 rounded-2xl text-sm font-bold shadow-sm outline-none focus:ring-2 focus:ring-indigo-500 min-h-28" placeholder="One value per line or comma-separated...">${escapeHtml(currentValue)}</textarea>`
+                : `<input type="text" data-var="${v}" value="${escapeHtml(currentValue)}" class="tpl-var-input w-full p-4 bg-white border border-indigo-100 rounded-2xl text-sm font-bold shadow-sm outline-none focus:ring-2 focus:ring-indigo-500" placeholder="Enter value for ${escapeHtml(v)}...">`;
+            return `
             <div>
-                <label class="text-[10px] font-black text-indigo-400 uppercase tracking-widest block mb-2 ml-2">${v}</label>
-                <input type="text" data-var="${v}" value="${currentValues[v] || ''}" class="tpl-var-input w-full p-4 bg-white border border-indigo-100 rounded-2xl text-sm font-bold shadow-sm outline-none focus:ring-2 focus:ring-indigo-500" placeholder="Enter value for ${v}...">
+                <label class="text-[10px] font-black text-indigo-400 uppercase tracking-widest block mb-2 ml-2">${escapeHtml(v)}</label>
+                ${field}
             </div>
-        `).join('');
+        `;
+        }).join('');
     } else {
         varArea.classList.add('hidden');
         varContainer.innerHTML = '';
@@ -2301,6 +2338,7 @@ function restoreFleetCenterState() {
     const status = readInfraState('fleetStatus', infraStateKeys.fleetStatus, 'all') || 'all';
     const search = readInfraState('fleetSearch', infraStateKeys.fleetSearch, '');
     const groups = (readInfraState('fleetGroups', infraStateKeys.fleetGroups, '') || '').split(',').filter(Boolean);
+    const groupMatch = readInfraState('fleetGroupMatch', infraStateKeys.fleetGroupMatch, 'contains') || 'contains';
     const page = Number(readInfraState('fleetPage', infraStateKeys.fleetPage, '1')) || 1;
     const pageSize = Number(readInfraState('fleetPageSize', infraStateKeys.fleetPageSize, '50')) || 50;
     const sortValue = readInfraState('fleetSort', infraStateKeys.fleetSort, 'hostname:asc') || 'hostname:asc';
@@ -2313,6 +2351,8 @@ function restoreFleetCenterState() {
     document.querySelectorAll('#fleetGroupFilters input[type="checkbox"]').forEach(cb => {
         cb.checked = groups.includes(String(cb.value));
     });
+    const exactGroupsOnly = document.getElementById('fleetExactGroupsOnly');
+    if (exactGroupsOnly) exactGroupsOnly.checked = groupMatch === 'exact';
     fleetPagination.page = page;
     fleetPagination.page_size = pageSize;
     fleetSortState = {
@@ -2326,12 +2366,14 @@ function persistFleetCenterState(page = fleetPagination.page || 1) {
     const status = document.getElementById('fleetStatusFilter')?.value || 'all';
     const search = (document.getElementById('fleetSearch')?.value || '').trim();
     const groups = fleetGroupFilterValues().join(',');
+    const groupMatch = document.getElementById('fleetExactGroupsOnly')?.checked ? 'exact' : 'contains';
     const pageSize = Number(fleetPagination.page_size || 50);
     const sort = `${fleetSortState.key}:${fleetSortState.direction}`;
 
     localStorage.setItem(infraStateKeys.fleetStatus, status);
     localStorage.setItem(infraStateKeys.fleetSearch, search);
     localStorage.setItem(infraStateKeys.fleetGroups, groups);
+    localStorage.setItem(infraStateKeys.fleetGroupMatch, groupMatch);
     localStorage.setItem(infraStateKeys.fleetPage, String(page || 1));
     localStorage.setItem(infraStateKeys.fleetPageSize, String(pageSize));
     localStorage.setItem(infraStateKeys.fleetSort, sort);
@@ -2340,6 +2382,7 @@ function persistFleetCenterState(page = fleetPagination.page || 1) {
         fleetStatus: status === 'all' ? null : status,
         fleetSearch: search || null,
         fleetGroups: groups || null,
+        fleetGroupMatch: groupMatch === 'contains' ? null : groupMatch,
         fleetPage: Number(page || 1) === 1 ? null : page,
         fleetPageSize: pageSize === 50 ? null : pageSize,
         fleetSort: sort === 'hostname:asc' ? null : sort,
@@ -2375,6 +2418,7 @@ async function loadFleetCenter(page = fleetPagination.page || 1) {
             search: (document.getElementById('fleetSearch')?.value || '').trim(),
             status: document.getElementById('fleetStatusFilter')?.value || 'all',
             groups: fleetGroupFilterValues().join(','),
+            group_match: document.getElementById('fleetExactGroupsOnly')?.checked ? 'exact' : 'contains',
             sort: fleetSortState.key,
             direction: fleetSortState.direction,
         });
@@ -3919,11 +3963,60 @@ function parseCronToUI(cronStr) {
     toggleSchType();
 }
 
+function getSelectedScheduleTemplateVars() {
+    const option = document.getElementById('schTemplate')?.selectedOptions?.[0];
+    if (!option) return [];
+    try {
+        const vars = JSON.parse(option.dataset.vars || '[]');
+        return Array.isArray(vars) ? vars : [];
+    } catch(e) {
+        return [];
+    }
+}
+
+function updateScheduleVariablesUI(values = currentScheduleVariables) {
+    currentScheduleVariables = values && typeof values === 'object' ? values : {};
+    const vars = getSelectedScheduleTemplateVars();
+    const area = document.getElementById('scheduleVariablesArea');
+    const container = document.getElementById('scheduleVariablesContainer');
+    if (!area || !container) return;
+
+    if (!vars.length) {
+        area.classList.add('hidden');
+        container.innerHTML = '';
+        return;
+    }
+
+    area.classList.remove('hidden');
+    container.innerHTML = vars.map(v => {
+        const currentValue = currentScheduleVariables[v] || '';
+        const isLongValue = /folders|paths|list/i.test(v);
+        const field = isLongValue
+            ? `<textarea data-var="${escapeHtml(v)}" class="sch-var-input w-full p-4 bg-white border border-indigo-100 rounded-2xl text-sm font-bold shadow-sm outline-none focus:ring-2 focus:ring-indigo-500 min-h-28" placeholder="One value per line or comma-separated...">${escapeHtml(currentValue)}</textarea>`
+            : `<input type="text" data-var="${escapeHtml(v)}" value="${escapeHtml(currentValue)}" class="sch-var-input w-full p-4 bg-white border border-indigo-100 rounded-2xl text-sm font-bold shadow-sm outline-none focus:ring-2 focus:ring-indigo-500" placeholder="Enter value for ${escapeHtml(v)}...">`;
+        return `
+            <div>
+                <label class="text-[10px] font-black text-indigo-500 uppercase tracking-widest block mb-2 ml-2">${escapeHtml(v)}</label>
+                ${field}
+            </div>
+        `;
+    }).join('');
+}
+
+function collectScheduleVariables() {
+    const variables = {};
+    document.querySelectorAll('.sch-var-input').forEach(inp => {
+        variables[inp.dataset.var] = inp.value;
+    });
+    return variables;
+}
+
 function openScheduleModal() {
     const elId = document.getElementById('schId'); if(elId) elId.value = '';
     const elName = document.getElementById('schName'); if(elName) elName.value = '';
     const elCat = document.getElementById('schCategory'); if(elCat) elCat.value = 'Scheduled';
     const elAct = document.getElementById('schActive'); if(elAct) elAct.checked = true;
+    currentScheduleVariables = {};
 
     const rOnce = document.querySelector('input[name="schType"][value="once"]');
     if(rOnce) rOnce.checked = true;
@@ -3934,20 +4027,49 @@ function openScheduleModal() {
         elDate.value = now.toISOString().split('T')[0];
     }
     toggleSchType();
+    updateScheduleVariablesUI({});
 
     const title = document.getElementById('schModalTitle'); if(title) title.innerText = 'New Schedule';
     openModal('scheduleModal');
 }
 
-function editSchedule(id, name, cat, cron, type, active) {
+function editSchedule(source, name, cat, cron, type, active) {
+    const data = typeof source === 'object' && source?.dataset ? source.dataset : {
+        id: source,
+        name,
+        category: cat,
+        cron,
+        targetType: type,
+        active
+    };
+    const id = data.id || '';
+    name = data.name || '';
+    cat = data.category || '';
+    cron = data.cron || '';
+    type = data.targetType || 'group';
+    active = data.active || 'True';
+
     const elId = document.getElementById('schId'); if(elId) elId.value = id;
     const elName = document.getElementById('schName'); if(elName) elName.value = name;
     const elCat = document.getElementById('schCategory'); if(elCat) elCat.value = cat;
     const elType = document.getElementById('schTargetType'); if(elType) elType.value = type;
     const elAct = document.getElementById('schActive'); if(elAct) elAct.checked = (active === 'True');
+    const elTemplate = document.getElementById('schTemplate'); if(elTemplate && data.templateId) elTemplate.value = data.templateId;
 
-    const elHost = document.getElementById('schTargetHost'); if(elHost) elHost.classList.toggle('hidden', type !== 'host');
-    const elGroup = document.getElementById('schTargetGroup'); if(elGroup) elGroup.classList.toggle('hidden', type !== 'group');
+    const elHost = document.getElementById('schTargetHost');
+    if(elHost) {
+        elHost.classList.toggle('hidden', type !== 'host');
+        if (type === 'host' && data.targetId) elHost.value = data.targetId;
+    }
+    const elGroup = document.getElementById('schTargetGroup');
+    if(elGroup) {
+        elGroup.classList.toggle('hidden', type !== 'group');
+        if (type === 'group' && data.targetId) elGroup.value = data.targetId;
+    }
+
+    try { currentScheduleVariables = JSON.parse(data.variables || '{}'); }
+    catch(e) { currentScheduleVariables = {}; }
+    updateScheduleVariablesUI(currentScheduleVariables);
 
     parseCronToUI(cron);
 
@@ -3967,6 +4089,7 @@ async function saveSchedule() {
         target_type: document.getElementById('schTargetType')?.value,
         target_id: document.getElementById('schTargetType')?.value === 'host' ? document.getElementById('schTargetHost')?.value : document.getElementById('schTargetGroup')?.value,
         cron: cronExpr,
+        variables: collectScheduleVariables(),
         is_active: document.getElementById('schActive')?.checked
     };
     if(!data.name) return alert("Job Name is required");

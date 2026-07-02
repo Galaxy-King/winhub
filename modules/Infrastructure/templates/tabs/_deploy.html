@@ -296,6 +296,10 @@
                         <div class="flex gap-2 items-center">
                             <span class="px-2 py-1 bg-emerald-500/10 text-emerald-600 rounded text-[9px] font-black border border-emerald-500/20">UTF-8</span>
                             <span id="codeEditorHint" class="text-[10px] font-bold text-slate-400 font-mono">Terminal (PS/Bash/SH)</span>
+                            <button type="button" onclick="togglePayloadEditorExpanded()" class="px-3 py-1.5 rounded-lg bg-cyan-500/10 text-cyan-600 hover:bg-cyan-500/20 border border-cyan-500/20 text-[9px] font-black uppercase transition-all">
+                                <span class="editor-normal-only">Expand</span>
+                                <span class="editor-expanded-only hidden">Close</span>
+                            </button>
                         </div>
                     </div>
                     <textarea id="depPayload" spellcheck="false" class="w-full h-[450px] p-6 bg-[#0f172a] text-emerald-400 font-mono text-sm rounded-3xl border border-slate-800 outline-none focus:ring-8 focus:ring-indigo-500/10 shadow-2xl transition-all custom-scrollbar"></textarea>
