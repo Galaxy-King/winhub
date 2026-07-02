@@ -2348,7 +2348,7 @@ function restoreFleetCenterState() {
     if (statusEl) statusEl.value = status;
     const searchEl = document.getElementById('fleetSearch');
     if (searchEl) searchEl.value = search;
-    document.querySelectorAll('#fleetGroupFilters input[type="checkbox"]').forEach(cb => {
+    document.querySelectorAll('#fleetGroupFilters input[type="checkbox"]:not(#fleetExactGroupsOnly)').forEach(cb => {
         cb.checked = groups.includes(String(cb.value));
     });
     const exactGroupsOnly = document.getElementById('fleetExactGroupsOnly');
@@ -2398,7 +2398,7 @@ let softwareOpenGroups = new Set(JSON.parse(localStorage.getItem('software_open_
 let softwareCodeEditors = new Map();
 
 function fleetGroupFilterValues() {
-    return Array.from(document.querySelectorAll('#fleetGroupFilters input[type="checkbox"]:checked')).map(cb => String(cb.value));
+    return Array.from(document.querySelectorAll('#fleetGroupFilters input[type="checkbox"]:checked:not(#fleetExactGroupsOnly)')).map(cb => String(cb.value));
 }
 
 function scheduleFleetLoad() {
