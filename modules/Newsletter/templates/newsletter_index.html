@@ -559,21 +559,21 @@
 </div>
 
 <!-- Modal: Newsletter Guide -->
-<div id="newsletterGuideModal" class="hidden fixed inset-0 z-50 flex items-center justify-center bg-slate-900/80 p-6 backdrop-blur-sm">
-    <div class="w-full max-w-6xl max-h-[86vh] rounded-2xl shadow-2xl flex flex-col overflow-hidden">
-        <div class="bg-white border-b border-slate-200 px-6 py-4 flex items-center justify-between gap-4 shrink-0">
+<div id="newsletterGuideModal" class="hidden fixed inset-0 z-50 flex items-center justify-center bg-slate-900/80 p-3 sm:p-6 backdrop-blur-sm">
+    <div class="w-full max-w-6xl h-[92vh] sm:h-[86vh] rounded-2xl shadow-2xl flex flex-col overflow-hidden min-h-0">
+        <div class="bg-white border-b border-slate-200 px-4 sm:px-6 py-4 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 shrink-0">
             <div>
                 <h3 class="text-xl font-extrabold text-slate-900">Newsletter Guide</h3>
                 <p class="text-sm text-slate-500 mt-1">How to configure direct campaigns and inbound relay routes.</p>
             </div>
-            <div class="flex items-center gap-2">
+            <div class="flex items-center gap-2 flex-wrap">
                 <button type="button" id="guideTabEn" onclick="switchNewsletterGuide('en')" class="guide-tab-active px-4 py-2 rounded-lg border border-slate-300 text-sm font-bold text-slate-700 bg-white hover:bg-slate-100">English</button>
                 <button type="button" id="guideTabUk" onclick="switchNewsletterGuide('uk')" class="px-4 py-2 rounded-lg border border-slate-300 text-sm font-bold text-slate-700 bg-white hover:bg-slate-100">Українська</button>
                 <button type="button" onclick="closeNewsletterGuide()" class="ml-2 px-4 py-2 rounded-lg bg-slate-800 hover:bg-slate-900 text-white text-sm font-bold">Close</button>
             </div>
         </div>
 
-        <div class="overflow-y-auto p-6 bg-slate-50">
+        <div class="flex-1 min-h-0 overflow-y-auto p-4 sm:p-6 bg-slate-50 overscroll-contain">
             <div id="newsletterGuideEn" class="space-y-4">
                 <div class="guide-section">
                     <h4>What The Module Does</h4>
