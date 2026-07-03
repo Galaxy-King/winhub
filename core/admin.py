@@ -26,10 +26,11 @@ from core.gpg import gpg_env, import_public_key, fetch_public_key, list_public_k
 log = logging.getLogger("winhub.admin")
 admin_bp = Blueprint('admin', __name__)
 GPG_KEYSERVERS_FILE = os.path.join(Config.DATA_DIR, "gpg_keyservers.json")
-DEFAULT_GPG_KEYSERVERS = [
+DEFAULT_GPG_KEYSERVERS = []
+LEGACY_GPG_KEYSERVERS = {
     "hkps://keys.openpgp.org",
     "hkps://keyserver.ubuntu.com",
-]
+}
 
 try:
     KYIV_TZ = ZoneInfo("Europe/Kyiv")
@@ -42,7 +43,11 @@ def load_gpg_keyservers():
         with open(GPG_KEYSERVERS_FILE, "r", encoding="utf-8") as handle:
             data = json.load(handle)
             if isinstance(data, list):
-                values = [str(item).strip() for item in data if str(item).strip()]
+                values = [
+                    str(item).strip()
+                    for item in data
+                    if str(item).strip() and str(item).strip() not in LEGACY_GPG_KEYSERVERS
+                ]
                 return list(dict.fromkeys(DEFAULT_GPG_KEYSERVERS + values))
     except FileNotFoundError:
         pass
@@ -59,7 +64,11 @@ def load_custom_gpg_keyservers():
                 return [
                     str(item).strip()
                     for item in data
-                    if str(item).strip() and str(item).strip() not in DEFAULT_GPG_KEYSERVERS
+                    if (
+                        str(item).strip()
+                        and str(item).strip() not in DEFAULT_GPG_KEYSERVERS
+                        and str(item).strip() not in LEGACY_GPG_KEYSERVERS
+                    )
                 ]
     except FileNotFoundError:
         pass
@@ -72,7 +81,11 @@ def save_custom_gpg_keyservers(values):
     cleaned = [
         str(item).strip()
         for item in values
-        if str(item).strip() and str(item).strip() not in DEFAULT_GPG_KEYSERVERS
+        if (
+            str(item).strip()
+            and str(item).strip() not in DEFAULT_GPG_KEYSERVERS
+            and str(item).strip() not in LEGACY_GPG_KEYSERVERS
+        )
     ]
     cleaned = list(dict.fromkeys(cleaned))
     os.makedirs(os.path.dirname(GPG_KEYSERVERS_FILE), exist_ok=True)

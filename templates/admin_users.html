@@ -591,14 +591,16 @@ $StaticPassword = "{{secret:local_admin_password}}"
 
 	    function switchTab(tab) {
 	        currentTab = tab;
-        ['users', 'api', 'audit', 'system', 'gpg'].forEach(t => {
-            document.getElementById('view' + t.charAt(0).toUpperCase() + t.slice(1)).classList.add('hidden');
+        ['users', 'api', 'audit', 'system'].forEach(t => {
+            const view = document.getElementById('view' + t.charAt(0).toUpperCase() + t.slice(1));
             const btn = document.getElementById('tab' + t.charAt(0).toUpperCase() + t.slice(1));
-            btn.className = "admin-tab-btn text-slate-500 hover:text-slate-700 px-6 py-2.5 rounded-xl font-black text-xs uppercase tracking-wider transition-all whitespace-nowrap";
+            if (view) view.classList.add('hidden');
+            if (btn) btn.className = "admin-tab-btn text-slate-500 hover:text-slate-700 px-6 py-2.5 rounded-xl font-black text-xs uppercase tracking-wider transition-all whitespace-nowrap";
         });
-        document.getElementById('view' + tab.charAt(0).toUpperCase() + tab.slice(1)).classList.remove('hidden');
+        const activeView = document.getElementById('view' + tab.charAt(0).toUpperCase() + tab.slice(1));
+        if (activeView) activeView.classList.remove('hidden');
         const activeBtn = document.getElementById('tab' + tab.charAt(0).toUpperCase() + tab.slice(1));
-        activeBtn.className = "admin-tab-btn active px-6 py-2.5 rounded-xl font-black text-xs uppercase tracking-wider transition-all whitespace-nowrap bg-white text-indigo-600 shadow-sm border border-slate-200/50";
+        if (activeBtn) activeBtn.className = "admin-tab-btn active px-6 py-2.5 rounded-xl font-black text-xs uppercase tracking-wider transition-all whitespace-nowrap bg-white text-indigo-600 shadow-sm border border-slate-200/50";
         
         const btnCreateMain = document.getElementById('btnCreateMain');
         const btnApiHelp = document.getElementById('btnApiHelp');
