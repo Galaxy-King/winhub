@@ -1,0 +1,339 @@
+{% extends "base.html" %}
+
+{% block title %}GPG Keys - WinHUB{% endblock %}
+
+{% block content %}
+{% include "sidebar.html" %}
+
+<main class="admin-control-shell flex-1 flex flex-col min-w-0 bg-slate-100 relative z-10">
+    <div class="flex-1 overflow-y-auto custom-scrollbar">
+        <div class="max-w-[1600px] mx-auto w-full p-6 md:p-10 flex flex-col gap-8">
+            <header class="bg-white rounded-[2.5rem] shadow-sm border border-slate-200 p-6 flex flex-col lg:flex-row items-center justify-between gap-6 shrink-0 transition-all">
+                <div class="flex items-center gap-5 shrink-0">
+                    <div class="w-14 h-14 bg-cyan-600 rounded-2xl flex items-center justify-center text-white shadow-lg shadow-cyan-200">
+                        <svg class="w-8 h-8" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M15 7a2 2 0 012 2m4 0a6 6 0 01-7.743 5.743L9 17H7v2H5v2H3v-2.586a1 1 0 01.293-.707l5.964-5.964A6 6 0 1121 9z"></path></svg>
+                    </div>
+                    <div>
+                        <h2 class="text-2xl font-black text-slate-800 tracking-tight">GPG Keys</h2>
+                        <p class="text-[11px] font-bold text-slate-400 uppercase tracking-widest mt-1">Shared public keyring and keyserver management</p>
+                    </div>
+                </div>
+                <div class="shrink-0 flex items-center gap-3">
+                    <div class="w-8 h-8 rounded-full bg-cyan-100 text-cyan-700 flex items-center justify-center font-black shadow-sm">{{ username[0]|upper if username else 'U' }}</div>
+                    <span class="text-xs font-black text-slate-700 uppercase tracking-wider">{{ username }}</span>
+                </div>
+            </header>
+
+            <div class="grid grid-cols-1 xl:grid-cols-[420px_1fr] gap-6 animate-in fade-in duration-300">
+                <div class="space-y-6">
+                    <section class="bg-white rounded-[3rem] border border-slate-200 shadow-sm p-6 space-y-5">
+                        <div>
+                            <h3 class="text-lg font-black text-slate-800 uppercase tracking-tight">Import Public Key</h3>
+                            <p class="text-xs text-slate-500 font-bold mt-1">Paste an armored public key block into the shared WinHUB keyring.</p>
+                        </div>
+                        <textarea id="gpgKeyText" class="w-full min-h-56 p-4 bg-slate-50 border border-slate-200 rounded-2xl text-xs font-mono outline-none focus:ring-4 focus:ring-indigo-500/10" placeholder="-----BEGIN PGP PUBLIC KEY BLOCK-----"></textarea>
+                        <button onclick="importGpgKey()" class="w-full px-5 py-3 bg-indigo-600 text-white rounded-2xl text-[10px] font-black uppercase shadow-sm">Import Armored Key</button>
+                    </section>
+
+                    <section class="bg-white rounded-[3rem] border border-slate-200 shadow-sm p-6 space-y-4">
+                        <div class="flex items-start justify-between gap-3">
+                            <div>
+                                <h3 class="text-lg font-black text-slate-800 uppercase tracking-tight">Fetch From Keyserver</h3>
+                                <p class="text-xs text-slate-500 font-bold mt-1">Choose a saved server, then search by email or fingerprint.</p>
+                            </div>
+                            <button type="button" onclick="openKeyserverModal()" class="px-4 py-2 bg-cyan-50 border border-cyan-100 text-cyan-700 rounded-xl text-[10px] font-black uppercase shadow-sm hover:bg-cyan-100 transition-colors">Add Server</button>
+                        </div>
+                        <select id="gpgKeyserver" class="w-full p-3 bg-slate-50 border border-slate-200 rounded-2xl text-xs font-bold outline-none"></select>
+                        <input id="gpgSearch" type="text" placeholder="email@example.com or fingerprint" class="w-full p-3 bg-slate-50 border border-slate-200 rounded-2xl text-xs font-bold outline-none">
+                        <button onclick="fetchGpgKey()" class="w-full px-5 py-3 bg-white border border-slate-200 text-slate-700 rounded-2xl text-[10px] font-black uppercase shadow-sm">Fetch Key</button>
+                        <p id="gpgStatus" class="text-xs font-bold text-slate-500 min-h-5"></p>
+                    </section>
+
+                    <section class="bg-white rounded-[3rem] border border-slate-200 shadow-sm p-6 space-y-4">
+                        <div class="flex items-center justify-between gap-3">
+                            <div>
+                                <h3 class="text-lg font-black text-slate-800 uppercase tracking-tight">Keyservers</h3>
+                                <p class="text-xs text-slate-500 font-bold mt-1">Built-in entries are locked. Custom entries can be edited or removed.</p>
+                            </div>
+                        </div>
+                        <div id="gpgKeyserverList" class="space-y-2"></div>
+                    </section>
+                </div>
+
+                <section class="bg-white rounded-[3rem] border border-slate-200 shadow-sm overflow-hidden">
+                    <div class="p-6 border-b border-slate-100 bg-slate-50/50 flex flex-col lg:flex-row lg:items-center justify-between gap-4">
+                        <div>
+                            <h3 class="text-lg font-black text-slate-800 uppercase tracking-tight">Public Keys</h3>
+                            <p class="text-xs text-slate-500 font-bold mt-1">Used by Newsletter and Endpoint Management email encryption.</p>
+                        </div>
+                        <div class="flex flex-col sm:flex-row gap-3 w-full lg:w-auto">
+                            <input id="gpgKeySearch" type="text" oninput="renderGpgKeys()" placeholder="Search identity, email, fingerprint..." class="w-full lg:w-80 p-3 bg-white border border-slate-200 rounded-2xl text-xs font-bold outline-none focus:ring-4 focus:ring-indigo-500/10">
+                            <button onclick="fetchGpgKeys()" class="px-5 py-3 bg-white border border-slate-200 text-slate-600 rounded-2xl text-[10px] font-black uppercase shadow-sm">Refresh</button>
+                        </div>
+                    </div>
+                    <div class="overflow-x-auto">
+                        <table class="w-full text-left min-w-[760px]">
+                            <thead class="bg-slate-50/50 border-b border-slate-100 text-[10px] font-black text-slate-400 uppercase tracking-widest">
+                                <tr>
+                                    <th class="px-8 py-5">Identity</th>
+                                    <th class="px-8 py-5">Fingerprint</th>
+                                    <th class="px-8 py-5 text-right">Actions</th>
+                                </tr>
+                            </thead>
+                            <tbody id="gpgKeysList" class="divide-y divide-slate-100 text-sm">
+                                <tr><td colspan="3" class="p-16 text-center text-slate-400 font-bold">Loading GPG keys...</td></tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </section>
+            </div>
+        </div>
+    </div>
+</main>
+
+<div id="keyserverModal" class="fixed inset-0 z-50 hidden bg-slate-900/60 backdrop-blur-md flex justify-center items-center p-4 animate-in fade-in">
+    <div class="bg-white rounded-[3rem] p-8 w-full max-w-xl shadow-2xl relative">
+        <button onclick="closeKeyserverModal()" class="absolute top-6 right-6 text-slate-400 hover:text-slate-600 bg-slate-50 hover:bg-slate-100 p-2 rounded-xl transition-colors"><svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M6 18L18 6M6 6l12 12"></path></svg></button>
+        <h3 id="keyserverModalTitle" class="text-2xl font-black text-slate-800 mb-2 uppercase tracking-tight">Add Keyserver</h3>
+        <p class="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-6">Use hkps://, hkp://, https:// or a direct public key URL</p>
+        <input type="hidden" id="keyserverOldValue">
+        <input id="keyserverValue" type="text" placeholder="hkps://keys.example.com" class="w-full p-4 bg-slate-50 border border-slate-200 rounded-2xl text-sm font-bold outline-none focus:bg-white focus:ring-4 focus:ring-indigo-500/10">
+        <div class="mt-8 flex justify-end gap-4">
+            <button onclick="closeKeyserverModal()" class="px-6 py-4 text-slate-500 font-black uppercase text-xs hover:bg-slate-50 rounded-2xl transition-colors">Cancel</button>
+	            <button id="keyserverSaveButton" onclick="saveKeyserver()" class="px-8 py-4 bg-indigo-600 hover:bg-indigo-700 text-white rounded-2xl text-xs font-black uppercase shadow-lg transition-all">Add Server</button>
+        </div>
+    </div>
+</div>
+
+<script>
+    let gpgKeysCache = [];
+    let gpgKeyserversCache = [];
+    let gpgBuiltInKeyservers = [];
+    let gpgCustomKeyservers = [];
+
+    function escapeHtml(value) {
+        return String(value ?? '').replace(/[&<>"']/g, ch => ({
+            '&': '&amp;',
+            '<': '&lt;',
+            '>': '&gt;',
+            '"': '&quot;',
+            "'": '&#39;'
+        }[ch]));
+    }
+
+    function setGpgStatus(message, isError = false) {
+        const status = document.getElementById('gpgStatus');
+        if (!status) return;
+        status.textContent = message || '';
+        status.className = isError ? 'text-xs font-bold text-rose-600 min-h-5' : 'text-xs font-bold text-slate-500 min-h-5';
+    }
+
+    async function fetchGpgKeys() {
+        const tbody = document.getElementById('gpgKeysList');
+        if (tbody) tbody.innerHTML = '<tr><td colspan="3" class="p-16 text-center text-slate-400 font-bold">Loading GPG keys...</td></tr>';
+        try {
+            const res = await fetch('/api/admin/gpg/keys');
+            const data = await res.json();
+            if (!data.success) throw new Error(data.message || 'Failed to load keys');
+            gpgKeysCache = data.keys || [];
+            updateGpgKeyservers(data);
+            setGpgStatus(data.message || '');
+            renderGpgKeys();
+        } catch (e) {
+            setGpgStatus(e.message || 'Failed to load GPG keys.', true);
+            if (tbody) tbody.innerHTML = '<tr><td colspan="3" class="p-16 text-center text-rose-500 font-bold">Failed to load GPG keys.</td></tr>';
+        }
+    }
+
+    async function fetchGpgKeyservers() {
+        try {
+            const res = await fetch('/api/admin/gpg/keyservers');
+            const data = await res.json();
+            if (!data.success) throw new Error(data.message || 'Failed to load keyservers');
+            updateGpgKeyservers(data);
+        } catch (e) {
+            setGpgStatus(e.message || 'Failed to load keyservers.', true);
+        }
+    }
+
+    function updateGpgKeyservers(data) {
+        gpgKeyserversCache = Array.from(new Set((data.keyservers || []).filter(Boolean)));
+        gpgBuiltInKeyservers = Array.from(new Set((data.built_in || []).filter(Boolean)));
+        gpgCustomKeyservers = Array.from(new Set((data.custom || []).filter(Boolean)));
+
+        const select = document.getElementById('gpgKeyserver');
+        const current = select?.value;
+        if (select) {
+	            select.innerHTML = gpgKeyserversCache.map(server => {
+	                const suffix = gpgBuiltInKeyservers.includes(server) ? 'Built-in' : 'Custom';
+	                return `<option value="${escapeHtml(server)}">${escapeHtml(server)} (${suffix})</option>`;
+	            }).join('');
+            if (current && gpgKeyserversCache.includes(current)) {
+                select.value = current;
+            } else if (gpgKeyserversCache.length) {
+                select.value = gpgKeyserversCache[0];
+            }
+        }
+        renderKeyserverList();
+    }
+
+    function renderKeyserverList() {
+        const list = document.getElementById('gpgKeyserverList');
+        if (!list) return;
+	        list.innerHTML = gpgKeyserversCache.map(server => {
+	            const builtIn = gpgBuiltInKeyservers.includes(server);
+	            const encoded = encodeURIComponent(server);
+	            return `
+	                <div class="p-3 bg-slate-50 border border-slate-200 rounded-2xl flex items-center justify-between gap-3">
+	                    <div class="min-w-0">
+	                        <div class="font-mono text-xs font-bold text-slate-700 truncate">${escapeHtml(server)}</div>
+	                        <div class="text-[10px] font-black uppercase tracking-widest ${builtIn ? 'text-cyan-600' : 'text-emerald-600'}">${builtIn ? 'Built-in' : 'Custom'}</div>
+	                    </div>
+	                    <div class="flex items-center gap-2 shrink-0">
+	                        ${builtIn ? '' : `
+	                            <button type="button" data-keyserver="${encoded}" data-gpg-keyserver-action="edit" class="px-3 py-2 bg-white border border-slate-200 text-slate-600 rounded-xl text-[10px] font-black uppercase">Edit</button>
+	                            <button type="button" data-keyserver="${encoded}" data-gpg-keyserver-action="delete" class="px-3 py-2 bg-rose-50 border border-rose-100 text-rose-600 rounded-xl text-[10px] font-black uppercase">Delete</button>
+	                        `}
+	                    </div>
+	                </div>
+	            `;
+	        }).join('') || '<div class="text-xs font-bold text-slate-400 p-4 bg-slate-50 rounded-xl">No keyservers configured.</div>';
+	        list.querySelectorAll('[data-gpg-keyserver-action]').forEach(button => {
+	            const keyserver = decodeURIComponent(button.dataset.keyserver || '');
+	            if (button.dataset.gpgKeyserverAction === 'edit') {
+	                button.addEventListener('click', () => openKeyserverModal(keyserver));
+	            } else if (button.dataset.gpgKeyserverAction === 'delete') {
+	                button.addEventListener('click', () => deleteGpgKeyserver(keyserver));
+	            }
+	        });
+	    }
+
+    function renderGpgKeys() {
+        const tbody = document.getElementById('gpgKeysList');
+        if (!tbody) return;
+        const query = (document.getElementById('gpgKeySearch')?.value || '').toLowerCase().trim();
+        const keys = gpgKeysCache.filter(k => {
+            const text = `${(k.uids || []).join(' ')} ${k.key_id || ''} ${k.fingerprint || ''}`.toLowerCase();
+            return !query || text.includes(query);
+        });
+        tbody.innerHTML = keys.map(k => `
+            <tr class="hover:bg-slate-50/80 transition-colors">
+                <td class="px-8 py-5">
+                    <div class="font-black text-slate-800">${escapeHtml((k.uids || [])[0] || k.key_id || 'Unnamed key')}</div>
+                    <div class="text-[11px] text-slate-500 font-semibold mt-1">${escapeHtml((k.uids || []).slice(1).join(', '))}</div>
+                    <div class="text-[10px] text-slate-400 font-bold tracking-widest mt-1">${escapeHtml(k.key_id || '')}</div>
+                </td>
+                <td class="px-8 py-5 font-mono text-xs text-slate-600 break-all">${escapeHtml(k.fingerprint || '')}</td>
+                <td class="px-8 py-5 text-right">
+                    <button onclick="deleteGpgKey('${escapeHtml(k.fingerprint)}')" class="px-4 py-2 bg-white border border-slate-200 text-rose-600 rounded-xl text-xs font-black uppercase">Delete</button>
+                </td>
+            </tr>
+        `).join('') || `<tr><td colspan="3" class="p-16 text-center text-slate-400 font-bold">${query ? 'No public keys match search.' : 'No public keys imported.'}</td></tr>`;
+    }
+
+	    function openKeyserverModal(value = '') {
+	        document.getElementById('keyserverOldValue').value = value;
+	        document.getElementById('keyserverValue').value = value;
+	        document.getElementById('keyserverModalTitle').innerText = value ? 'Edit Keyserver' : 'Add Keyserver';
+	        document.getElementById('keyserverSaveButton').innerText = value ? 'Save Changes' : 'Add Server';
+	        document.getElementById('keyserverModal').classList.remove('hidden');
+	        setTimeout(() => document.getElementById('keyserverValue')?.focus(), 50);
+	    }
+
+    function closeKeyserverModal() {
+        document.getElementById('keyserverModal').classList.add('hidden');
+    }
+
+    async function saveKeyserver() {
+        const oldValue = document.getElementById('keyserverOldValue')?.value || '';
+        const newValue = (document.getElementById('keyserverValue')?.value || '').trim();
+        if (!newValue) return setGpgStatus('Keyserver value is required.', true);
+        try {
+            const res = await fetch('/api/admin/gpg/keyservers', {
+                method: oldValue ? 'PUT' : 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify(oldValue ? {old_keyserver: oldValue, new_keyserver: newValue} : {keyserver: newValue})
+            });
+            const data = await res.json();
+            if (!data.success) throw new Error(data.message || 'Save failed');
+            updateGpgKeyservers(data);
+            closeKeyserverModal();
+            setGpgStatus(data.message || 'Keyserver saved.');
+        } catch (e) {
+            setGpgStatus(e.message || 'Save failed.', true);
+        }
+    }
+
+    async function deleteGpgKeyserver(keyserver) {
+        if (!keyserver || !confirm('Delete this custom GPG keyserver?')) return;
+        try {
+            const res = await fetch('/api/admin/gpg/keyservers', {
+                method: 'DELETE',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({keyserver})
+            });
+            const data = await res.json();
+            if (!data.success) throw new Error(data.message || 'Delete failed');
+            updateGpgKeyservers(data);
+            setGpgStatus(data.message || 'Keyserver removed.');
+        } catch (e) {
+            setGpgStatus(e.message || 'Delete failed.', true);
+        }
+    }
+
+    async function importGpgKey() {
+        const key = document.getElementById('gpgKeyText')?.value || '';
+        try {
+            const res = await fetch('/api/admin/gpg/import', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({key})
+            });
+            const data = await res.json();
+            if (!data.success) throw new Error(data.message || 'Import failed');
+            document.getElementById('gpgKeyText').value = '';
+            setGpgStatus(data.message || 'Key imported.');
+            fetchGpgKeys();
+        } catch (e) {
+            setGpgStatus(e.message || 'Import failed.', true);
+        }
+    }
+
+    async function fetchGpgKey() {
+        const keyserver = document.getElementById('gpgKeyserver')?.value || '';
+        const search = document.getElementById('gpgSearch')?.value || '';
+        try {
+            const res = await fetch('/api/admin/gpg/fetch', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({keyserver, search})
+            });
+            const data = await res.json();
+            if (!data.success) throw new Error(data.message || 'Fetch failed');
+            updateGpgKeyservers(data);
+            setGpgStatus(data.message || 'Key fetched.');
+            fetchGpgKeys();
+        } catch (e) {
+            setGpgStatus(e.message || 'Fetch failed.', true);
+        }
+    }
+
+    async function deleteGpgKey(fingerprint) {
+        if (!fingerprint || !confirm('Delete this public GPG key?')) return;
+        try {
+            const res = await fetch('/api/admin/gpg/keys/' + encodeURIComponent(fingerprint), {method: 'DELETE'});
+            const data = await res.json();
+            if (!data.success) throw new Error(data.message || 'Delete failed');
+            setGpgStatus(data.message || 'Key deleted.');
+            fetchGpgKeys();
+        } catch (e) {
+            setGpgStatus(e.message || 'Delete failed.', true);
+        }
+    }
+
+    window.onload = () => {
+        fetchGpgKeys();
+        fetchGpgKeyservers();
+    };
+</script>
+{% endblock %}

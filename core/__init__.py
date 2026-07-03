@@ -29,7 +29,7 @@ from core.admin import admin_bp
 from core.agent_gateway import agent_gateway_bp
 from core.version import get_version
 from core.module_registry import REQUIRED_MODULES, get_loaded_modules, get_module_registry, reset_module_registry, set_module_status
-from core.permissions import full_module_grants, has_module_access
+from core.permissions import full_module_grants, has_module_access, has_permission
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s [%(levelname)s] %(message)s')
 log = logging.getLogger("winhub")
@@ -103,7 +103,24 @@ def run_scheduled_job(scheduled_task_id, *args):
             admin_user = User.query.filter_by(is_admin=True).first()
             admin_id = admin_user.id if admin_user else 1
 
-            payload_dict = json.loads(st.template.payload) if st.template.payload else {}
+            from modules.Infrastructure.routes import apply_template_variables, load_template_payload
+
+            payload_dict = load_template_payload(st.template)
+            try:
+                scheduled_variables = json.loads(st.variables) if st.variables else {}
+            except Exception:
+                scheduled_variables = {}
+            if not isinstance(scheduled_variables, dict):
+                scheduled_variables = {}
+
+            payload_dict, unresolved = apply_template_variables(payload_dict, scheduled_variables)
+            if unresolved:
+                log.error(
+                    "[Scheduler] Missing variables for scheduled task '%s': %s",
+                    st.name,
+                    ", ".join(unresolved)
+                )
+                return
             
             # ДОДАНО: Перевіряємо, чи це шаблон метрики, і додаємо необхідні прапорці
             if getattr(st.template, 'type', 'action') == 'metric':
@@ -247,6 +264,15 @@ def ensure_endpoint_schema():
         db.session.execute(text("UPDATE endpoints SET encryption_methods = '' WHERE encryption_methods IS NULL"))
     db.session.commit()
 
+def ensure_scheduler_schema():
+    inspector = inspect(db.engine)
+    if "scheduled_tasks" not in inspector.get_table_names():
+        return
+    columns = {column["name"] for column in inspector.get_columns("scheduled_tasks")}
+    if "variables" not in columns:
+        db.session.execute(text("ALTER TABLE scheduled_tasks ADD COLUMN variables TEXT"))
+        db.session.commit()
+
 def backfill_endpoint_encryption_status(limit=5000):
     endpoints = Endpoint.query.filter(
         Endpoint.host_info.isnot(None),
@@ -335,6 +361,7 @@ def inject_global_template_vars(app):
                     system_modules=[],
                     username=None,
                     is_admin=False,
+                    can_manage_gpg_keys=False,
                     csrf_token=None,
                     session_idle_timeout_seconds=Config.SESSION_IDLE_TIMEOUT_SECONDS,
                     app_version=get_version(),
@@ -346,6 +373,7 @@ def inject_global_template_vars(app):
                     system_modules=[],
                     username=None,
                     is_admin=False,
+                    can_manage_gpg_keys=False,
                     csrf_token=None,
                     session_idle_timeout_seconds=Config.SESSION_IDLE_TIMEOUT_SECONDS,
                     app_version=get_version(),
@@ -366,6 +394,7 @@ def inject_global_template_vars(app):
                 system_modules=modules_info,
                 username=user.username,
                 is_admin=user.is_admin,
+                can_manage_gpg_keys=bool(user.is_admin or has_permission(user, "Administration", "manage_gpg_keys")),
                 csrf_token=session.get("csrf_token"),
                 session_idle_timeout_seconds=Config.SESSION_IDLE_TIMEOUT_SECONDS,
                 app_version=get_version(),
@@ -375,6 +404,7 @@ def inject_global_template_vars(app):
                 system_modules=[],
                 username="Error",
                 is_admin=False,
+                can_manage_gpg_keys=False,
                 csrf_token=session.get("csrf_token"),
                 session_idle_timeout_seconds=Config.SESSION_IDLE_TIMEOUT_SECONDS,
                 app_version=get_version(),
@@ -685,12 +715,13 @@ def create_app():
             )
             raise
         ensure_endpoint_schema()
+        ensure_scheduler_schema()
         backfill_endpoint_encryption_status()
         ensure_audit_schema()
         ensure_performance_indexes()
         seed_default_os_groups()
         remove_default_agent_update_template()
-        
+
         if not User.query.first():
             raw_password = ''.join(secrets.choice(string.ascii_letters + string.digits) for _ in range(16))
             totp = sec_manager.generate_totp_secret()

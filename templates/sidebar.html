@@ -65,6 +65,13 @@
                 <span class="ml-3 sidebar-text whitespace-nowrap">Admin Control Center</span>
             </a>
             {% endif %}
+
+            {% if can_manage_gpg_keys %}
+            <a href="/admin/gpg" class="flex items-center px-3 py-2.5 rounded-lg transition-colors mt-1 {% if request.path == '/admin/gpg' %}bg-primary text-white shadow-md{% else %}hover:bg-slate-800 hover:text-white text-slate-300 group{% endif %} sidebar-link" title="GPG Keys">
+                <svg class="w-5 h-5 shrink-0 {% if request.path != '/admin/gpg' %}text-slate-400 group-hover:text-cyan-400 transition-colors{% endif %}" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 7a2 2 0 012 2m4 0a6 6 0 01-7.743 5.743L9 17H7v2H5v2H3v-2.586a1 1 0 01.293-.707l5.964-5.964A6 6 0 1121 9z"></path></svg>
+                <span class="ml-3 sidebar-text whitespace-nowrap">GPG Keys</span>
+            </a>
+            {% endif %}
         </div>
     </nav>
 

@@ -19,7 +19,7 @@ from core.database import db, User, EndpointGroup, ApiKey, AuditLog
 from core.security import sec_manager
 from core.config import Config
 from core.module_registry import get_module_registry
-from core.permissions import MODULE_PERMISSION_CATALOG, all_permission_tokens_for_module, parse_allowed_modules
+from core.permissions import MODULE_PERMISSION_CATALOG, all_permission_tokens_for_module, has_permission, parse_allowed_modules
 from core.sdk import WinHubCore
 from core.gpg import gpg_env, import_public_key, fetch_public_key, list_public_keys, delete_public_key, validate_gpg
 
@@ -91,14 +91,57 @@ def save_gpg_keyserver(keyserver):
     return save_custom_gpg_keyservers(values)
 
 
+def update_gpg_keyserver(old_keyserver, new_keyserver):
+    old_value = str(old_keyserver or "").strip()
+    new_value = str(new_keyserver or "").strip()
+    if not old_value or not new_value:
+        return False, "Both old and new keyserver values are required.", gpg_keyserver_payload()
+    if old_value in DEFAULT_GPG_KEYSERVERS:
+        return False, "Built-in keyservers cannot be edited.", gpg_keyserver_payload()
+    values = load_custom_gpg_keyservers()
+    if old_value not in values:
+        return False, "Custom keyserver not found.", gpg_keyserver_payload()
+    values = [new_value if item == old_value else item for item in values]
+    save_custom_gpg_keyservers(values)
+    return True, "Keyserver updated.", gpg_keyserver_payload()
+
+
+def gpg_keyserver_payload():
+    custom = load_custom_gpg_keyservers()
+    return {
+        "keyservers": load_gpg_keyservers(),
+        "built_in": list(DEFAULT_GPG_KEYSERVERS),
+        "custom": custom,
+    }
+
+
 def delete_gpg_keyserver(keyserver):
     value = str(keyserver or "").strip()
     if not value:
-        return False, "Keyserver value is required.", load_gpg_keyservers()
+        return False, "Keyserver value is required.", gpg_keyserver_payload()
     if value in DEFAULT_GPG_KEYSERVERS:
-        return False, "Built-in keyservers cannot be removed.", load_gpg_keyservers()
+        return False, "Built-in keyservers cannot be removed.", gpg_keyserver_payload()
     values = [item for item in load_custom_gpg_keyservers() if item != value]
-    return True, "Keyserver removed.", save_custom_gpg_keyservers(values)
+    save_custom_gpg_keyservers(values)
+    return True, "Keyserver removed.", gpg_keyserver_payload()
+
+
+def current_admin_user():
+    user_id = session.get("user_id")
+    return User.query.get(user_id) if user_id else None
+
+
+def can_manage_gpg_keys():
+    user = current_admin_user()
+    return bool(user and (user.is_admin or has_permission(user, "Administration", "manage_gpg_keys")))
+
+
+def require_gpg_access():
+    if can_manage_gpg_keys():
+        return None
+    if request.path.startswith('/api/'):
+        return jsonify({"success": False, "message": "GPG key management access required."}), 403
+    return redirect(url_for('auth.login_page'))
 
 
 def sanitize_allowed_modules(raw_items):
@@ -335,13 +378,31 @@ def tail_file(path, lines=200):
 
 @admin_bp.before_request
 def check_admin():
-    if not session.get('logged_in') or not session.get('is_admin'):
+    if not session.get('logged_in'):
+        if request.path.startswith('/api/'): return jsonify({"success": False, "message": "Authentication required."}), 403
+        return redirect(url_for('auth.login_page'))
+
+    if request.path == "/admin/gpg" or request.path.startswith("/api/admin/gpg/"):
+        denied = require_gpg_access()
+        if denied:
+            return denied
+        return None
+
+    if not session.get('is_admin'):
         if request.path.startswith('/api/'): return jsonify({"success": False, "message": "Admin access required."}), 403
         return redirect(url_for('auth.login_page'))
 
 @admin_bp.route('/admin/users')
 def users_page():
     return render_template('admin_users.html', username=session.get('username'), is_admin=session.get('is_admin'))
+
+
+@admin_bp.route('/admin/gpg')
+def gpg_keys_page():
+    denied = require_gpg_access()
+    if denied:
+        return denied
+    return render_template('admin_gpg_keys.html', username=session.get('username'), is_admin=session.get('is_admin'))
 
 @admin_bp.route('/api/admin/modules', methods=['GET'])
 def get_modules():
@@ -371,6 +432,16 @@ def get_modules():
                         "error_message": None,
                         "permissions": MODULE_PERMISSION_CATALOG.get(item, []),
                     })
+    if not any(item.get("id") == "Administration" for item in modules):
+        modules.append({
+            "id": "Administration",
+            "name": "Administration",
+            "status": "loaded",
+            "required": True,
+            "optional": False,
+            "error_message": None,
+            "permissions": MODULE_PERMISSION_CATALOG.get("Administration", []),
+        })
     return jsonify({"success": True, "modules": modules})
 
 @admin_bp.route('/api/admin/groups', methods=['GET'])
@@ -720,18 +791,51 @@ def get_gpg_keys():
     if not ok:
         return jsonify({"success": False, "message": message, "keys": []}), 500
     listed, list_message, keys = list_public_keys()
-    return jsonify({"success": listed, "message": list_message, "keys": keys, "keyservers": load_gpg_keyservers()})
+    return jsonify({"success": listed, "message": list_message, "keys": keys, **gpg_keyserver_payload()})
 
 
 @admin_bp.route('/api/admin/gpg/keyservers', methods=['GET'])
 def get_gpg_keyservers():
-    return jsonify({"success": True, "keyservers": load_gpg_keyservers()})
+    return jsonify({"success": True, **gpg_keyserver_payload()})
+
+
+@admin_bp.route('/api/admin/gpg/keyservers', methods=['POST'])
+def add_gpg_keyserver_route():
+    data = request.json or {}
+    keyserver = str(data.get("keyserver") or "").strip()
+    if not keyserver:
+        return jsonify({"success": False, "message": "Keyserver value is required.", **gpg_keyserver_payload()}), 400
+    save_gpg_keyserver(keyserver)
+    WinHubCore.audit(
+        user_id=session.get('user_id'),
+        module="Admin",
+        action="Add GPG Keyserver",
+        details={"keyserver": keyserver},
+        status="Success"
+    )
+    return jsonify({"success": True, "message": "Keyserver added.", **gpg_keyserver_payload()})
+
+
+@admin_bp.route('/api/admin/gpg/keyservers', methods=['PUT'])
+def update_gpg_keyserver_route():
+    data = request.json or {}
+    old_keyserver = data.get("old_keyserver")
+    new_keyserver = data.get("new_keyserver")
+    ok, message, payload = update_gpg_keyserver(old_keyserver, new_keyserver)
+    WinHubCore.audit(
+        user_id=session.get('user_id'),
+        module="Admin",
+        action="Update GPG Keyserver",
+        details={"success": bool(ok), "old_keyserver": old_keyserver, "new_keyserver": new_keyserver, "message": message[:300]},
+        status="Success" if ok else "Error"
+    )
+    return jsonify({"success": ok, "message": message, **payload}), 200 if ok else 400
 
 
 @admin_bp.route('/api/admin/gpg/keyservers', methods=['DELETE'])
 def delete_gpg_keyserver_route():
     data = request.json or {}
-    ok, message, keyservers = delete_gpg_keyserver(data.get("keyserver"))
+    ok, message, payload = delete_gpg_keyserver(data.get("keyserver"))
     WinHubCore.audit(
         user_id=session.get('user_id'),
         module="Admin",
@@ -739,7 +843,7 @@ def delete_gpg_keyserver_route():
         details={"success": bool(ok), "keyserver": data.get("keyserver"), "message": message[:300]},
         status="Success" if ok else "Error"
     )
-    return jsonify({"success": ok, "message": message, "keyservers": keyservers}), 200 if ok else 400
+    return jsonify({"success": ok, "message": message, **payload}), 200 if ok else 400
 
 
 @admin_bp.route('/api/admin/gpg/import', methods=['POST'])
@@ -761,7 +865,6 @@ def fetch_gpg_key_route():
     data = request.json or {}
     keyserver = data.get("keyserver")
     ok, message = fetch_public_key(keyserver, data.get("search"))
-    keyservers = save_gpg_keyserver(keyserver) if ok else load_gpg_keyservers()
     WinHubCore.audit(
         user_id=session.get('user_id'),
         module="Admin",
@@ -769,7 +872,7 @@ def fetch_gpg_key_route():
         details={"success": bool(ok), "search": data.get("search"), "keyserver": keyserver, "message": message[:300]},
         status="Success" if ok else "Error"
     )
-    return jsonify({"success": ok, "message": message, "keyservers": keyservers}), 200 if ok else 400
+    return jsonify({"success": ok, "message": message, **gpg_keyserver_payload()}), 200 if ok else 400
 
 
 @admin_bp.route('/api/admin/gpg/keys/<fingerprint>', methods=['DELETE'])

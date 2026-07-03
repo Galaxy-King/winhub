@@ -4,6 +4,9 @@ from flask import has_request_context, session
 
 
 MODULE_INTERNAL_PERMISSION_CATALOG = {
+    "Administration": [
+        {"id": "manage_gpg_keys", "name": "Manage GPG keys"},
+    ],
     "Infrastructure": [
         {"id": "view_hosts", "name": "View hosts"},
         {"id": "view_groups", "name": "View groups"},
@@ -36,6 +39,9 @@ MODULE_INTERNAL_PERMISSION_CATALOG = {
 }
 
 MODULE_PERMISSION_CATALOG = {
+    "Administration": [
+        {"id": "gpg_keys", "name": "GPG Keys"},
+    ],
     "Infrastructure": [
         {"id": "view", "name": "View"},
         {"id": "change", "name": "Change"},
@@ -53,6 +59,11 @@ MODULE_PERMISSION_CATALOG = {
 }
 
 PERMISSION_ALIASES = {
+    "Administration": {
+        "gpg_keys": {
+            "manage_gpg_keys",
+        },
+    },
     "Infrastructure": {
         "view": {
             "view_hosts",
