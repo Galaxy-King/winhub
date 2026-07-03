@@ -216,6 +216,56 @@
         box-shadow: 0 30px 90px rgba(0, 0, 0, 0.58) !important;
     }
 
+    #newsletterGuideModal > div {
+        background: #f8fafc !important;
+        border: 1px solid rgba(34, 211, 238, 0.22) !important;
+        box-shadow: 0 30px 90px rgba(0, 0, 0, 0.52) !important;
+    }
+
+    .guide-tab-active {
+        background: #0f172a !important;
+        color: #ffffff !important;
+        border-color: #0f172a !important;
+    }
+
+    .guide-section {
+        border: 1px solid #e2e8f0;
+        border-radius: 12px;
+        background: #ffffff;
+        padding: 18px;
+    }
+
+    .guide-section h4 {
+        color: #0f172a;
+        font-weight: 800;
+        font-size: 0.92rem;
+        text-transform: uppercase;
+        letter-spacing: 0.04em;
+        margin-bottom: 10px;
+    }
+
+    .guide-section p,
+    .guide-section li {
+        color: #475569;
+        font-size: 0.92rem;
+        line-height: 1.62;
+    }
+
+    .guide-section ul,
+    .guide-section ol {
+        padding-left: 1.35rem;
+        margin-top: 0.4rem;
+    }
+
+    .guide-section code {
+        background: #e2e8f0;
+        color: #0f172a;
+        border-radius: 6px;
+        padding: 0.1rem 0.35rem;
+        font-size: 0.82rem;
+        font-weight: 700;
+    }
+
     .newsletter-module #nlListsCheckboxes,
     .newsletter-module article .bg-slate-50,
     .newsletter-module article .bg-slate-100,
@@ -346,6 +396,10 @@
             <button onclick="openLogsModal()" class="flex items-center gap-2 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold py-2 px-4 rounded-lg border border-slate-300 transition-colors text-sm">
                 <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 9h8M8 13h6M5 5h14v14H5z"></path></svg>
                 Logs
+            </button>
+            <button onclick="openNewsletterGuide()" class="flex items-center gap-2 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold py-2 px-4 rounded-lg border border-slate-300 transition-colors text-sm">
+                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 6.253v13M5 5.5A2.5 2.5 0 017.5 3H20v15H7.5A2.5 2.5 0 005 20.5v-15z"></path></svg>
+                Guide
             </button>
             {% if permissions.manage_smtp %}
             <button onclick="openSmtpModal()" class="flex items-center gap-2 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold py-2 px-4 rounded-lg border border-slate-300 transition-colors text-sm">
@@ -501,6 +555,195 @@
             </div>
         </div>
         <div id="terminalBody" class="flex-1 p-5 overflow-y-auto font-mono text-sm leading-relaxed text-emerald-400 whitespace-pre-wrap bg-slate-950"></div>
+    </div>
+</div>
+
+<!-- Modal: Newsletter Guide -->
+<div id="newsletterGuideModal" class="hidden fixed inset-0 z-50 flex items-center justify-center bg-slate-900/80 p-6 backdrop-blur-sm">
+    <div class="w-full max-w-6xl max-h-[86vh] rounded-2xl shadow-2xl flex flex-col overflow-hidden">
+        <div class="bg-white border-b border-slate-200 px-6 py-4 flex items-center justify-between gap-4 shrink-0">
+            <div>
+                <h3 class="text-xl font-extrabold text-slate-900">Newsletter Guide</h3>
+                <p class="text-sm text-slate-500 mt-1">How to configure direct campaigns and inbound relay routes.</p>
+            </div>
+            <div class="flex items-center gap-2">
+                <button type="button" id="guideTabEn" onclick="switchNewsletterGuide('en')" class="guide-tab-active px-4 py-2 rounded-lg border border-slate-300 text-sm font-bold text-slate-700 bg-white hover:bg-slate-100">English</button>
+                <button type="button" id="guideTabUk" onclick="switchNewsletterGuide('uk')" class="px-4 py-2 rounded-lg border border-slate-300 text-sm font-bold text-slate-700 bg-white hover:bg-slate-100">Українська</button>
+                <button type="button" onclick="closeNewsletterGuide()" class="ml-2 px-4 py-2 rounded-lg bg-slate-800 hover:bg-slate-900 text-white text-sm font-bold">Close</button>
+            </div>
+        </div>
+
+        <div class="overflow-y-auto p-6 bg-slate-50">
+            <div id="newsletterGuideEn" class="space-y-4">
+                <div class="guide-section">
+                    <h4>What The Module Does</h4>
+                    <p>Newsletter sends encrypted announcements to selected recipients. You can send a campaign manually from the web interface or configure an inbound relay mailbox. Inbound relay reads encrypted emails from a dedicated mailbox and forwards them to predefined local lists and LDAP / FreeIPA groups.</p>
+                </div>
+
+                <div class="guide-section">
+                    <h4>Quick Setup: Inbound Relay</h4>
+                    <ol>
+                        <li>Create a <code>Mail Profile</code> for the mailbox that will receive relay emails. Fill in SMTP, IMAP, and the GPG passphrase if the private key is protected.</li>
+                        <li>Import the private GPG key for that mailbox into the server keyring. The message sent to this mailbox must be encrypted for this key.</li>
+                        <li>Create local mailing lists or configure an LDAP / FreeIPA profile.</li>
+                        <li>Open <code>Settings</code>, go to <code>Inbound Relay</code>, create a route, and select which mail profile to read from and which profile to send from.</li>
+                        <li>Add allowed senders. Only these users can trigger the relay.</li>
+                        <li>Select one or more local lists, LDAP groups, or both. Duplicated recipients are sent only once.</li>
+                        <li>Save the route and send an encrypted test email to the relay mailbox.</li>
+                    </ol>
+                </div>
+
+                <div class="guide-section">
+                    <h4>Mail Profiles</h4>
+                    <ul>
+                        <li><code>Email</code> is the mailbox identity used by the profile.</li>
+                        <li><code>SMTP</code> settings are used to send outgoing emails.</li>
+                        <li><code>IMAP</code> settings are used to read incoming relay emails from the mailbox.</li>
+                        <li><code>GPG Passphrase</code> unlocks the private key for inbound decryption. It is stored encrypted and is never shown back in the UI.</li>
+                        <li><code>Keyserver</code> is used as a fallback when a recipient public key is missing locally.</li>
+                    </ul>
+                </div>
+
+                <div class="guide-section">
+                    <h4>Inbound Relay Route Fields</h4>
+                    <ul>
+                        <li><code>Route Name</code> is a friendly name for this relay rule, for example IT Support Relay.</li>
+                        <li><code>Read From Mail Profile</code> is the mailbox where WinHUB checks incoming encrypted emails.</li>
+                        <li><code>Send From Mail Profile</code> is the mailbox used to send forwarded messages. Auto means use the same profile as reading.</li>
+                        <li><code>Allowed Senders</code> controls who may send emails to this relay mailbox.</li>
+                        <li><code>Local Mailing Lists</code> are manually managed recipient lists inside Newsletter.</li>
+                        <li><code>LDAP Groups</code> are external directory groups resolved through LDAP / FreeIPA.</li>
+                        <li><code>Recipient Domain</code> is appended only to local list entries without @. Example: <code>spock</code> plus <code>@example.com</code> becomes <code>spock@example.com</code>.</li>
+                        <li><code>Recipient Keyserver</code> overrides the send profile keyserver for this route.</li>
+                    </ul>
+                </div>
+
+                <div class="guide-section">
+                    <h4>Recipient List Types</h4>
+                    <ul>
+                        <li><code>Manual campaign lists</code> are used when an operator sends a newsletter directly from the editor.</li>
+                        <li><code>Local mailing lists</code> are stored in WinHUB and can contain full emails or short usernames.</li>
+                        <li><code>LDAP / FreeIPA groups</code> are resolved dynamically. WinHUB reads group members and uses the configured email attribute, usually <code>mail</code>.</li>
+                        <li>If the same email appears in several lists or groups, WinHUB sends only one message to that address.</li>
+                    </ul>
+                </div>
+
+                <div class="guide-section">
+                    <h4>LDAP / FreeIPA</h4>
+                    <p>LDAP is useful when recipients are already managed in a company directory. Instead of duplicating users manually in Newsletter, select LDAP groups in a relay route. WinHUB resolves the group members during sending and reads their email addresses from the configured attribute.</p>
+                    <ul>
+                        <li>Use a read-only or low-privilege directory account whenever possible.</li>
+                        <li>Use the test button to verify the bind credentials and check available groups.</li>
+                        <li>If a group member has no email attribute, that member cannot receive the newsletter.</li>
+                    </ul>
+                </div>
+
+                <div class="guide-section">
+                    <h4>GPG Encryption And Keys</h4>
+                    <ul>
+                        <li>Inbound emails must be encrypted for the private key of the mailbox that WinHUB reads.</li>
+                        <li>Outgoing messages are encrypted separately for each recipient public key.</li>
+                        <li>If a public key is missing, WinHUB tries the route keyserver first, then the sending mail profile keyserver.</li>
+                        <li>GPG signatures are optional. If a message decrypts successfully but the sender public key is missing for signature verification, the relay can still process the email.</li>
+                    </ul>
+                </div>
+
+                <div class="guide-section">
+                    <h4>Testing And Troubleshooting</h4>
+                    <ul>
+                        <li>Use <code>Test Mail Profile</code> to verify SMTP and IMAP access.</li>
+                        <li>Use <code>Test LDAP / Check Groups</code> to verify LDAP credentials and group lookup.</li>
+                        <li>Open <code>Logs</code> while sending a test message. Accepted messages move to the processed folder; rejected messages move to the failed folder.</li>
+                        <li>If a recipient does not receive mail, check the public GPG key, recipient email address, SMTP result, and task log.</li>
+                    </ul>
+                </div>
+            </div>
+
+            <div id="newsletterGuideUk" class="hidden space-y-4">
+                <div class="guide-section">
+                    <h4>Що робить модуль</h4>
+                    <p>Newsletter надсилає зашифровані повідомлення вибраним отримувачам. Розсилку можна створити вручну у веб-інтерфейсі або налаштувати inbound relay. Inbound relay читає зашифровані листи з окремої поштової скриньки та пересилає їх у визначені локальні списки й LDAP / FreeIPA групи.</p>
+                </div>
+
+                <div class="guide-section">
+                    <h4>Швидке налаштування пересилки</h4>
+                    <ol>
+                        <li>Створи <code>Mail Profile</code> для пошти, на яку надходитимуть листи для пересилки. Заповни SMTP, IMAP і GPG passphrase, якщо приватний ключ має парольну фразу.</li>
+                        <li>Імпортуй приватний GPG-ключ цієї пошти на сервер. Листи на цю пошту мають бути зашифровані саме для цього ключа.</li>
+                        <li>Створи локальні списки отримувачів або налаштуй LDAP / FreeIPA профіль.</li>
+                        <li>Відкрий <code>Settings</code>, перейди в <code>Inbound Relay</code>, створи route і вибери, з якої пошти читати та з якої пошти відправляти.</li>
+                        <li>Додай дозволених відправників. Тільки вони можуть запускати пересилку.</li>
+                        <li>Вибери один або кілька локальних списків, LDAP-груп або обидва типи одночасно. Дублікати отримувачів прибираються автоматично.</li>
+                        <li>Збережи route і надішли зашифрований тестовий лист на relay-пошту.</li>
+                    </ol>
+                </div>
+
+                <div class="guide-section">
+                    <h4>Mail Profiles</h4>
+                    <ul>
+                        <li><code>Email</code> це адреса поштової скриньки профілю.</li>
+                        <li><code>SMTP</code> потрібен для відправлення листів.</li>
+                        <li><code>IMAP</code> потрібен для читання вхідних листів з relay-пошти.</li>
+                        <li><code>GPG Passphrase</code> розблоковує приватний ключ для розшифрування вхідного листа. Вона зберігається зашифровано і не показується назад у веб-інтерфейсі.</li>
+                        <li><code>Keyserver</code> використовується, якщо публічного ключа отримувача немає локально.</li>
+                    </ul>
+                </div>
+
+                <div class="guide-section">
+                    <h4>Поля Inbound Relay Route</h4>
+                    <ul>
+                        <li><code>Route Name</code> це зрозуміла назва правила, наприклад IT Support Relay.</li>
+                        <li><code>Read From Mail Profile</code> це пошта, з якої WinHUB читає вхідні зашифровані листи.</li>
+                        <li><code>Send From Mail Profile</code> це пошта, з якої WinHUB відправляє переслані листи. Auto означає використовувати ту саму пошту, з якої читаємо.</li>
+                        <li><code>Allowed Senders</code> визначає, хто має право писати на relay-пошту для запуску пересилки.</li>
+                        <li><code>Local Mailing Lists</code> це списки отримувачів, які зберігаються в самому WinHUB.</li>
+                        <li><code>LDAP Groups</code> це групи з LDAP / FreeIPA, які WinHUB читає через LDAP-профіль.</li>
+                        <li><code>Recipient Domain</code> додається тільки до локальних записів без @. Наприклад <code>spock</code> плюс <code>@example.com</code> стане <code>spock@example.com</code>.</li>
+                        <li><code>Recipient Keyserver</code> перевизначає keyserver профілю відправника саме для цього route.</li>
+                    </ul>
+                </div>
+
+                <div class="guide-section">
+                    <h4>Типи списків отримувачів</h4>
+                    <ul>
+                        <li><code>Manual campaign lists</code> використовуються, коли оператор вручну створює розсилку з редактора.</li>
+                        <li><code>Local mailing lists</code> зберігаються у WinHUB і можуть містити повні email-адреси або короткі ніки.</li>
+                        <li><code>LDAP / FreeIPA groups</code> беруться з корпоративного каталогу. WinHUB читає учасників групи й бере email з налаштованого атрибута, зазвичай <code>mail</code>.</li>
+                        <li>Якщо одна адреса є в кількох списках або групах, WinHUB відправить їй лише один лист.</li>
+                    </ul>
+                </div>
+
+                <div class="guide-section">
+                    <h4>LDAP / FreeIPA</h4>
+                    <p>LDAP потрібен, якщо користувачі та групи вже ведуться в корпоративному каталозі. Тоді не потрібно дублювати всіх отримувачів вручну у Newsletter: достатньо вибрати LDAP-групи в route, а WinHUB під час відправлення сам отримає актуальні адреси.</p>
+                    <ul>
+                        <li>Для LDAP бажано використовувати окремого користувача з мінімальними правами на читання.</li>
+                        <li>Кнопка тесту перевіряє логін, пароль і пошук груп.</li>
+                        <li>Якщо в користувача LDAP немає email-атрибута, він не зможе отримати лист.</li>
+                    </ul>
+                </div>
+
+                <div class="guide-section">
+                    <h4>GPG шифрування і ключі</h4>
+                    <ul>
+                        <li>Вхідний лист має бути зашифрований на приватний ключ тієї пошти, яку читає WinHUB.</li>
+                        <li>Вихідні листи шифруються окремо під публічний ключ кожного отримувача.</li>
+                        <li>Якщо публічного ключа немає локально, WinHUB спочатку пробує <code>Recipient Keyserver</code> route, потім keyserver профілю відправника.</li>
+                        <li>GPG-підпис не є обов'язковим. Якщо лист успішно розшифровано, але public key відправника відсутній для перевірки підпису, пересилка може продовжитись.</li>
+                    </ul>
+                </div>
+
+                <div class="guide-section">
+                    <h4>Тестування і діагностика</h4>
+                    <ul>
+                        <li>Використовуй <code>Test Mail Profile</code>, щоб перевірити SMTP та IMAP доступ.</li>
+                        <li>Використовуй <code>Test LDAP / Check Groups</code>, щоб перевірити LDAP-доступ і пошук груп.</li>
+                        <li>Відкрий <code>Logs</code> під час тестової відправки. Успішні листи переходять у processed folder, помилкові у failed folder.</li>
+                        <li>Якщо отримувач не отримав лист, перевір public GPG key, email-адресу, SMTP-результат і task log.</li>
+                    </ul>
+                </div>
+            </div>
+        </div>
     </div>
 </div>
 
@@ -857,6 +1100,23 @@
 
     function closeLogsModal() {
         document.getElementById('logsModal').classList.add('hidden');
+    }
+
+    function openNewsletterGuide() {
+        document.getElementById('newsletterGuideModal').classList.remove('hidden');
+        switchNewsletterGuide('en');
+    }
+
+    function closeNewsletterGuide() {
+        document.getElementById('newsletterGuideModal').classList.add('hidden');
+    }
+
+    function switchNewsletterGuide(lang) {
+        const isUk = lang === 'uk';
+        document.getElementById('newsletterGuideEn')?.classList.toggle('hidden', isUk);
+        document.getElementById('newsletterGuideUk')?.classList.toggle('hidden', !isUk);
+        document.getElementById('guideTabEn')?.classList.toggle('guide-tab-active', !isUk);
+        document.getElementById('guideTabUk')?.classList.toggle('guide-tab-active', isUk);
     }
 
     function normalizeEditorToolbarLabels() {
