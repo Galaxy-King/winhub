@@ -18,6 +18,7 @@ let currentReportId = null;
 let selectedTemplateId = null;
 let editingTemplateId = null;
 let currentTemplateVariables = [];
+let currentTemplateVariableSchema = {};
 let currentScheduleVariables = {};
 let teleChart = null;
 let diskChart = null;
@@ -385,6 +386,88 @@ function escapeHtml(value) {
     }[ch]));
 }
 
+function parseJsonObject(value, fallback = {}) {
+    if (!value) return fallback;
+    try {
+        const parsed = typeof value === 'string' ? JSON.parse(value) : value;
+        return parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed : fallback;
+    } catch(e) {
+        return fallback;
+    }
+}
+
+function normalizeVariableSchema(raw) {
+    const source = parseJsonObject(raw, {});
+    const schema = {};
+    Object.entries(source).forEach(([name, spec]) => {
+        if (!name) return;
+        if (Array.isArray(spec)) {
+            schema[name] = { type: 'select', options: spec };
+        } else if (spec && typeof spec === 'object') {
+            schema[name] = { ...spec };
+        } else if (typeof spec === 'string') {
+            schema[name] = { type: 'text', label: spec };
+        }
+    });
+    return schema;
+}
+
+function variableSpecFor(name, schema = {}) {
+    const spec = schema[name] ? { ...schema[name] } : {};
+    if (!spec.type) spec.type = /folders|paths|list|users|ids/i.test(name) ? 'textarea' : 'text';
+    if (!spec.label) spec.label = name;
+    if (!spec.options && spec.choices) spec.options = spec.choices;
+    if (typeof spec.options === 'string') {
+        spec.options = spec.options.split(/\r?\n|,/).map(item => item.trim()).filter(Boolean);
+    }
+    return spec;
+}
+
+function renderVariableField(name, spec, currentValue, inputClass) {
+    const safeName = escapeHtml(name);
+    const type = String(spec.type || 'text').toLowerCase();
+    const placeholder = escapeHtml(spec.placeholder || `Enter value for ${name}...`);
+    const value = currentValue !== undefined && currentValue !== null && currentValue !== '' ? currentValue : (spec.default ?? '');
+    const baseClass = `${inputClass} w-full p-4 bg-slate-950/80 border border-cyan-400/25 rounded-2xl text-sm font-bold text-slate-50 shadow-sm outline-none focus:ring-2 focus:ring-cyan-400/40 focus:border-cyan-300`;
+
+    if (type === 'select') {
+        const options = Array.isArray(spec.options) ? spec.options : [];
+        const html = options.map(option => {
+            const optionValue = typeof option === 'object' ? (option.value ?? option.label ?? '') : option;
+            const optionLabel = typeof option === 'object' ? (option.label ?? option.value ?? '') : option;
+            const selected = String(optionValue) === String(value) ? ' selected' : '';
+            return `<option value="${escapeHtml(optionValue)}"${selected}>${escapeHtml(optionLabel)}</option>`;
+        }).join('');
+        return `<select data-var="${safeName}" class="${baseClass}">${html}</select>`;
+    }
+
+    if (type === 'textarea') {
+        return `<textarea data-var="${safeName}" class="${baseClass} min-h-28" placeholder="${placeholder}">${escapeHtml(value)}</textarea>`;
+    }
+
+    if (type === 'checkbox' || type === 'boolean') {
+        const checked = String(value).toLowerCase() === 'true' || value === true || value === 1 ? ' checked' : '';
+        return `
+            <label class="flex items-center gap-3 p-4 bg-slate-950/80 border border-cyan-400/25 rounded-2xl text-sm font-black text-slate-50">
+                <input type="checkbox" data-var="${safeName}" class="${inputClass} h-5 w-5 rounded border-cyan-400 bg-slate-900 text-cyan-400 focus:ring-cyan-400/40"${checked}>
+                <span>${escapeHtml(spec.checkbox_label || spec.label || name)}</span>
+            </label>`;
+    }
+
+    const inputType = type === 'number' ? 'number' : 'text';
+    return `<input type="${inputType}" data-var="${safeName}" value="${escapeHtml(value)}" class="${baseClass}" placeholder="${placeholder}">`;
+}
+
+function collectVariableInputs(selector) {
+    const variables = {};
+    document.querySelectorAll(selector).forEach(inp => {
+        const key = inp.dataset.var;
+        if (!key) return;
+        variables[key] = inp.type === 'checkbox' ? (inp.checked ? 'true' : 'false') : inp.value;
+    });
+    return variables;
+}
+
 function escapeJsString(value) {
     return String(value ?? '').replace(/[\\'"\n\r\u2028\u2029]/g, ch => ({
         '\\': '\\\\',
@@ -545,6 +628,7 @@ function updateVariablesUI() {
     }
 
     currentTemplateVariables.forEach(v => vars.add(v));
+    Object.keys(currentTemplateVariableSchema || {}).forEach(v => vars.add(v));
     while ((match = regex.exec(scriptText)) !== null) {
         vars.add(match[1]);
     }
@@ -557,19 +641,14 @@ function updateVariablesUI() {
         varArea.classList.remove('hidden');
 
         const currentValues = {};
-        document.querySelectorAll('.tpl-var-input').forEach(inp => {
-            currentValues[inp.dataset.var] = inp.value;
-        });
+        Object.assign(currentValues, collectVariableInputs('.tpl-var-input'));
 
         varContainer.innerHTML = Array.from(vars).map(v => {
-            const isLongValue = /folders|paths|list/i.test(v);
-            const currentValue = currentValues[v] || '';
-            const field = isLongValue
-                ? `<textarea data-var="${v}" class="tpl-var-input w-full p-4 bg-white border border-indigo-100 rounded-2xl text-sm font-bold shadow-sm outline-none focus:ring-2 focus:ring-indigo-500 min-h-28" placeholder="One value per line or comma-separated...">${escapeHtml(currentValue)}</textarea>`
-                : `<input type="text" data-var="${v}" value="${escapeHtml(currentValue)}" class="tpl-var-input w-full p-4 bg-white border border-indigo-100 rounded-2xl text-sm font-bold shadow-sm outline-none focus:ring-2 focus:ring-indigo-500" placeholder="Enter value for ${escapeHtml(v)}...">`;
+            const spec = variableSpecFor(v, currentTemplateVariableSchema);
+            const field = renderVariableField(v, spec, currentValues[v], 'tpl-var-input');
             return `
             <div>
-                <label class="text-[10px] font-black text-indigo-400 uppercase tracking-widest block mb-2 ml-2">${escapeHtml(v)}</label>
+                <label class="text-[10px] font-black text-cyan-200 uppercase tracking-widest block mb-2 ml-2">${escapeHtml(spec.label || v)}</label>
                 ${field}
             </div>
         `;
@@ -1835,10 +1914,10 @@ function confirmMultiHostSelection() {
 
 // --- WORKSPACE BUILDER ---
 function resetWorkspace(clearPersistedState = true) {
-    editingTemplateId = null; selectedTemplateId = null; currentTemplateVariables = [];
+    editingTemplateId = null; selectedTemplateId = null; currentTemplateVariables = []; currentTemplateVariableSchema = {};
     if (clearPersistedState) localStorage.removeItem(infraStateKeys.template);
 
-    ['depTitle', 'depCategory', 'depReportTemplate'].forEach(id => {
+    ['depTitle', 'depCategory', 'depReportTemplate', 'depVariableSchema'].forEach(id => {
         const el = document.getElementById(id);
         if(el) el.value = '';
     });
@@ -1916,6 +1995,9 @@ function loadTemplate(el) {
     selectedTemplateId = el.dataset.id;
     localStorage.setItem(infraStateKeys.template, selectedTemplateId);
     try { currentTemplateVariables = JSON.parse(el.dataset.vars || '[]'); } catch(e) { currentTemplateVariables = []; }
+    currentTemplateVariableSchema = normalizeVariableSchema(el.dataset.varSchema || '{}');
+    const schemaEl = document.getElementById('depVariableSchema');
+    if (schemaEl) schemaEl.value = Object.keys(currentTemplateVariableSchema).length ? JSON.stringify(currentTemplateVariableSchema, null, 2) : '';
 
     const titleEl = document.getElementById('depTitle');
     if(titleEl) titleEl.value = el.dataset.name;
@@ -2160,6 +2242,16 @@ function toggleDeployTarget() {
 
 function buildTemplatePayloadForSave() {
     const action = document.getElementById('depAction')?.value || 'run_script';
+    const schemaText = document.getElementById('depVariableSchema')?.value?.trim() || '';
+    let variableSchema = {};
+    if (schemaText) {
+        try {
+            variableSchema = normalizeVariableSchema(JSON.parse(schemaText));
+        } catch(e) {
+            alert('Variable Field Schema must be valid JSON.');
+            throw e;
+        }
+    }
     const policy = {
         hide_code: document.getElementById('depPolicyHideCode')?.checked || false,
         lock_edit: document.getElementById('depPolicyLockEdit')?.checked || false,
@@ -2170,13 +2262,15 @@ function buildTemplatePayloadForSave() {
         try {
             const payload = JSON.parse(getPayloadValue() || '{}');
             payload.__template_policy = policy;
+            if (Object.keys(variableSchema).length) payload.__variable_schema = variableSchema;
+            else delete payload.__variable_schema;
             return payload;
         } catch(e) {
             alert('Agent update template payload must be valid JSON.');
             throw e;
         }
     }
-    return {
+    const payload = {
         script: getPayloadValue(),
         __report_template_id: document.getElementById('depReportTemplate')?.value || '',
         __auto_email_toggle: document.getElementById('depAutoEmailToggle')?.checked || false,
@@ -2186,6 +2280,8 @@ function buildTemplatePayloadForSave() {
         ...applyAutoConfluencePayload({}),
         __template_policy: policy
     };
+    if (Object.keys(variableSchema).length) payload.__variable_schema = variableSchema;
+    return payload;
 }
 
 async function saveAsTemplate() {
@@ -3187,10 +3283,7 @@ async function submitDeployment() {
     const targetType = document.getElementById('depType').value;
     const reportTemplateId = document.getElementById('depReportTemplate')?.value || null;
 
-    const tplVars = {};
-    document.querySelectorAll('.tpl-var-input').forEach(inp => {
-        tplVars[inp.dataset.var] = inp.value;
-    });
+    const tplVars = collectVariableInputs('.tpl-var-input');
 
     const autoConfluence = collectAutoConfluenceSettings();
     const data = {
@@ -3974,9 +4067,15 @@ function getSelectedScheduleTemplateVars() {
     }
 }
 
+function getSelectedScheduleTemplateSchema() {
+    const option = document.getElementById('schTemplate')?.selectedOptions?.[0];
+    return option ? normalizeVariableSchema(option.dataset.varSchema || '{}') : {};
+}
+
 function updateScheduleVariablesUI(values = currentScheduleVariables) {
     currentScheduleVariables = values && typeof values === 'object' ? values : {};
-    const vars = getSelectedScheduleTemplateVars();
+    const schema = getSelectedScheduleTemplateSchema();
+    const vars = Array.from(new Set([...getSelectedScheduleTemplateVars(), ...Object.keys(schema)]));
     const area = document.getElementById('scheduleVariablesArea');
     const container = document.getElementById('scheduleVariablesContainer');
     if (!area || !container) return;
@@ -3989,14 +4088,11 @@ function updateScheduleVariablesUI(values = currentScheduleVariables) {
 
     area.classList.remove('hidden');
     container.innerHTML = vars.map(v => {
-        const currentValue = currentScheduleVariables[v] || '';
-        const isLongValue = /folders|paths|list/i.test(v);
-        const field = isLongValue
-            ? `<textarea data-var="${escapeHtml(v)}" class="sch-var-input w-full p-4 bg-white border border-indigo-100 rounded-2xl text-sm font-bold shadow-sm outline-none focus:ring-2 focus:ring-indigo-500 min-h-28" placeholder="One value per line or comma-separated...">${escapeHtml(currentValue)}</textarea>`
-            : `<input type="text" data-var="${escapeHtml(v)}" value="${escapeHtml(currentValue)}" class="sch-var-input w-full p-4 bg-white border border-indigo-100 rounded-2xl text-sm font-bold shadow-sm outline-none focus:ring-2 focus:ring-indigo-500" placeholder="Enter value for ${escapeHtml(v)}...">`;
+        const spec = variableSpecFor(v, schema);
+        const field = renderVariableField(v, spec, currentScheduleVariables[v], 'sch-var-input');
         return `
             <div>
-                <label class="text-[10px] font-black text-indigo-500 uppercase tracking-widest block mb-2 ml-2">${escapeHtml(v)}</label>
+                <label class="text-[10px] font-black text-cyan-200 uppercase tracking-widest block mb-2 ml-2">${escapeHtml(spec.label || v)}</label>
                 ${field}
             </div>
         `;
@@ -4004,11 +4100,7 @@ function updateScheduleVariablesUI(values = currentScheduleVariables) {
 }
 
 function collectScheduleVariables() {
-    const variables = {};
-    document.querySelectorAll('.sch-var-input').forEach(inp => {
-        variables[inp.dataset.var] = inp.value;
-    });
-    return variables;
+    return collectVariableInputs('.sch-var-input');
 }
 
 function openScheduleModal() {

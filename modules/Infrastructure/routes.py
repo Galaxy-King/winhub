@@ -630,6 +630,7 @@ def load_template_payload(template):
 
 
 TEMPLATE_POLICY_KEY = "__template_policy"
+TEMPLATE_VARIABLE_SCHEMA_KEY = "__variable_schema"
 
 
 def template_policy(template_or_payload):
@@ -637,15 +638,20 @@ def template_policy(template_or_payload):
     policy = payload.get(TEMPLATE_POLICY_KEY, {}) if isinstance(payload, dict) else {}
     return policy if isinstance(policy, dict) else {}
 
+def template_variable_schema(template_or_payload):
+    payload = template_or_payload if isinstance(template_or_payload, dict) else load_template_payload(template_or_payload)
+    schema = payload.get(TEMPLATE_VARIABLE_SCHEMA_KEY, {}) if isinstance(payload, dict) else {}
+    return schema if isinstance(schema, dict) else {}
+
 
 def template_variable_names(template):
     payload = load_template_payload(template)
     values = []
+    names = set(template_variable_schema(payload).keys())
     if isinstance(payload, dict):
         values = [str(value) for key, value in payload.items() if isinstance(value, str) and not str(key).startswith("__")]
     else:
         values = [str(payload or "")]
-    names = set()
     for value in values:
         names.update(VARIABLE_PATTERN.findall(value))
     return sorted(names)
@@ -2008,6 +2014,7 @@ def index():
         "can_delete": can_delete_template(t),
         "can_run": can_use_template(t),
         "variables": template_variable_names(t),
+        "variable_schema": template_variable_schema(t),
     } for t in templates_raw]
     template_categories = sorted({
         (template.get("category") or "General").strip() or "General"

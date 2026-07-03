@@ -779,14 +779,19 @@
 
             <div>
                 <label class="text-[10px] font-black text-slate-400 uppercase tracking-widest block mb-2 ml-2">Script Template</label>
-                <select id="schTemplate" class="w-full p-4 bg-white border border-slate-200 rounded-2xl text-sm font-bold shadow-sm outline-none focus:ring-2 focus:ring-indigo-500">
+                <select id="schTemplate" onchange="updateScheduleVariablesUI(collectScheduleVariables())" class="w-full p-4 bg-white border border-slate-200 rounded-2xl text-sm font-bold shadow-sm outline-none focus:ring-2 focus:ring-indigo-500">
                     {% for t in templates %}
-                    <option value="{{ t.id }}">
+                    <option value="{{ t.id }}" data-vars="{{ t.variables | tojson | forceescape }}" data-var-schema="{{ t.variable_schema | tojson | forceescape }}">
                         {{ t.name }} ({{ t.category }})
                         {% if t.type == 'metric' %} [ITEM] {% endif %}
                     </option>
                     {% endfor %}
                 </select>
+            </div>
+
+            <div id="scheduleVariablesArea" class="hidden bg-indigo-50 p-6 rounded-3xl border border-indigo-100 space-y-4">
+                <label class="text-[10px] font-black text-indigo-500 uppercase tracking-widest block mb-2">Template Fields</label>
+                <div id="scheduleVariablesContainer" class="grid grid-cols-1 gap-4"></div>
             </div>
 
             <div class="grid grid-cols-2 gap-4">
