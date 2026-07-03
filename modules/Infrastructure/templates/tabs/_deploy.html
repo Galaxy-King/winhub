@@ -401,6 +401,21 @@ $Password = "{{secret:temporary_password}}"
 $VpnName = "{{vpn_name}}"{% endraw %}</code></pre>
 	                            </div>
 	                            <div class="bg-white border border-slate-200 rounded-2xl p-6 shadow-sm">
+	                                <h4 class="text-[11px] font-black text-indigo-700 uppercase tracking-widest mb-3">Typed Variable Fields</h4>
+	                                <p class="text-sm font-bold text-slate-600 leading-relaxed">Use <span class="font-mono text-slate-900">Variable Field Schema</span> to turn template variables into proper controls: dropdowns, checkboxes, textareas, numbers, or text inputs. The schema is saved inside the template payload as <span class="font-mono text-slate-900">__variable_schema</span>, exports with the template, and works in both manual execution and Scheduler.</p>
+	                                <pre class="mt-4 bg-slate-950 text-emerald-200 rounded-2xl p-4 text-xs overflow-x-auto"><code>{% raw %}{
+  "Action": {
+    "type": "select",
+    "label": "Mode",
+    "default": "Install",
+    "options": ["Install", "Uninstall", "Block", "Check", "FixProfile"]
+  },
+  "ExtensionIds": { "type": "textarea", "label": "Extension IDs" },
+  "TargetUsers": { "type": "textarea", "label": "Target users" },
+  "PinExtension": { "type": "checkbox", "default": "false" }
+}{% endraw %}</code></pre>
+	                            </div>
+	                            <div class="bg-white border border-slate-200 rounded-2xl p-6 shadow-sm">
 	                                <h4 class="text-[11px] font-black text-indigo-700 uppercase tracking-widest mb-3">Sensitive Output Masking</h4>
 	                                <p class="text-sm font-bold text-slate-600 leading-relaxed">Reports are stored with the original body so secure email can include real secrets. Users without <span class="font-mono text-slate-900">view_sensitive_reports</span> see masked values in the UI. Avoid saving masked report text over the original. Password-like fields are masked by names and patterns such as <span class="font-mono text-slate-900">password</span>, <span class="font-mono text-slate-900">temporary_password</span>, <span class="font-mono text-slate-900">secret</span>, <span class="font-mono text-slate-900">token</span>, <span class="font-mono text-slate-900">Pass:</span>, and <span class="font-mono text-slate-900">PASSWORD -</span>.</p>
 	                            </div>
@@ -492,6 +507,21 @@ Your personal data goes here.
 	                                <pre class="mt-4 bg-slate-950 text-emerald-200 rounded-2xl p-4 text-xs overflow-x-auto"><code>{% raw %}$User = "{{user_login}}"
 $Password = "{{secret:temporary_password}}"
 $VpnName = "{{vpn_name}}"{% endraw %}</code></pre>
+	                            </div>
+	                            <div class="bg-white border border-slate-200 rounded-2xl p-6 shadow-sm">
+	                                <h4 class="text-[11px] font-black text-indigo-700 uppercase tracking-widest mb-3">Типізовані поля змінних</h4>
+	                                <p class="text-sm font-bold text-slate-600 leading-relaxed">Використовуй <span class="font-mono text-slate-900">Variable Field Schema</span>, щоб змінні шаблону автоматично ставали правильними контролами: випадаючими списками, checkbox, textarea, number або text input. Schema зберігається в payload шаблону як <span class="font-mono text-slate-900">__variable_schema</span>, експортується разом із шаблоном і працює як при ручному запуску, так і в Scheduler.</p>
+	                                <pre class="mt-4 bg-slate-950 text-emerald-200 rounded-2xl p-4 text-xs overflow-x-auto"><code>{% raw %}{
+  "Action": {
+    "type": "select",
+    "label": "Mode",
+    "default": "Install",
+    "options": ["Install", "Uninstall", "Block", "Check", "FixProfile"]
+  },
+  "ExtensionIds": { "type": "textarea", "label": "Extension IDs" },
+  "TargetUsers": { "type": "textarea", "label": "Target users" },
+  "PinExtension": { "type": "checkbox", "default": "false" }
+}{% endraw %}</code></pre>
 	                            </div>
 	                            <div class="bg-white border border-slate-200 rounded-2xl p-6 shadow-sm">
 	                                <h4 class="text-[11px] font-black text-indigo-700 uppercase tracking-widest mb-3">Приховування паролів</h4>
