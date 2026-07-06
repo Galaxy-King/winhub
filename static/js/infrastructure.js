@@ -2351,8 +2351,13 @@ function renderTemplateImportModal() {
             : type === 'metric'
                 ? 'bg-purple-400/15 text-purple-100 border-purple-300/30'
                 : 'bg-cyan-400/15 text-cyan-100 border-cyan-300/30';
+        const rowClass = type === 'report'
+            ? 'bg-sky-950/70 border-sky-300/30 hover:border-sky-200/60'
+            : type === 'metric'
+                ? 'bg-purple-950/60 border-purple-300/30 hover:border-purple-200/60'
+                : 'bg-teal-950/60 border-cyan-300/30 hover:border-cyan-200/60';
         return `
-        <label class="flex items-start gap-3 p-4 bg-slate-900/90 border border-cyan-400/20 rounded-2xl shadow-sm hover:border-cyan-300/50 hover:bg-slate-800/95 transition-colors cursor-pointer">
+        <label class="flex items-start gap-3 p-4 border rounded-2xl shadow-sm hover:bg-slate-800/95 transition-colors cursor-pointer ${rowClass}">
             <input type="checkbox" class="template-import-cb mt-1 w-4 h-4 text-cyan-500 rounded border-cyan-300/50 focus:ring-cyan-500 bg-slate-950" value="${index}" checked onchange="updateTemplateImportSelection()">
             <span class="min-w-0 flex-1">
                 <span class="block font-black text-cyan-50 text-sm truncate">${escapeHtml(tpl.name || 'Untitled')}</span>

@@ -72,15 +72,55 @@
     }
     #view-deploy .template-card {
         background:
-            linear-gradient(135deg, rgba(15, 23, 42, 0.96), rgba(12, 38, 65, 0.92)) !important;
+            linear-gradient(135deg, rgba(15, 23, 42, 0.98), rgba(12, 38, 65, 0.94)) !important;
         border-color: rgba(56, 189, 248, 0.24) !important;
-        box-shadow: 0 14px 34px rgba(2, 6, 23, 0.22) !important;
+        box-shadow: 0 14px 34px rgba(2, 6, 23, 0.28), 0 0 14px rgba(34, 211, 238, 0.04) !important;
+    }
+    #view-deploy .template-card::before,
+    #view-deploy .template-card::after {
+        display: none !important;
+        content: none !important;
+    }
+    #view-deploy .workspace-template-action {
+        background:
+            linear-gradient(135deg, rgba(8, 47, 73, 0.98), rgba(6, 78, 59, 0.72) 62%, rgba(15, 23, 42, 0.96)) !important;
+        border-color: rgba(45, 212, 191, 0.30) !important;
+    }
+    #view-deploy .workspace-template-report {
+        background:
+            linear-gradient(135deg, rgba(12, 74, 110, 0.94), rgba(30, 41, 59, 0.84) 58%, rgba(15, 23, 42, 0.98)) !important;
+        border-color: rgba(125, 211, 252, 0.36) !important;
+    }
+    #view-deploy .workspace-template-metric {
+        background:
+            linear-gradient(135deg, rgba(76, 29, 149, 0.88), rgba(30, 41, 59, 0.88) 56%, rgba(15, 23, 42, 0.98)) !important;
+        border-color: rgba(192, 132, 252, 0.34) !important;
+    }
+    #view-deploy .workspace-template-agent-update {
+        background:
+            linear-gradient(135deg, rgba(120, 53, 15, 0.90), rgba(30, 41, 59, 0.86) 58%, rgba(15, 23, 42, 0.98)) !important;
+        border-color: rgba(251, 191, 36, 0.34) !important;
     }
     #view-deploy .template-card:hover {
         border-color: rgba(34, 211, 238, 0.58) !important;
+        box-shadow: 0 0 24px rgba(34, 211, 238, 0.14), 0 18px 38px rgba(2, 6, 23, 0.32) !important;
+        filter: brightness(1.08) saturate(1.06);
+    }
+    #view-deploy .workspace-template-action:hover {
         background:
-            linear-gradient(135deg, rgba(8, 47, 73, 0.98), rgba(30, 41, 59, 0.94)) !important;
-        box-shadow: 0 0 28px rgba(34, 211, 238, 0.12), 0 18px 38px rgba(2, 6, 23, 0.26) !important;
+            linear-gradient(135deg, rgba(8, 80, 90, 0.98), rgba(6, 95, 70, 0.82) 62%, rgba(15, 23, 42, 0.96)) !important;
+    }
+    #view-deploy .workspace-template-report:hover {
+        background:
+            linear-gradient(135deg, rgba(14, 116, 144, 0.92), rgba(30, 64, 105, 0.78) 58%, rgba(15, 23, 42, 0.98)) !important;
+    }
+    #view-deploy .workspace-template-metric:hover {
+        background:
+            linear-gradient(135deg, rgba(91, 33, 182, 0.92), rgba(67, 56, 202, 0.70) 56%, rgba(15, 23, 42, 0.98)) !important;
+    }
+    #view-deploy .workspace-template-agent-update:hover {
+        background:
+            linear-gradient(135deg, rgba(146, 64, 14, 0.92), rgba(120, 53, 15, 0.76) 58%, rgba(15, 23, 42, 0.98)) !important;
     }
     #view-deploy .workspace-type-strip {
         width: 0.85rem !important;
@@ -151,7 +191,7 @@
                         <!-- Category Items -->
                         <div id="cat_{{ loop.index }}" class="mt-2 space-y-2 hidden">
                             {% for t in items %}
-	                            <div class="template-card group relative p-4 pl-6 rounded-xl border border-slate-200 bg-white hover:shadow-md hover:border-indigo-300 cursor-pointer transition-all overflow-hidden"
+	                            <div class="template-card {% if t.type == 'report' %}workspace-template-report{% elif t.type == 'metric' %}workspace-template-metric{% elif t.action_type == 'agent_update' %}workspace-template-agent-update{% else %}workspace-template-action{% endif %} group relative p-4 pl-6 rounded-xl border border-slate-200 bg-white hover:shadow-md hover:border-indigo-300 cursor-pointer transition-all overflow-hidden"
 	                                 data-id="{{ t.id }}" data-name="{{ t.name }}" data-category="{{ t.category }}" data-type="{{ t.type }}" data-action="{{ t.action_type }}" data-approved="{{ 'true' if t.is_approved else 'false' }}" data-can-view-code="{{ 'true' if t.can_view_code else 'false' }}" data-can-edit="{{ 'true' if t.can_edit else 'false' }}" data-can-delete="{{ 'true' if t.can_delete else 'false' }}" data-can-run="{{ 'true' if t.can_run else 'false' }}" data-policy="{{ t.policy | tojson | forceescape }}" data-vars="{{ t.variables | tojson | forceescape }}" data-var-schema="{{ t.variable_schema | tojson | forceescape }}" data-payload="{{ t.payload | forceescape }}"
                                  onclick="loadTemplate(this)">
                                 
