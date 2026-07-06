@@ -71,10 +71,9 @@
         border-color: rgba(34, 211, 238, 0.42);
     }
     #view-deploy .template-card {
-        background:
-            linear-gradient(135deg, rgba(15, 23, 42, 0.98), rgba(12, 38, 65, 0.94)) !important;
+        background: rgba(3, 10, 23, 0.94) !important;
         border-color: rgba(56, 189, 248, 0.24) !important;
-        box-shadow: 0 14px 34px rgba(2, 6, 23, 0.28), 0 0 14px rgba(34, 211, 238, 0.04) !important;
+        box-shadow: 0 14px 34px rgba(2, 6, 23, 0.28) !important;
     }
     #view-deploy .template-card::before,
     #view-deploy .template-card::after {
@@ -82,59 +81,52 @@
         content: none !important;
     }
     #view-deploy .workspace-template-action {
-        background:
-            linear-gradient(135deg, rgba(8, 47, 73, 0.98), rgba(6, 78, 59, 0.72) 62%, rgba(15, 23, 42, 0.96)) !important;
-        border-color: rgba(45, 212, 191, 0.30) !important;
+        border-color: rgba(34, 211, 238, 0.34) !important;
     }
     #view-deploy .workspace-template-report {
-        background:
-            linear-gradient(135deg, rgba(12, 74, 110, 0.94), rgba(30, 41, 59, 0.84) 58%, rgba(15, 23, 42, 0.98)) !important;
-        border-color: rgba(125, 211, 252, 0.36) !important;
+        border-color: rgba(168, 85, 247, 0.38) !important;
     }
     #view-deploy .workspace-template-metric {
-        background:
-            linear-gradient(135deg, rgba(76, 29, 149, 0.88), rgba(30, 41, 59, 0.88) 56%, rgba(15, 23, 42, 0.98)) !important;
         border-color: rgba(192, 132, 252, 0.34) !important;
     }
     #view-deploy .workspace-template-agent-update {
-        background:
-            linear-gradient(135deg, rgba(120, 53, 15, 0.90), rgba(30, 41, 59, 0.86) 58%, rgba(15, 23, 42, 0.98)) !important;
         border-color: rgba(251, 191, 36, 0.34) !important;
     }
-    #view-deploy .template-card:hover {
+    #view-deploy .template-card:hover,
+    #view-deploy .template-card.active {
         border-color: rgba(34, 211, 238, 0.58) !important;
         box-shadow: 0 0 24px rgba(34, 211, 238, 0.14), 0 18px 38px rgba(2, 6, 23, 0.32) !important;
         filter: brightness(1.08) saturate(1.06);
+        transform: translateX(4px);
     }
-    #view-deploy .workspace-template-action:hover {
-        background:
-            linear-gradient(135deg, rgba(8, 80, 90, 0.98), rgba(6, 95, 70, 0.82) 62%, rgba(15, 23, 42, 0.96)) !important;
+    #view-deploy .template-card-header {
+        border-bottom: 1px solid rgba(255, 255, 255, 0.08);
     }
-    #view-deploy .workspace-template-report:hover {
-        background:
-            linear-gradient(135deg, rgba(14, 116, 144, 0.92), rgba(30, 64, 105, 0.78) 58%, rgba(15, 23, 42, 0.98)) !important;
+    #view-deploy .workspace-template-action .template-card-header {
+        background: linear-gradient(135deg, rgba(8, 145, 178, 0.92), rgba(15, 118, 110, 0.74)) !important;
     }
-    #view-deploy .workspace-template-metric:hover {
-        background:
-            linear-gradient(135deg, rgba(91, 33, 182, 0.92), rgba(67, 56, 202, 0.70) 56%, rgba(15, 23, 42, 0.98)) !important;
+    #view-deploy .workspace-template-report .template-card-header {
+        background: linear-gradient(135deg, rgba(109, 40, 217, 0.94), rgba(30, 64, 175, 0.74)) !important;
     }
-    #view-deploy .workspace-template-agent-update:hover {
-        background:
-            linear-gradient(135deg, rgba(146, 64, 14, 0.92), rgba(120, 53, 15, 0.76) 58%, rgba(15, 23, 42, 0.98)) !important;
+    #view-deploy .workspace-template-metric .template-card-header {
+        background: linear-gradient(135deg, rgba(147, 51, 234, 0.92), rgba(88, 28, 135, 0.76)) !important;
     }
-    #view-deploy .workspace-type-strip {
-        width: 0.85rem !important;
-        box-shadow: 0 0 18px currentColor;
+    #view-deploy .workspace-template-agent-update .template-card-header {
+        background: linear-gradient(135deg, rgba(217, 119, 6, 0.92), rgba(146, 64, 14, 0.76)) !important;
+    }
+    #view-deploy .template-card:hover .template-card-header,
+    #view-deploy .template-card.active .template-card-header {
+        filter: brightness(1.12) saturate(1.08);
     }
     #view-deploy .workspace-pill-action {
-        background: rgba(56, 189, 248, 0.12) !important;
-        color: #7dd3fc !important;
-        border-color: rgba(56, 189, 248, 0.30) !important;
+        background: rgba(8, 145, 178, 0.34) !important;
+        color: #cffafe !important;
+        border-color: rgba(103, 232, 249, 0.45) !important;
     }
     #view-deploy .workspace-pill-report {
-        background: rgba(14, 165, 233, 0.16) !important;
-        color: #bae6fd !important;
-        border-color: rgba(125, 211, 252, 0.34) !important;
+        background: rgba(109, 40, 217, 0.36) !important;
+        color: #ede9fe !important;
+        border-color: rgba(196, 181, 253, 0.46) !important;
     }
     #view-deploy .workspace-pill-metric {
         background: rgba(168, 85, 247, 0.16) !important;
@@ -191,20 +183,16 @@
                         <!-- Category Items -->
                         <div id="cat_{{ loop.index }}" class="mt-2 space-y-2 hidden">
                             {% for t in items %}
-	                            <div class="template-card {% if t.type == 'report' %}workspace-template-report{% elif t.type == 'metric' %}workspace-template-metric{% elif t.action_type == 'agent_update' %}workspace-template-agent-update{% else %}workspace-template-action{% endif %} group relative p-4 pl-6 rounded-xl border border-slate-200 bg-white hover:shadow-md hover:border-indigo-300 cursor-pointer transition-all overflow-hidden"
+	                            <div class="template-card {% if t.type == 'report' %}workspace-template-report{% elif t.type == 'metric' %}workspace-template-metric{% elif t.action_type == 'agent_update' %}workspace-template-agent-update{% else %}workspace-template-action{% endif %} group relative rounded-xl border border-slate-200 bg-white hover:shadow-md hover:border-indigo-300 cursor-pointer transition-all overflow-hidden"
 	                                 data-id="{{ t.id }}" data-name="{{ t.name }}" data-category="{{ t.category }}" data-type="{{ t.type }}" data-action="{{ t.action_type }}" data-approved="{{ 'true' if t.is_approved else 'false' }}" data-can-view-code="{{ 'true' if t.can_view_code else 'false' }}" data-can-edit="{{ 'true' if t.can_edit else 'false' }}" data-can-delete="{{ 'true' if t.can_delete else 'false' }}" data-can-run="{{ 'true' if t.can_run else 'false' }}" data-policy="{{ t.policy | tojson | forceescape }}" data-vars="{{ t.variables | tojson | forceescape }}" data-var-schema="{{ t.variable_schema | tojson | forceescape }}" data-payload="{{ t.payload | forceescape }}"
                                  onclick="loadTemplate(this)">
                                 
-                                <!-- Кольорова смужка зліва для індикації типу -->
-                                <div class="workspace-type-strip absolute left-0 top-0 bottom-0
-                                    {% if t.type == 'report' %}bg-sky-400 text-sky-400
-                                    {% elif t.type == 'metric' %}bg-purple-400 text-purple-400
-                                    {% else %}bg-cyan-400 text-cyan-400{% endif %}">
+                                <!-- Colored header marks the template type. -->
+                                <div class="template-card-header px-4 py-3 pr-16">
+                                    <h4 class="font-black text-white text-xs truncate transition-colors">{{ t.name }}</h4>
                                 </div>
 
-                                <h4 class="font-black text-cyan-50 text-xs truncate mb-2 ml-2 transition-colors">{{ t.name }}</h4>
-                                
-                                <div class="flex items-center gap-1.5 ml-2 flex-wrap">
+                                <div class="flex items-center gap-1.5 p-4 flex-wrap">
                                     {% if t.type == 'report' %}
                                         <span class="workspace-pill-report text-[9px] font-black uppercase px-2.5 py-1 rounded-lg border">Report</span>
                                     {% elif t.type == 'metric' %}
@@ -227,10 +215,10 @@
                                     {% endif %}
                                 </div>
 
-                                <button onclick="event.stopPropagation(); exportTemplate('{{ t.id }}')" class="absolute top-2 right-9 opacity-0 group-hover:opacity-100 text-slate-300 hover:text-indigo-500 transition-all {% if not permissions.manage_templates or not t.can_view_code %}hidden{% endif %}" title="Export this template">
+                                <button onclick="event.stopPropagation(); exportTemplate('{{ t.id }}')" class="absolute top-2.5 right-9 opacity-0 group-hover:opacity-100 text-white/70 hover:text-white transition-all {% if not permissions.manage_templates or not t.can_view_code %}hidden{% endif %}" title="Export this template">
                                     <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 3v12m0 0l-4-4m4 4l4-4M4 17v2a2 2 0 002 2h12a2 2 0 002-2v-2"></path></svg>
                                 </button>
-                                <button onclick="event.stopPropagation(); deleteTemplate('{{ t.id }}')" class="absolute top-2 right-2 opacity-0 group-hover:opacity-100 text-slate-300 hover:text-rose-500 transition-all {% if not permissions.manage_templates or not t.can_delete %}hidden{% endif %}" title="Delete template">
+                                <button onclick="event.stopPropagation(); deleteTemplate('{{ t.id }}')" class="absolute top-2.5 right-2 opacity-0 group-hover:opacity-100 text-white/70 hover:text-rose-100 transition-all {% if not permissions.manage_templates or not t.can_delete %}hidden{% endif %}" title="Delete template">
                                     <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 14l2-2m0 0l2-2m-2 2l-2-2m2 2l2 2m7-2a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>
                                 </button>
                             </div>
