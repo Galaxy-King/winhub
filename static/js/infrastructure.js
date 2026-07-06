@@ -2344,16 +2344,25 @@ function renderTemplateImportModal() {
     const count = document.getElementById('templateImportCount');
     if (!body) return;
     if (count) count.innerText = pendingTemplateImport.length;
-    body.innerHTML = pendingTemplateImport.map((tpl, index) => `
-        <label class="flex items-start gap-3 p-4 bg-white border border-slate-200 rounded-2xl shadow-sm hover:border-indigo-200 transition-colors cursor-pointer">
-            <input type="checkbox" class="template-import-cb mt-1 w-4 h-4 text-indigo-600 rounded border-slate-300 focus:ring-indigo-500" value="${index}" checked onchange="updateTemplateImportSelection()">
+    body.innerHTML = pendingTemplateImport.map((tpl, index) => {
+        const type = String(tpl.type || 'action').toLowerCase();
+        const typeClass = type === 'report'
+            ? 'bg-sky-400/15 text-sky-100 border-sky-300/30'
+            : type === 'metric'
+                ? 'bg-purple-400/15 text-purple-100 border-purple-300/30'
+                : 'bg-cyan-400/15 text-cyan-100 border-cyan-300/30';
+        return `
+        <label class="flex items-start gap-3 p-4 bg-slate-900/90 border border-cyan-400/20 rounded-2xl shadow-sm hover:border-cyan-300/50 hover:bg-slate-800/95 transition-colors cursor-pointer">
+            <input type="checkbox" class="template-import-cb mt-1 w-4 h-4 text-cyan-500 rounded border-cyan-300/50 focus:ring-cyan-500 bg-slate-950" value="${index}" checked onchange="updateTemplateImportSelection()">
             <span class="min-w-0 flex-1">
-                <span class="block font-black text-slate-800 text-sm truncate">${escapeHtml(tpl.name || 'Untitled')}</span>
-                <span class="block text-[10px] font-black text-slate-400 uppercase tracking-widest mt-1">${escapeHtml(tpl.category || 'Imported')} / ${escapeHtml(tpl.type || 'action')} / ${escapeHtml(tpl.action_type || tpl.action || 'run_script')}</span>
+                <span class="block font-black text-cyan-50 text-sm truncate">${escapeHtml(tpl.name || 'Untitled')}</span>
+                <span class="block text-[10px] font-black text-cyan-200/60 uppercase tracking-widest mt-1">${escapeHtml(tpl.category || 'Imported')} / ${escapeHtml(tpl.type || 'action')} / ${escapeHtml(tpl.action_type || tpl.action || 'run_script')}</span>
             </span>
-            <span class="px-2 py-1 rounded-lg bg-slate-100 text-slate-500 text-[9px] font-black uppercase">${tpl.is_approved ? 'Shared' : 'Draft'}</span>
+            <span class="px-2.5 py-1 rounded-lg border text-[9px] font-black uppercase ${typeClass}">${escapeHtml(tpl.type || 'action')}</span>
+            <span class="px-2.5 py-1 rounded-lg bg-amber-400/10 border border-amber-300/25 text-amber-100 text-[9px] font-black uppercase">${tpl.is_approved ? 'Shared' : 'Draft'}</span>
         </label>
-    `).join('');
+    `;
+    }).join('');
     updateTemplateImportSelection();
 }
 

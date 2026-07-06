@@ -1,9 +1,112 @@
 <!-- VIEW: WORKSPACE BUILDER -->
+<style>
+    #view-deploy .workspace-library-shell,
+    #view-deploy .workspace-builder-shell {
+        background:
+            radial-gradient(circle at 8% 0%, rgba(34, 211, 238, 0.12), transparent 20rem),
+            radial-gradient(circle at 95% 18%, rgba(168, 85, 247, 0.13), transparent 22rem),
+            linear-gradient(145deg, rgba(8, 17, 31, 0.98), rgba(12, 30, 55, 0.95) 52%, rgba(5, 10, 24, 0.98)) !important;
+        border-color: rgba(56, 189, 248, 0.28) !important;
+        box-shadow: 0 0 32px rgba(34, 211, 238, 0.08), 0 24px 56px rgba(2, 6, 23, 0.40) !important;
+    }
+    #view-deploy .workspace-builder-header,
+    #view-deploy .workspace-form-panel,
+    #view-deploy .workspace-policy-panel {
+        background:
+            linear-gradient(135deg, rgba(15, 23, 42, 0.92), rgba(8, 47, 73, 0.62)) !important;
+        border-color: rgba(34, 211, 238, 0.24) !important;
+        box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.05), 0 16px 34px rgba(2, 6, 23, 0.22) !important;
+    }
+    #view-deploy .workspace-input,
+    #view-deploy .workspace-select,
+    #view-deploy .workspace-pickbox,
+    #view-deploy #templateLibrarySearch,
+    #view-deploy input[type="text"]:not(.plain-input),
+    #view-deploy select:not(.plain-input),
+    #view-deploy textarea:not(#depPayload):not(#depVariableSchema):not(.plain-input) {
+        background:
+            linear-gradient(135deg, rgba(8, 47, 73, 0.86), rgba(15, 23, 42, 0.94)) !important;
+        border-color: rgba(45, 212, 191, 0.34) !important;
+        color: #e0f2fe !important;
+        box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.07), 0 0 18px rgba(34, 211, 238, 0.05) !important;
+    }
+    #view-deploy .workspace-input::placeholder,
+    #view-deploy #templateLibrarySearch::placeholder,
+    #view-deploy textarea:not(#depPayload):not(#depVariableSchema)::placeholder {
+        color: rgba(186, 230, 253, 0.50) !important;
+    }
+    #view-deploy .workspace-input:focus,
+    #view-deploy .workspace-select:focus,
+    #view-deploy #templateLibrarySearch:focus {
+        border-color: rgba(34, 211, 238, 0.80) !important;
+        box-shadow: 0 0 0 4px rgba(34, 211, 238, 0.16), 0 0 26px rgba(34, 211, 238, 0.12) !important;
+    }
+    #view-deploy .template-category-block {
+        padding: 0.75rem;
+        border-radius: 1.35rem;
+        border: 1px solid rgba(56, 189, 248, 0.22);
+        background:
+            linear-gradient(135deg, rgba(14, 165, 233, 0.10), rgba(20, 184, 166, 0.06)),
+            rgba(15, 23, 42, 0.70);
+        box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.04);
+    }
+    #view-deploy .template-category-block:nth-child(3n + 1) {
+        border-color: rgba(34, 211, 238, 0.30);
+        background: linear-gradient(135deg, rgba(8, 145, 178, 0.18), rgba(15, 23, 42, 0.74));
+    }
+    #view-deploy .template-category-block:nth-child(3n + 2) {
+        border-color: rgba(168, 85, 247, 0.28);
+        background: linear-gradient(135deg, rgba(109, 40, 217, 0.16), rgba(15, 23, 42, 0.74));
+    }
+    #view-deploy .template-category-block:nth-child(3n) {
+        border-color: rgba(16, 185, 129, 0.28);
+        background: linear-gradient(135deg, rgba(5, 150, 105, 0.14), rgba(15, 23, 42, 0.74));
+    }
+    #view-deploy .workspace-category-toggle {
+        border: 1px solid rgba(125, 211, 252, 0.18);
+        background: rgba(2, 6, 23, 0.30);
+    }
+    #view-deploy .workspace-category-toggle:hover {
+        background: rgba(14, 165, 233, 0.18) !important;
+        border-color: rgba(34, 211, 238, 0.42);
+    }
+    #view-deploy .template-card {
+        background:
+            linear-gradient(135deg, rgba(15, 23, 42, 0.96), rgba(12, 38, 65, 0.92)) !important;
+        border-color: rgba(56, 189, 248, 0.24) !important;
+        box-shadow: 0 14px 34px rgba(2, 6, 23, 0.22) !important;
+    }
+    #view-deploy .template-card:hover {
+        border-color: rgba(34, 211, 238, 0.58) !important;
+        background:
+            linear-gradient(135deg, rgba(8, 47, 73, 0.98), rgba(30, 41, 59, 0.94)) !important;
+        box-shadow: 0 0 28px rgba(34, 211, 238, 0.12), 0 18px 38px rgba(2, 6, 23, 0.26) !important;
+    }
+    #view-deploy .workspace-type-strip {
+        width: 0.85rem !important;
+        box-shadow: 0 0 18px currentColor;
+    }
+    #view-deploy .workspace-pill-action {
+        background: rgba(56, 189, 248, 0.12) !important;
+        color: #7dd3fc !important;
+        border-color: rgba(56, 189, 248, 0.30) !important;
+    }
+    #view-deploy .workspace-pill-report {
+        background: rgba(14, 165, 233, 0.16) !important;
+        color: #bae6fd !important;
+        border-color: rgba(125, 211, 252, 0.34) !important;
+    }
+    #view-deploy .workspace-pill-metric {
+        background: rgba(168, 85, 247, 0.16) !important;
+        color: #d8b4fe !important;
+        border-color: rgba(192, 132, 252, 0.34) !important;
+    }
+</style>
 <section id="view-deploy" class="hidden animate-in fade-in duration-300">
     <div class="grid grid-cols-1 lg:grid-cols-12 gap-8 items-start">
         
         <!-- Library (Left Column) -->
-        <div class="lg:col-span-3 bg-slate-50/80 rounded-[2.5rem] border border-slate-200 shadow-inner p-4 h-[calc(100vh-112px)] flex flex-col">
+        <div class="lg:col-span-3 workspace-library-shell bg-slate-50/80 rounded-[2.5rem] border border-slate-200 shadow-inner p-4 h-[calc(100vh-112px)] flex flex-col">
             <div class="p-4 mb-2 wh-blue-panel rounded-2xl">
                 <h3 class="text-[11px] font-black text-slate-500 uppercase tracking-[0.2em] mb-4">Template Library</h3>
                 
@@ -36,40 +139,40 @@
                 {% for category_name, items in templates|groupby('category') %}
 	                    <div class="mb-4 template-category-block">
                         <!-- Category Header -->
-                        <button onclick="toggleCategory('cat_{{ loop.index }}', this)" class="w-full flex items-center justify-between p-2 hover:bg-slate-200/50 rounded-xl transition-colors group outline-none">
-                            <h4 class="font-bold text-slate-600 uppercase tracking-wider text-[10px] flex items-center gap-2">
-                                <svg class="w-4 h-4 text-indigo-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z"></path></svg>
+                        <button onclick="toggleCategory('cat_{{ loop.index }}', this)" class="workspace-category-toggle w-full flex items-center justify-between p-3 rounded-xl transition-colors group outline-none">
+                            <h4 class="font-black text-cyan-100 uppercase tracking-wider text-[10px] flex items-center gap-2">
+                                <svg class="w-4 h-4 text-cyan-300" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z"></path></svg>
                                 {{ category_name }}
-                                <span class="bg-slate-200 text-slate-600 px-1.5 py-0.5 rounded-md text-[9px] font-black">{{ items|length }}</span>
+                                <span class="bg-cyan-400/15 text-cyan-100 border border-cyan-300/25 px-2 py-0.5 rounded-lg text-[9px] font-black">{{ items|length }}</span>
                             </h4>
-                            <svg class="w-3 h-3 text-slate-400 transition-transform cat-chevron" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M19 9l-7 7-7-7"></path></svg>
+                            <svg class="w-3 h-3 text-cyan-200 transition-transform cat-chevron" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M19 9l-7 7-7-7"></path></svg>
                         </button>
                         
                         <!-- Category Items -->
                         <div id="cat_{{ loop.index }}" class="mt-2 space-y-2 hidden">
                             {% for t in items %}
-	                            <div class="template-card group relative p-4 rounded-xl border border-slate-200 bg-white hover:shadow-md hover:border-indigo-300 cursor-pointer transition-all overflow-hidden" 
+	                            <div class="template-card group relative p-4 pl-6 rounded-xl border border-slate-200 bg-white hover:shadow-md hover:border-indigo-300 cursor-pointer transition-all overflow-hidden"
 	                                 data-id="{{ t.id }}" data-name="{{ t.name }}" data-category="{{ t.category }}" data-type="{{ t.type }}" data-action="{{ t.action_type }}" data-approved="{{ 'true' if t.is_approved else 'false' }}" data-can-view-code="{{ 'true' if t.can_view_code else 'false' }}" data-can-edit="{{ 'true' if t.can_edit else 'false' }}" data-can-delete="{{ 'true' if t.can_delete else 'false' }}" data-can-run="{{ 'true' if t.can_run else 'false' }}" data-policy="{{ t.policy | tojson | forceescape }}" data-vars="{{ t.variables | tojson | forceescape }}" data-var-schema="{{ t.variable_schema | tojson | forceescape }}" data-payload="{{ t.payload | forceescape }}"
                                  onclick="loadTemplate(this)">
                                 
                                 <!-- Кольорова смужка зліва для індикації типу -->
-                                <div class="absolute left-0 top-0 bottom-0 w-1.5 
-                                    {% if t.type == 'report' %}bg-sky-500
-                                    {% elif t.type == 'metric' %}bg-purple-500
-                                    {% else %}bg-indigo-500{% endif %}">
+                                <div class="workspace-type-strip absolute left-0 top-0 bottom-0
+                                    {% if t.type == 'report' %}bg-sky-400 text-sky-400
+                                    {% elif t.type == 'metric' %}bg-purple-400 text-purple-400
+                                    {% else %}bg-cyan-400 text-cyan-400{% endif %}">
                                 </div>
 
-                                <h4 class="font-black text-slate-800 text-xs truncate mb-2 ml-2 transition-colors">{{ t.name }}</h4>
+                                <h4 class="font-black text-cyan-50 text-xs truncate mb-2 ml-2 transition-colors">{{ t.name }}</h4>
                                 
                                 <div class="flex items-center gap-1.5 ml-2 flex-wrap">
                                     {% if t.type == 'report' %}
-                                        <span class="text-[9px] font-black uppercase px-2 py-0.5 rounded bg-sky-50 text-sky-600 border border-sky-100">Report</span>
+                                        <span class="workspace-pill-report text-[9px] font-black uppercase px-2.5 py-1 rounded-lg border">Report</span>
                                     {% elif t.type == 'metric' %}
-                                        <span class="text-[9px] font-black uppercase px-2 py-0.5 rounded bg-purple-50 text-purple-600 border border-purple-100">Metric</span>
+                                        <span class="workspace-pill-metric text-[9px] font-black uppercase px-2.5 py-1 rounded-lg border">Metric</span>
                                     {% elif t.action_type == 'agent_update' %}
                                         <span class="text-[9px] font-black uppercase px-2 py-0.5 rounded bg-amber-50 text-amber-700 border border-amber-100">Agent Update</span>
                                     {% else %}
-                                        <span class="text-[9px] font-black uppercase px-2 py-0.5 rounded bg-slate-100 text-slate-500 border border-slate-200">Action</span>
+                                        <span class="workspace-pill-action text-[9px] font-black uppercase px-2.5 py-1 rounded-lg border">Action</span>
                                     {% endif %}
                                     {% if t.is_approved %}
                                         <span class="text-[9px] font-black uppercase px-2 py-0.5 rounded bg-emerald-50 text-emerald-700 border border-emerald-100">Shared</span>
@@ -99,10 +202,10 @@
         </div>
 
         <!-- Builder (Right Column) -->
-        <div class="lg:col-span-9 bg-white rounded-[2.5rem] border border-slate-200 shadow-xl overflow-hidden min-h-[calc(100vh-112px)] flex flex-col">
+        <div class="lg:col-span-9 workspace-builder-shell bg-white rounded-[2.5rem] border border-slate-200 shadow-xl overflow-hidden min-h-[calc(100vh-112px)] flex flex-col">
             
             <!-- Builder Header -->
-            <div class="p-6 bg-slate-50/50 border-b border-slate-200 flex flex-col sm:flex-row justify-between items-center gap-4 shrink-0">
+            <div class="workspace-builder-header p-6 bg-slate-50/50 border-b border-slate-200 flex flex-col sm:flex-row justify-between items-center gap-4 shrink-0">
                 <div class="flex items-center gap-4">
                     <div class="w-10 h-10 bg-indigo-600 rounded-xl flex items-center justify-center text-white shadow-lg">
                         <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 20l4-16m4 4l4 4-4 4M6 16l-4-4 4-4"></path></svg>
@@ -131,13 +234,13 @@
                     <!-- Title Input -->
                     <div class="space-y-2">
                         <label id="lblDepTitle" class="text-[10px] font-black text-slate-400 uppercase tracking-[0.15em] ml-2">Display Name</label>
-                        <input type="text" id="depTitle" placeholder="Give this template a name..." class="w-full p-4 bg-slate-50 border-2 border-transparent rounded-2xl text-sm font-bold outline-none focus:bg-white focus:border-indigo-500 focus:ring-4 focus:ring-indigo-500/10 transition-all" {% if not permissions.manage_templates %}readonly{% endif %}>
+                        <input type="text" id="depTitle" placeholder="Give this template a name..." class="workspace-input w-full p-4 bg-slate-50 border-2 border-transparent rounded-2xl text-sm font-bold outline-none focus:bg-white focus:border-indigo-500 focus:ring-4 focus:ring-indigo-500/10 transition-all" {% if not permissions.manage_templates %}readonly{% endif %}>
                     </div>
                     
                     <!-- Category Input -->
                     <div class="space-y-2">
                         <label id="lblDepCategory" class="text-[10px] font-black text-slate-400 uppercase tracking-[0.15em] ml-2">Category Group</label>
-                        <input type="text" id="depCategory" list="catList" placeholder="e.g. Maintenance..." class="w-full p-4 bg-slate-50 border-2 border-transparent rounded-2xl text-sm font-bold outline-none focus:bg-white focus:border-indigo-500 focus:ring-4 focus:ring-indigo-500/10 transition-all" {% if not permissions.manage_templates %}readonly{% endif %}>
+                        <input type="text" id="depCategory" list="catList" placeholder="e.g. Maintenance..." class="workspace-input w-full p-4 bg-slate-50 border-2 border-transparent rounded-2xl text-sm font-bold outline-none focus:bg-white focus:border-indigo-500 focus:ring-4 focus:ring-indigo-500/10 transition-all" {% if not permissions.manage_templates %}readonly{% endif %}>
                         <datalist id="catList">
                             {% for category in template_categories %}
                             <option value="{{ category }}"></option>
@@ -169,10 +272,10 @@
                     <!-- Target Section -->
                     <div class="space-y-4">
                         <h4 class="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-2">Target Selection</h4>
-                        <div class="p-6 bg-slate-50 rounded-3xl border border-slate-200 space-y-4">
+                        <div class="workspace-form-panel p-6 bg-slate-50 rounded-3xl border border-slate-200 space-y-4">
                             <div>
                                 <label class="text-xs font-bold text-slate-600 block mb-2">Deploy To</label>
-                                <select id="depType" onchange="toggleDeployTarget()" class="w-full p-4 bg-white border border-slate-200 rounded-2xl text-sm font-bold outline-none focus:ring-4 focus:ring-indigo-500/10 transition-all cursor-pointer">
+                                <select id="depType" onchange="toggleDeployTarget()" class="workspace-select w-full p-4 bg-white border border-slate-200 rounded-2xl text-sm font-bold outline-none focus:ring-4 focus:ring-indigo-500/10 transition-all cursor-pointer">
                                     <option value="hosts">Specific Endpoints</option>
                                     <option value="group">Endpoint Group</option>
                                 </select>
@@ -182,14 +285,14 @@
                             <div id="depTargetHostsWrapper">
                                 <label class="text-xs font-bold text-slate-600 block mb-2">Select Endpoints</label>
                                 <input type="hidden" id="depTargetHostIds" value="[]">
-                                <div onclick="openMultiHostModal()" class="w-full p-4 bg-white border border-slate-200 hover:border-indigo-400 rounded-2xl flex justify-between items-center cursor-pointer transition-all shadow-sm">
+                                <div onclick="openMultiHostModal()" class="workspace-pickbox w-full p-4 bg-white border border-slate-200 hover:border-indigo-400 rounded-2xl flex justify-between items-center cursor-pointer transition-all shadow-sm">
                                     <span id="selectedHostsLabel" class="text-sm text-slate-400 font-bold">Click to select hosts...</span>
                                     <span class="bg-indigo-100 text-indigo-700 px-3 py-1 rounded-lg text-xs font-black shadow-sm"><span id="selectedHostsCount">0</span> selected</span>
                                 </div>
                             </div>
                             
                             <!-- Select Group -->
-                            <select id="depTargetGroup" class="hidden w-full p-4 bg-white border border-slate-200 rounded-2xl text-sm font-bold outline-none focus:ring-4 focus:ring-indigo-500/10 transition-all cursor-pointer">
+                            <select id="depTargetGroup" class="workspace-select hidden w-full p-4 bg-white border border-slate-200 rounded-2xl text-sm font-bold outline-none focus:ring-4 focus:ring-indigo-500/10 transition-all cursor-pointer">
                                 {% for g in groups %}
                                 <option value="{{ g.id }}">{{ g.name }}</option>
                                 {% endfor %}
@@ -203,10 +306,10 @@
                     <!-- Execution & Reporting Options -->
                     <div class="space-y-4">
                         <h4 class="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-2">Post-Execution</h4>
-                        <div class="p-6 bg-slate-50 rounded-3xl border border-slate-200 space-y-4">
+                        <div class="workspace-form-panel p-6 bg-slate-50 rounded-3xl border border-slate-200 space-y-4">
                             <div>
                                 <label class="text-xs font-bold text-slate-600 block mb-2">Aggregation Report Template (Optional)</label>
-                                <select id="depReportTemplate" class="w-full p-4 bg-white border border-slate-200 rounded-2xl text-sm font-bold outline-none focus:ring-4 focus:ring-indigo-500/10 transition-all cursor-pointer">
+                                <select id="depReportTemplate" class="workspace-select w-full p-4 bg-white border border-slate-200 rounded-2xl text-sm font-bold outline-none focus:ring-4 focus:ring-indigo-500/10 transition-all cursor-pointer">
                                     <option value="">-- No custom report --</option>
                                     {% for r in templates if r.type == 'report' %}
                                     <option value="{{ r.id }}">{{ r.name }}</option>
@@ -348,7 +451,7 @@ $StaticPassword = "{{ "{{secret:local_admin_password}}" }}"
                 </div>
 
                 {% if is_admin %}
-                <div id="templatePolicyBlock" class="grid grid-cols-1 md:grid-cols-4 gap-3 p-4 bg-slate-50 border border-slate-200 rounded-3xl">
+                <div id="templatePolicyBlock" class="workspace-policy-panel grid grid-cols-1 md:grid-cols-4 gap-3 p-4 bg-slate-50 border border-slate-200 rounded-3xl">
                     <label class="flex items-center gap-3 bg-white border border-slate-200 rounded-2xl px-4 py-3 cursor-pointer">
                         <input type="checkbox" id="depPolicyHideCode" class="w-4 h-4 text-indigo-600 rounded border-slate-300">
                         <span class="text-[10px] font-black uppercase text-slate-500">Hide Code</span>
