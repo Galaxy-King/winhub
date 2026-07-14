@@ -11,6 +11,9 @@ from dotenv import load_dotenv
 # Завантаження змінних з .env файлу
 load_dotenv()
 
+DEFAULT_SECRET_KEY = 'default-dev-secret-key-change-in-production'  # nosec B105
+DEFAULT_AGENT_API_KEY = 'WinHUB-Secret-Enroll-2026'  # nosec B105
+
 def clean_env_value(value):
     if value is None:
         return None
@@ -59,7 +62,7 @@ def build_postgres_uri_from_env():
 
 class Config:
     # Базовий секретний ключ для криптографії Flask (сесії)
-    SECRET_KEY = clean_env_value(os.environ.get('SECRET_KEY')) or 'default-dev-secret-key-change-in-production'
+    SECRET_KEY = clean_env_value(os.environ.get('SECRET_KEY')) or DEFAULT_SECRET_KEY
     
     # Визначення головних шляхів системи
     BASE_DIR = os.path.abspath(os.path.dirname(os.path.dirname(__file__)))
@@ -91,7 +94,7 @@ class Config:
     LOGIN_RATE_LIMIT = clean_env_value(os.environ.get('LOGIN_RATE_LIMIT')) or '5 per minute'
     AGENT_ENROLLMENT_RATE_LIMIT = clean_env_value(os.environ.get('AGENT_ENROLLMENT_RATE_LIMIT')) or '10 per minute'
 
-    AGENT_API_KEY = clean_env_value(os.environ.get('AGENT_API_KEY')) or 'WinHUB-Secret-Enroll-2026'
+    AGENT_API_KEY = clean_env_value(os.environ.get('AGENT_API_KEY')) or DEFAULT_AGENT_API_KEY
     AGENT_ENROLLMENT_ENABLED = (clean_env_value(os.environ.get('AGENT_ENROLLMENT_ENABLED')) or 'true').lower() in ('1', 'true', 'yes', 'on')
     AGENT_ENROLLMENT_ALLOWLIST = clean_env_value(os.environ.get('AGENT_ENROLLMENT_ALLOWLIST')) or ''
     AGENT_ALLOW_REENROLL_EXISTING = (clean_env_value(os.environ.get('AGENT_ALLOW_REENROLL_EXISTING')) or 'false').lower() in ('1', 'true', 'yes', 'on')
@@ -151,3 +154,23 @@ class Config:
         r"C:\Program Files (x86)\GnuPG\bin\gpg.exe" if os.name == 'nt' else '/usr/bin/gpg'
     )
     GPG_HOME = clean_env_value(os.environ.get('GNUPGHOME')) or clean_env_value(os.environ.get('GPG_HOME')) or os.path.join(DATA_DIR, 'gnupg')
+
+
+def _looks_like_strong_secret(value, minimum_length):
+    value = str(value or "")
+    if len(value) < minimum_length:
+        return False
+    return len(set(value)) >= 16
+
+
+def production_secret_errors():
+    errors = []
+    if not _looks_like_strong_secret(Config.SECRET_KEY, 48) or Config.SECRET_KEY == DEFAULT_SECRET_KEY:
+        errors.append("SECRET_KEY must be a unique 48+ character secret in production.")
+    if not _looks_like_strong_secret(Config.AGENT_API_KEY, 32) or Config.AGENT_API_KEY == DEFAULT_AGENT_API_KEY:
+        errors.append("AGENT_API_KEY must be a unique 32+ character enrollment secret in production.")
+    if not _looks_like_strong_secret(Config.AGENT_TASK_HMAC_SECRET, 32):
+        errors.append("AGENT_TASK_HMAC_SECRET must be a unique 32+ character task-signing secret in production.")
+    if Config.AGENT_TASK_HMAC_SECRET == Config.SECRET_KEY:
+        errors.append("AGENT_TASK_HMAC_SECRET must be different from SECRET_KEY in production.")
+    return errors

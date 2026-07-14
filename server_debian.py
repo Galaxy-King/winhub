@@ -11,7 +11,7 @@ from gevent import hub
 from werkzeug.middleware.proxy_fix import ProxyFix
 
 from core import create_app
-from core.config import Config
+from core.config import Config, production_secret_errors
 
 os.makedirs(os.path.dirname(Config.SERVER_LOG_FILE), exist_ok=True)
 
@@ -123,10 +123,11 @@ if __name__ == '__main__':
     if host not in ("127.0.0.1", "localhost", "::1"):
         log.warning("Debian backend is not bound to localhost. Put Nginx in front and firewall this port.")
     if getattr(Config, 'PRODUCTION_MODE', False):
-        if getattr(Config, 'SECRET_KEY', '').startswith('default-dev-secret-key'):
-            log.warning("Production mode is enabled but SECRET_KEY still uses the development default.")
-        if getattr(Config, 'AGENT_TASK_HMAC_SECRET', None) == getattr(Config, 'SECRET_KEY', None):
-            log.warning("AGENT_TASK_HMAC_SECRET is not set separately.")
+        secret_errors = production_secret_errors()
+        if secret_errors:
+            for secret_error in secret_errors:
+                log.critical(secret_error)
+            sys.exit(1)
 
     try:
         validate_port_available(host, port)

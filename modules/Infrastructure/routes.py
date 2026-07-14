@@ -675,6 +675,48 @@ def can_delete_template(template):
     return can("manage_templates") and not bool(template_policy(template).get("lock_delete"))
 
 
+def _policy_list(policy, key):
+    value = policy.get(key)
+    if isinstance(value, str):
+        return [item.strip() for item in re.split(r"[,;\s]+", value) if item.strip()]
+    if isinstance(value, list):
+        return [str(item).strip() for item in value if str(item).strip()]
+    return []
+
+
+def _current_user_group_ids():
+    user = current_user()
+    if not user:
+        return set()
+    groups = getattr(user, "allowed_host_groups", [])
+    if hasattr(groups, "all"):
+        groups = groups.all()
+    return {str(group.id) for group in groups}
+
+
+def template_run_policy_allows(template):
+    policy = template_policy(template)
+    if bool(policy.get("disable_run")):
+        return False
+    if bool(policy.get("allow_all_users")):
+        return True
+
+    username = str(session.get("username") or "")
+    allowed_users = set(_policy_list(policy, "allowed_users"))
+    if username and username in allowed_users:
+        return True
+
+    allowed_groups = set(_policy_list(policy, "allowed_groups"))
+    if allowed_groups and allowed_groups.intersection(_current_user_group_ids()):
+        return True
+
+    allowed_permissions = _policy_list(policy, "allowed_permissions")
+    if any(can(permission_id) for permission_id in allowed_permissions):
+        return True
+
+    return False
+
+
 def load_template_secrets():
     if not os.path.exists(SECRETS_FILE):
         return {}
@@ -1244,11 +1286,9 @@ def can_use_template(template):
         return True
     if not template:
         return False
-    if bool(template_policy(template).get("disable_run")):
-        return False
     if getattr(template, "created_by", None) == session.get("username") and can("manage_templates"):
         return True
-    return True
+    return template_run_policy_allows(template)
 
 def require_permission(permission_id):
     if not can(permission_id):

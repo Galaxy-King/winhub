@@ -26,7 +26,7 @@ hub.Hub.handle_error = custom_handle_error
 # ----------------------------------------------------
 
 from core import create_app, socketio
-from core.config import Config
+from core.config import Config, production_secret_errors
 
 os.makedirs(os.path.dirname(Config.SERVER_LOG_FILE), exist_ok=True)
 
@@ -126,10 +126,11 @@ if __name__ == '__main__':
     if getattr(Config, 'PRODUCTION_MODE', False):
         if not getattr(Config, 'RATELIMIT_STORAGE_URI', None):
             log.warning("Production mode is enabled but RATELIMIT_STORAGE_URI is not set. Configure Redis for durable rate limits.")
-        if getattr(Config, 'SECRET_KEY', '').startswith('default-dev-secret-key'):
-            log.warning("Production mode is enabled but SECRET_KEY still uses the development default.")
-        if getattr(Config, 'AGENT_TASK_HMAC_SECRET', None) == getattr(Config, 'SECRET_KEY', None):
-            log.warning("AGENT_TASK_HMAC_SECRET is not set separately. Set it before updating agents to enforce task signatures.")
+        secret_errors = production_secret_errors()
+        if secret_errors:
+            for secret_error in secret_errors:
+                log.critical(secret_error)
+            sys.exit(1)
 
     if os.path.exists(cert_path) and os.path.exists(key_path):
         log.info(f"🔒 SSL Сертифікати знайдено у {os.path.dirname(cert_path)}. Запуск захищеного HTTPS.")
