@@ -3091,7 +3091,18 @@ def process_due_agent_update_rollouts():
         if not rollout:
             continue
         try:
-            process_one_agent_update_rollout(rollout)
+            waves_created = 0
+            max_waves = max(1, int(getattr(Config, "AGENT_UPDATE_ROLLOUT_MAX_WAVES_PER_TICK", 25) or 25))
+            while (
+                rollout.status == "Running"
+                and rollout.next_run_at
+                and rollout.next_run_at <= datetime.utcnow()
+                and waves_created < max_waves
+            ):
+                created = process_one_agent_update_rollout(rollout)
+                if not created:
+                    break
+                waves_created += 1
             db.session.commit()
         except Exception:
             db.session.rollback()
@@ -3105,7 +3116,7 @@ def process_one_agent_update_rollout(rollout):
     if not isinstance(target_ids, list) or not target_ids:
         rollout.status = "Completed"
         rollout.updated_at = now
-        return
+        return False
 
     package = find_agent_package(rollout.package_id)
     if not package:
@@ -3134,7 +3145,7 @@ def process_one_agent_update_rollout(rollout):
     if not target_ids:
         rollout.status = "Completed"
         rollout.updated_at = now
-        return
+        return False
 
     update_plan, skipped = build_agent_update_plan(target_ids, package)
     if skipped:
@@ -3147,7 +3158,7 @@ def process_one_agent_update_rollout(rollout):
     if not update_plan:
         rollout.status = "Completed"
         rollout.updated_at = now
-        return
+        return False
 
     recalculated_total_waves = max(1, (len(update_plan) + wave_size - 1) // wave_size)
     rollout.total_waves = recalculated_total_waves
@@ -3155,13 +3166,13 @@ def process_one_agent_update_rollout(rollout):
     if index > recalculated_total_waves:
         rollout.status = "Completed"
         rollout.updated_at = now
-        return
+        return False
     start = (index - 1) * wave_size
     wave_items = update_plan[start:start + wave_size]
     if not wave_items:
         rollout.status = "Completed"
         rollout.updated_at = now
-        return
+        return False
 
     create_agent_update_wave(wave_items, rollout.created_by or "System", index, recalculated_total_waves)
     rollout.next_wave_index = index + 1
@@ -3169,7 +3180,9 @@ def process_one_agent_update_rollout(rollout):
     if rollout.next_wave_index > recalculated_total_waves:
         rollout.status = "Completed"
     else:
-        rollout.next_run_at = datetime.utcnow() + timedelta(seconds=max(0, int(rollout.wave_delay_seconds or 0)))
+        current_due_at = rollout.next_run_at or datetime.utcnow()
+        rollout.next_run_at = current_due_at + timedelta(seconds=max(0, int(rollout.wave_delay_seconds or 0)))
+    return True
 
 
 def planned_agent_update_rollout_jobs(allowed_host_ids):

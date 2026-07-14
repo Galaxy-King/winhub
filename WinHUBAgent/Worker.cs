@@ -98,6 +98,7 @@ namespace WinHUBAgent
         private readonly string UpdatesDirectory;
         private readonly string HardwareIdFilePath;
         private readonly string AgentIdentityKeyFilePath;
+        private readonly string LogsDirectory;
         private string HardwareId = string.Empty;
         private string AuthToken = string.Empty;
         private string FriendlyOsName = string.Empty;
@@ -151,6 +152,7 @@ namespace WinHUBAgent
             UpdatesDirectory = Path.Combine(DataDirectory, "updates");
             HardwareIdFilePath = Path.Combine(DataDirectory, "agent.hwid");
             AgentIdentityKeyFilePath = Path.Combine(DataDirectory, "agent_identity.key");
+            LogsDirectory = Path.Combine(DataDirectory, "logs");
             
             var handler = new HttpClientHandler
             {
@@ -203,6 +205,7 @@ namespace WinHUBAgent
                 {
                     string json = JsonSerializer.Serialize(_config, AppJsonSerializerContext.Default.AgentConfig);
                     File.WriteAllText(ConfigFilePath, json);
+                    HardenFileAcl(ConfigFilePath);
                     _logger.LogInformation($"Created default config at {ConfigFilePath}");
                     MigrateSecretsFromBootstrapConfig();
                 }
@@ -274,6 +277,7 @@ namespace WinHUBAgent
             LoadConfig();
             
             Directory.CreateDirectory(DataDirectory);
+            EnsureLocalFileSecurity();
 
             HardwareId = GetOrCreateHardwareId();
             EnsureAgentIdentityKey();
@@ -514,6 +518,7 @@ namespace WinHUBAgent
                             _logger.LogWarning($"Enrollment returned {approvalStatus}. Preserving previous approved token for future identity proof.");
                         }
 
+                        RemoveProtectedSecret("GlobalApiKey");
                         _logger.LogInformation($"Enrollment successful. Approval status: {approvalStatus}.");
                         break;
                     }
@@ -774,12 +779,106 @@ namespace WinHUBAgent
             return value.Replace("'", "''");
         }
 
+        private void EnsureLocalFileSecurity()
+        {
+            if (!OperatingSystem.IsWindows()) return;
+
+            try
+            {
+                Directory.CreateDirectory(DataDirectory);
+                Directory.CreateDirectory(UpdatesDirectory);
+                Directory.CreateDirectory(LogsDirectory);
+
+                HardenDirectoryAcl(DataDirectory);
+                HardenDirectoryAcl(UpdatesDirectory);
+                HardenDirectoryAcl(LogsDirectory);
+                HardenDirectoryAcl(AppDomain.CurrentDomain.BaseDirectory);
+
+                foreach (string path in new[]
+                {
+                    ConfigFilePath,
+                    BootstrapConfigFilePath,
+                    TokenFilePath,
+                    SecretsFilePath,
+                    HardwareIdFilePath,
+                    AgentIdentityKeyFilePath
+                })
+                {
+                    HardenFileAcl(path);
+                }
+
+                _logger.LogInformation("Local file ACL check completed.");
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning($"Local file ACL check failed: {ex.Message}");
+            }
+        }
+
+        private void HardenDirectoryAcl(string path)
+        {
+            if (string.IsNullOrWhiteSpace(path) || !Directory.Exists(path) || !OperatingSystem.IsWindows()) return;
+            RunIcacls(path, isDirectory: true);
+        }
+
+        private void HardenFileAcl(string path)
+        {
+            if (string.IsNullOrWhiteSpace(path) || !File.Exists(path) || !OperatingSystem.IsWindows()) return;
+            RunIcacls(path, isDirectory: false);
+        }
+
+        private void RunIcacls(string path, bool isDirectory)
+        {
+            try
+            {
+                var psi = new ProcessStartInfo
+                {
+                    FileName = "icacls.exe",
+                    RedirectStandardOutput = true,
+                    RedirectStandardError = true,
+                    UseShellExecute = false,
+                    CreateNoWindow = true
+                };
+
+                psi.ArgumentList.Add(path);
+                psi.ArgumentList.Add("/inheritance:r");
+                psi.ArgumentList.Add("/grant:r");
+                psi.ArgumentList.Add(isDirectory ? "*S-1-5-18:(OI)(CI)F" : "*S-1-5-18:F");
+                psi.ArgumentList.Add(isDirectory ? "*S-1-5-32-544:(OI)(CI)F" : "*S-1-5-32-544:F");
+
+                using var process = Process.Start(psi);
+                if (process == null)
+                {
+                    _logger.LogWarning($"Could not start icacls for {path}.");
+                    return;
+                }
+
+                if (!process.WaitForExit(15000))
+                {
+                    try { process.Kill(entireProcessTree: true); } catch { }
+                    _logger.LogWarning($"ACL hardening timed out for {path}.");
+                    return;
+                }
+
+                if (process.ExitCode != 0)
+                {
+                    string error = process.StandardError.ReadToEnd().Trim();
+                    _logger.LogWarning($"ACL hardening failed for {path}: {error}");
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning($"ACL hardening failed for {path}: {ex.Message}");
+            }
+        }
+
         private void SaveConfig()
         {
             try
             {
                 string json = JsonSerializer.Serialize(_config, AppJsonSerializerContext.Default.AgentConfig);
                 File.WriteAllText(ConfigFilePath, json);
+                HardenFileAcl(ConfigFilePath);
             }
             catch (Exception ex)
             {
@@ -1088,6 +1187,7 @@ try {
                     byte[] privateKey = AgentIdentityKey.ExportPkcs8PrivateKey();
                     byte[] protectedKey = ProtectedData.Protect(privateKey, null, DataProtectionScope.LocalMachine);
                     File.WriteAllBytes(AgentIdentityKeyFilePath, protectedKey);
+                    HardenFileAcl(AgentIdentityKeyFilePath);
                     _logger.LogInformation("Generated DPAPI-protected agent identity key.");
                 }
 
@@ -1165,6 +1265,7 @@ try {
             Directory.CreateDirectory(DataDirectory);
             string json = JsonSerializer.Serialize(store, AppJsonSerializerContext.Default.AgentSecrets);
             File.WriteAllText(SecretsFilePath, json);
+            HardenFileAcl(SecretsFilePath);
         }
 
         private void SaveProtectedSecret(string name, string value)
@@ -1178,6 +1279,29 @@ try {
             else if (name == "TaskHmacSecret") store.TaskHmacSecret = encoded;
             else return;
             SaveSecretStore(store);
+        }
+
+        private void RemoveProtectedSecret(string name)
+        {
+            if (string.IsNullOrWhiteSpace(name)) return;
+            var store = LoadSecretStore();
+            bool changed = false;
+            if (name == "GlobalApiKey" && !string.IsNullOrWhiteSpace(store.GlobalApiKey))
+            {
+                store.GlobalApiKey = "";
+                changed = true;
+            }
+            else if (name == "TaskHmacSecret" && !string.IsNullOrWhiteSpace(store.TaskHmacSecret))
+            {
+                store.TaskHmacSecret = "";
+                changed = true;
+            }
+
+            if (changed)
+            {
+                SaveSecretStore(store);
+                _logger.LogInformation($"Protected secret '{name}' removed from local store.");
+            }
         }
 
         private string GetProtectedSecret(string name)
@@ -1250,6 +1374,7 @@ try {
             {
                 Directory.CreateDirectory(DataDirectory);
                 File.WriteAllText(HardwareIdFilePath, generated, Encoding.UTF8);
+                HardenFileAcl(HardwareIdFilePath);
             }
             catch (Exception ex)
             {
@@ -1633,6 +1758,7 @@ try {
             byte[] rawBytes = Encoding.UTF8.GetBytes(token);
             byte[] encryptedBytes = ProtectedData.Protect(rawBytes, null, DataProtectionScope.LocalMachine);
             File.WriteAllBytes(TokenFilePath, encryptedBytes);
+            HardenFileAcl(TokenFilePath);
         }
 
         private bool LoadToken()

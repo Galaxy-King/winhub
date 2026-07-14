@@ -116,13 +116,25 @@ $tcp.Dispose()
 
 Paste the returned value into `ServerCertificateSha256` without spaces or colons.
 
-After the first successful start, the agent migrates `GlobalApiKey` and `TaskHmacSecret` into DPAPI-protected storage under:
+After the first start, the agent migrates `GlobalApiKey` and `TaskHmacSecret` into DPAPI-protected storage under:
 
 ```text
 C:\ProgramData\WinHUB\agent.secrets
 ```
 
-The plaintext bootstrap config is removed after migration. If deployment tooling keeps copying `winhub_agent.bootstrap.conf` back to endpoints, fix the deployment rule after first rollout.
+The plaintext bootstrap config is removed after migration. After enrollment succeeds, `GlobalApiKey` is also removed from local DPAPI storage because it is only needed for enrollment. The agent keeps the per-host `auth_token`, `agent_identity.key`, hardware ID, and `TaskHmacSecret` because they are required for authenticated polling, signed agent requests, and task signature verification.
+
+The agent checks local ACLs on startup and when it writes sensitive files. It restricts the install folder, data folder, logs, token, hardware ID, identity key, and secret store to `SYSTEM` and local `Administrators`.
+
+Local service logs are written to:
+
+```text
+C:\ProgramData\WinHUB\logs\agent.log
+```
+
+Logs rotate at 1 MiB, keep up to 7 rotated files, and files older than 14 days are removed automatically.
+
+If deployment tooling keeps copying `winhub_agent.bootstrap.conf` back to endpoints, fix the deployment rule after first rollout.
 
 ## Server enrollment hardening
 
@@ -178,6 +190,8 @@ Only `SYSTEM` and local `Administrators` get access.
 Check logs:
 
 ```powershell
+Get-Content "C:\ProgramData\WinHUB\logs\agent.log" -Tail 100
+
 Get-EventLog -LogName Application -Source WinHUBAgent -Newest 30 |
   Select-Object TimeGenerated, EntryType, Message
 ```

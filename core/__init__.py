@@ -74,6 +74,21 @@ def scheduled_cleanup(*args):
             AuditLog.query.filter(AuditLog.timestamp < audit_threshold).delete()
         db.session.commit()
 
+def process_agent_update_rollouts_job(*args):
+    global global_app
+    if not global_app:
+        return
+
+    with global_app.app_context():
+        try:
+            from modules.Infrastructure.routes import process_due_agent_update_rollouts
+            process_due_agent_update_rollouts()
+        except Exception:
+            db.session.rollback()
+            log.exception("[Scheduler] Agent update rollout checker failed")
+        finally:
+            db.session.remove()
+
 def run_scheduled_job(scheduled_task_id, *args):
     """Функція, яку викликає APScheduler коли настав точний час"""
     global global_app
@@ -155,6 +170,15 @@ def reload_scheduler_jobs(ignored_app=None):
     
     scheduler.remove_all_jobs()
     scheduler.add_job(func=scheduled_cleanup, trigger="interval", minutes=10, id="sys_cleanup")
+    scheduler.add_job(
+        func=process_agent_update_rollouts_job,
+        trigger="interval",
+        seconds=Config.AGENT_UPDATE_ROLLOUT_CHECK_SECONDS,
+        id="agent_update_rollouts",
+        max_instances=1,
+        coalesce=True,
+        replace_existing=True,
+    )
     
     with global_app.app_context():
         tasks = ScheduledTask.query.filter_by(is_active=True).all()
