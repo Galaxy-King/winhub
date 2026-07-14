@@ -14,12 +14,14 @@ SRC_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 
 generate_env_secrets() {
   local env_file="$1"
-  python3 - "${env_file}" <<'PY'
+  local initial_doc="${2:-/root/winhub-initial-secrets.txt}"
+  python3 - "${env_file}" "${initial_doc}" <<'PY'
 import secrets
 import sys
 from pathlib import Path
 
 path = Path(sys.argv[1])
+doc_path = Path(sys.argv[2])
 secret_keys = {
     "SECRET_KEY": 64,
     "AGENT_API_KEY": 48,
@@ -30,6 +32,7 @@ placeholders = ("replace-with", "change-me", "changeme", "default-dev-secret-key
 
 lines = path.read_text(encoding="utf-8", errors="replace").splitlines()
 changed = []
+generated = {}
 
 def weak(value):
     raw = (value or "").strip().strip("'\"")
@@ -46,10 +49,40 @@ for idx, line in enumerate(lines):
     token = secrets.token_urlsafe(secret_keys[key])
     lines[idx] = f"{key}={token}"
     changed.append(key)
+    generated[key] = token
 
 if changed:
     path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    if not doc_path.exists():
+        doc = [
+            "WinHUB initial server secrets",
+            "============================",
+            "",
+            "This file was created once by install_debian.sh.",
+            "Keep it in a password manager or encrypted offline storage.",
+            "Do not commit it to Git and do not leave world-readable copies.",
+            "",
+            "Generated values:",
+        ]
+        for key in changed:
+            doc.append(f"{key}={generated[key]}")
+        doc.extend([
+            "",
+            "Critical restore material:",
+            "- /etc/winhub/winhub.env",
+            "- /etc/winhub/certs/",
+            "- /var/lib/winhub/master_key.enc",
+            "- /var/lib/winhub/sys_secret.enc",
+            "- PostgreSQL dump from backup_winhub.sh",
+            "- /var/lib/winhub/gnupg if Newsletter/GPG is used",
+            "",
+            "Recommended backup command:",
+            "  /opt/winhub/deploy/debian/backup_winhub.sh",
+        ])
+        doc_path.write_text("\n".join(doc) + "\n", encoding="utf-8")
+        doc_path.chmod(0o600)
     print("[WinHUB] Generated strong local secrets in " + str(path) + ": " + ", ".join(changed))
+    print("[WinHUB] Initial secret recovery document: " + str(doc_path))
 else:
     print("[WinHUB] Env secrets already look initialized")
 PY

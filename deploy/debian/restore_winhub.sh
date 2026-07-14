@@ -45,6 +45,17 @@ tar -xzf "${BACKUP_DIR}/app.tar.gz" -C "${TMP_DIR}"
 rsync -a --delete "${TMP_DIR}/app/" "${APP_DIR}/"
 rm -rf "${TMP_DIR}"
 
+if [[ -d "${BACKUP_DIR}/runtime/etc/winhub" ]]; then
+  echo "[WinHUB] Restoring /etc/winhub runtime secrets and certificates"
+  rsync -a "${BACKUP_DIR}/runtime/etc/winhub/" /etc/winhub/
+fi
+
+if [[ -d "${BACKUP_DIR}/runtime/var/lib/winhub" ]]; then
+  echo "[WinHUB] Restoring /var/lib/winhub runtime data"
+  mkdir -p /var/lib/winhub
+  rsync -a "${BACKUP_DIR}/runtime/var/lib/winhub/" /var/lib/winhub/
+fi
+
 if [[ -f "${BACKUP_DIR}/winhub_postgres.dump" ]]; then
   POSTGRES_HOST_VALUE="$(env_value POSTGRES_HOST)"
   POSTGRES_PORT_VALUE="$(env_value POSTGRES_PORT)"

@@ -74,8 +74,12 @@ for path in "${ENV_FILE}" /etc/winhub/certs /var/lib/winhub/admin_recovery.txt; 
   fi
 done
 
-if [[ -d /var/lib/winhub/newsletter ]]; then
-  rsync -a /var/lib/winhub/newsletter "${OUT_DIR}/runtime/var/lib/winhub/"
+if [[ -d /var/lib/winhub ]]; then
+  mkdir -p "${OUT_DIR}/runtime/var/lib/winhub"
+  rsync -a \
+    --exclude backups \
+    --exclude logs \
+    /var/lib/winhub/ "${OUT_DIR}/runtime/var/lib/winhub/"
 fi
 
 if command -v sha256sum >/dev/null 2>&1; then
@@ -88,7 +92,11 @@ cat > "${OUT_DIR}/backup.json" <<EOF
   "app_dir": "${APP_DIR}",
   "version": "$(test -f "${VERSION_FILE}" && tr -d '[:space:]' < "${VERSION_FILE}" || echo unknown)",
   "has_postgres_dump": $(test -f "${OUT_DIR}/winhub_postgres.dump" && echo true || echo false),
-  "has_app_archive": true
+  "has_app_archive": true,
+  "has_runtime_data": $(test -d "${OUT_DIR}/runtime/var/lib/winhub" && echo true || echo false),
+  "has_env_file": $(test -f "${OUT_DIR}/runtime/etc/winhub/winhub.env" && echo true || echo false),
+  "has_master_key": $(test -f "${OUT_DIR}/runtime/var/lib/winhub/master_key.enc" && echo true || echo false),
+  "has_sys_secret": $(test -f "${OUT_DIR}/runtime/var/lib/winhub/sys_secret.enc" && echo true || echo false)
 }
 EOF
 

@@ -50,9 +50,35 @@ def _warn(checks, check_id, title, ok, detail="", action=""):
 
 def _file_mode(path):
     try:
-        return oct(os.stat(path).st_mode & 0o777)
+        return os.stat(path).st_mode & 0o777
     except OSError:
-        return ""
+        return None
+
+
+def _mode_label(mode):
+    return oct(mode) if mode is not None else "missing"
+
+
+def _private_mode(mode):
+    return mode is not None and (mode & 0o077) == 0
+
+
+def _group_readable_private_mode(mode):
+    return mode is not None and (mode & 0o027) == 0
+
+
+def _backup_latest_info():
+    latest = os.path.join(str(getattr(Config, "DATA_DIR", "") or "/var/lib/winhub"), "backups", "latest")
+    try:
+        target = os.path.realpath(latest)
+        meta = os.path.join(target, "backup.json")
+        if not os.path.exists(meta):
+            return latest, target, None, None
+        mtime = datetime.fromtimestamp(os.path.getmtime(meta), timezone.utc)
+        age_hours = (datetime.now(timezone.utc) - mtime).total_seconds() / 3600
+        return latest, target, mtime, age_hours
+    except OSError:
+        return latest, "", None, None
 
 
 def build_production_readiness(db=None, User=None, Endpoint=None):
@@ -177,8 +203,8 @@ def build_production_readiness(db=None, User=None, Endpoint=None):
             checks,
             "tls_key_permissions",
             "TLS private key permissions",
-            bool(mode and int(mode, 8) & 0o077 == 0),
-            detail=f"{key_path} mode is {mode or 'missing'}.",
+            _group_readable_private_mode(mode),
+            detail=f"{key_path} mode is {_mode_label(mode)}.",
             action="Set private key permissions to 0640 or stricter.",
         )
 
@@ -188,8 +214,8 @@ def build_production_readiness(db=None, User=None, Endpoint=None):
             checks,
             "env_file_permissions",
             "Environment file permissions",
-            bool(mode and int(mode, 8) & 0o077 == 0),
-            detail=f"{env_file} mode is {mode}.",
+            _group_readable_private_mode(mode),
+            detail=f"{env_file} mode is {_mode_label(mode)}.",
             action="Run chmod 0640 /etc/winhub/winhub.env and keep ownership root:winhub.",
         )
     else:
@@ -201,6 +227,33 @@ def build_production_readiness(db=None, User=None, Endpoint=None):
             detail=f"{env_file} was not found.",
             action="Create /etc/winhub/winhub.env from the deployment template.",
         )
+
+    data_dir = str(getattr(Config, "DATA_DIR", "") or "")
+    for filename, title in (("master_key.enc", "Payload encryption master key"), ("sys_secret.enc", "System secret encryption key")):
+        key_file = os.path.join(data_dir, filename)
+        mode = _file_mode(key_file)
+        _check(
+            checks,
+            f"data_key_{filename}",
+            title,
+            bool(os.path.exists(key_file) and _group_readable_private_mode(mode)),
+            detail=f"{key_file} mode is {_mode_label(mode)}.",
+            action=f"Ensure {key_file} exists and is included in encrypted/off-host backups.",
+        )
+
+    latest_path, latest_target, backup_mtime, backup_age_hours = _backup_latest_info()
+    _warn(
+        checks,
+        "recent_backup",
+        "Recent server backup",
+        backup_age_hours is not None and backup_age_hours <= 24,
+        detail=(
+            f"Latest backup: {latest_target}; age {backup_age_hours:.1f}h."
+            if backup_age_hours is not None else
+            f"No backup metadata found at {latest_path}."
+        ),
+        action="Run /opt/winhub/deploy/debian/backup_winhub.sh and store the backup off-host.",
+    )
 
     if db is not None and User is not None:
         try:
