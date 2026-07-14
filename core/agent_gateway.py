@@ -27,8 +27,12 @@ log = logging.getLogger("winhub.triggers")
 GLOBAL_ENROLLMENT_TOKEN = Config.AGENT_API_KEY
 POLL_SIGNATURE_CACHE_TTL_SECONDS = 120
 PENDING_TASK_MISS_CACHE_TTL_SECONDS = int(getattr(Config, "AGENT_PENDING_TASK_MISS_CACHE_SECONDS", 10))
+AGENT_SIGNATURE_NONCE_TTL_SECONDS = max(900, int(getattr(Config, "AGENT_SIGNATURE_MAX_SKEW_SECONDS", 900) or 900))
+AGENT_SIGNATURE_FIELDS = {"body_hash", "signed_at", "signed_nonce", "signature"}
 poll_signature_cache = {}
 poll_signature_cache_lock = Lock()
+agent_signature_nonce_cache = {}
+agent_signature_nonce_cache_lock = Lock()
 pending_task_miss_cache = {}
 pending_task_miss_cache_lock = Lock()
 
@@ -186,23 +190,69 @@ def set_agent_public_key(agent, public_key):
     setattr(agent, "_public_key_plain_backfilled", False)
 
 
-def canonical_agent_signature_message(path, hw_id, auth_token, agent_version, signed_at, nonce):
+def canonical_agent_signature_message(path, hw_id, auth_token, agent_version, body_hash, signed_at, nonce):
     return "\n".join([
         str(path or ""),
         str(hw_id or ""),
         str(auth_token or ""),
         str(agent_version or ""),
+        str(body_hash or ""),
         str(signed_at or ""),
         str(nonce or ""),
     ])
+
+
+def canonical_agent_request_body(data):
+    body = {
+        key: value
+        for key, value in (data or {}).items()
+        if key not in AGENT_SIGNATURE_FIELDS
+    }
+    return json.dumps(body, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+
+
+def agent_request_body_hash(data):
+    return hashlib.sha256(canonical_agent_request_body(data).encode("utf-8")).hexdigest()
+
+
+def remember_agent_signature_nonce(path, data):
+    nonce = str(data.get("signed_nonce") or "").strip()
+    hw_id = str(data.get("hw_id") or "").strip()
+    signed_at = str(data.get("signed_at") or "").strip()
+    if not nonce or not hw_id or not signed_at:
+        return False
+
+    key = (str(path or ""), hw_id, nonce)
+    now = time.monotonic()
+    with agent_signature_nonce_cache_lock:
+        if key in agent_signature_nonce_cache:
+            return False
+        agent_signature_nonce_cache[key] = now
+        if len(agent_signature_nonce_cache) > 8192:
+            cutoff = now - (AGENT_SIGNATURE_NONCE_TTL_SECONDS * 2)
+            stale_keys = [cache_key for cache_key, timestamp in agent_signature_nonce_cache.items() if timestamp < cutoff]
+            for cache_key in stale_keys:
+                agent_signature_nonce_cache.pop(cache_key, None)
+    return True
 
 
 def verify_agent_signature(public_key_pem, data, path, auth_token, agent_version_override=None):
     signature = str(data.get("signature") or "").strip()
     signed_at = str(data.get("signed_at") or "").strip()
     nonce = str(data.get("signed_nonce") or "").strip()
+    body_hash = str(data.get("body_hash") or "").strip().lower()
+    allow_legacy_signature = bool(getattr(Config, "AGENT_ALLOW_LEGACY_AGENT_SIGNATURES", False))
     if not signature or not signed_at or not nonce:
         return False, "missing_signature"
+    if not body_hash:
+        if allow_legacy_signature:
+            body_hash = ""
+        else:
+            return False, "missing_body_hash"
+    if body_hash:
+        expected_body_hash = agent_request_body_hash(data)
+        if not hmac.compare_digest(body_hash, expected_body_hash):
+            return False, "body_hash_mismatch"
     try:
         signed_ts = int(signed_at)
         max_skew_seconds = int(getattr(Config, "AGENT_SIGNATURE_MAX_SKEW_SECONDS", 0) or 0)
@@ -217,6 +267,7 @@ def verify_agent_signature(public_key_pem, data, path, auth_token, agent_version
             data.get("hw_id"),
             auth_token,
             agent_version_override if agent_version_override is not None else data.get("agent_version"),
+            body_hash,
             signed_at,
             nonce,
         )
@@ -226,6 +277,8 @@ def verify_agent_signature(public_key_pem, data, path, auth_token, agent_version
             padding.PKCS1v15(),
             hashes.SHA256(),
         )
+        if not remember_agent_signature_nonce(path, data):
+            return False, "replayed_signature_nonce"
         return True, "ok"
     except InvalidSignature:
         return False, "invalid_signature"
@@ -287,13 +340,6 @@ def remember_poll_signature(agent, data, auth_token):
 
 
 def verify_poll_signature_cached(agent, data, auth_token):
-    key = poll_signature_cache_key(agent, data, auth_token)
-    now = time.monotonic()
-    with poll_signature_cache_lock:
-        cached_at = poll_signature_cache.get(key)
-    if cached_at and now - cached_at <= POLL_SIGNATURE_CACHE_TTL_SECONDS and agent_request_signature_timestamp_valid(data):
-        return True, "ok"
-
     ok, reason = verify_or_bind_agent_key(agent, data, "/api/agent/poll", auth_token)
     if ok:
         remember_poll_signature(agent, data, auth_token)

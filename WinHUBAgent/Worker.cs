@@ -22,10 +22,10 @@ using System.Linq;
 namespace WinHUBAgent
 {
     // --- МОДЕЛІ ДАНИХ ---
-    public record EnrollPayload(string global_token, string hw_id, string hostname, string os_version, string os_type, string agent_version, NetworkInterfaceInfo[] network_interfaces, HostInventoryInfo host_info, string previous_auth_token, string previous_hw_id, string agent_public_key_pem, string agent_key_fingerprint, string signed_at, string signed_nonce, string signature);
-    public record PollPayload(string hw_id, string auth_token, string agent_version, string agent_public_key_pem, string agent_key_fingerprint, string signed_at, string signed_nonce, string signature);
-    public record TelemetryPayload(string hw_id, string auth_token, string agent_version, double cpu, double ram, double disk_c, HostInventoryInfo? host_info, string agent_public_key_pem, string agent_key_fingerprint, string signed_at, string signed_nonce, string signature);
-    public record ResultPayload(string hw_id, string auth_token, string agent_version, string task_id, string status, string log, string agent_public_key_pem, string agent_key_fingerprint, string signed_at, string signed_nonce, string signature);
+    public record EnrollPayload(string global_token, string hw_id, string hostname, string os_version, string os_type, string agent_version, NetworkInterfaceInfo[] network_interfaces, HostInventoryInfo host_info, string previous_auth_token, string previous_hw_id, string agent_public_key_pem, string agent_key_fingerprint, string body_hash, string signed_at, string signed_nonce, string signature);
+    public record PollPayload(string hw_id, string auth_token, string agent_version, string agent_public_key_pem, string agent_key_fingerprint, string body_hash, string signed_at, string signed_nonce, string signature);
+    public record TelemetryPayload(string hw_id, string auth_token, string agent_version, double cpu, double ram, double disk_c, HostInventoryInfo? host_info, string agent_public_key_pem, string agent_key_fingerprint, string body_hash, string signed_at, string signed_nonce, string signature);
+    public record ResultPayload(string hw_id, string auth_token, string agent_version, string task_id, string status, string log, string agent_public_key_pem, string agent_key_fingerprint, string body_hash, string signed_at, string signed_nonce, string signature);
     public record NetworkInterfaceInfo(string name, string description, string type, string status, string mac, string[] ipv4, string[] ipv6, string[] gateways, string[] dns_servers, bool dhcp_enabled, long speed_mbps);
     public record VolumeInfo(string name, string label, string format, string type, long total_gb, long free_gb, bool ready);
     public record BitLockerInventoryInfo(string status, int encrypted_percentage, string protection_status, string conversion_status, string raw_summary);
@@ -451,8 +451,11 @@ namespace WinHUBAgent
                 var drive = DriveInfo.GetDrives().FirstOrDefault(d => d.Name.StartsWith("C", StringComparison.OrdinalIgnoreCase) && d.IsReady);
                 if (drive != null) diskCFree = (float)Math.Round(drive.AvailableFreeSpace / (1024.0 * 1024.0 * 1024.0), 2);
 
-                var signature = CreateAgentSignature("/api/agent/telemetry", AuthToken, AgentBuildInfo.Version);
-                var payload = new TelemetryPayload(HardwareId, AuthToken, AgentBuildInfo.Version, Math.Round(cpuUsage, 2), ramUsage, diskCFree, GetCachedHostInventory(false), AgentPublicKeyPem, AgentKeyFingerprint, signature.SignedAt, signature.Nonce, signature.Signature);
+                var unsignedPayload = new TelemetryPayload(HardwareId, AuthToken, AgentBuildInfo.Version, Math.Round(cpuUsage, 2), ramUsage, diskCFree, GetCachedHostInventory(false), AgentPublicKeyPem, AgentKeyFingerprint, "", "", "", "");
+                string unsignedJson = JsonSerializer.Serialize(unsignedPayload, AppJsonSerializerContext.Default.TelemetryPayload);
+                string bodyHash = ComputeAgentBodyHash(unsignedJson);
+                var signature = CreateAgentSignature("/api/agent/telemetry", AuthToken, AgentBuildInfo.Version, bodyHash);
+                var payload = unsignedPayload with { body_hash = bodyHash, signed_at = signature.SignedAt, signed_nonce = signature.Nonce, signature = signature.Signature };
                 string jsonString = JsonSerializer.Serialize(payload, AppJsonSerializerContext.Default.TelemetryPayload);
                 var content = new StringContent(jsonString, Encoding.UTF8, "application/json");
                 
@@ -481,8 +484,11 @@ namespace WinHUBAgent
                         await Task.Delay(TimeSpan.FromSeconds(30), stoppingToken);
                         continue;
                     }
-                    var signature = CreateAgentSignature("/api/agent/enroll", previousAuthToken, AgentBuildInfo.Version);
-                    var payload = new EnrollPayload(enrollmentToken, HardwareId, Environment.MachineName, FriendlyOsName, "Windows", AgentBuildInfo.Version, GetNetworkInterfaces(), GetCachedHostInventory(true), previousAuthToken, previousHwId, AgentPublicKeyPem, AgentKeyFingerprint, signature.SignedAt, signature.Nonce, signature.Signature);
+                    var unsignedPayload = new EnrollPayload(enrollmentToken, HardwareId, Environment.MachineName, FriendlyOsName, "Windows", AgentBuildInfo.Version, GetNetworkInterfaces(), GetCachedHostInventory(true), previousAuthToken, previousHwId, AgentPublicKeyPem, AgentKeyFingerprint, "", "", "", "");
+                    string unsignedJson = JsonSerializer.Serialize(unsignedPayload, AppJsonSerializerContext.Default.EnrollPayload);
+                    string bodyHash = ComputeAgentBodyHash(unsignedJson);
+                    var signature = CreateAgentSignature("/api/agent/enroll", previousAuthToken, AgentBuildInfo.Version, bodyHash);
+                    var payload = unsignedPayload with { body_hash = bodyHash, signed_at = signature.SignedAt, signed_nonce = signature.Nonce, signature = signature.Signature };
                     string jsonString = JsonSerializer.Serialize(payload, AppJsonSerializerContext.Default.EnrollPayload);
                     
                     var content = new StringContent(jsonString, Encoding.UTF8, "application/json");
@@ -529,8 +535,11 @@ namespace WinHUBAgent
         {
             try
             {
-                var signature = CreateAgentSignature("/api/agent/poll", AuthToken, AgentBuildInfo.Version);
-                var payload = new PollPayload(HardwareId, AuthToken, AgentBuildInfo.Version, AgentPublicKeyPem, AgentKeyFingerprint, signature.SignedAt, signature.Nonce, signature.Signature);
+                var unsignedPayload = new PollPayload(HardwareId, AuthToken, AgentBuildInfo.Version, AgentPublicKeyPem, AgentKeyFingerprint, "", "", "", "");
+                string unsignedJson = JsonSerializer.Serialize(unsignedPayload, AppJsonSerializerContext.Default.PollPayload);
+                string bodyHash = ComputeAgentBodyHash(unsignedJson);
+                var signature = CreateAgentSignature("/api/agent/poll", AuthToken, AgentBuildInfo.Version, bodyHash);
+                var payload = unsignedPayload with { body_hash = bodyHash, signed_at = signature.SignedAt, signed_nonce = signature.Nonce, signature = signature.Signature };
                 string jsonString = JsonSerializer.Serialize(payload, AppJsonSerializerContext.Default.PollPayload);
                 var content = new StringContent(jsonString, Encoding.UTF8, "application/json");
                 
@@ -676,6 +685,10 @@ namespace WinHUBAgent
                 if (string.IsNullOrWhiteSpace(packageUrl))
                 {
                     return ("Error", "agent_update requires payload.package_url.");
+                }
+                if (string.IsNullOrWhiteSpace(expectedSha256))
+                {
+                    return ("Error", "agent_update requires payload.sha256 for production-safe updates.");
                 }
 
                 Uri downloadUri = BuildUpdatePackageUri(packageUrl);
@@ -932,8 +945,11 @@ try {
         {
             try
             {
-                var signature = CreateAgentSignature("/api/agent/result", AuthToken, AgentBuildInfo.Version);
-                var payload = new ResultPayload(HardwareId, AuthToken, AgentBuildInfo.Version, taskId, status, TrimResultLog(log), AgentPublicKeyPem, AgentKeyFingerprint, signature.SignedAt, signature.Nonce, signature.Signature);
+                var unsignedPayload = new ResultPayload(HardwareId, AuthToken, AgentBuildInfo.Version, taskId, status, TrimResultLog(log), AgentPublicKeyPem, AgentKeyFingerprint, "", "", "", "");
+                string unsignedJson = JsonSerializer.Serialize(unsignedPayload, AppJsonSerializerContext.Default.ResultPayload);
+                string bodyHash = ComputeAgentBodyHash(unsignedJson);
+                var signature = CreateAgentSignature("/api/agent/result", AuthToken, AgentBuildInfo.Version, bodyHash);
+                var payload = unsignedPayload with { body_hash = bodyHash, signed_at = signature.SignedAt, signed_nonce = signature.Nonce, signature = signature.Signature };
                 string jsonString = JsonSerializer.Serialize(payload, AppJsonSerializerContext.Default.ResultPayload);
                 var content = new StringContent(jsonString, Encoding.UTF8, "application/json");
                 await _httpClient.PostAsync($"{_config.ServerUrl}/api/agent/result", content, stoppingToken);
@@ -1017,6 +1033,28 @@ try {
             return Convert.ToHexString(hash).ToLowerInvariant();
         }
 
+        private static string ComputeAgentBodyHash(string json)
+        {
+            using var doc = JsonDocument.Parse(json);
+            string canonical = CanonicalizeAgentRequestBody(doc.RootElement);
+            byte[] hash = SHA256.HashData(Encoding.UTF8.GetBytes(canonical));
+            return Convert.ToHexString(hash).ToLowerInvariant();
+        }
+
+        private static string CanonicalizeAgentRequestBody(JsonElement element)
+        {
+            if (element.ValueKind != JsonValueKind.Object)
+            {
+                return CanonicalizeJson(element);
+            }
+
+            string[] signatureFields = { "body_hash", "signed_at", "signed_nonce", "signature" };
+            return "{" + string.Join(",", element.EnumerateObject()
+                .Where(p => !signatureFields.Contains(p.Name, StringComparer.Ordinal))
+                .OrderBy(p => p.Name, StringComparer.Ordinal)
+                .Select(p => QuoteJsonString(p.Name) + ":" + CanonicalizeJson(p.Value))) + "}";
+        }
+
         private static string NormalizeThumbprint(string? value)
         {
             return new string((value ?? "").Where(Uri.IsHexDigit).ToArray()).ToUpperInvariant();
@@ -1067,7 +1105,7 @@ try {
             }
         }
 
-        private (string SignedAt, string Nonce, string Signature) CreateAgentSignature(string path, string authToken, string agentVersion)
+        private (string SignedAt, string Nonce, string Signature) CreateAgentSignature(string path, string authToken, string agentVersion, string bodyHash)
         {
             string signedAt = DateTimeOffset.UtcNow.ToUnixTimeSeconds().ToString();
             string nonce = Guid.NewGuid().ToString("N");
@@ -1076,7 +1114,7 @@ try {
                 return (signedAt, nonce, "");
             }
 
-            string canonical = BuildAgentSignatureMessage(path, HardwareId, authToken, agentVersion, signedAt, nonce);
+            string canonical = BuildAgentSignatureMessage(path, HardwareId, authToken, agentVersion, bodyHash, signedAt, nonce);
             byte[] signature = AgentIdentityKey.SignData(
                 Encoding.UTF8.GetBytes(canonical),
                 HashAlgorithmName.SHA256,
@@ -1085,7 +1123,7 @@ try {
             return (signedAt, nonce, Convert.ToBase64String(signature));
         }
 
-        private static string BuildAgentSignatureMessage(string path, string hwId, string authToken, string agentVersion, string signedAt, string nonce)
+        private static string BuildAgentSignatureMessage(string path, string hwId, string authToken, string agentVersion, string bodyHash, string signedAt, string nonce)
         {
             return string.Join("\n", new[]
             {
@@ -1093,6 +1131,7 @@ try {
                 hwId ?? "",
                 authToken ?? "",
                 agentVersion ?? "",
+                bodyHash ?? "",
                 signedAt ?? "",
                 nonce ?? ""
             });
