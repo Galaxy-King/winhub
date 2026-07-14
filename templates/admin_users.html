@@ -150,7 +150,7 @@
             </div>
 
             <!-- PRODUCTION READINESS TAB -->
-            <div id="viewProduction" class="hidden bg-white rounded-[3rem] border border-slate-200 shadow-sm overflow-hidden animate-in fade-in duration-300">
+            <div id="viewProduction" class="hidden bg-slate-50 rounded-[3rem] border border-slate-200 shadow-sm overflow-hidden animate-in fade-in duration-300">
                 <div class="p-6 border-b border-slate-100 bg-slate-50/50 flex flex-col lg:flex-row lg:items-center justify-between gap-4">
                     <div>
                         <h3 class="text-lg font-black text-slate-800 tracking-tight">Production Readiness</h3>
@@ -776,18 +776,21 @@ $StaticPassword = "{{secret:local_admin_password}}"
 
     function productionStatusStyles(status) {
         if(status === 'ready') return {
-            shell: 'bg-emerald-50 border-emerald-200 text-emerald-800',
-            badge: 'bg-emerald-100 text-emerald-700',
+            shell: 'bg-emerald-700 border-emerald-600 text-white shadow-lg shadow-emerald-100',
+            badge: 'bg-white/20 text-white border border-white/25',
+            metric: 'bg-white/20 border-white/25 text-white',
             label: 'Ready'
         };
         if(status === 'warning') return {
-            shell: 'bg-amber-50 border-amber-200 text-amber-800',
-            badge: 'bg-amber-100 text-amber-700',
+            shell: 'bg-amber-600 border-amber-500 text-white shadow-lg shadow-amber-100',
+            badge: 'bg-white/20 text-white border border-white/25',
+            metric: 'bg-white/20 border-white/25 text-white',
             label: 'Transition'
         };
         return {
-            shell: 'bg-rose-50 border-rose-200 text-rose-800',
-            badge: 'bg-rose-100 text-rose-700',
+            shell: 'bg-rose-700 border-rose-600 text-white shadow-lg shadow-rose-100',
+            badge: 'bg-white/20 text-white border border-white/25',
+            metric: 'bg-white/20 border-white/25 text-white',
             label: 'Blocked'
         };
     }
@@ -816,29 +819,29 @@ $StaticPassword = "{{secret:local_admin_password}}"
                     <div>
                         <div class="flex items-center gap-3 mb-2">
                             <span class="px-3 py-1.5 rounded-xl text-[10px] font-black uppercase tracking-widest ${styles.badge}">${styles.label}</span>
-                            <span class="text-[10px] font-black uppercase tracking-widest opacity-70">${escapeHtml(data.checked_at || '')}</span>
+                            <span class="text-[10px] font-black uppercase tracking-widest text-white/70">${escapeHtml(data.checked_at || '')}</span>
                         </div>
                         <h4 class="text-xl font-black tracking-tight">Production security status: ${escapeHtml(styles.label)}</h4>
-                        <p class="text-xs font-bold opacity-80 mt-1">${summary.critical || 0} critical, ${summary.warnings || 0} warnings, ${summary.ok || 0} passed</p>
+                        <p class="text-xs font-bold text-white/80 mt-1">${summary.critical || 0} critical, ${summary.warnings || 0} warnings, ${summary.ok || 0} passed</p>
                     </div>
                     <div class="grid grid-cols-3 gap-3 text-center">
-                        <div class="bg-white/70 rounded-2xl px-5 py-3 border border-white/80">
+                        <div class="${styles.metric} rounded-2xl px-5 py-3 border">
                             <div class="text-2xl font-black">${summary.ok || 0}</div>
-                            <div class="text-[10px] font-black uppercase tracking-widest opacity-70">OK</div>
+                            <div class="text-[10px] font-black uppercase tracking-widest text-white/70">OK</div>
                         </div>
-                        <div class="bg-white/70 rounded-2xl px-5 py-3 border border-white/80">
+                        <div class="${styles.metric} rounded-2xl px-5 py-3 border">
                             <div class="text-2xl font-black">${summary.warnings || 0}</div>
-                            <div class="text-[10px] font-black uppercase tracking-widest opacity-70">Warnings</div>
+                            <div class="text-[10px] font-black uppercase tracking-widest text-white/70">Warnings</div>
                         </div>
-                        <div class="bg-white/70 rounded-2xl px-5 py-3 border border-white/80">
+                        <div class="${styles.metric} rounded-2xl px-5 py-3 border">
                             <div class="text-2xl font-black">${summary.critical || 0}</div>
-                            <div class="text-[10px] font-black uppercase tracking-widest opacity-70">Critical</div>
+                            <div class="text-[10px] font-black uppercase tracking-widest text-white/70">Critical</div>
                         </div>
                     </div>
                 </div>
-                <div class="overflow-x-auto">
+                <div class="overflow-x-auto rounded-[2rem] border border-slate-200 bg-white shadow-sm">
                     <table class="w-full text-left min-w-[1000px]">
-                        <thead class="bg-slate-50/70 border-b border-slate-100 text-[10px] font-black text-slate-400 uppercase tracking-widest">
+                        <thead class="bg-slate-100 border-b border-slate-200 text-[10px] font-black text-slate-500 uppercase tracking-widest">
                             <tr>
                                 <th class="px-6 py-4">Check</th>
                                 <th class="px-6 py-4">Status</th>
@@ -846,9 +849,9 @@ $StaticPassword = "{{secret:local_admin_password}}"
                                 <th class="px-6 py-4">Action</th>
                             </tr>
                         </thead>
-                        <tbody class="divide-y divide-slate-100">
+                        <tbody class="divide-y divide-slate-100 bg-white">
                             ${(data.checks || []).map(check => `
-                                <tr class="align-top hover:bg-slate-50/80">
+                                <tr class="align-top hover:bg-slate-50/80 transition-colors">
                                     <td class="px-6 py-4">
                                         <div class="font-black text-slate-800">${escapeHtml(check.title)}</div>
                                         <div class="text-[10px] font-black uppercase tracking-widest text-slate-400">${escapeHtml(check.severity || '')}</div>
