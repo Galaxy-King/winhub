@@ -67,6 +67,55 @@ print("[WinHUB] Env sync: added missing variables: " + ", ".join(line.split("=",
 PY
 }
 
+env_get() {
+  local key="$1"
+  awk -F= -v key="${key}" '
+    $0 ~ "^[[:space:]]*" key "[[:space:]]*=" {
+      value=$2
+      sub(/^[[:space:]]+/, "", value)
+      sub(/[[:space:]]+$/, "", value)
+      gsub(/^["\047]|["\047]$/, "", value)
+      print value
+      found=1
+    }
+    END { if (!found) exit 1 }
+  ' "${ENV_FILE}" 2>/dev/null || true
+}
+
+env_set() {
+  local key="$1"
+  local value="$2"
+  if grep -Eq "^[[:space:]]*${key}[[:space:]]*=" "${ENV_FILE}"; then
+    sed -i -E "s|^[[:space:]]*${key}[[:space:]]*=.*|${key}=${value}|" "${ENV_FILE}"
+  else
+    printf '%s=%s\n' "${key}" "${value}" >> "${ENV_FILE}"
+  fi
+}
+
+enforce_production_security_env() {
+  local mode
+  mode="$(env_get WINHUB_ENV | tr '[:upper:]' '[:lower:]')"
+  if [[ "${mode}" != "prod" && "${mode}" != "production" ]]; then
+    echo "[WinHUB] Production env hardening skipped: WINHUB_ENV=${mode:-unset}"
+    return
+  fi
+
+  echo "[WinHUB] Enforcing production security env defaults"
+  env_set AGENT_REQUIRE_SIGNED_REQUESTS true
+  env_set AGENT_SIGNATURE_MAX_SKEW_SECONDS 900
+  env_set SESSION_COOKIE_SECURE true
+  env_set SESSION_COOKIE_SAMESITE Strict
+  env_set HSTS_ENABLED true
+
+  if [[ -z "$(env_get AGENT_ALLOW_LEGACY_AGENT_SIGNATURES)" ]]; then
+    env_set AGENT_ALLOW_LEGACY_AGENT_SIGNATURES false
+  fi
+
+  if [[ "$(env_get AGENT_ALLOW_LEGACY_AGENT_SIGNATURES | tr '[:upper:]' '[:lower:]')" == "true" ]]; then
+    echo "[WinHUB] Legacy agent signature bridge is enabled for rollout. Disable it after all agents are upgraded."
+  fi
+}
+
 if [[ "${EUID}" -ne 0 ]]; then
   echo "Run as root: sudo bash deploy/debian/update_winhub.sh [git-ref]"
   exit 1
@@ -126,6 +175,7 @@ else
 fi
 
 sync_env_file
+enforce_production_security_env
 
 python3 -m venv "${APP_DIR}/venv"
 "${APP_DIR}/venv/bin/python" -m pip install --upgrade pip wheel

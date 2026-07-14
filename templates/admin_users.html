@@ -29,6 +29,7 @@
 	                        <button onclick="switchTab('api')" id="tabApi" class="admin-tab-btn text-slate-500 hover:text-slate-700 px-6 py-2.5 rounded-xl font-black text-xs uppercase tracking-wider transition-all whitespace-nowrap">API Keys</button>
 	                        <button onclick="switchTab('audit')" id="tabAudit" class="admin-tab-btn text-slate-500 hover:text-slate-700 px-6 py-2.5 rounded-xl font-black text-xs uppercase tracking-wider transition-all whitespace-nowrap">Audit Logs</button>
 	                        <button onclick="switchTab('system')" id="tabSystem" class="admin-tab-btn text-slate-500 hover:text-slate-700 px-6 py-2.5 rounded-xl font-black text-xs uppercase tracking-wider transition-all whitespace-nowrap">System Logs</button>
+	                        <button onclick="switchTab('production')" id="tabProduction" class="admin-tab-btn text-slate-500 hover:text-slate-700 px-6 py-2.5 rounded-xl font-black text-xs uppercase tracking-wider transition-all whitespace-nowrap">Production</button>
 	                        <div class="w-px h-6 bg-slate-300 mx-1 shrink-0"></div>
 	                        <div class="flex items-center gap-3 px-2 shrink-0">
 	                            <div class="w-8 h-8 rounded-full bg-indigo-100 text-indigo-700 flex items-center justify-center font-black shadow-sm">{{ username[0]|upper if username else 'U' }}</div>
@@ -146,6 +147,20 @@
                     <button onclick="fetchSystemLogs()" class="px-6 py-3 bg-indigo-600 text-white rounded-2xl text-[10px] font-black uppercase shadow-sm">Refresh</button>
                 </div>
                 <pre id="systemLogOutput" class="m-6 p-5 bg-slate-950 text-emerald-200 rounded-3xl text-xs overflow-x-auto min-h-[420px] whitespace-pre-wrap">Loading system logs...</pre>
+            </div>
+
+            <!-- PRODUCTION READINESS TAB -->
+            <div id="viewProduction" class="hidden bg-white rounded-[3rem] border border-slate-200 shadow-sm overflow-hidden animate-in fade-in duration-300">
+                <div class="p-6 border-b border-slate-100 bg-slate-50/50 flex flex-col lg:flex-row lg:items-center justify-between gap-4">
+                    <div>
+                        <h3 class="text-lg font-black text-slate-800 tracking-tight">Production Readiness</h3>
+                        <p class="text-[10px] font-bold uppercase tracking-widest text-slate-400 mt-1">Security posture and rollout guardrails</p>
+                    </div>
+                    <button onclick="fetchProductionReadiness()" class="px-6 py-3 bg-indigo-600 text-white rounded-2xl text-[10px] font-black uppercase shadow-sm">Refresh</button>
+                </div>
+                <div id="productionReadinessContent" class="p-6">
+                    <div class="p-12 text-center text-slate-400 font-bold">Loading production status...</div>
+                </div>
             </div>
 
         </div>
@@ -591,7 +606,7 @@ $StaticPassword = "{{secret:local_admin_password}}"
 
 	    function switchTab(tab) {
 	        currentTab = tab;
-        ['users', 'api', 'audit', 'system'].forEach(t => {
+        ['users', 'api', 'audit', 'system', 'production'].forEach(t => {
             const view = document.getElementById('view' + t.charAt(0).toUpperCase() + t.slice(1));
             const btn = document.getElementById('tab' + t.charAt(0).toUpperCase() + t.slice(1));
             if (view) view.classList.add('hidden');
@@ -627,6 +642,7 @@ $StaticPassword = "{{secret:local_admin_password}}"
             btnCreateMain.classList.remove('flex');
             if(tab === 'audit') fetchAuditLogs();
             if(tab === 'system') fetchSystemLogs();
+            if(tab === 'production') fetchProductionReadiness();
 	        }
 	    }
 
@@ -755,6 +771,99 @@ $StaticPassword = "{{secret:local_admin_password}}"
             output.textContent = (data.lines || []).join('\n') || 'No log lines found.';
         } catch(e) {
             output.textContent = 'Failed to load system logs.';
+        }
+    }
+
+    function productionStatusStyles(status) {
+        if(status === 'ready') return {
+            shell: 'bg-emerald-50 border-emerald-200 text-emerald-800',
+            badge: 'bg-emerald-100 text-emerald-700',
+            label: 'Ready'
+        };
+        if(status === 'warning') return {
+            shell: 'bg-amber-50 border-amber-200 text-amber-800',
+            badge: 'bg-amber-100 text-amber-700',
+            label: 'Transition'
+        };
+        return {
+            shell: 'bg-rose-50 border-rose-200 text-rose-800',
+            badge: 'bg-rose-100 text-rose-700',
+            label: 'Blocked'
+        };
+    }
+
+    function readinessCheckBadge(check) {
+        const status = check.status || 'fail';
+        const cls = status === 'ok'
+            ? 'bg-emerald-100 text-emerald-700'
+            : status === 'warning'
+                ? 'bg-amber-100 text-amber-700'
+                : 'bg-rose-100 text-rose-700';
+        return `<span class="px-3 py-1.5 rounded-xl text-[10px] font-black uppercase tracking-widest ${cls}">${escapeHtml(status)}</span>`;
+    }
+
+    async function fetchProductionReadiness() {
+        const container = document.getElementById('productionReadinessContent');
+        container.innerHTML = '<div class="p-12 text-center text-slate-400 font-bold">Checking production readiness...</div>';
+        try {
+            const res = await fetch('/api/admin/production-readiness');
+            const data = await res.json();
+            if(!data.success) throw new Error(data.message || 'Failed');
+            const styles = productionStatusStyles(data.status);
+            const summary = data.summary || {};
+            container.innerHTML = `
+                <div class="border ${styles.shell} rounded-[2rem] p-6 mb-6 flex flex-col lg:flex-row lg:items-center justify-between gap-4">
+                    <div>
+                        <div class="flex items-center gap-3 mb-2">
+                            <span class="px-3 py-1.5 rounded-xl text-[10px] font-black uppercase tracking-widest ${styles.badge}">${styles.label}</span>
+                            <span class="text-[10px] font-black uppercase tracking-widest opacity-70">${escapeHtml(data.checked_at || '')}</span>
+                        </div>
+                        <h4 class="text-xl font-black tracking-tight">Production security status: ${escapeHtml(styles.label)}</h4>
+                        <p class="text-xs font-bold opacity-80 mt-1">${summary.critical || 0} critical, ${summary.warnings || 0} warnings, ${summary.ok || 0} passed</p>
+                    </div>
+                    <div class="grid grid-cols-3 gap-3 text-center">
+                        <div class="bg-white/70 rounded-2xl px-5 py-3 border border-white/80">
+                            <div class="text-2xl font-black">${summary.ok || 0}</div>
+                            <div class="text-[10px] font-black uppercase tracking-widest opacity-70">OK</div>
+                        </div>
+                        <div class="bg-white/70 rounded-2xl px-5 py-3 border border-white/80">
+                            <div class="text-2xl font-black">${summary.warnings || 0}</div>
+                            <div class="text-[10px] font-black uppercase tracking-widest opacity-70">Warnings</div>
+                        </div>
+                        <div class="bg-white/70 rounded-2xl px-5 py-3 border border-white/80">
+                            <div class="text-2xl font-black">${summary.critical || 0}</div>
+                            <div class="text-[10px] font-black uppercase tracking-widest opacity-70">Critical</div>
+                        </div>
+                    </div>
+                </div>
+                <div class="overflow-x-auto">
+                    <table class="w-full text-left min-w-[1000px]">
+                        <thead class="bg-slate-50/70 border-b border-slate-100 text-[10px] font-black text-slate-400 uppercase tracking-widest">
+                            <tr>
+                                <th class="px-6 py-4">Check</th>
+                                <th class="px-6 py-4">Status</th>
+                                <th class="px-6 py-4">Detail</th>
+                                <th class="px-6 py-4">Action</th>
+                            </tr>
+                        </thead>
+                        <tbody class="divide-y divide-slate-100">
+                            ${(data.checks || []).map(check => `
+                                <tr class="align-top hover:bg-slate-50/80">
+                                    <td class="px-6 py-4">
+                                        <div class="font-black text-slate-800">${escapeHtml(check.title)}</div>
+                                        <div class="text-[10px] font-black uppercase tracking-widest text-slate-400">${escapeHtml(check.severity || '')}</div>
+                                    </td>
+                                    <td class="px-6 py-4">${readinessCheckBadge(check)}</td>
+                                    <td class="px-6 py-4 text-xs font-bold text-slate-500 max-w-md">${escapeHtml(check.detail || '')}</td>
+                                    <td class="px-6 py-4 text-xs font-bold text-slate-600 max-w-md">${escapeHtml(check.action || '')}</td>
+                                </tr>
+                            `).join('')}
+                        </tbody>
+                    </table>
+                </div>
+            `;
+        } catch(e) {
+            container.innerHTML = '<div class="p-12 text-center text-rose-500 font-bold">Failed to load production readiness.</div>';
         }
     }
 

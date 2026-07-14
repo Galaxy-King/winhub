@@ -12,6 +12,49 @@ DATA_DIR="/var/lib/winhub"
 LOG_DIR="/var/log/winhub"
 SRC_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 
+generate_env_secrets() {
+  local env_file="$1"
+  python3 - "${env_file}" <<'PY'
+import secrets
+import sys
+from pathlib import Path
+
+path = Path(sys.argv[1])
+secret_keys = {
+    "SECRET_KEY": 64,
+    "AGENT_API_KEY": 48,
+    "AGENT_TASK_HMAC_SECRET": 48,
+    "POSTGRES_PASSWORD": 32,
+}
+placeholders = ("replace-with", "change-me", "changeme", "default-dev-secret-key", "WinHUB-Secret-Enroll-2026")
+
+lines = path.read_text(encoding="utf-8", errors="replace").splitlines()
+changed = []
+
+def weak(value):
+    raw = (value or "").strip().strip("'\"")
+    return not raw or any(marker.lower() in raw.lower() for marker in placeholders)
+
+for idx, line in enumerate(lines):
+    stripped = line.strip()
+    if not stripped or stripped.startswith("#") or "=" not in line:
+        continue
+    key, value = line.split("=", 1)
+    key = key.strip()
+    if key not in secret_keys or not weak(value):
+        continue
+    token = secrets.token_urlsafe(secret_keys[key])
+    lines[idx] = f"{key}={token}"
+    changed.append(key)
+
+if changed:
+    path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    print("[WinHUB] Generated strong local secrets in " + str(path) + ": " + ", ".join(changed))
+else:
+    print("[WinHUB] Env secrets already look initialized")
+PY
+}
+
 apt-get update
 apt-get install -y \
   python3 python3-venv python3-pip \
@@ -39,7 +82,8 @@ python3 -m venv "${APP_DIR}/venv"
 
 if [[ ! -f "${ENV_DIR}/winhub.env" ]]; then
   install -m 0640 -o root -g winhub "${APP_DIR}/deploy/debian/winhub.env.example" "${ENV_DIR}/winhub.env"
-  echo "Created ${ENV_DIR}/winhub.env. Edit secrets before starting WinHUB."
+  generate_env_secrets "${ENV_DIR}/winhub.env"
+  echo "Created ${ENV_DIR}/winhub.env with generated local secrets."
 fi
 
 if [[ ! -f "${ENV_DIR}/certs/cert.pem" || ! -f "${ENV_DIR}/certs/key.pem" ]]; then
@@ -78,7 +122,7 @@ cat <<'EOF'
 WinHUB Debian files installed.
 
 Next:
-1. Edit /etc/winhub/winhub.env and set real secrets/passwords.
+1. Review /etc/winhub/winhub.env for host/IP/database values.
 2. Create PostgreSQL database/user if needed.
 3. Replace /etc/winhub/certs/cert.pem and key.pem with your IP/SAN certificate.
 4. Run:

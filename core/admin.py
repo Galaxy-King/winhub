@@ -15,13 +15,14 @@ from datetime import datetime, timedelta, timezone
 from zoneinfo import ZoneInfo
 from email.mime.text import MIMEText
 from flask import Blueprint, request, jsonify, session, render_template, redirect, url_for, Response
-from core.database import db, User, EndpointGroup, ApiKey, AuditLog
+from core.database import db, User, Endpoint, EndpointGroup, ApiKey, AuditLog
 from core.security import sec_manager
 from core.config import Config
 from core.module_registry import get_module_registry
 from core.permissions import MODULE_PERMISSION_CATALOG, all_permission_tokens_for_module, has_permission, parse_allowed_modules
 from core.sdk import WinHubCore
 from core.gpg import gpg_env, import_public_key, fetch_public_key, list_public_keys, delete_public_key, validate_gpg
+from core.production_readiness import build_production_readiness
 
 log = logging.getLogger("winhub.admin")
 admin_bp = Blueprint('admin', __name__)
@@ -796,6 +797,11 @@ def get_system_logs():
         "selected": selected,
         "lines": output_lines,
     })
+
+
+@admin_bp.route('/api/admin/production-readiness', methods=['GET'])
+def get_production_readiness():
+    return jsonify({"success": True, **build_production_readiness(db=db, User=User, Endpoint=Endpoint)})
 
 
 @admin_bp.route('/api/admin/gpg/keys', methods=['GET'])

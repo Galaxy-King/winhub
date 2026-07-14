@@ -4168,9 +4168,9 @@ def create_task():
             if sha256_match:
                 payload_dict['sha256'] = sha256_match.group(0).upper()
             else:
-                payload_dict.pop('sha256', None)
+                return jsonify({"success": False, "message": "Agent update requires a valid 64-character SHA256 hash"}), 400
         else:
-            payload_dict.pop('sha256', None)
+            return jsonify({"success": False, "message": "Agent update requires sha256"}), 400
 
     # Розбір цілей
     agent_ids = []
