@@ -703,14 +703,18 @@ def template_run_policy_allows(template):
 
     username = str(session.get("username") or "")
     allowed_users = set(_policy_list(policy, "allowed_users"))
+    allowed_groups = set(_policy_list(policy, "allowed_groups"))
+    allowed_permissions = _policy_list(policy, "allowed_permissions")
+
+    if not allowed_users and not allowed_groups and not allowed_permissions:
+        return True
+
     if username and username in allowed_users:
         return True
 
-    allowed_groups = set(_policy_list(policy, "allowed_groups"))
     if allowed_groups and allowed_groups.intersection(_current_user_group_ids()):
         return True
 
-    allowed_permissions = _policy_list(policy, "allowed_permissions")
     if any(can(permission_id) for permission_id in allowed_permissions):
         return True
 
