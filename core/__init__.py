@@ -150,17 +150,21 @@ def scheduled_task_next_run_utc(task, from_time=None):
     except Exception:
         return None
 
-def run_scheduled_job(scheduled_task_id, *args):
-    """Функція, яку викликає APScheduler коли настав точний час"""
+def run_scheduled_job(scheduled_task_id, *args, manual_run=False):
+    """Функція, яку викликає APScheduler коли настав точний час або адмін запускає вручну."""
     global global_app
-    if not global_app: return
-    
+    if not global_app:
+        return {"success": False, "message": "Application context is not ready"}
+
     with global_app.app_context():
         st = ScheduledTask.query.get(scheduled_task_id)
-        if not st or not st.is_active or not st.template: 
-            return
-        
-        log.info(f"[Scheduler] ⚡ ТРИГЕР СПРАЦЮВАВ: Запуск задачі '{st.name}'...")
+        if not st or not st.template:
+            return {"success": False, "message": "Scheduled task or template was not found"}
+        if not manual_run and not st.is_active:
+            return {"success": False, "message": "Scheduled task is disabled"}
+
+        run_label = "MANUAL RUN" if manual_run else "TRIGGER"
+        log.info(f"[Scheduler] ⚡ {run_label}: Запуск задачі '{st.name}'...")
         
         from core.sdk import WinHubCore
         agent_ids = []
@@ -175,7 +179,7 @@ def run_scheduled_job(scheduled_task_id, *args):
             st.last_run = datetime.utcnow()
             st.last_status = "No target hosts"
             db.session.commit()
-            return
+            return {"success": False, "message": "No target hosts"}
 
         try:
             # Шукаємо системного адміна
@@ -202,7 +206,7 @@ def run_scheduled_job(scheduled_task_id, *args):
                 st.last_run = datetime.utcnow()
                 st.last_status = f"Missing variables: {', '.join(unresolved)[:80]}"
                 db.session.commit()
-                return
+                return {"success": False, "message": f"Missing variables: {', '.join(unresolved)}"}
 
             timeout_minutes = int(st.timeout_minutes or 0)
             if timeout_minutes > 0:
@@ -223,25 +227,30 @@ def run_scheduled_job(scheduled_task_id, *args):
                 action=st.template.action_type,
                 target_ids=agent_ids,
                 payload=payload_dict,
-                title=f"[Auto] {st.name}"
+                title=f"[Manual] {st.name}" if manual_run else f"[Auto] {st.name}"
             )
             st.last_job_id = job_id
-            st.last_status = f"Dispatched to {len(agent_ids)} hosts"
+            st.last_status = f"Manual run dispatched to {len(agent_ids)} hosts" if manual_run else f"Dispatched to {len(agent_ids)} hosts"
             log.info(f"[Scheduler] ✅ УСПІХ: Задача '{st.name}' відправлена на {len(agent_ids)} агентів.")
         except Exception as e:
             log.error(f"[Scheduler] ❌ ПОМИЛКА: Не вдалося виконати '{st.name}': {e}")
             st.last_status = f"Error: {str(e)[:90]}"
+            st.last_run = datetime.utcnow()
+            db.session.commit()
+            return {"success": False, "message": str(e)}
 
         # Оновлюємо статус виконання
         st.last_run = datetime.utcnow()
         # Якщо задача була "Одноразова" (DATE:), вимикаємо її після виконання
-        if st.cron_expr.startswith("DATE:"):
-            st.is_active = False
-            st.next_run_at = None
-        else:
-            st.next_run_at = scheduled_task_next_run_utc(st)
+        if not manual_run:
+            if st.cron_expr.startswith("DATE:"):
+                st.is_active = False
+                st.next_run_at = None
+            else:
+                st.next_run_at = scheduled_task_next_run_utc(st)
 
         db.session.commit()
+        return {"success": True, "job_id": job_id, "targets": len(agent_ids)}
 
 def reload_scheduler_jobs(ignored_app=None):
     """Оновлює задачі в APScheduler з підтримкою Київського часу"""

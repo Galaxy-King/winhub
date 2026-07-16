@@ -2748,6 +2748,15 @@ def delete_schedule(tid):
         reload_scheduler_jobs(current_app)
     return jsonify({"success": True})
 
+@infrastructure_bp.route('/api/infrastructure/schedule/<tid>/run-now', methods=['POST'])
+def run_schedule_now(tid):
+    denied = require_permission("manage_scheduler")
+    if denied: return denied
+    from core import run_scheduled_job
+    result = run_scheduled_job(tid, manual_run=True) or {"success": False, "message": "Schedule did not run"}
+    status = 200 if result.get("success") else 400
+    return jsonify(result), status
+
 # ==========================================
 # API: TEMPLATES & TASKS
 # ==========================================

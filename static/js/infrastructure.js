@@ -4225,6 +4225,21 @@ async function deleteSchedule(id) {
     }
 }
 
+async function runScheduleNow(id) {
+    if (!confirm("Run this scheduled task now? The saved schedule will not be changed.")) return;
+    try {
+        const res = await fetch('/api/infrastructure/schedule/' + encodeURIComponent(id) + '/run-now', { method: 'POST' });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok || !data.success) {
+            return alert(data.message || "Run now failed");
+        }
+        alert(`Schedule dispatched now for ${data.targets || 0} host(s).`);
+        window.location.reload();
+    } catch(e) {
+        alert("Server error.");
+    }
+}
+
 // БАЗОВІ ФУНКЦІЇ ВЗАЄМОДІЇ
 function openModal(id) {
     const el = document.getElementById(id);

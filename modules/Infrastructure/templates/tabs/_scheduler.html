@@ -73,6 +73,7 @@
                                             data-variables="{{ st.variables | tojson | forceescape }}"
                                             data-timeout-minutes="{{ st.timeout_minutes }}"
                                             class="px-4 py-2 bg-white text-slate-600 hover:text-indigo-600 rounded-xl text-xs font-black uppercase transition-colors border border-slate-200 shadow-sm">Edit</button>
+                                    <button onclick="runScheduleNow('{{ st.id }}')" class="px-4 py-2 bg-emerald-500/15 text-emerald-700 hover:bg-emerald-500 hover:text-white rounded-xl text-xs font-black uppercase transition-colors border border-emerald-300/50 shadow-sm">Run Now</button>
                                     <button onclick="deleteSchedule('{{ st.id }}')" class="p-2 bg-white text-slate-400 hover:text-rose-600 rounded-xl transition-colors border border-slate-200 shadow-sm"><svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"></path></svg></button>
                                 </td>
                             </tr>
