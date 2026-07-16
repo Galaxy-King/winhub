@@ -1,7 +1,8 @@
+import html
 import json
 import uuid
 from typing import List
-from flask import g, has_request_context, request, session, render_template_string
+from flask import current_app, g, has_request_context, request, session, render_template_string
 from sqlalchemy.exc import PendingRollbackError
 from core.database import db, User, Endpoint, EndpointGroup, AgentTask, TaskTemplate, AuditLog
 from core.security import sec_manager
@@ -162,7 +163,63 @@ class WinHubCore:
         import json
         import re
         from core.database import AgentTask, AggregatedJob, TaskTemplate, db
-        from flask import render_template_string
+
+        def render_report_template(template_string, context):
+            if has_request_context():
+                return render_template_string(template_string, **context)
+            flask_app = app or current_app._get_current_object()
+            with flask_app.test_request_context("/__winhub_report_render"):
+                return render_template_string(template_string, **context)
+
+        def result_log_summary(value, limit=260):
+            text = str(value or "").replace("\r", " ").replace("\n", " ").strip()
+            if not text:
+                return "No output"
+            return text[: limit - 3] + "..." if len(text) > limit else text
+
+        def report_looks_html(value):
+            probe = (value or "").lstrip().lower()[:1000]
+            return probe.startswith("<") or any(tag in probe for tag in ("<html", "<body", "<h1", "<table", "<div"))
+
+        def build_ignored_banner(ignored_results, html_mode=False):
+            if not ignored_results:
+                return ""
+            if html_mode:
+                items = "\n".join(
+                    "<li><strong>{host}</strong> - {status}: {reason}</li>".format(
+                        host=html.escape(str(item.get("host") or "Unknown")),
+                        status=html.escape(str(item.get("status") or "Ignored")),
+                        reason=html.escape(result_log_summary(item.get("log"))),
+                    )
+                    for item in ignored_results
+                )
+                return (
+                    '<div style="border:1px solid #f59e0b;background:#451a03;color:#fffbeb;'
+                    'padding:12px 14px;margin:0 0 18px 0;border-radius:10px;">'
+                    '<h2 style="margin:0 0 8px 0;color:#fde68a;font-size:18px;">'
+                    "Report generated with ignored hosts</h2>"
+                    '<p style="margin:0 0 8px 0;">Some endpoints did not return a successful result before the job deadline. '
+                    "They were not expanded in the report body.</p>"
+                    f'<ul style="margin:0;padding-left:20px;">{items}</ul>'
+                    "</div>\n"
+                )
+            lines = [
+                "REPORT GENERATED WITH IGNORED HOSTS",
+                "Some endpoints did not return a successful result before the job deadline. "
+                "They were not expanded in the report body.",
+            ]
+            for item in ignored_results:
+                lines.append(
+                    f"- {item.get('host') or 'Unknown'} - {item.get('status') or 'Ignored'}: "
+                    f"{result_log_summary(item.get('log'))}"
+                )
+            return "\n".join(lines) + "\n\n"
+
+        def prepend_ignored_banner(report_text, ignored_results):
+            if not ignored_results:
+                return report_text
+            html_mode = report_looks_html(report_text)
+            return build_ignored_banner(ignored_results, html_mode=html_mode) + (report_text or "")
 
         try:
             split_prefix = f"{uuid.UUID(job_id).hex}.%"
@@ -196,8 +253,12 @@ class WinHubCore:
             report_template_id = first_payload.get('__report_template_id')
         except: pass
 
-        # Збираємо структуровані дані від усіх агентів
-        results_data = []
+        # Збираємо структуровані дані від агентів. Custom report templates receive
+        # only successful endpoints in `results`; failed/timed-out endpoints are
+        # exposed separately and are summarized at the top of the final report.
+        all_results_data = []
+        successful_results_data = []
+        ignored_results_data = []
         for t in tasks:
             host = t.endpoint.hostname if t.endpoint else "Unknown"
             parsed_data = {}
@@ -206,13 +267,28 @@ class WinHubCore:
                 log_text = "JSON Object"
             except:
                 log_text = t.result_log.strip() if t.result_log else "No output"
-            
-            results_data.append({
+
+            item = {
                 "host": host,
                 "status": t.status,
                 "data": parsed_data,
                 "log": log_text
-            })
+            }
+            all_results_data.append(item)
+            if t.status == "Success":
+                successful_results_data.append(item)
+            else:
+                ignored_results_data.append(item)
+
+        report_summary = {
+            "total": total,
+            "success": success,
+            "errors": errors,
+            "ignored": len(ignored_results_data),
+            "included": len(successful_results_data),
+            "job_id": job_id,
+            "job_title": tasks[0].title,
+        }
 
         final_report_text = ""
 
@@ -223,15 +299,26 @@ class WinHubCore:
                 try:
                     # В payload шаблону звіту лежить сам текст листа
                     template_string = json.loads(tpl.payload).get('script', '')
-                    # Рендеримо! Передаємо масив results всередину шаблону
-                    final_report_text = render_template_string(template_string, results=results_data, job_title=tasks[0].title)
+                    # Рендеримо. `results` contains successful endpoints only; failed
+                    # endpoints are available as `ignored_results` / `failed_results`.
+                    final_report_text = render_report_template(
+                        template_string,
+                        {
+                            "results": successful_results_data,
+                            "all_results": all_results_data,
+                            "ignored_results": ignored_results_data,
+                            "failed_results": ignored_results_data,
+                            "summary": report_summary,
+                            "job_title": tasks[0].title,
+                        },
+                    )
                 except Exception as e:
                     final_report_text = f"Помилка рендерингу звіту: {str(e)}\n\n"
         
         # Якщо шаблону немає або була помилка — формуємо стандартний список
         if not final_report_text:
             report_lines = []
-            for r in results_data:
+            for r in successful_results_data:
                 status_icon = "✅" if r['status'] == 'Success' else "❌"
                 if r['data'] and 'password' in r['data']:
                     details = f"User: {r['data'].get('username')} | Pass: {r['data'].get('password')}"
@@ -262,10 +349,11 @@ class WinHubCore:
                     total_count=total,
                     success_count=success,
                     error_count=errors,
-                    report_data=report["body"],
+                    report_data=prepend_ignored_banner(report["body"], ignored_results_data),
                     status="Waiting Review"
                 ))
         else:
+            final_report_text = prepend_ignored_banner(final_report_text, ignored_results_data)
             db.session.add(AggregatedJob(
                 id=job_id,
                 title=tasks[0].title or "Untitled Job",
