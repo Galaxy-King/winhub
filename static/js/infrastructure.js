@@ -1917,7 +1917,7 @@ function resetWorkspace(clearPersistedState = true) {
     editingTemplateId = null; selectedTemplateId = null; currentTemplateVariables = []; currentTemplateVariableSchema = {};
     if (clearPersistedState) localStorage.removeItem(infraStateKeys.template);
 
-    ['depTitle', 'depCategory', 'depReportTemplate', 'depVariableSchema'].forEach(id => {
+    ['depTitle', 'depCategory', 'depReportTemplate', 'depVariableSchema', 'depTimeoutMinutes'].forEach(id => {
         const el = document.getElementById(id);
         if(el) el.value = '';
     });
@@ -3306,6 +3306,7 @@ async function submitDeployment() {
         action,
         template_id: selectedTemplateId,
         report_template_id: reportTemplateId,
+        timeout_minutes: parseInt(document.getElementById('depTimeoutMinutes')?.value || '0', 10) || 0,
         variables: tplVars,
         auto_email_toggle: document.getElementById('depAutoEmailToggle')?.checked || false,
         auto_email_sender: document.getElementById('depAutoEmailSender')?.value || '',
@@ -4122,6 +4123,7 @@ function openScheduleModal() {
     const elName = document.getElementById('schName'); if(elName) elName.value = '';
     const elCat = document.getElementById('schCategory'); if(elCat) elCat.value = 'Scheduled';
     const elAct = document.getElementById('schActive'); if(elAct) elAct.checked = true;
+    const elTimeout = document.getElementById('schTimeoutMinutes'); if(elTimeout) elTimeout.value = '';
     currentScheduleVariables = {};
 
     const rOnce = document.querySelector('input[name="schType"][value="once"]');
@@ -4161,6 +4163,7 @@ function editSchedule(source, name, cat, cron, type, active) {
     const elType = document.getElementById('schTargetType'); if(elType) elType.value = type;
     const elAct = document.getElementById('schActive'); if(elAct) elAct.checked = (active === 'True');
     const elTemplate = document.getElementById('schTemplate'); if(elTemplate && data.templateId) elTemplate.value = data.templateId;
+    const elTimeout = document.getElementById('schTimeoutMinutes'); if(elTimeout) elTimeout.value = data.timeoutMinutes || '';
 
     const elHost = document.getElementById('schTargetHost');
     if(elHost) {
@@ -4195,6 +4198,7 @@ async function saveSchedule() {
         target_type: document.getElementById('schTargetType')?.value,
         target_id: document.getElementById('schTargetType')?.value === 'host' ? document.getElementById('schTargetHost')?.value : document.getElementById('schTargetGroup')?.value,
         cron: cronExpr,
+        timeout_minutes: parseInt(document.getElementById('schTimeoutMinutes')?.value || '0', 10) || 0,
         variables: collectScheduleVariables(),
         is_active: document.getElementById('schActive')?.checked
     };
@@ -4203,7 +4207,14 @@ async function saveSchedule() {
     try {
         const res = await fetch('/api/infrastructure/schedule', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(data) });
         if(res.ok) window.location.reload();
-        else alert("Save failed");
+        else {
+            let message = "Save failed";
+            try {
+                const err = await res.json();
+                message = err.message || message;
+            } catch(e) {}
+            alert(message);
+        }
     } catch(e) { alert("Server error."); }
 }
 

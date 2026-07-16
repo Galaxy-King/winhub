@@ -15,7 +15,7 @@ from sqlalchemy.orm import load_only
 from cryptography.exceptions import InvalidSignature
 from cryptography.hazmat.primitives import hashes, serialization
 from cryptography.hazmat.primitives.asymmetric import padding
-from core.database import db, Endpoint, AgentTask, RegistrationHistory, TelemetryHistory, ConnectionIpHistory, EndpointGroup, EndpointMetric, TriggerRule, User, TaskTemplate
+from core.database import db, Endpoint, AgentTask, RegistrationHistory, TelemetryHistory, ConnectionIpHistory, EndpointGroup, EndpointMetric, TriggerRule, User, TaskTemplate, ScheduledTask
 from core.security import sec_manager
 from core.host_security import apply_endpoint_encryption_status
 from core.sdk import WinHubCore
@@ -35,6 +35,18 @@ agent_signature_nonce_cache = {}
 agent_signature_nonce_cache_lock = Lock()
 pending_task_miss_cache = {}
 pending_task_miss_cache_lock = Lock()
+
+def update_scheduled_task_completion_status(job_id):
+    scheduled_task = ScheduledTask.query.filter_by(last_job_id=job_id).first()
+    if not scheduled_task:
+        return
+    total = AgentTask.query.filter_by(job_id=job_id).count()
+    success = AgentTask.query.filter_by(job_id=job_id, status="Success").count()
+    errors = AgentTask.query.filter(
+        AgentTask.job_id == job_id,
+        AgentTask.status.in_(["Error", "Cancelled"])
+    ).count()
+    scheduled_task.last_status = f"Completed: {success}/{total} success, {errors} failed"
 
 
 POLL_AGENT_COLUMNS = (
@@ -961,12 +973,17 @@ def agent_poll():
         if 'script' not in payload_dict and 'command' in payload_dict:
             payload_dict['script'] = payload_dict['command']
 
+        try:
+            task_timeout_seconds = int(payload_dict.get("__agent_timeout_seconds") or getattr(Config, "AGENT_TASK_TIMEOUT_SECONDS", 1800))
+        except Exception:
+            task_timeout_seconds = int(getattr(Config, "AGENT_TASK_TIMEOUT_SECONDS", 1800))
+
         resp = {
             "status": "task",
             "task_id": task.id,
             "action": task.action_type,
             "payload": payload_dict,
-            "timeout_seconds": int(getattr(Config, "AGENT_TASK_TIMEOUT_SECONDS", 1800)),
+            "timeout_seconds": max(60, task_timeout_seconds),
             "signature": sign_task_message(task.id, task.action_type, payload_dict),
             "signature_alg": "hmac-sha256",
             **agent_poll_timing("task"),
@@ -1002,8 +1019,14 @@ def agent_result():
                 AgentTask.status.in_(['Pending', 'PickedUp', 'Running'])
             ).count()
             if pending_tasks == 0:
+                update_scheduled_task_completion_status(task.job_id)
+                db.session.commit()
                 WinHubCore.process_job_completion(task.job_id)
             return jsonify({"status": "success", "message": "Task was already cancelled"})
+
+        if task.status in ("Success", "Error") and task.finished_at:
+            db.session.commit()
+            return jsonify({"status": "success", "message": "Task was already finalized"})
 
         log_text = trim_result_log(data.get('log', ''))
         status = data.get('status')
@@ -1046,6 +1069,8 @@ def agent_result():
         ).count()
 
         if pending_tasks == 0:
+            update_scheduled_task_completion_status(task.job_id)
+            db.session.commit()
             WinHubCore.process_job_completion(task.job_id)
 
         return jsonify({"status": "success"})

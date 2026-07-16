@@ -207,7 +207,7 @@ class ScheduledTask(db.Model):
     __tablename__ = 'scheduled_tasks'
     id = db.Column(db.String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
     name = db.Column(db.String(150), nullable=False)
-    category = db.Column(db.String(100), default="Scheduled") 
+    category = db.Column(db.String(100), default="Scheduled")
     
     template_id = db.Column(db.String(36), db.ForeignKey('task_templates.id', ondelete="CASCADE"))
     target_type = db.Column(db.String(20))
@@ -215,7 +215,12 @@ class ScheduledTask(db.Model):
     
     cron_expr = db.Column(db.String(100), nullable=False)
     is_active = db.Column(db.Boolean, default=True)
-    
+    variables = db.Column(EncryptedText)
+    timeout_minutes = db.Column(db.Integer, nullable=True)
+    next_run_at = db.Column(db.DateTime, nullable=True, index=True)
+    last_status = db.Column(db.String(120), nullable=True)
+    last_job_id = db.Column(db.String(36), nullable=True)
+
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
     created_by = db.Column(db.String(100))
     last_run = db.Column(db.DateTime, nullable=True)

@@ -6,7 +6,7 @@ import secrets
 import string
 import time
 import uuid
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from zoneinfo import ZoneInfo
 
 from flask import Flask, g, request, redirect, url_for, session, render_template, Blueprint, jsonify
@@ -56,6 +56,8 @@ def scheduled_cleanup(*args):
     if not global_app: return
     with global_app.app_context():
         now = datetime.utcnow()
+        completed_job_ids = set()
+        timed_out_schedule_ids = set()
         # Очищення завислих задач
         zombie_threshold = now - timedelta(seconds=global_app.config.get('AGENT_TASK_TIMEOUT_SECONDS', 1800))
         zombies = AgentTask.query.filter(AgentTask.status == "PickedUp", AgentTask.created_at < zombie_threshold).all()
@@ -63,7 +65,36 @@ def scheduled_cleanup(*args):
             z.status = "Error"
             z.result_log = "TIMEOUT: Agent picked up the task but never returned a result."
             z.finished_at = now
-            
+            completed_job_ids.add(z.job_id)
+
+        deadline_candidates = AgentTask.query.filter(
+            AgentTask.status.in_(["Pending", "PickedUp", "Running"]),
+            AgentTask.payload.isnot(None)
+        ).limit(5000).all()
+        for task in deadline_candidates:
+            try:
+                payload = json.loads(task.payload or "{}")
+            except Exception:
+                continue
+            deadline_raw = payload.get("__deadline_utc")
+            if not deadline_raw:
+                continue
+            try:
+                deadline = datetime.fromisoformat(str(deadline_raw).replace("Z", "+00:00"))
+                if deadline.tzinfo:
+                    deadline = deadline.astimezone(timezone.utc).replace(tzinfo=None)
+            except Exception:
+                continue
+            if deadline > now:
+                continue
+            task.status = "Error"
+            task.result_log = "TIMEOUT: Scheduled task deadline reached before this host returned a final result."
+            task.finished_at = now
+            completed_job_ids.add(task.job_id)
+            schedule_id = payload.get("__schedule_id")
+            if schedule_id:
+                timed_out_schedule_ids.add(str(schedule_id))
+
         # Очищення телеметрії
         retention_days = global_app.config.get('LOG_RETENTION_DAYS', 30)
         telemetry_threshold = now - timedelta(days=retention_days)
@@ -73,6 +104,21 @@ def scheduled_cleanup(*args):
             audit_threshold = now - timedelta(days=audit_retention_days)
             AuditLog.query.filter(AuditLog.timestamp < audit_threshold).delete()
         db.session.commit()
+
+        if completed_job_ids:
+            from core.sdk import WinHubCore
+            for job_id in completed_job_ids:
+                pending_tasks = AgentTask.query.filter(
+                    AgentTask.job_id == job_id,
+                    AgentTask.status.in_(["Pending", "PickedUp", "Running"])
+                ).count()
+                if pending_tasks == 0:
+                    WinHubCore.process_job_completion(job_id, include_statuses=["Success", "Error", "Cancelled"], force=True)
+            for schedule_id in timed_out_schedule_ids:
+                st = ScheduledTask.query.get(schedule_id)
+                if st:
+                    st.last_status = "Timed out; report generated"
+            db.session.commit()
 
 def process_agent_update_rollouts_job(*args):
     global global_app
@@ -88,6 +134,21 @@ def process_agent_update_rollouts_job(*args):
             log.exception("[Scheduler] Agent update rollout checker failed")
         finally:
             db.session.remove()
+
+def scheduled_task_next_run_utc(task, from_time=None):
+    if not task or not task.cron_expr or not task.is_active:
+        return None
+    now_kyiv = from_time or datetime.now(kyiv_tz)
+    try:
+        if task.cron_expr.startswith("DATE:"):
+            time_str = task.cron_expr.replace("DATE:", "").strip()
+            run_date = datetime.strptime(time_str, "%Y-%m-%d %H:%M").replace(tzinfo=kyiv_tz)
+            return run_date.astimezone(timezone.utc).replace(tzinfo=None) if run_date > now_kyiv else None
+        trigger = CronTrigger.from_crontab(task.cron_expr, timezone=kyiv_tz)
+        next_run = trigger.get_next_fire_time(None, now_kyiv)
+        return next_run.astimezone(timezone.utc).replace(tzinfo=None) if next_run else None
+    except Exception:
+        return None
 
 def run_scheduled_job(scheduled_task_id, *args):
     """Функція, яку викликає APScheduler коли настав точний час"""
@@ -111,6 +172,9 @@ def run_scheduled_job(scheduled_task_id, *args):
 
         if not agent_ids:
             log.warning(f"[Scheduler] ⚠️ Задача '{st.name}' скасована: Цільових хостів не знайдено.")
+            st.last_run = datetime.utcnow()
+            st.last_status = "No target hosts"
+            db.session.commit()
             return
 
         try:
@@ -135,7 +199,17 @@ def run_scheduled_job(scheduled_task_id, *args):
                     st.name,
                     ", ".join(unresolved)
                 )
+                st.last_run = datetime.utcnow()
+                st.last_status = f"Missing variables: {', '.join(unresolved)[:80]}"
+                db.session.commit()
                 return
+
+            timeout_minutes = int(st.timeout_minutes or 0)
+            if timeout_minutes > 0:
+                deadline = datetime.utcnow() + timedelta(minutes=timeout_minutes)
+                payload_dict["__deadline_utc"] = deadline.replace(microsecond=0).isoformat() + "Z"
+                payload_dict["__agent_timeout_seconds"] = max(60, timeout_minutes * 60)
+                payload_dict["__schedule_id"] = st.id
             
             # ДОДАНО: Перевіряємо, чи це шаблон метрики, і додаємо необхідні прапорці
             if getattr(st.template, 'type', 'action') == 'metric':
@@ -143,24 +217,30 @@ def run_scheduled_job(scheduled_task_id, *args):
                 payload_dict['__metric_name'] = st.template.name
             
             # Відправляємо задачу
-            WinHubCore.dispatch_task(
+            job_id = WinHubCore.dispatch_task(
                 user_id=admin_id,
-                module_name="Scheduler", 
-                action=st.template.action_type, 
-                target_ids=agent_ids, 
-                payload=payload_dict, 
+                module_name="Scheduler",
+                action=st.template.action_type,
+                target_ids=agent_ids,
+                payload=payload_dict,
                 title=f"[Auto] {st.name}"
             )
+            st.last_job_id = job_id
+            st.last_status = f"Dispatched to {len(agent_ids)} hosts"
             log.info(f"[Scheduler] ✅ УСПІХ: Задача '{st.name}' відправлена на {len(agent_ids)} агентів.")
         except Exception as e:
             log.error(f"[Scheduler] ❌ ПОМИЛКА: Не вдалося виконати '{st.name}': {e}")
+            st.last_status = f"Error: {str(e)[:90]}"
 
         # Оновлюємо статус виконання
         st.last_run = datetime.utcnow()
         # Якщо задача була "Одноразова" (DATE:), вимикаємо її після виконання
         if st.cron_expr.startswith("DATE:"):
             st.is_active = False
-            
+            st.next_run_at = None
+        else:
+            st.next_run_at = scheduled_task_next_run_utc(st)
+
         db.session.commit()
 
 def reload_scheduler_jobs(ignored_app=None):
@@ -197,20 +277,26 @@ def reload_scheduler_jobs(ignored_app=None):
                     if run_date > now_kyiv:
                         trigger = DateTrigger(run_date=run_date, timezone=kyiv_tz)
                         # Передаємо лише ID задачі
-                        scheduler.add_job(func=run_scheduled_job, args=[t.id], trigger=trigger, id=f"sch_{t.id}")
+                        scheduler.add_job(func=run_scheduled_job, args=[t.id], trigger=trigger, id=f"sch_{t.id}", max_instances=1, coalesce=True, replace_existing=True)
+                        t.next_run_at = scheduled_task_next_run_utc(t, now_kyiv)
                         log.info(f"[Scheduler] ➕ ОДНОРАЗОВО ДОДАНО: '{t.name}' виконається о {time_str}")
                     else:
                         # Час вийшов, вимикаємо
                         t.is_active = False
-                        db.session.commit()
+                        t.next_run_at = None
+                        t.last_status = t.last_status or "Expired before run"
                         log.warning(f"[Scheduler] ⚠️ ПРОПУЩЕНО: Задача '{t.name}' вимкнена (час {time_str} вже у минулому)")
                 else:
                     # Повторювана задача (Cron)
                     trigger = CronTrigger.from_crontab(t.cron_expr, timezone=kyiv_tz)
-                    scheduler.add_job(func=run_scheduled_job, args=[t.id], trigger=trigger, id=f"sch_{t.id}")
+                    scheduler.add_job(func=run_scheduled_job, args=[t.id], trigger=trigger, id=f"sch_{t.id}", max_instances=1, coalesce=True, replace_existing=True)
+                    t.next_run_at = scheduled_task_next_run_utc(t, now_kyiv)
                     log.info(f"[Scheduler] ➕ ПОВТОРЮВАНО ДОДАНО: '{t.name}' (Cron: {t.cron_expr})")
             except Exception as e:
+                t.next_run_at = None
+                t.last_status = f"Schedule error: {str(e)[:80]}"
                 log.error(f"[Scheduler] ❌ ПОМИЛКА розкладу для '{t.name}': {e}")
+        db.session.commit()
 
 def seed_default_os_groups():
     """Створює базові групи для різних ОС"""
@@ -293,8 +379,20 @@ def ensure_scheduler_schema():
     if "scheduled_tasks" not in inspector.get_table_names():
         return
     columns = {column["name"] for column in inspector.get_columns("scheduled_tasks")}
+    statements = []
     if "variables" not in columns:
-        db.session.execute(text("ALTER TABLE scheduled_tasks ADD COLUMN variables TEXT"))
+        statements.append("ALTER TABLE scheduled_tasks ADD COLUMN variables TEXT")
+    if "timeout_minutes" not in columns:
+        statements.append("ALTER TABLE scheduled_tasks ADD COLUMN timeout_minutes INTEGER")
+    if "next_run_at" not in columns:
+        statements.append("ALTER TABLE scheduled_tasks ADD COLUMN next_run_at TIMESTAMP")
+    if "last_status" not in columns:
+        statements.append("ALTER TABLE scheduled_tasks ADD COLUMN last_status VARCHAR(120)")
+    if "last_job_id" not in columns:
+        statements.append("ALTER TABLE scheduled_tasks ADD COLUMN last_job_id VARCHAR(36)")
+    for statement in statements:
+        db.session.execute(text(statement))
+    if statements:
         db.session.commit()
 
 def backfill_endpoint_encryption_status(limit=5000):

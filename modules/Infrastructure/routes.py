@@ -2080,7 +2080,10 @@ def index():
         "template_id": st.template_id,
         "target_id": st.target_id,
         "variables": scheduled_task_variables(st),
-        "last_run": to_kyiv_time_short(st.last_run)
+        "last_run": to_kyiv_time_short(st.last_run),
+        "next_run": to_kyiv_time_short(getattr(st, "next_run_at", None)),
+        "last_status": getattr(st, "last_status", None) or "Never run",
+        "timeout_minutes": getattr(st, "timeout_minutes", None) or ""
     } for st in scheduled_raw]
 
     trigger_rules = []
@@ -2696,6 +2699,14 @@ def manage_schedule():
     if denied: return denied
     data = request.json
     tid = data.get('id')
+    try:
+        timeout_minutes = int(data.get("timeout_minutes") or 0)
+    except (TypeError, ValueError):
+        return jsonify({"success": False, "message": "Execution time limit must be a number of minutes"}), 400
+    if timeout_minutes < 0 or timeout_minutes > 10080:
+        return jsonify({"success": False, "message": "Execution time limit must be between 0 and 10080 minutes"}), 400
+    timeout_minutes = timeout_minutes or None
+
     variables = data.get('variables') or {}
     if not isinstance(variables, dict):
         return jsonify({"success": False, "message": "Schedule variables must be an object"}), 400
@@ -2718,8 +2729,9 @@ def manage_schedule():
             st.name = data.get('name'); st.category = data.get('category', 'Scheduled'); st.template_id = data.get('template_id')
             st.target_type = data.get('target_type'); st.target_id = data.get('target_id'); st.cron_expr = data.get('cron'); st.is_active = data.get('is_active', True)
             st.variables = variables_raw
+            st.timeout_minutes = timeout_minutes
     else:
-        db.session.add(ScheduledTask(name=data.get('name'), category=data.get('category', 'Scheduled'), template_id=data.get('template_id'), target_type=data.get('target_type'), target_id=data.get('target_id'), cron_expr=data.get('cron'), is_active=data.get('is_active', True), variables=variables_raw, created_by=session.get('username')))
+        db.session.add(ScheduledTask(name=data.get('name'), category=data.get('category', 'Scheduled'), template_id=data.get('template_id'), target_type=data.get('target_type'), target_id=data.get('target_id'), cron_expr=data.get('cron'), is_active=data.get('is_active', True), variables=variables_raw, timeout_minutes=timeout_minutes, created_by=session.get('username')))
     db.session.commit()
     from core import reload_scheduler_jobs
     reload_scheduler_jobs(current_app)
@@ -4163,8 +4175,19 @@ def create_task():
         action_type = 'agent_update'
         payload_dict = load_template_payload(template) if template else dict(data.get('payload', {}))
 
+    try:
+        timeout_minutes = int(data.get("timeout_minutes") or 0)
+    except (TypeError, ValueError):
+        return jsonify({"success": False, "message": "Execution time limit must be a number of minutes"}), 400
+    if timeout_minutes < 0 or timeout_minutes > 10080:
+        return jsonify({"success": False, "message": "Execution time limit must be between 0 and 10080 minutes"}), 400
+    if timeout_minutes > 0:
+        deadline = datetime.utcnow() + timedelta(minutes=timeout_minutes)
+        payload_dict["__deadline_utc"] = deadline.replace(microsecond=0).isoformat() + "Z"
+        payload_dict["__agent_timeout_seconds"] = max(60, timeout_minutes * 60)
+
     # Метадані для звітності та автовідправки
-    if data.get('report_template_id'): 
+    if data.get('report_template_id'):
         payload_dict['__report_template_id'] = data.get('report_template_id')
     if data.get('auto_email_toggle'):
         payload_dict['__auto_email_toggle'] = True

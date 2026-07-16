@@ -24,14 +24,17 @@
             </button>
             <div id="sch_cat_{{ loop.index }}" class="hidden transition-all duration-300">
                 <div class="overflow-x-auto">
-                    <table class="w-full text-left min-w-[800px]">
+                    <table class="w-full text-left min-w-[1080px]">
                         <thead class="bg-slate-50 border-y border-slate-100 text-[10px] font-black text-slate-400 uppercase tracking-widest">
                             <tr>
                                 <th class="px-8 py-4">Job Name</th>
                                 <th class="px-8 py-4">Script</th>
                                 <th class="px-8 py-4">Target</th>
                                 <th class="px-8 py-4">Schedule</th>
+                                <th class="px-8 py-4">Next Run</th>
+                                <th class="px-8 py-4">Timeout</th>
                                 <th class="px-8 py-4">Last Run</th>
+                                <th class="px-8 py-4">Last Status</th>
                                 <th class="px-8 py-4 text-right">Actions</th>
                             </tr>
                         </thead>
@@ -49,9 +52,27 @@
                                         {% if st.cron.startswith('DATE:') %}Once: {{ st.cron.replace('DATE:', '') }}{% else %}{{ st.cron }}{% endif %}
                                     </span>
                                 </td>
+                                <td class="px-8 py-4 text-xs font-bold text-slate-500">{{ st.next_run or '-' }}</td>
+                                <td class="px-8 py-4 text-xs font-bold text-slate-500">{% if st.timeout_minutes %}{{ st.timeout_minutes }} min{% else %}Default{% endif %}</td>
                                 <td class="px-8 py-4 text-xs font-bold text-slate-400">{{ st.last_run }}</td>
+                                <td class="px-8 py-4">
+                                    <span class="inline-flex max-w-[220px] truncate px-3 py-1 rounded-xl border border-cyan-300/25 bg-cyan-400/10 text-cyan-900 text-[10px] font-black uppercase tracking-wider" title="{{ st.last_status }}">
+                                        {{ st.last_status }}
+                                    </span>
+                                </td>
                                 <td class="px-8 py-4 text-right flex justify-end gap-2">
-                                    <button onclick="editSchedule('{{ st.id }}', '{{ st.name }}', '{{ st.category }}', '{{ st.cron }}', '{{ st.target_type }}', '{{ st.is_active }}')" class="px-4 py-2 bg-white text-slate-600 hover:text-indigo-600 rounded-xl text-xs font-black uppercase transition-colors border border-slate-200 shadow-sm">Edit</button>
+                                    <button onclick="editSchedule(this)"
+                                            data-id="{{ st.id }}"
+                                            data-name="{{ st.name | forceescape }}"
+                                            data-category="{{ st.category | forceescape }}"
+                                            data-cron="{{ st.cron | forceescape }}"
+                                            data-target-type="{{ st.target_type }}"
+                                            data-target-id="{{ st.target_id }}"
+                                            data-template-id="{{ st.template_id }}"
+                                            data-active="{{ st.is_active }}"
+                                            data-variables="{{ st.variables | tojson | forceescape }}"
+                                            data-timeout-minutes="{{ st.timeout_minutes }}"
+                                            class="px-4 py-2 bg-white text-slate-600 hover:text-indigo-600 rounded-xl text-xs font-black uppercase transition-colors border border-slate-200 shadow-sm">Edit</button>
                                     <button onclick="deleteSchedule('{{ st.id }}')" class="p-2 bg-white text-slate-400 hover:text-rose-600 rounded-xl transition-colors border border-slate-200 shadow-sm"><svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"></path></svg></button>
                                 </td>
                             </tr>

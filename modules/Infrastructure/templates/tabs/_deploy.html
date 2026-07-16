@@ -335,6 +335,15 @@
                     <div class="space-y-4">
                         <h4 class="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-2">Post-Execution</h4>
                         <div class="workspace-form-panel p-6 bg-slate-50 rounded-3xl border border-slate-200 space-y-4">
+                            <div class="rounded-2xl border border-cyan-400/25 bg-slate-950/90 p-4">
+                                <label class="text-[10px] font-black text-cyan-200 uppercase tracking-widest block mb-2">Execution Time Limit</label>
+                                <div class="grid grid-cols-[1fr_auto] gap-3 items-center">
+                                    <input type="number" id="depTimeoutMinutes" min="0" max="10080" step="1" placeholder="0 = default server timeout" class="w-full p-3 bg-slate-900 border border-cyan-400/25 rounded-xl text-xs font-bold text-cyan-50 placeholder:text-cyan-200/40 outline-none focus:ring-2 focus:ring-cyan-500/30">
+                                    <span class="text-[10px] font-black text-cyan-200 uppercase tracking-widest">min</span>
+                                </div>
+                                <p class="mt-2 text-[10px] font-bold text-cyan-100/70 leading-relaxed">After this limit, unfinished hosts are timed out and reports are built from completed results.</p>
+                            </div>
+
                             <div>
                                 <label class="text-xs font-bold text-slate-600 block mb-2">Aggregation Report Template (Optional)</label>
                                 <select id="depReportTemplate" class="workspace-select w-full p-4 bg-white border border-slate-200 rounded-2xl text-sm font-bold outline-none focus:ring-4 focus:ring-indigo-500/10 transition-all cursor-pointer">
