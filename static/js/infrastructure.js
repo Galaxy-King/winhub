@@ -3523,6 +3523,31 @@ async function mergeSelectedDuplicates(preference) {
     reloadKeepingNodeContext('review');
 }
 
+async function acceptSelectedDuplicatePairs() {
+    const pairs = duplicateSelection();
+    if (!pairs.length) return alert('Select duplicate pairs first.');
+    if (!confirm(`Keep both records for ${pairs.length} selected duplicate pair(s)? They will remain approved and will no longer be shown as identity duplicates.`)) return;
+    for (const pair of pairs) {
+        const [first, second] = pair.split('|');
+        if (!first || !second) continue;
+        const res = await fetch('/api/infrastructure/host/duplicate-exception', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({
+                left_id: first,
+                right_id: second,
+                reason: 'Accepted as distinct cloned servers'
+            })
+        });
+        if (!res.ok) {
+            const data = await res.json().catch(() => ({}));
+            alert(data.message || 'One of the duplicate exceptions failed. Refreshing review center.');
+            break;
+        }
+    }
+    reloadKeepingNodeContext('review');
+}
+
 async function approveSelectedPending() {
     const hostIds = pendingApprovalSelection();
     if (!hostIds.length) {
@@ -4642,6 +4667,24 @@ async function mergeEndpointDuplicate(keepId, removeId) {
     const data = await res.json().catch(() => ({}));
     if (!res.ok || !data.success) {
         alert(data.message || 'Failed to merge duplicate endpoint.');
+        return;
+    }
+    reloadKeepingNodeContext('review');
+}
+async function acceptEndpointDuplicatePair(leftId, rightId) {
+    if (!confirm('Keep both endpoint records? Use this for real cloned servers that must stay as separate nodes. This pair will no longer be shown as an identity duplicate.')) return;
+    const res = await fetch('/api/infrastructure/host/duplicate-exception', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({
+            left_id: leftId,
+            right_id: rightId,
+            reason: 'Accepted as distinct cloned servers'
+        })
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok || !data.success) {
+        alert(data.message || 'Failed to accept duplicate pair.');
         return;
     }
     reloadKeepingNodeContext('review');

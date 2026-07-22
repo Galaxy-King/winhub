@@ -151,6 +151,19 @@ class Endpoint(db.Model):
     telemetry = db.relationship('TelemetryHistory', back_populates='endpoint', cascade="all, delete-orphan", lazy='dynamic')
     metrics = db.relationship('EndpointMetric', back_populates='endpoint', cascade="all, delete-orphan", lazy='dynamic')
 
+class EndpointDuplicateException(db.Model):
+    __tablename__ = 'endpoint_duplicate_exceptions'
+    id = db.Column(db.String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
+    endpoint_a_id = db.Column(db.String(100), db.ForeignKey('endpoints.id', ondelete="CASCADE"), nullable=False, index=True)
+    endpoint_b_id = db.Column(db.String(100), db.ForeignKey('endpoints.id', ondelete="CASCADE"), nullable=False, index=True)
+    reason = db.Column(db.String(255))
+    created_by = db.Column(db.String(100))
+    created_at = db.Column(db.DateTime, default=datetime.utcnow, index=True)
+
+    __table_args__ = (
+        db.UniqueConstraint('endpoint_a_id', 'endpoint_b_id', name='uq_endpoint_duplicate_exception_pair'),
+    )
+
 class AgentTask(db.Model):
     __tablename__ = 'agent_tasks'
     id = db.Column(db.String(36), primary_key=True, default=lambda: str(uuid.uuid4()))

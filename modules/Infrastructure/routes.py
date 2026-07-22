@@ -25,7 +25,7 @@ from sqlalchemy.orm import load_only, selectinload
 from werkzeug.exceptions import HTTPException
 from werkzeug.utils import secure_filename
 
-from core.database import db, User, Endpoint, EndpointGroup, AgentTask, TaskTemplate, TelemetryHistory, ConnectionIpHistory, ScheduledTask, EndpointMetric, AgentUpdateRollout, TriggerRule, AggregatedJob, ApiKey, RegistrationHistory, AuditLog, endpoint_group_m2m
+from core.database import db, User, Endpoint, EndpointGroup, EndpointDuplicateException, AgentTask, TaskTemplate, TelemetryHistory, ConnectionIpHistory, ScheduledTask, EndpointMetric, AgentUpdateRollout, TriggerRule, AggregatedJob, ApiKey, RegistrationHistory, AuditLog, endpoint_group_m2m
 from core.sdk import WinHubCore
 from core.admin import send_notification_email
 from core.security import sec_manager
@@ -131,6 +131,28 @@ def endpoint_encryption_payload(endpoint):
         "No encryption method detected." if level == "none" else "Encryption inventory has not been reported yet."
     )
     return {"status": status, "level": level, "methods": methods, "summary": summary}
+
+
+def endpoint_pair_key(left_id, right_id):
+    values = sorted([str(left_id or "").strip(), str(right_id or "").strip()])
+    if not values[0] or not values[1] or values[0] == values[1]:
+        return None
+    return tuple(values)
+
+
+def duplicate_exception_pairs(endpoint_ids):
+    ids = [str(item) for item in endpoint_ids if item]
+    if not ids:
+        return set()
+    rows = EndpointDuplicateException.query.filter(
+        EndpointDuplicateException.endpoint_a_id.in_(ids),
+        EndpointDuplicateException.endpoint_b_id.in_(ids),
+    ).all()
+    return {
+        endpoint_pair_key(row.endpoint_a_id, row.endpoint_b_id)
+        for row in rows
+        if endpoint_pair_key(row.endpoint_a_id, row.endpoint_b_id)
+    }
 
 
 def attach_endpoint_list_flags(endpoints):
@@ -1239,6 +1261,7 @@ def annotate_endpoint_duplicates(agents):
     approved_by_fingerprint = {}
     approved_by_hostname = {}
     approved_by_id = {agent.id: agent for agent in approved}
+    ignored_pairs = duplicate_exception_pairs([agent.id for agent in agents])
     for approved_agent in approved:
         signals = signals_by_id.get(approved_agent.id, {})
         for fingerprint in signals.get("fingerprints", set()):
@@ -1266,6 +1289,8 @@ def annotate_endpoint_duplicates(agents):
 
         matches = []
         for approved_agent in candidates:
+            if endpoint_pair_key(agent.id, approved_agent.id) in ignored_pairs:
+                continue
             approved_signals = signals_by_id.get(approved_agent.id, {})
             approved_fingerprints = approved_signals.get("fingerprints", set())
             reasons = []
@@ -2006,6 +2031,7 @@ def index():
     approved_duplicate_pairs = []
     seen_duplicate_pairs = set()
     approved_by_hostname = {}
+    ignored_duplicate_pairs = duplicate_exception_pairs([agent.id for agent in agents])
     for agent in agents:
         if getattr(agent, "approval_status", "Approved") != "Approved":
             continue
@@ -2015,7 +2041,7 @@ def index():
         duplicate_agent = approved_by_hostname.get(hostname_key)
         if duplicate_agent:
             pair_key = tuple(sorted([agent.id, duplicate_agent.id]))
-            if pair_key in seen_duplicate_pairs:
+            if pair_key in seen_duplicate_pairs or pair_key in ignored_duplicate_pairs:
                 continue
             seen_duplicate_pairs.add(pair_key)
             approved_duplicate_pairs.append({
@@ -5055,6 +5081,49 @@ def merge_duplicate_host():
         status="Success"
     )
     return jsonify({"success": True, "keep_id": keep_id, "removed_id": remove_id})
+
+@infrastructure_bp.route('/api/infrastructure/host/duplicate-exception', methods=['POST'])
+def create_duplicate_exception():
+    denied = require_permission("manage_hosts")
+    if denied:
+        return denied
+    payload = request.json or {}
+    left_id = str(payload.get("left_id") or "").strip()
+    right_id = str(payload.get("right_id") or "").strip()
+    pair_key = endpoint_pair_key(left_id, right_id)
+    if not pair_key:
+        return jsonify({"success": False, "message": "Select two different endpoint records"}), 400
+
+    left = Endpoint.query.get(pair_key[0])
+    right = Endpoint.query.get(pair_key[1])
+    if not left or not right:
+        return jsonify({"success": False, "message": "Endpoint record not found"}), 404
+    if not WinHubCore.can_manage_host(session.get("user_id"), left.id) or not WinHubCore.can_manage_host(session.get("user_id"), right.id):
+        return jsonify({"success": False, "message": "Access denied"}), 403
+
+    existing = EndpointDuplicateException.query.filter_by(endpoint_a_id=pair_key[0], endpoint_b_id=pair_key[1]).first()
+    if not existing:
+        existing = EndpointDuplicateException(
+            endpoint_a_id=pair_key[0],
+            endpoint_b_id=pair_key[1],
+            reason=str(payload.get("reason") or "Accepted as distinct endpoints")[:255],
+            created_by=session.get("username"),
+        )
+        db.session.add(existing)
+        db.session.commit()
+
+    WinHubCore.audit(
+        user_id=session.get("user_id"),
+        module="Infrastructure",
+        action="Accept Endpoint Duplicate Pair",
+        details={
+            "endpoint_a_id": pair_key[0],
+            "endpoint_b_id": pair_key[1],
+            "reason": existing.reason,
+        },
+        status="Success"
+    )
+    return jsonify({"success": True, "endpoint_a_id": pair_key[0], "endpoint_b_id": pair_key[1]})
 
 @infrastructure_bp.route('/api/infrastructure/group', methods=['POST'])
 def create_group():
