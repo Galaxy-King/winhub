@@ -599,6 +599,15 @@ def should_adopt_duplicate_enrollment(reasons):
     return "identity" in reason_set or "token_proof" in reason_set
 
 
+def duplicate_enrollment_requires_rejection(reasons):
+    reason_set = set(reasons or [])
+    return bool(reason_set.intersection({"identity", "token_proof"}))
+
+
+def duplicate_enrollment_review_status(reasons):
+    return "Rejected" if duplicate_enrollment_requires_rejection(reasons) else "Pending"
+
+
 def endpoint_reenroll_allowed(agent):
     allowed_until = getattr(agent, "reenroll_allowed_until", None)
     if not allowed_until:
@@ -800,7 +809,7 @@ def enroll_agent():
     elif not agent:
         agent = Endpoint(id=hw_id, hostname=hostname, auth_token=raw_token,
                          os_version=data.get('os_version'), os_type=os_type, connection_ip=source_ip, ip_address=source_ip)
-        agent.approval_status = "Rejected" if duplicate_endpoint else "Pending"
+        agent.approval_status = duplicate_enrollment_review_status(duplicate_reasons) if duplicate_endpoint else "Pending"
         agent.first_seen = datetime.utcnow()
         agent.last_enrollment_at = datetime.utcnow()
         agent.last_enrollment_ip = source_ip
@@ -821,7 +830,7 @@ def enroll_agent():
             hw_id=hw_id,
             hostname=hostname,
             ip_address=source_ip,
-            event_type="Rejected Duplicate" if duplicate_endpoint else "Pending Approval"
+            event_type=("Rejected Duplicate" if duplicate_enrollment_requires_rejection(duplicate_reasons) else "Pending Duplicate Review") if duplicate_endpoint else "Pending Approval"
         ))
         db.session.add(ConnectionIpHistory(endpoint_id=hw_id, ip_address=source_ip, source="enrollment"))
     else:
@@ -848,7 +857,7 @@ def enroll_agent():
             agent.identity_warning = "Enrollment identity changed. Review hostname, IP and network interfaces before approval."
             agent.identity_fingerprint = fingerprint
         if duplicate_endpoint and getattr(agent, "approval_status", "Pending") != "Approved":
-            agent.approval_status = "Rejected"
+            agent.approval_status = duplicate_enrollment_review_status(duplicate_reasons)
             agent.identity_warning = (
                 "Possible duplicate of approved endpoint "
                 f"{duplicate_endpoint.hostname or duplicate_endpoint.id} "
