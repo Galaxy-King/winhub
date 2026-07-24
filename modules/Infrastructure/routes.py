@@ -197,6 +197,54 @@ def effective_endpoint_identity_warning(endpoint):
     return warning
 
 
+def identity_warning_is_hostname_stale_only(endpoint):
+    warning = str(getattr(endpoint, "identity_warning", "") or "").lower()
+    if not warning:
+        return False
+    if "hostname" not in warning or "stale_agent_version" not in warning:
+        return False
+    strong_terms = ("token_proof", "fingerprint", "identity_key", "public_key")
+    return not any(term in warning for term in strong_terms)
+
+
+def allow_hostname_duplicate_pairs_for_approved_agent(agent, created_by=None):
+    if not identity_warning_is_hostname_stale_only(agent):
+        return 0
+
+    hostname_key = str(getattr(agent, "hostname", "") or "").strip().upper()
+    if not hostname_key:
+        return 0
+
+    matches = Endpoint.query.filter(
+        Endpoint.id != agent.id,
+        Endpoint.approval_status == "Approved",
+        func.upper(Endpoint.hostname) == hostname_key,
+    ).all()
+    created = 0
+    for match in matches:
+        pair_key = endpoint_pair_key(agent.id, match.id)
+        if not pair_key:
+            continue
+        existing = EndpointDuplicateException.query.filter_by(
+            endpoint_a_id=pair_key[0],
+            endpoint_b_id=pair_key[1],
+        ).first()
+        if not existing:
+            db.session.add(EndpointDuplicateException(
+                endpoint_a_id=pair_key[0],
+                endpoint_b_id=pair_key[1],
+                reason="Approved hostname-only clone as distinct endpoint",
+                created_by=created_by,
+            ))
+            created += 1
+        match.identity_duplicate_allowed = True
+        match.identity_warning = None
+
+    if matches:
+        agent.identity_duplicate_allowed = True
+    return created
+
+
 def attach_endpoint_list_flags(endpoints):
     key_map = endpoint_has_public_key_map([endpoint.id for endpoint in endpoints])
     for endpoint in endpoints:
@@ -5089,10 +5137,11 @@ def update_host_approval(host_id):
     if status not in ("Pending", "Approved", "Rejected"):
         return jsonify({"success": False, "message": "Invalid approval status"}), 400
     agent.approval_status = status
-    agent.identity_warning = None if status == "Approved" else agent.identity_warning
     if status == "Rejected":
         agent.is_blocked = True
     elif status == "Approved":
+        allow_hostname_duplicate_pairs_for_approved_agent(agent, session.get("username"))
+        agent.identity_warning = None
         agent.is_blocked = False
         from core.agent_gateway import ensure_default_groups_and_assign
         ensure_default_groups_and_assign(agent, getattr(agent, "os_type", "Windows") or "Windows")
@@ -5139,10 +5188,11 @@ def bulk_update_host_approval():
 
     for agent in agents:
         agent.approval_status = status
-        agent.identity_warning = None if status == "Approved" else agent.identity_warning
         if status == "Rejected":
             agent.is_blocked = True
         elif status == "Approved":
+            allow_hostname_duplicate_pairs_for_approved_agent(agent, session.get("username"))
+            agent.identity_warning = None
             agent.is_blocked = False
             ensure_default_groups_and_assign(agent, getattr(agent, "os_type", "Windows") or "Windows")
         db.session.add(RegistrationHistory(
