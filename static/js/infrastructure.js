@@ -2436,6 +2436,80 @@ let fleetSelectedHostIds = new Set();
 let fleetSortState = { key: 'hostname', direction: 'asc' };
 let fleetPagination = { page: 1, page_size: 50, total: 0, pages: 1 };
 let fleetSearchTimer = null;
+const agentPackagePlatforms = [
+    ['windows', 'Windows', 'from-sky-500/25 to-blue-500/10 border-sky-300/45 text-sky-50'],
+    ['linux', 'Linux', 'from-emerald-500/25 to-teal-500/10 border-emerald-300/45 text-emerald-50'],
+    ['macos', 'macOS', 'from-violet-500/25 to-fuchsia-500/10 border-violet-300/45 text-violet-50'],
+];
+
+function normalizeAgentPlatform(platform) {
+    const value = String(platform || '').toLowerCase();
+    if (value === 'mac' || value === 'darwin' || value === 'osx') return 'macos';
+    if (value === 'windows' || value === 'linux' || value === 'macos') return value;
+    return 'unknown';
+}
+
+function agentPlatformMeta(platform) {
+    const normalized = normalizeAgentPlatform(platform);
+    const found = agentPackagePlatforms.find(item => item[0] === normalized);
+    if (found) return { key: found[0], label: found[1], className: found[2] };
+    return { key: 'unknown', label: 'Unknown', className: 'from-slate-500/25 to-slate-700/10 border-slate-300/35 text-slate-100' };
+}
+
+function renderAgentLatestVersions(latestVersions = {}) {
+    const box = document.getElementById('agentLatestVersionCards');
+    if (!box) return;
+    box.innerHTML = agentPackagePlatforms.map(([key]) => {
+        const meta = agentPlatformMeta(key);
+        const version = latestVersions?.[key] || 'No package';
+        const muted = !latestVersions?.[key] ? 'opacity-75' : '';
+        return `<div class="agent-latest-card min-w-[118px] px-3 py-2 rounded-xl border bg-gradient-to-br ${meta.className} ${muted} shadow-sm" data-platform="${escapeHtml(key)}">
+            <div class="text-[9px] font-black uppercase tracking-widest opacity-70">${escapeHtml(meta.label)}</div>
+            <div class="mt-0.5 text-sm font-black whitespace-nowrap">${escapeHtml(version)}</div>
+        </div>`;
+    }).join('');
+}
+
+function agentPlatformBadge(platform, isLatest = false) {
+    const meta = agentPlatformMeta(platform);
+    const latestClass = isLatest ? 'ring-1 ring-white/30 shadow-sm' : '';
+    return `<span class="inline-flex whitespace-nowrap px-2.5 py-1 rounded-lg border bg-gradient-to-r ${meta.className} ${latestClass} text-[9px] font-black uppercase">${escapeHtml(meta.label)}${isLatest ? ' latest' : ''}</span>`;
+}
+
+function renderAgentPackageList(packages = []) {
+    if (!packages.length) {
+        return '<div class="p-4 rounded-xl bg-slate-900/70 border border-slate-700 text-xs font-bold text-slate-300">No packages uploaded yet.</div>';
+    }
+    return agentPackagePlatforms.map(([platform]) => {
+        const meta = agentPlatformMeta(platform);
+        const items = packages.filter(pkg => normalizeAgentPlatform(pkg.platform) === platform);
+        const body = items.map(pkg => `
+            <div class="p-4 rounded-2xl border border-slate-700/80 bg-slate-950/70 hover:bg-slate-900/90 transition-colors">
+                <div class="flex items-center justify-between gap-3">
+                    <div class="min-w-0">
+                        <div class="flex flex-wrap items-center gap-2">
+                            <div class="font-black text-slate-50 text-sm truncate">${escapeHtml(pkg.version)}</div>
+                            ${agentPlatformBadge(pkg.platform, Boolean(pkg.is_latest_for_platform))}
+                        </div>
+                        <div class="text-[10px] font-bold text-slate-400 uppercase mt-1">${Math.round((pkg.size || 0) / 1024 / 1024 * 10) / 10} MB / ${escapeHtml(pkg.original_filename || 'package')}</div>
+                    </div>
+                    <div class="flex items-center gap-2 shrink-0">
+                        <button onclick="navigator.clipboard.writeText('${escapeHtml(pkg.sha256)}')" class="px-3 py-1.5 rounded-xl bg-slate-800 border border-slate-600 text-[9px] font-black uppercase text-slate-200 hover:text-cyan-200 hover:border-cyan-400/60">SHA</button>
+                        ${window.WinhubIsAdmin ? `<button onclick="deleteAgentPackage('${escapeHtml(pkg.id)}', '${escapeHtml(pkg.version)}')" class="px-3 py-1.5 rounded-xl bg-rose-950/70 border border-rose-500/35 text-[9px] font-black uppercase text-rose-200 hover:bg-rose-900/80">Delete</button>` : ''}
+                    </div>
+                </div>
+                <div class="mt-2 text-[10px] font-mono text-slate-500 break-all">${escapeHtml(pkg.sha256 || '')}</div>
+            </div>
+        `).join('');
+        return `<div class="rounded-2xl border border-slate-700/80 bg-gradient-to-br ${meta.className} p-3 space-y-2">
+            <div class="flex items-center justify-between">
+                <div class="text-[10px] font-black uppercase tracking-widest">${escapeHtml(meta.label)} packages</div>
+                <div class="text-[10px] font-black uppercase opacity-70">${items.length}</div>
+            </div>
+            ${body || '<div class="p-3 rounded-xl bg-slate-950/45 border border-white/10 text-[10px] font-black uppercase opacity-70">No package for this OS</div>'}
+        </div>`;
+    }).join('');
+}
 
 function renderFleetStatusTabs(status = 'all') {
     document.querySelectorAll('.fleet-status-tab').forEach(btn => {
@@ -2547,6 +2621,7 @@ async function loadFleetCenter(page = fleetPagination.page || 1) {
         if (!res.ok || !data.success) throw new Error(data.message || 'Fleet load failed');
         fleetCenterData = data;
         fleetPagination = data.pagination || fleetPagination;
+        renderAgentLatestVersions(data.latest_versions || {});
         renderFleetPagination();
         renderFleetCenter();
     } catch(e) {
@@ -2699,25 +2774,11 @@ function renderFleetCenter() {
     updateFleetSelectedCount();
 
     if (packagesBox) {
-        packagesBox.innerHTML = (fleetCenterData.packages || []).map(pkg => `
-            <div class="p-4 rounded-2xl border border-slate-200 bg-slate-50">
-                <div class="flex items-center justify-between gap-3">
-                    <div class="min-w-0">
-                        <div class="font-black text-slate-800 text-sm truncate">${escapeHtml(pkg.version)}</div>
-                        <div class="text-[10px] font-bold text-slate-400 uppercase mt-1">${escapeHtml(pkg.platform || 'unknown')} / ${Math.round((pkg.size || 0) / 1024 / 1024 * 10) / 10} MB</div>
-                    </div>
-                    <div class="flex items-center gap-2 shrink-0">
-                        <button onclick="navigator.clipboard.writeText('${escapeHtml(pkg.sha256)}')" class="px-3 py-1.5 rounded-xl bg-white border border-slate-200 text-[9px] font-black uppercase text-slate-500 hover:text-indigo-600">SHA</button>
-                        ${window.WinhubIsAdmin ? `<button onclick="deleteAgentPackage('${escapeHtml(pkg.id)}', '${escapeHtml(pkg.version)}')" class="px-3 py-1.5 rounded-xl bg-white border border-rose-100 text-[9px] font-black uppercase text-rose-500 hover:bg-rose-50">Delete</button>` : ''}
-                    </div>
-                </div>
-                <div class="mt-2 text-[10px] font-mono text-slate-500 break-all">${escapeHtml(pkg.sha256 || '')}</div>
-            </div>
-        `).join('') || '<div class="p-4 rounded-xl bg-slate-50 text-xs font-bold text-slate-400">No packages uploaded yet.</div>';
+        packagesBox.innerHTML = renderAgentPackageList(fleetCenterData.packages || []);
     }
     if (packageSelect) {
         packageSelect.innerHTML = (fleetCenterData.packages || []).map(pkg =>
-            `<option value="${escapeHtml(pkg.id)}">${escapeHtml(pkg.version)} / ${escapeHtml(pkg.platform || 'unknown')} (${escapeHtml(pkg.original_filename || 'package')})</option>`
+            `<option value="${escapeHtml(pkg.id)}">${escapeHtml(pkg.version)} / ${escapeHtml(pkg.platform_label || pkg.platform || 'unknown')}${pkg.is_latest_for_platform ? ' / latest' : ''} (${escapeHtml(pkg.original_filename || 'package')})</option>`
         ).join('') || '<option value="">No packages available</option>';
     }
 }

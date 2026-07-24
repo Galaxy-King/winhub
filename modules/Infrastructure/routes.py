@@ -45,6 +45,13 @@ AGENT_PACKAGES_FILE = os.path.join(Config.DATA_DIR, "infra_agent_packages.json")
 AGENT_PACKAGES_DIR = os.path.join(Config.DATA_DIR, "agent_packages")
 SOFTWARE_PACKAGES_FILE = os.path.join(Config.DATA_DIR, "infra_software_packages.json")
 SOFTWARE_PACKAGES_DIR = os.path.join(Config.DATA_DIR, "software_packages")
+AGENT_PACKAGE_PLATFORMS = ("windows", "linux", "macos")
+AGENT_PACKAGE_PLATFORM_LABELS = {
+    "windows": "Windows",
+    "linux": "Linux",
+    "macos": "macOS",
+    "unknown": "Unknown",
+}
 
 # Глобальні змінні для фонового потоку автовідправки
 auto_thread_started = False
@@ -464,18 +471,33 @@ def find_agent_package(package_id):
 
 def detect_agent_package_platform(filename):
     value = str(filename or "").lower()
+    if any(marker in value for marker in ("macos", "darwin", "osx", "os-x", "mac-x64", "mac-arm64", "apple")):
+        return "macos"
     if "linux" in value or value.endswith(".tar.gz") or value.endswith(".tgz"):
         return "linux"
-    if "win" in value or value.endswith(".zip"):
+    if "windows" in value or "-win" in value or "_win" in value or "win-x64" in value or "win-arm64" in value or value.endswith(".zip"):
         return "windows"
     return "unknown"
 
 def endpoint_agent_platform(endpoint):
     os_type = str(getattr(endpoint, "os_type", "") or "").lower()
     os_version = str(getattr(endpoint, "os_version", "") or "").lower()
+    combined = f"{os_type} {os_version}"
+    if any(marker in combined for marker in ("macos", "mac os", "darwin", "osx", "os x")):
+        return "macos"
     if "linux" in os_type or "debian" in os_version or "ubuntu" in os_version:
         return "linux"
     return "windows"
+
+def agent_version_sort_key(version):
+    value = re.sub(r"^[^\d]+", "", str(version or "").lower())
+    parts = []
+    for part in re.findall(r"\d+|[a-zA-Z]+", value):
+        if part.isdigit():
+            parts.append((1, int(part)))
+        else:
+            parts.append((0, part))
+    return tuple(parts)
 
 def find_agent_package_for_platform(version, platform):
     version = str(version or "").strip()
@@ -526,27 +548,33 @@ def resolved_agent_package_update_url(package_id, preferred_url=""):
     return usable_agent_package_url(preferred_url) or agent_package_update_url(package_id)
 
 def latest_agent_package_versions_by_platform():
-    versions = {}
+    latest = {}
     for package in load_agent_packages():
         platform = str(package.get("platform") or detect_agent_package_platform(package.get("original_filename") or package.get("filename") or "")).lower()
         version = str(package.get("version") or "").strip()
-        if platform and version and platform not in versions:
-            versions[platform] = version
-    return versions
+        if platform not in AGENT_PACKAGE_PLATFORMS or not version:
+            continue
+        current = latest.get(platform)
+        if not current or agent_version_sort_key(version) > agent_version_sort_key(current):
+            latest[platform] = version
+    return latest
 
 
 def latest_agent_package_version(platform=None):
     platform = str(platform or "").strip().lower()
     if platform:
-        return latest_agent_package_versions_by_platform().get(platform, Config.LATEST_AGENT_VERSION)
+        return latest_agent_package_versions_by_platform().get(platform, "")
     packages = load_agent_packages()
-    return packages[0].get("version", "") if packages else Config.LATEST_AGENT_VERSION
+    versions = [str(package.get("version") or "").strip() for package in packages if str(package.get("version") or "").strip()]
+    if versions:
+        return max(versions, key=agent_version_sort_key)
+    return Config.LATEST_AGENT_VERSION
 
 
 def latest_version_for_endpoint(endpoint, latest_versions=None):
     latest_versions = latest_versions or latest_agent_package_versions_by_platform()
     platform = endpoint_agent_platform(endpoint)
-    return latest_versions.get(platform) or Config.LATEST_AGENT_VERSION
+    return latest_versions.get(platform) or ""
 
 
 def endpoint_platform_clause(platform):
@@ -555,21 +583,41 @@ def endpoint_platform_clause(platform):
         Endpoint.os_version.ilike("%debian%"),
         Endpoint.os_version.ilike("%ubuntu%"),
     )
-    return linux_clause if platform == "linux" else ~linux_clause
+    macos_clause = or_(
+        Endpoint.os_type.ilike("%mac%"),
+        Endpoint.os_type.ilike("%darwin%"),
+        Endpoint.os_version.ilike("%mac%"),
+        Endpoint.os_version.ilike("%darwin%"),
+        Endpoint.os_version.ilike("%os x%"),
+    )
+    if platform == "linux":
+        return linux_clause
+    if platform == "macos":
+        return macos_clause
+    return and_(~linux_clause, ~macos_clause)
 
 
 def platform_agent_version_clauses(latest_versions, current=False):
     clauses = []
-    for platform in ("windows", "linux"):
+    for platform in AGENT_PACKAGE_PLATFORMS:
         latest = latest_versions.get(platform)
         if not latest:
             continue
         version_clause = Endpoint.agent_version == latest if current else or_(Endpoint.agent_version.is_(None), Endpoint.agent_version != latest)
         clauses.append(and_(endpoint_platform_clause(platform), version_clause))
-    if not clauses and Config.LATEST_AGENT_VERSION:
-        version_clause = Endpoint.agent_version == Config.LATEST_AGENT_VERSION if current else or_(Endpoint.agent_version.is_(None), Endpoint.agent_version != Config.LATEST_AGENT_VERSION)
-        clauses.append(version_clause)
     return clauses
+
+
+def agent_package_response(package, latest_versions=None):
+    item = dict(package or {})
+    platform = str(item.get("platform") or detect_agent_package_platform(item.get("original_filename") or item.get("filename") or "")).lower()
+    item["platform"] = platform
+    item["platform_label"] = AGENT_PACKAGE_PLATFORM_LABELS.get(platform, "Unknown")
+    latest_versions = latest_versions or latest_agent_package_versions_by_platform()
+    item["is_latest_for_platform"] = bool(item.get("version") and latest_versions.get(platform) == str(item.get("version") or "").strip())
+    if item.get("id"):
+        item["download_url"] = agent_package_public_url(item["id"])
+    return item
 
 def load_software_packages():
     if not os.path.exists(SOFTWARE_PACKAGES_FILE):
@@ -2004,6 +2052,10 @@ def index():
         latest = latest_version_for_endpoint(agent, latest_versions)
         return bool(latest and (getattr(agent, "agent_version", "") or "") == latest)
 
+    def is_agent_outdated(agent):
+        latest = latest_version_for_endpoint(agent, latest_versions)
+        return bool(latest and (getattr(agent, "agent_version", "") or "") != latest)
+
     stats = {
         'total': len(agents),
         'online': sum(1 for a in agents if a.last_seen and a.last_seen >= online_threshold),
@@ -2012,7 +2064,7 @@ def index():
         'pending': sum(1 for a in agents if getattr(a, "approval_status", "Approved") == "Pending"),
         'rejected': sum(1 for a in agents if getattr(a, "approval_status", "Approved") == "Rejected"),
         'current': sum(1 for a in agents if is_agent_current(a)),
-        'outdated': sum(1 for a in agents if not is_agent_current(a)),
+        'outdated': sum(1 for a in agents if is_agent_outdated(a)),
         'signed': sum(1 for a in agents if bool(getattr(a, "agent_identity_key_enrolled", False))),
     }
     
@@ -2020,7 +2072,7 @@ def index():
         a.is_online = (a.last_seen and a.last_seen >= online_threshold)
         a.last_seen_str = to_kyiv_time(a.last_seen)
         a.last_enrollment_str = to_kyiv_time(getattr(a, "last_enrollment_at", None))
-        a.agent_outdated = not is_agent_current(a)
+        a.agent_outdated = is_agent_outdated(a)
         if not hasattr(a, "encryption"):
             a.encryption = endpoint_encryption_payload(a)
 
@@ -2034,7 +2086,7 @@ def index():
         "is_blocked": bool(a.is_blocked),
         "approval_status": getattr(a, 'approval_status', 'Approved'),
         "agent_version": getattr(a, 'agent_version', '') or '',
-        "agent_outdated": not is_agent_current(a),
+        "agent_outdated": is_agent_outdated(a),
         "agent_identity_key_enrolled": bool(getattr(a, "agent_identity_key_enrolled", False)),
         "is_online": bool(a.last_seen and a.last_seen >= online_threshold),
         "last_seen": to_kyiv_time_short(a.last_seen),
@@ -2153,6 +2205,9 @@ def index():
                            rejected_agents=rejected_agents,
                            approved_duplicate_pairs=approved_duplicate_pairs,
                            scheduled_tasks=scheduled_tasks, trigger_rules=trigger_rules, stats=stats,
+                           latest_agent_versions=latest_versions,
+                           agent_package_platforms=AGENT_PACKAGE_PLATFORMS,
+                           agent_package_platform_labels=AGENT_PACKAGE_PLATFORM_LABELS,
                            username=session.get('username'), is_admin=is_admin, permissions=permissions)
 
 
@@ -2996,10 +3051,9 @@ def agent_packages():
     if request.method == "GET":
         denied = require_permission("view_hosts")
         if denied: return denied
-        packages = load_agent_packages()
-        for package in packages:
-            package["download_url"] = agent_package_public_url(package["id"])
-        return jsonify({"success": True, "packages": packages})
+        latest_versions = latest_agent_package_versions_by_platform()
+        packages = [agent_package_response(package, latest_versions) for package in load_agent_packages()]
+        return jsonify({"success": True, "packages": packages, "latest_versions": latest_versions})
 
     denied = require_superadmin()
     if denied: return denied
@@ -3016,7 +3070,7 @@ def agent_packages():
         base_name = secure_filename(upload.filename) or f"WinHUBAgent-{version}.zip"
         platform = detect_agent_package_platform(base_name)
         if platform == "unknown":
-            return jsonify({"success": False, "message": "Package platform could not be detected. Use a win-x64 .zip or linux-x64 .tar.gz agent package name."}), 400
+            return jsonify({"success": False, "message": "Package platform could not be detected. Use win-x64, linux-x64, or macos/darwin in the agent package name."}), 400
         filename = f"{package_id}_{base_name}"
         path = os.path.join(AGENT_PACKAGES_DIR, filename)
 
@@ -3046,7 +3100,8 @@ def agent_packages():
         }
         packages.insert(0, record)
         save_agent_packages(packages[:50])
-        record["download_url"] = agent_package_public_url(package_id)
+        latest_versions = latest_agent_package_versions_by_platform()
+        record = agent_package_response(record, latest_versions)
         write_infra_audit("Agent Package Upload", "agent_package", package_id, {"version": version, "platform": platform, "sha256": record["sha256"], "size": size})
         db.session.commit()
         return jsonify({"success": True, "package": record})
@@ -3951,10 +4006,10 @@ def fleet_center():
     has_key_expr = or_(Endpoint.public_key_pem_plain.isnot(None), Endpoint.public_key_pem.isnot(None))
     outdated_clauses = platform_agent_version_clauses(latest_versions, current=False)
     current_clauses = platform_agent_version_clauses(latest_versions, current=True)
-    if status_filter == "outdated" and outdated_clauses:
-        query = query.filter(or_(*outdated_clauses))
-    elif status_filter == "current" and current_clauses:
-        query = query.filter(or_(*current_clauses))
+    if status_filter == "outdated":
+        query = query.filter(or_(*outdated_clauses) if outdated_clauses else Endpoint.id == "__no_agent_package_latest__")
+    elif status_filter == "current":
+        query = query.filter(or_(*current_clauses) if current_clauses else Endpoint.id == "__no_agent_package_latest__")
     elif status_filter == "offline":
         query = query.filter(or_(Endpoint.last_seen.is_(None), Endpoint.last_seen < online_since))
     elif status_filter == "unsigned":
@@ -4009,9 +4064,7 @@ def fleet_center():
             "encryption": getattr(endpoint, "encryption", endpoint_encryption_payload(endpoint)),
         })
 
-    packages = load_agent_packages()
-    for package in packages:
-        package["download_url"] = agent_package_public_url(package["id"])
+    packages = [agent_package_response(package, latest_versions) for package in load_agent_packages()]
 
     return jsonify({
         "success": True,
@@ -4037,13 +4090,14 @@ def run_fleet_update():
     package = find_agent_package(str(data.get("package_id") or ""))
     if not package:
         return jsonify({"success": False, "message": "Agent package not found"}), 404
-    package["download_url"] = agent_package_public_url(package["id"])
+    package = agent_package_response(package)
     package["update_url"] = resolved_agent_package_update_url(package["id"])
 
     target_mode = str(data.get("target_mode") or "outdated")
     allowed = [h for h in WinHubCore.get_allowed_hosts(session.get("user_id")) if getattr(h, "approval_status", "Approved") == "Approved"]
     allowed_by_id = {h.id: h for h in allowed if WinHubCore.can_manage_host(session.get("user_id"), h.id)}
     latest_version = package.get("version")
+    selected_platform = str(package.get("platform") or "").lower()
 
     if target_mode == "selected":
         target_ids = [str(item) for item in (data.get("target_ids") or []) if str(item) in allowed_by_id]
@@ -4054,7 +4108,11 @@ def run_fleet_update():
     else:
         target_ids = [
             host_id for host_id, host in allowed_by_id.items()
-            if latest_version and (getattr(host, "agent_version", "") or "") != latest_version
+            if (
+                latest_version
+                and endpoint_agent_platform(host) == selected_platform
+                and (getattr(host, "agent_version", "") or "") != latest_version
+            )
         ]
 
     target_ids = list(dict.fromkeys(target_ids))

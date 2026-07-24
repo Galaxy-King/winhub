@@ -7,9 +7,20 @@
                     <h3 class="text-lg font-black text-white uppercase tracking-tight">Nodes</h3>
                     <p class="text-xs font-bold text-white/70 mt-1">Approved hosts, health, agent versions and controlled rollout waves.</p>
                 </div>
-                <div class="flex flex-wrap gap-2">
-                    <button id="packageRegistryToggleBtn" onclick="togglePackageRegistry()" class="px-4 py-2.5 rounded-xl bg-white/15 hover:bg-white/25 text-white text-[10px] font-black uppercase border border-white/20 transition-all">Package Registry</button>
-                    <button onclick="loadFleetCenter()" class="px-4 py-2.5 rounded-xl bg-white/15 hover:bg-white/25 text-white text-[10px] font-black uppercase border border-white/20 transition-all">Refresh</button>
+                <div class="flex flex-col lg:items-end gap-3">
+                    <div id="agentLatestVersionCards" class="flex flex-wrap gap-2">
+                        {% for platform in agent_package_platforms %}
+                        {% set latest_version = latest_agent_versions.get(platform) %}
+                        <div class="agent-latest-card px-3 py-2 rounded-xl border bg-white/10 text-white shadow-sm" data-platform="{{ platform }}">
+                            <div class="text-[9px] font-black uppercase tracking-widest text-white/65">{{ agent_package_platform_labels.get(platform, platform) }}</div>
+                            <div class="mt-0.5 text-sm font-black">{{ latest_version or 'No package' }}</div>
+                        </div>
+                        {% endfor %}
+                    </div>
+                    <div class="flex flex-wrap gap-2">
+                        <button id="packageRegistryToggleBtn" onclick="togglePackageRegistry()" class="px-4 py-2.5 rounded-xl bg-white/15 hover:bg-white/25 text-white text-[10px] font-black uppercase border border-white/20 transition-all">Package Registry</button>
+                        <button onclick="loadFleetCenter()" class="px-4 py-2.5 rounded-xl bg-white/15 hover:bg-white/25 text-white text-[10px] font-black uppercase border border-white/20 transition-all">Refresh</button>
+                    </div>
                 </div>
             </div>
             <div class="p-5 border-b border-slate-200 bg-slate-50/70 space-y-3">
@@ -83,7 +94,7 @@
                 <div class="flex items-start justify-between gap-4">
                     <div>
                         <h3 class="text-sm font-black text-slate-800 uppercase">Package Registry</h3>
-                        <p class="text-xs font-bold text-slate-400 mt-1">Upload signed/tested Windows ZIP or Linux TAR.GZ agent packages.</p>
+                    <p class="text-xs font-bold text-slate-400 mt-1">Upload signed/tested Windows, Linux, or macOS agent packages. Latest is tracked separately per OS.</p>
                     </div>
                     <button onclick="closePackageRegistry()" class="p-2 rounded-xl bg-slate-50 border border-slate-200 text-slate-500 hover:text-rose-600 hover:bg-rose-50 transition-all" aria-label="Close Package Registry">
                         <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18" stroke-width="2.5" stroke-linecap="round"/></svg>
@@ -93,7 +104,7 @@
                 <form id="agentPackageForm" class="space-y-3" onsubmit="uploadAgentPackage(event)">
                     <input id="agentPackageVersion" name="version" placeholder="Version, e.g. 1.2.6" class="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl text-xs font-bold outline-none focus:ring-4 focus:ring-indigo-500/10">
                     <textarea id="agentPackageNotes" name="notes" placeholder="Release notes..." class="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl text-xs font-bold outline-none focus:ring-4 focus:ring-indigo-500/10 min-h-[84px]"></textarea>
-                    <input id="agentPackageFile" name="file" type="file" accept=".zip,.tar.gz,.tgz,application/zip,application/gzip,application/x-gzip" class="w-full text-xs font-bold text-slate-500">
+                    <input id="agentPackageFile" name="file" type="file" accept=".zip,.tar.gz,.tgz,.pkg,.dmg,application/zip,application/gzip,application/x-gzip" class="w-full text-xs font-bold text-slate-500">
                     <div id="agentPackageProgressWrap" class="hidden h-3 bg-slate-100 rounded-full overflow-hidden border border-slate-200">
                         <div id="agentPackageProgressBar" class="h-full bg-indigo-600 rounded-full transition-all" style="width: 0%"></div>
                     </div>
