@@ -100,6 +100,7 @@ ENDPOINT_LIST_COLUMNS = (
     Endpoint.enrollment_attempts,
     Endpoint.identity_fingerprint,
     Endpoint.identity_warning,
+    Endpoint.identity_duplicate_allowed,
     Endpoint.reenroll_allowed_until,
     Endpoint.last_seen,
     Endpoint.is_blocked,
@@ -153,6 +154,25 @@ def duplicate_exception_pairs(endpoint_ids):
         for row in rows
         if endpoint_pair_key(row.endpoint_a_id, row.endpoint_b_id)
     }
+
+
+def endpoint_duplicate_pair_accepted(left, right, ignored_pairs=None):
+    pair_key = endpoint_pair_key(getattr(left, "id", None), getattr(right, "id", None))
+    if pair_key and ignored_pairs and pair_key in ignored_pairs:
+        return True
+    if bool(getattr(left, "identity_duplicate_allowed", False)) and bool(getattr(right, "identity_duplicate_allowed", False)):
+        return True
+
+    left_status = getattr(left, "approval_status", "Approved") or "Approved"
+    right_status = getattr(right, "approval_status", "Approved") or "Approved"
+    left_hostname = str(getattr(left, "hostname", "") or "").strip().upper()
+    right_hostname = str(getattr(right, "hostname", "") or "").strip().upper()
+    if left_status == "Approved" and right_status == "Approved" and left_hostname and left_hostname == right_hostname:
+        left_alias = str(getattr(left, "display_name", "") or "").strip().upper()
+        right_alias = str(getattr(right, "display_name", "") or "").strip().upper()
+        if (left_alias and left_alias != left_hostname) or (right_alias and right_alias != right_hostname):
+            return True
+    return False
 
 
 def attach_endpoint_list_flags(endpoints):
@@ -1289,7 +1309,7 @@ def annotate_endpoint_duplicates(agents):
 
         matches = []
         for approved_agent in candidates:
-            if endpoint_pair_key(agent.id, approved_agent.id) in ignored_pairs:
+            if endpoint_duplicate_pair_accepted(agent, approved_agent, ignored_pairs):
                 continue
             approved_signals = signals_by_id.get(approved_agent.id, {})
             approved_fingerprints = approved_signals.get("fingerprints", set())
@@ -2041,7 +2061,10 @@ def index():
         duplicate_agent = approved_by_hostname.get(hostname_key)
         if duplicate_agent:
             pair_key = tuple(sorted([agent.id, duplicate_agent.id]))
-            if pair_key in seen_duplicate_pairs or pair_key in ignored_duplicate_pairs:
+            if (
+                pair_key in seen_duplicate_pairs
+                or endpoint_duplicate_pair_accepted(agent, duplicate_agent, ignored_duplicate_pairs)
+            ):
                 continue
             seen_duplicate_pairs.add(pair_key)
             approved_duplicate_pairs.append({
@@ -4741,7 +4764,7 @@ def host_operations(host_id):
     if reenroll_until and getattr(reenroll_until, "tzinfo", None):
         reenroll_until = reenroll_until.replace(tzinfo=None)
     active_reenroll_until = reenroll_until if reenroll_until and reenroll_until >= datetime.utcnow() else None
-    return jsonify({"success": True, "data": {"id": agent.id, "hostname": agent.hostname, "display_name": getattr(agent, "display_name", None) or "", "name": endpoint_display_name(agent), "os": agent.os_version, "ip": getattr(agent, "connection_ip", None) or agent.ip_address, "os_type": getattr(agent, 'os_type', 'Windows'), "last_seen": to_kyiv_time(agent.last_seen), "first_seen": to_kyiv_time(getattr(agent, "first_seen", None)), "last_enrollment_at": to_kyiv_time(getattr(agent, "last_enrollment_at", None)), "last_enrollment_ip": getattr(agent, "last_enrollment_ip", None), "enrollment_attempts": int(getattr(agent, "enrollment_attempts", 0) or 0), "identity_fingerprint": getattr(agent, "identity_fingerprint", None), "agent_identity_key_enrolled": bool(getattr(agent, "public_key_pem_plain", None) or getattr(agent, "public_key_pem", None)), "reenroll_allowed_until": to_kyiv_time(active_reenroll_until), "duplicate_matches": getattr(agent, "duplicate_matches", []), "identity_warning": getattr(agent, "identity_warning", None), "is_blocked": agent.is_blocked, "approval_status": getattr(agent, "approval_status", "Approved"), "agent_version": getattr(agent, "agent_version", None), "network_info": network_info, "host_info": host_info, "encryption": encryption_status_from_host_info(host_info), "groups": [{"id": g.id, "name": g.name} for g in agent.groups], "history": [{"id": h.id, "title": h.title, "status": h.status or "Pending", "date": to_kyiv_time_short(h.created_at), "by": h.created_by} for h in history]}})
+    return jsonify({"success": True, "data": {"id": agent.id, "hostname": agent.hostname, "display_name": getattr(agent, "display_name", None) or "", "name": endpoint_display_name(agent), "os": agent.os_version, "ip": getattr(agent, "connection_ip", None) or agent.ip_address, "os_type": getattr(agent, 'os_type', 'Windows'), "last_seen": to_kyiv_time(agent.last_seen), "first_seen": to_kyiv_time(getattr(agent, "first_seen", None)), "last_enrollment_at": to_kyiv_time(getattr(agent, "last_enrollment_at", None)), "last_enrollment_ip": getattr(agent, "last_enrollment_ip", None), "enrollment_attempts": int(getattr(agent, "enrollment_attempts", 0) or 0), "identity_fingerprint": getattr(agent, "identity_fingerprint", None), "identity_duplicate_allowed": bool(getattr(agent, "identity_duplicate_allowed", False)), "agent_identity_key_enrolled": bool(getattr(agent, "public_key_pem_plain", None) or getattr(agent, "public_key_pem", None)), "reenroll_allowed_until": to_kyiv_time(active_reenroll_until), "duplicate_matches": getattr(agent, "duplicate_matches", []), "identity_warning": getattr(agent, "identity_warning", None), "is_blocked": agent.is_blocked, "approval_status": getattr(agent, "approval_status", "Approved"), "agent_version": getattr(agent, "agent_version", None), "network_info": network_info, "host_info": host_info, "encryption": encryption_status_from_host_info(host_info), "groups": [{"id": g.id, "name": g.name} for g in agent.groups], "history": [{"id": h.id, "title": h.title, "status": h.status or "Pending", "date": to_kyiv_time_short(h.created_at), "by": h.created_by} for h in history]}})
 
 def build_activity_segments(host_id, telemetry_records, threshold, end_time, fallback_ip=""):
     records = sorted([r for r in telemetry_records if r.timestamp], key=lambda r: r.timestamp)
@@ -5110,7 +5133,11 @@ def create_duplicate_exception():
             created_by=session.get("username"),
         )
         db.session.add(existing)
-        db.session.commit()
+    left.identity_duplicate_allowed = True
+    right.identity_duplicate_allowed = True
+    left.identity_warning = None
+    right.identity_warning = None
+    db.session.commit()
 
     WinHubCore.audit(
         user_id=session.get("user_id"),

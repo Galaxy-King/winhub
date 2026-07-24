@@ -369,6 +369,8 @@ def ensure_endpoint_schema():
         statements.append("ALTER TABLE endpoints ADD COLUMN identity_fingerprint VARCHAR(64)")
     if "identity_warning" not in columns:
         statements.append("ALTER TABLE endpoints ADD COLUMN identity_warning VARCHAR(255)")
+    if "identity_duplicate_allowed" not in columns:
+        statements.append("ALTER TABLE endpoints ADD COLUMN identity_duplicate_allowed BOOLEAN DEFAULT FALSE")
     if "reenroll_allowed_until" not in columns:
         statements.append("ALTER TABLE endpoints ADD COLUMN reenroll_allowed_until TIMESTAMP")
 
@@ -381,6 +383,7 @@ def ensure_endpoint_schema():
         db.session.execute(text("UPDATE endpoints SET encryption_status = 'Unknown' WHERE encryption_status IS NULL OR encryption_status = ''"))
         db.session.execute(text("UPDATE endpoints SET encryption_level = 'unknown' WHERE encryption_level IS NULL OR encryption_level = ''"))
         db.session.execute(text("UPDATE endpoints SET encryption_methods = '' WHERE encryption_methods IS NULL"))
+        db.session.execute(text("UPDATE endpoints SET identity_duplicate_allowed = FALSE WHERE identity_duplicate_allowed IS NULL"))
     db.session.commit()
 
 def ensure_scheduler_schema():
