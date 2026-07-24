@@ -4647,6 +4647,14 @@ function updateVisibleHostLabels(hostId, name, hostname, displayName = '') {
         fleetHost.name = safeName;
         fleetHost.display_name = displayName || '';
         fleetHost.hostname = hostname || fleetHost.hostname;
+        if (displayName && hostname && String(displayName).trim().toUpperCase() !== String(hostname).trim().toUpperCase()) {
+            fleetHost.possible_duplicate = false;
+            fleetHost.duplicate_matches = [];
+            fleetHost.identity_warning = null;
+            if (fleetHost.health && Array.isArray(fleetHost.health.reasons)) {
+                fleetHost.health.reasons = fleetHost.health.reasons.filter(reason => reason !== 'identity_warning');
+            }
+        }
         renderFleetCenter();
     }
     const availableHost = availableHostsData.find(host => String(host.id) === String(hostId));

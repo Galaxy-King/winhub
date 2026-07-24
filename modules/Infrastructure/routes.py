@@ -182,12 +182,28 @@ def endpoint_duplicate_pair_accepted(left, right, ignored_pairs=None):
     return False
 
 
+def effective_endpoint_identity_warning(endpoint):
+    warning = getattr(endpoint, "identity_warning", None)
+    if not warning:
+        return None
+    if (getattr(endpoint, "approval_status", "Approved") or "Approved") != "Approved":
+        return warning
+    if bool(getattr(endpoint, "identity_duplicate_allowed", False)):
+        return None
+    hostname = str(getattr(endpoint, "hostname", "") or "").strip().upper()
+    display_name = str(getattr(endpoint, "display_name", "") or "").strip().upper()
+    if hostname and display_name and display_name != hostname:
+        return None
+    return warning
+
+
 def attach_endpoint_list_flags(endpoints):
     key_map = endpoint_has_public_key_map([endpoint.id for endpoint in endpoints])
     for endpoint in endpoints:
         endpoint.agent_identity_key_enrolled = key_map.get(endpoint.id, False)
         endpoint.encryption = endpoint_encryption_payload(endpoint)
-        endpoint.possible_duplicate = bool(getattr(endpoint, "identity_warning", None))
+        endpoint.effective_identity_warning = effective_endpoint_identity_warning(endpoint)
+        endpoint.possible_duplicate = bool(endpoint.effective_identity_warning)
         endpoint.duplicate_matches = []
     return endpoints
 
@@ -1089,6 +1105,7 @@ def infra_live_state():
         Endpoint.last_seen,
         Endpoint.is_blocked,
         Endpoint.identity_warning,
+        Endpoint.identity_duplicate_allowed,
     ).filter(Endpoint.id.in_(allowed_host_ids)).all()
 
     endpoint_parts = []
@@ -1098,6 +1115,7 @@ def infra_live_state():
     online_since = datetime.utcnow() - timedelta(minutes=5)
     for endpoint in endpoint_rows:
         is_online = bool(endpoint.last_seen and endpoint.last_seen >= online_since)
+        identity_warning = effective_endpoint_identity_warning(endpoint)
         endpoint_parts.append(row_revision(
             endpoint.id,
             endpoint.hostname,
@@ -1107,12 +1125,12 @@ def infra_live_state():
             bool(endpoint.has_public_key),
             is_online,
             endpoint.is_blocked,
-            endpoint.identity_warning,
+            identity_warning,
         ))
         if endpoint.last_seen and (latest_endpoint is None or endpoint.last_seen > latest_endpoint):
             latest_endpoint = endpoint.last_seen
         approval = endpoint.approval_status or "Approved"
-        if approval != "Approved" or endpoint.identity_warning:
+        if approval != "Approved" or identity_warning:
             review_count += 1
             review_parts.append(endpoint_parts[-1])
 
@@ -1236,7 +1254,7 @@ def endpoint_health_score(endpoint, latest_version=None):
     if getattr(endpoint, "approval_status", "Approved") != "Approved":
         score -= 25
         reasons.append("not_approved")
-    if getattr(endpoint, "identity_warning", None):
+    if effective_endpoint_identity_warning(endpoint):
         score -= 15
         reasons.append("identity_warning")
 
@@ -4004,6 +4022,15 @@ def fleet_center():
         query = query.filter(~Endpoint.groups.any())
 
     has_key_expr = or_(Endpoint.public_key_pem_plain.isnot(None), Endpoint.public_key_pem.isnot(None))
+    active_identity_warning_expr = and_(
+        Endpoint.identity_warning.isnot(None),
+        or_(Endpoint.identity_duplicate_allowed.is_(False), Endpoint.identity_duplicate_allowed.is_(None)),
+        or_(
+            Endpoint.display_name.is_(None),
+            Endpoint.display_name == "",
+            func.upper(Endpoint.display_name) == func.upper(Endpoint.hostname),
+        ),
+    )
     outdated_clauses = platform_agent_version_clauses(latest_versions, current=False)
     current_clauses = platform_agent_version_clauses(latest_versions, current=True)
     if status_filter == "outdated":
@@ -4020,7 +4047,7 @@ def fleet_center():
             Endpoint.last_seen < online_since,
             ~has_key_expr,
             Endpoint.is_blocked.is_(True),
-            Endpoint.identity_warning.isnot(None),
+            active_identity_warning_expr,
         ]
         warning_clauses.extend(outdated_clauses)
         query = query.filter(or_(*warning_clauses))
@@ -4058,6 +4085,7 @@ def fleet_center():
             "identity_fingerprint": getattr(endpoint, "identity_fingerprint", "") or "",
             "possible_duplicate": bool(getattr(endpoint, "possible_duplicate", False)),
             "duplicate_matches": getattr(endpoint, "duplicate_matches", []),
+            "identity_warning": effective_endpoint_identity_warning(endpoint),
             "last_seen": to_kyiv_time_short(endpoint.last_seen),
             "groups": [{"id": group.id, "name": group.name} for group in endpoint.groups],
             "health": health,
@@ -4786,6 +4814,8 @@ def host_operations(host_id):
         if len(display_name) > 120:
             return jsonify({"success": False, "message": "Display Name must be 120 characters or less"}), 400
         agent.display_name = display_name or None
+        if not effective_endpoint_identity_warning(agent):
+            agent.identity_warning = None
         write_infra_audit(
             "Update Endpoint Display Name",
             "endpoint",
@@ -4798,6 +4828,8 @@ def host_operations(host_id):
             "display_name": agent.display_name or "",
             "name": endpoint_display_name(agent),
             "hostname": agent.hostname or agent.id,
+            "identity_warning": effective_endpoint_identity_warning(agent),
+            "possible_duplicate": bool(effective_endpoint_identity_warning(agent)),
         })
     denied = require_permission("view_hosts")
     if denied: return denied
@@ -4822,7 +4854,46 @@ def host_operations(host_id):
     if reenroll_until and getattr(reenroll_until, "tzinfo", None):
         reenroll_until = reenroll_until.replace(tzinfo=None)
     active_reenroll_until = reenroll_until if reenroll_until and reenroll_until >= datetime.utcnow() else None
-    return jsonify({"success": True, "data": {"id": agent.id, "hostname": agent.hostname, "display_name": getattr(agent, "display_name", None) or "", "name": endpoint_display_name(agent), "os": agent.os_version, "ip": getattr(agent, "connection_ip", None) or agent.ip_address, "os_type": getattr(agent, 'os_type', 'Windows'), "last_seen": to_kyiv_time(agent.last_seen), "first_seen": to_kyiv_time(getattr(agent, "first_seen", None)), "last_enrollment_at": to_kyiv_time(getattr(agent, "last_enrollment_at", None)), "last_enrollment_ip": getattr(agent, "last_enrollment_ip", None), "enrollment_attempts": int(getattr(agent, "enrollment_attempts", 0) or 0), "identity_fingerprint": getattr(agent, "identity_fingerprint", None), "identity_duplicate_allowed": bool(getattr(agent, "identity_duplicate_allowed", False)), "agent_identity_key_enrolled": bool(getattr(agent, "public_key_pem_plain", None) or getattr(agent, "public_key_pem", None)), "reenroll_allowed_until": to_kyiv_time(active_reenroll_until), "duplicate_matches": getattr(agent, "duplicate_matches", []), "identity_warning": getattr(agent, "identity_warning", None), "is_blocked": agent.is_blocked, "approval_status": getattr(agent, "approval_status", "Approved"), "agent_version": getattr(agent, "agent_version", None), "network_info": network_info, "host_info": host_info, "encryption": encryption_status_from_host_info(host_info), "groups": [{"id": g.id, "name": g.name} for g in agent.groups], "history": [{"id": h.id, "title": h.title, "status": h.status or "Pending", "date": to_kyiv_time_short(h.created_at), "by": h.created_by} for h in history]}})
+    return jsonify({
+        "success": True,
+        "data": {
+            "id": agent.id,
+            "hostname": agent.hostname,
+            "display_name": getattr(agent, "display_name", None) or "",
+            "name": endpoint_display_name(agent),
+            "os": agent.os_version,
+            "ip": getattr(agent, "connection_ip", None) or agent.ip_address,
+            "os_type": getattr(agent, 'os_type', 'Windows'),
+            "last_seen": to_kyiv_time(agent.last_seen),
+            "first_seen": to_kyiv_time(getattr(agent, "first_seen", None)),
+            "last_enrollment_at": to_kyiv_time(getattr(agent, "last_enrollment_at", None)),
+            "last_enrollment_ip": getattr(agent, "last_enrollment_ip", None),
+            "enrollment_attempts": int(getattr(agent, "enrollment_attempts", 0) or 0),
+            "identity_fingerprint": getattr(agent, "identity_fingerprint", None),
+            "identity_duplicate_allowed": bool(getattr(agent, "identity_duplicate_allowed", False)),
+            "agent_identity_key_enrolled": bool(getattr(agent, "public_key_pem_plain", None) or getattr(agent, "public_key_pem", None)),
+            "reenroll_allowed_until": to_kyiv_time(active_reenroll_until),
+            "duplicate_matches": getattr(agent, "duplicate_matches", []),
+            "identity_warning": effective_endpoint_identity_warning(agent),
+            "is_blocked": agent.is_blocked,
+            "approval_status": getattr(agent, "approval_status", "Approved"),
+            "agent_version": getattr(agent, "agent_version", None),
+            "network_info": network_info,
+            "host_info": host_info,
+            "encryption": encryption_status_from_host_info(host_info),
+            "groups": [{"id": g.id, "name": g.name} for g in agent.groups],
+            "history": [
+                {
+                    "id": h.id,
+                    "title": h.title,
+                    "status": h.status or "Pending",
+                    "date": to_kyiv_time_short(h.created_at),
+                    "by": h.created_by,
+                }
+                for h in history
+            ],
+        },
+    })
 
 def build_activity_segments(host_id, telemetry_records, threshold, end_time, fallback_ip=""):
     records = sorted([r for r in telemetry_records if r.timestamp], key=lambda r: r.timestamp)
