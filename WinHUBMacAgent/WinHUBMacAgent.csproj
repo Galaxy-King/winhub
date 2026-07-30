@@ -5,29 +5,26 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <PublishAot>true</PublishAot>
     <InvariantGlobalization>false</InvariantGlobalization>
-    <AssemblyName>WinHUBLinuxAgent</AssemblyName>
-    <RootNamespace>WinHUBLinuxAgent</RootNamespace>
-    <DefaultItemExcludes>$(DefaultItemExcludes);dist-agent/**;bin/**;obj/**</DefaultItemExcludes>
+    <AssemblyName>WinHUBMacAgent</AssemblyName>
+    <RootNamespace>WinHUBMacAgent</RootNamespace>
+    <RuntimeIdentifier>osx-arm64</RuntimeIdentifier>
+    <SelfContained>true</SelfContained>
   </PropertyGroup>
-
   <ItemGroup>
-    <None Remove="dist-agent/**" />
-    <PackageReference Include="Microsoft.Extensions.Hosting.Systemd" Version="8.0.0" />
+    <Compile Include="../WinHUBLinuxAgent/Worker.cs" Link="Worker.cs" />
+    <PackageReference Include="Microsoft.Extensions.Hosting" Version="8.0.0" />
     <PackageReference Include="System.Text.Json" Version="8.0.6" />
   </ItemGroup>
-
   <ItemGroup>
     <AgentDeployFile Include="winhub_agent.conf.example" />
     <AgentDeployFile Include="winhub_agent.bootstrap.conf.example" />
-    <AgentDeployFile Include="winhub-linux-agent.service" />
-    <AgentDeployFile Include="install-linux-agent.sh" />
-    <AgentDeployFile Include="uninstall-linux-agent.sh" />
-    <AgentDeployFile Include="update-linux-agent.sh" />
-    <AgentDeployFile Include="deploy-linux-agents.sh" />
-    <AgentDeployFile Include="linux_hosts.txt.example" />
+    <AgentDeployFile Include="com.winhub.agent.plist" />
+    <AgentDeployFile Include="install-macos-agent.sh" />
+    <AgentDeployFile Include="setup-macos-agent.sh" />
+    <AgentDeployFile Include="uninstall-macos-agent.sh" />
+    <AgentDeployFile Include="update-macos-agent.sh" />
     <AgentDeployFile Include="README.md" />
   </ItemGroup>
-
   <Target Name="CopyAgentDeployFiles" AfterTargets="Publish">
     <Copy SourceFiles="@(AgentDeployFile)" DestinationFolder="$(PublishDir)" SkipUnchangedFiles="true" />
   </Target>

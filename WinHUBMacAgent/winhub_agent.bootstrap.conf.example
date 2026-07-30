@@ -1,0 +1,4 @@
+{
+  "GlobalApiKey": "REPLACE_WITH_ENROLLMENT_KEY",
+  "TaskHmacSecret": "REPLACE_WITH_TASK_HMAC_SECRET"
+}

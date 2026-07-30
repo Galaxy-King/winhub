@@ -1,0 +1,174 @@
+[[WINHUB_REPORT title="Endpoint Compliance Audit"]]
+{% set ns = namespace(win_ok=0, win_bad=0, win_check_error=0, office_ok=0, office_bad=0, office_missing=0, location_ok=0, location_bad=0, location_unknown=0, task_error=0) -%}
+{% for r in results -%}
+{% if r.status != 'Success' or not r.data -%}
+{% set ns.task_error = ns.task_error + 1 -%}
+{% else -%}
+{% if r.data.windows_check_failed -%}{% set ns.win_check_error = ns.win_check_error + 1 -%}{% elif r.data.windows_activated -%}{% set ns.win_ok = ns.win_ok + 1 -%}{% else -%}{% set ns.win_bad = ns.win_bad + 1 -%}{% endif -%}
+{% if not r.data.office_detected -%}
+{% set ns.office_missing = ns.office_missing + 1 -%}
+{% elif r.data.office_activated -%}
+{% set ns.office_ok = ns.office_ok + 1 -%}
+{% else -%}
+{% set ns.office_bad = ns.office_bad + 1 -%}
+{% endif -%}
+{% if not r.data.public_location_detected -%}
+{% set ns.location_unknown = ns.location_unknown + 1 -%}
+{% elif r.data.location_consistent -%}
+{% set ns.location_ok = ns.location_ok + 1 -%}
+{% else -%}
+{% set ns.location_bad = ns.location_bad + 1 -%}
+{% endif -%}
+{% endif -%}
+{% endfor %}
+Endpoint audit: {{ job_title }}
+
+Summary
+- Total endpoints: {{ results|length }}
+- Windows not activated: {{ ns.win_bad }}
+- Windows check errors: {{ ns.win_check_error }}
+- Office not activated: {{ ns.office_bad }}
+- Office not detected: {{ ns.office_missing }}
+- Location problems: {{ ns.location_bad }}
+- Location unknown: {{ ns.location_unknown }}
+- Task errors: {{ ns.task_error }}
+- OK: Windows {{ ns.win_ok }}, Office {{ ns.office_ok }}, Location {{ ns.location_ok }}
+
+WINDOWS NOT ACTIVATED
+{% for r in results if r.status == 'Success' and r.data and not r.data.windows_check_failed and not r.data.windows_activated -%}
+- {{ r.host }} | status: {{ r.data.windows.license_status_text or 'Unknown' }} | product: {{ r.data.windows.os_caption or r.data.windows.product_name or 'Windows' }} | key: {{ r.data.windows.partial_product_key or '-' }}{% if r.data.windows.error %} | error: {{ r.data.windows.error }}{% endif %}
+{% else -%}
+- none
+{% endfor %}
+
+OFFICE NOT ACTIVATED
+{% for r in results if r.status == 'Success' and r.data and r.data.office_detected and not r.data.office_activated -%}
+- {{ r.host }}
+{% if r.data.office.products is string %}
+  - {{ r.data.office.products }}
+{% elif r.data.office.products is mapping %}
+  - status: {{ r.data.office.products.license_status_text or 'Unknown' }} | product: {{ r.data.office.products.license_name or 'Office product' }} | key: {{ r.data.office.products.partial_product_key or '-' }}{% if r.data.office.products.error_code %} | error: {{ r.data.office.products.error_code }}{% endif %}
+{% else %}
+{% for p in r.data.office.products %}
+{% if p.license_name or p.license_status_text or p.partial_product_key or p.error_code %}
+  - status: {{ p.license_status_text or 'Unknown' }} | product: {{ p.license_name or 'Office product' }} | key: {{ p.partial_product_key or '-' }}{% if p.error_code %} | error: {{ p.error_code }}{% endif %}
+{% endif %}
+{% endfor %}
+{% endif %}
+{% else -%}
+- none
+{% endfor %}
+
+OFFICE NOT DETECTED
+{% for r in results if r.status == 'Success' and r.data and not r.data.office_detected -%}
+- {{ r.host }}{% if r.data.office.errors %} | {{ r.data.office.errors|join('; ') }}{% endif %}
+{% else -%}
+- none
+{% endfor %}
+
+LOCATION PROBLEMS
+{% for r in results if r.status == 'Success' and r.data and (not r.data.public_location_detected or not r.data.location_consistent) -%}
+- {{ r.host }}
+  Public: {{ r.data.public_internet_location.country_code or '-' }} / {{ r.data.public_internet_location.city or '-' }} | IP: {{ r.data.public_internet_location.ip or '-' }} | TZ: {{ r.data.public_internet_location.timezone or '-' }} {{ r.data.public_internet_location.utc_offset or '' }}
+  Windows: TZ {{ r.data.regional_settings.timezone_id or '-' }} / offset {{ r.data.regional_settings.utc_offset_minutes if r.data.regional_settings.utc_offset_minutes is not none else '-' }} min | country signals: {{ r.data.location_consistency.windows_country_signals|join(', ') if r.data.location_consistency.windows_country_signals else '-' }}
+{% if r.data.location_consistency.findings %}
+{% if r.data.location_consistency.findings is string %}
+  - {{ r.data.location_consistency.findings }}
+{% else %}
+{% for finding in r.data.location_consistency.findings if finding %}
+  - {{ finding }}
+{% endfor %}
+{% endif %}
+{% elif r.data.public_internet_location.errors %}
+{% if r.data.public_internet_location.errors is string %}
+  - {{ r.data.public_internet_location.errors }}
+{% else %}
+{% for err in r.data.public_internet_location.errors if err %}
+  - {{ err }}
+{% endfor %}
+{% endif %}
+{% endif %}
+{% else -%}
+- none
+{% endfor %}
+
+TASK ERRORS
+{% for r in results if r.status != 'Success' or not r.data -%}
+- {{ r.host }} | {{ r.log }}
+{% else -%}
+- none
+{% endfor %}
+
+CHECK ERRORS
+{% for r in results if r.status == 'Success' and r.data and (r.data.windows_check_failed or r.data.check_errors) -%}
+- {{ r.host }}
+{% if r.data.windows_check_failed %}
+  - Windows activation check failed: {{ r.data.windows.error or 'unknown error' }}
+{% endif %}
+{% if r.data.check_errors %}
+{% if r.data.check_errors is string %}
+  - {{ r.data.check_errors }}
+{% else %}
+{% for err in r.data.check_errors if err %}
+  - {{ err }}
+{% endfor %}
+{% endif %}
+{% endif %}
+{% else -%}
+- none
+{% endfor %}
+
+HOST DETAILS
+{% for r in results if r.status == 'Success' and r.data -%}
+
+{{ r.host }}
+- Overall: {{ r.data.overall_status or '-' }}
+- Windows: {% if r.data.windows_check_failed %}check failed{% elif r.data.windows_activated %}activated{% else %}NOT activated{% endif %} | {{ r.data.windows.os_caption or r.data.windows.product_name or 'Windows' }} | key: {{ r.data.windows.partial_product_key or '-' }} | license: {{ r.data.windows.license_status_text or '-' }}{% if r.data.windows.fallback_output %} | slmgr: {{ r.data.windows.fallback_output }}{% endif %}
+- Office: {% if not r.data.office_detected %}not detected{% elif r.data.office_activated %}activated{% else %}NOT activated{% endif %}{% if r.data.office.products and r.data.office.products is not string %} | entries: {{ r.data.office.products|length }}{% endif %}
+{% if r.data.office.products is string %}
+  - {{ r.data.office.products }}
+{% else %}
+{% for p in r.data.office.products %}
+{% if p.license_name or p.license_status_text or p.partial_product_key or p.error_code %}
+  - {{ p.license_name or 'Office product' }} | {{ p.license_status_text or '-' }} | key: {{ p.partial_product_key or '-' }}
+{% endif %}
+{% endfor %}
+{% endif %}
+- Public location: {{ r.data.public_internet_location.country_code or '-' }} / {{ r.data.public_internet_location.region or '-' }} / {{ r.data.public_internet_location.city or '-' }} | IP: {{ r.data.public_internet_location.ip or '-' }} | ISP/Org: {{ r.data.public_internet_location.org or '-' }} | service: {{ r.data.public_internet_location.source or '-' }}
+- Timezone: public {{ r.data.public_internet_location.timezone or '-' }} {{ r.data.public_internet_location.utc_offset or '' }} | Windows {{ r.data.regional_settings.timezone_id or '-' }} / {{ r.data.regional_settings.utc_offset_minutes if r.data.regional_settings.utc_offset_minutes is not none else '-' }} min
+- Region: home {{ r.data.regional_settings.home_location_name or '-' }} | culture {{ r.data.regional_settings.culture_name or '-' }} / {{ r.data.regional_settings.culture_country_code or '-' }} | locale {{ r.data.regional_settings.system_locale_name or '-' }} / {{ r.data.regional_settings.system_locale_country_code or '-' }} | UI {{ r.data.regional_settings.ui_language or '-' }} / {{ r.data.regional_settings.ui_language_country_code or '-' }}
+- Languages: {{ r.data.regional_settings.user_languages|join(', ') if r.data.regional_settings.user_languages else '-' }}
+- Network: adapters {{ r.data.network_location_signals.adapter_count if r.data.network_location_signals.adapter_count is not none else '-' }} | VPN-like {{ r.data.network_location_signals.vpn_like_adapter_count if r.data.network_location_signals.vpn_like_adapter_count is not none else '0' }}
+{% if r.data.network_location_signals.vpn_like_adapters %}
+  VPN-like adapters:
+{% if r.data.network_location_signals.vpn_like_adapters is string %}
+  - {{ r.data.network_location_signals.vpn_like_adapters }}
+{% elif r.data.network_location_signals.vpn_like_adapters is mapping %}
+  - {{ r.data.network_location_signals.vpn_like_adapters.name or '-' }} | {{ r.data.network_location_signals.vpn_like_adapters.interface_description or '-' }} | {{ r.data.network_location_signals.vpn_like_adapters.status or '-' }}
+{% else %}
+{% for a in r.data.network_location_signals.vpn_like_adapters %}
+{% if a is string %}
+  - {{ a }}
+{% else %}
+  - {{ a.name or '-' }} | {{ a.interface_description or '-' }} | {{ a.status or '-' }}
+{% endif %}
+{% endfor %}
+{% endif %}
+{% endif %}
+- DNS:
+{% if r.data.network_location_signals.dns_servers is string %}
+  - {{ r.data.network_location_signals.dns_servers }}
+{% elif r.data.network_location_signals.dns_servers is mapping %}
+  - {{ r.data.network_location_signals.dns_servers.interface_alias or '-' }}: {{ r.data.network_location_signals.dns_servers.server_addresses|join(', ') if r.data.network_location_signals.dns_servers.server_addresses and r.data.network_location_signals.dns_servers.server_addresses is not string else (r.data.network_location_signals.dns_servers.server_addresses or '-') }}
+{% else %}
+{% for dns in r.data.network_location_signals.dns_servers %}
+  - {{ dns.interface_alias or '-' }}: {{ dns.server_addresses|join(', ') if dns.server_addresses else '-' }}
+{% else %}
+  - none
+{% endfor %}
+{% endif %}
+- WinHTTP proxy: {{ r.data.network_location_signals.winhttp_proxy or '-' }}
+{% else -%}
+- none
+{% endfor %}
+[[/WINHUB_REPORT]]

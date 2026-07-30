@@ -5,11 +5,15 @@ __pycache__/
 .pytest_cache/
 .mypy_cache/
 .ruff_cache/
+.coverage
+htmlcov/
 venv/
 .venv/
 
 # Runtime data and secrets
 .env
+.env.*
+!.env.example
 data/
 certs/
 dist/
@@ -18,15 +22,37 @@ dist/
 *.bak
 *.sqlite
 *.db
+*.pfx
+*.p12
+*.key
+**/winhub_agent.conf
+**/winhub_agent.bootstrap.conf
 
-# Windows agent build output
-WinHUBAgent/bin/
-WinHUBAgent/obj/
-WinHUBAgent/publish/
+# .NET build and test output
+**/bin/
+**/obj/
+**/publish/
+**/TestResults/
+**/artifacts/
+*.user
+*.suo
+
+# Generated agent release packages
+WinHUBAgent/dist-agent/
+WinHUBLinuxAgent/dist-agent/
+WinHUBMacAgent/dist-agent/
+WinHUBMacAgent/WinHUBMacAgent-v*-macos-*.tar.gz
+WinHUBMacAgent/WinHUBMacAgent-v*-macos-*.tar.gz.sha256
+
+# Node
+node_modules/
+npm-debug.log*
 
 # Local/editor noise
 .idea/
 .vscode/
+.vs/
 *.swp
+.DS_Store
 Thumbs.db
 Desktop.ini

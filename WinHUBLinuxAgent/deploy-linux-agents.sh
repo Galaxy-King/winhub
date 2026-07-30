@@ -112,8 +112,8 @@ if [[ -z "$target_version" ]]; then
   exit 1
 fi
 
-ssh_opts=(-p "$ssh_port" -o StrictHostKeyChecking=accept-new -o ServerAliveInterval=15 -o ServerAliveCountMax=2)
-scp_opts=(-P "$ssh_port" -o StrictHostKeyChecking=accept-new)
+ssh_opts=(-p "$ssh_port" -o StrictHostKeyChecking=accept-new -o ConnectTimeout=10 -o ServerAliveInterval=15 -o ServerAliveCountMax=2)
+scp_opts=(-P "$ssh_port" -o StrictHostKeyChecking=accept-new -o ConnectTimeout=10)
 if [[ -n "$ssh_key" ]]; then
   ssh_opts+=(-i "$ssh_key")
   scp_opts+=(-i "$ssh_key")
@@ -155,7 +155,7 @@ deploy_host() {
     install_needed=1
   fi
 
-  ssh "${ssh_opts[@]}" "$remote" "mkdir -p '$remote_tmp'"
+  ssh "${ssh_opts[@]}" "$remote" "install -d -m 0700 '$remote_tmp'"
   scp "${scp_opts[@]}" "$package_path" "$remote:$remote_tmp/$package_name" >/dev/null
   if [[ "$sync_config" -eq 1 ]]; then
     scp "${scp_opts[@]}" "$runtime_config" "$bootstrap_config" "$remote:$remote_tmp/" >/dev/null
@@ -182,13 +182,18 @@ deploy_host() {
     ssh "${ssh_opts[@]}" "$remote" "set -euo pipefail
       install -d -m 0700 /etc/winhub-agent
       install -m 0600 '$remote_tmp/winhub_agent.conf' /etc/winhub-agent/winhub_agent.conf
-      install -m 0600 '$remote_tmp/winhub_agent.bootstrap.conf' /etc/winhub-agent/winhub_agent.bootstrap.conf
+      if [ ! -s /var/lib/winhub-agent/agent.token ]; then
+        install -m 0600 '$remote_tmp/winhub_agent.bootstrap.conf' /etc/winhub-agent/winhub_agent.bootstrap.conf
+      fi
       systemctl restart winhub-linux-agent
     "
     echo "    configs synced and service restarted"
   fi
 
-  ssh "${ssh_opts[@]}" "$remote" "systemctl is-active --quiet winhub-linux-agent && /opt/winhub-linux-agent/WinHUBLinuxAgent --version"
+  local verified_version
+  verified_version="$(ssh "${ssh_opts[@]}" "$remote" "systemctl is-active --quiet winhub-linux-agent && /opt/winhub-linux-agent/WinHUBLinuxAgent --version")"
+  ssh "${ssh_opts[@]}" "$remote" "rm -rf '$remote_tmp'"
+  echo "    verified active, version=$verified_version"
 }
 
 mapfile -t hosts < <(sed 's/#.*//' "$hosts_file" | awk '{$1=$1}; NF {print}')

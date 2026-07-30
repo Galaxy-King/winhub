@@ -1,6 +1,8 @@
 # WinHUBLinuxAgent
 
-Debian/Ubuntu endpoint agent for WinHUB. It uses the same `/api/agent/enroll`, `/api/agent/poll`, `/api/agent/telemetry`, and `/api/agent/result` protocol as the Windows agent.
+Безпечний системний агент WinHUB для Debian 12/13, Ubuntu Server 22.04/24.04 та Proxmox VE 8/9. Він використовує той самий протокол enrollment/poll/telemetry/result, HMAC-підпис завдань і RSA-ідентичність, що й Windows Agent.
+
+Агент працює лише через вихідні HTTPS-з'єднання до WinHUB: відкривати вхідний порт на Linux-сервері не потрібно. TLS-перевірка увімкнена, а для приватного CA можна задати SHA-256 pin сертифіката. Токени, ключ і стан мають права `0600/0700` та належать root.
 
 ## Build
 
@@ -8,13 +10,13 @@ Install the .NET 8 SDK, then build a self-contained package:
 
 ```bash
 cd WinHUBLinuxAgent
-./create-linux-agent-release.sh 1.2.14 linux-x64
+./create-linux-agent-release.sh 1.3.0 linux-x64
 ```
 
 For ARM servers or SBC endpoints:
 
 ```bash
-./create-linux-agent-release.sh 1.2.14 linux-arm64
+./create-linux-agent-release.sh 1.3.0 linux-arm64
 ```
 
 ## Install
@@ -23,7 +25,7 @@ Copy the release archive to the endpoint:
 
 ```bash
 sudo mkdir -p /tmp/winhub-linux-agent
-sudo tar -xzf WinHUBLinuxAgent-v1.2.14-linux-x64.tar.gz -C /tmp/winhub-linux-agent
+sudo tar -xzf WinHUBLinuxAgent-v1.3.0-linux-x64.tar.gz -C /tmp/winhub-linux-agent
 cd /tmp/winhub-linux-agent
 sudo ./install-linux-agent.sh
 ```
@@ -33,7 +35,7 @@ sudo ./install-linux-agent.sh
 Put these files in one directory:
 
 ```text
-WinHUBLinuxAgent-v1.2.18-linux-x64.tar.gz
+WinHUBLinuxAgent-v1.3.0-linux-x64.tar.gz
 winhub_agent.conf
 winhub_agent.bootstrap.conf
 linux_hosts.txt
@@ -54,6 +56,8 @@ Run:
 chmod +x deploy-linux-agents.sh
 ./deploy-linux-agents.sh --hosts linux_hosts.txt --user root --identity ~/.ssh/id_ed25519
 ```
+
+Скрипт приймає IP/hostname по одному на рядок, перевіряє SSH, порівнює версію, встановлює або оновлює агент і перевіряє активність systemd-сервісу. Bootstrap-конфіг копіюється в `/etc` лише якщо сервер ще не має enrollment token; тимчасові файли після успішної перевірки видаляються.
 
 The script checks `/opt/winhub-linux-agent/WinHUBLinuxAgent --version` on every host. It installs or updates only when the agent is absent, older than the package version, or `--force` is used. Runtime and bootstrap configs are synchronized to `/etc/winhub-agent` and the service is restarted.
 
@@ -78,9 +82,26 @@ After successful migration the agent deletes `winhub_agent.bootstrap.conf`. Runt
 /var/lib/winhub-agent
 ```
 
+## Політика виконання
+
+За замовчуванням `ExecutionMode` дорівнює `allowlist`, і дозволено лише підписане оновлення агента. Доступні режими:
+
+- `disabled` — не виконувати жодних команд;
+- `allowlist` — виконувати лише дії з `AllowedActions`;
+- `full` — виконувати всі підписані Bash-завдання як root.
+
+Для керування Proxmox VM (`qm`, `pct`, `pvesh`), OpenVPN AS (`sacli`) та повного адміністрування встановіть у `/etc/winhub-agent/winhub_agent.conf`:
+
+```json
+"ExecutionMode": "full",
+"AllowedActions": []
+```
+
+Потім виконайте `sudo systemctl restart winhub-linux-agent`. Режим `full` навмисно еквівалентний віддаленому root-доступу: залишайте `RequireTaskSignature: true`, не вимикайте TLS, обмежте право `run_tasks` у WinHUB і регулярно перевіряйте журнал аудиту.
+
 ## Task execution
 
-Normal WinHUB tasks run as `/bin/bash` scripts under the service account. The default unit runs as `root`, matching the Windows service's administrative behavior. Restrict who can dispatch tasks from the WinHUB UI.
+Завдання WinHUB запускаються як тимчасові `/bin/bash`-скрипти під root, з обмеженням часу та розміру результату. Непідписані завдання відхиляються до запуску. Тимчасовий каталог сервісу ізольовано через systemd, а `NoNewPrivileges` забороняє отримати більше прав, ніж уже має root-процес.
 
 Supported built-in actions:
 
@@ -92,4 +113,12 @@ Supported built-in actions:
 ```bash
 sudo systemctl status winhub-linux-agent
 sudo journalctl -u winhub-linux-agent -f
+```
+
+Перевірка після інсталяції:
+
+```bash
+sudo systemctl is-active winhub-linux-agent
+sudo systemctl status winhub-linux-agent --no-pager
+sudo journalctl -u winhub-linux-agent -n 50 --no-pager
 ```

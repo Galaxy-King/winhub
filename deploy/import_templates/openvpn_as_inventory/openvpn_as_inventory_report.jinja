@@ -1,0 +1,40 @@
+[[WINHUB_REPORT title="OpenVPN Access Server inventory"]]
+<h1>OpenVPN Access Server inventory</h1>
+{% set checked = (results|length) + (ignored_results|length) %}
+{% if not results %}{% set state = 'FAILED' %}{% elif ignored_results %}{% set state = 'PARTIAL' %}{% else %}{% set state = 'SUCCESS' %}{% endif %}
+<div style="border:2px solid {% if state == 'SUCCESS' %}#237804{% elif state == 'PARTIAL' %}#d48806{% else %}#b52b27{% endif %};padding:14px;background:{% if state == 'SUCCESS' %}#f6ffed{% elif state == 'PARTIAL' %}#fffbe6{% else %}#fff1f0{% endif %};">
+<h2>Inventory status: {{ state }}</h2>
+<table><thead><tr><th style="background:#d6e4ff;">Selected servers</th><th style="background:#d9f7be;">Successful</th><th style="background:#ffccc7;">Failed / skipped</th></tr></thead><tbody><tr><td style="background:#f0f5ff;"><strong>{{ checked }}</strong></td><td style="background:#f6ffed;"><strong>{{ results|length }}</strong></td><td style="background:#fff1f0;"><strong>{{ ignored_results|length }}</strong></td></tr></tbody></table>
+</div>
+{% if ignored_results %}<h2>Skipped or failed servers</h2><table><thead><tr><th style="background:#d6e4ff;">Endpoint</th><th style="background:#ffccc7;">Status</th><th style="background:#fff1b8;">Details</th></tr></thead><tbody>{% for item in ignored_results %}<tr><td>{{ item.host }}</td><td>{{ item.status }}</td><td>{{ item.log }}</td></tr>{% endfor %}</tbody></table>{% endif %}
+
+{% for result in results %}
+<hr style="border:0;border-top:5px solid #34495e;margin:30px 0 18px;" />
+<h1>{{ result.data.server.hostname }}</h1>
+<p>Endpoint: <code>{{ result.host }}</code> · Collected: {{ result.data.generated_at }}</p>
+{% if result.data.warnings %}<div style="border:2px solid #d48806;background:#fffbe6;padding:10px;"><strong>Warnings:</strong><ul>{% for warning in result.data.warnings %}<li>{{ warning }}</li>{% endfor %}</ul></div>{% endif %}
+
+<h2>Server</h2>
+<table><thead><tr><th style="background:#bae7ff;">FQDN</th><th style="background:#d9f7be;">Service</th><th style="background:#d6e4ff;">Version</th><th style="background:#efdbff;">CPU</th><th style="background:#f4ffb8;">RAM</th><th style="background:#ffe7ba;">System disk</th></tr></thead><tbody><tr><td>{{ result.data.server.fqdn }}</td><td>{{ result.data.server.service_state }}</td><td>{{ result.data.server.version }}</td><td>{{ result.data.server.cpu_threads }} threads · load {{ result.data.server.load_1m }}</td><td>{{ result.data.server.ram_total_gib }} GiB</td><td>{{ result.data.server.disk.used_gib }} / {{ result.data.server.disk.total_gib }} GiB ({{ result.data.server.disk.used_pct }})</td></tr></tbody></table>
+
+<h2>Web and VPN configuration</h2>
+<table><thead><tr><th style="background:#b5f5ec;">Client Web Portal</th><th style="background:#ffd6e7;">Admin Web UI</th><th style="background:#efdbff;">Authentication</th><th style="background:#d6e4ff;">VPN networks</th><th style="background:#d9f7be;">TLS certificate</th></tr></thead><tbody><tr><td><a href="{{ result.data.server.client_url }}">{{ result.data.server.client_url }}</a></td><td><a href="{{ result.data.server.admin_url }}">{{ result.data.server.admin_url }}</a></td><td>{{ result.data.server.auth_method }}</td><td>{% for network in result.data.server.vpn_networks %}<code>{{ network }}</code><br />{% else %}Not detected{% endfor %}</td><td>{{ result.data.server.certificate.status }}<br />Expires: {{ result.data.server.certificate.expires }}<br />Days: {{ result.data.server.certificate.days_remaining }}</td></tr></tbody></table>
+
+<h2>Network</h2>
+<table><thead><tr><th style="background:#b5f5ec;">Primary IPv4 interfaces</th><th style="background:#d6e4ff;">Default gateway</th><th style="background:#efdbff;">DNS</th><th style="background:#ffe7ba;">Relevant listeners</th></tr></thead><tbody><tr><td>{% for nic in result.data.server.interfaces %}<code>{{ nic.name }}</code>: {{ nic.address }} ({{ nic.scope }})<br />{% else %}Not detected{% endfor %}</td><td>{{ result.data.server.default_gateway }}</td><td>{{ result.data.server.dns|join(', ') }}</td><td>{% for listener in result.data.server.listeners %}{{ listener.protocol }} {{ listener.address }}:{{ listener.port }}<br />{% else %}Not detected{% endfor %}</td></tr></tbody></table>
+
+<h2>Users</h2>
+<p>History source: {{ result.data.history.records_read }} VPN records read over {{ result.data.history.window_days }} days; {{ result.data.history.users_with_history }} users matched.</p>
+<table><thead><tr><th style="background:#d6e4ff;">Total</th><th style="background:#d9f7be;">Allowed</th><th style="background:#ffccc7;">Blocked</th><th style="background:#ffd6e7;">Inactive &gt;90 days</th><th style="background:#d9d9d9;">Unknown history</th><th style="background:#efdbff;">Admins</th><th style="background:#ffe7ba;">Autologin</th></tr></thead><tbody><tr><td>{{ result.data.summary.users }}</td><td>{{ result.data.summary.allowed }}</td><td>{{ result.data.summary.blocked }}</td><td>{{ result.data.summary.inactive_over_90_days }}</td><td>{{ result.data.summary.unknown_history }}</td><td>{{ result.data.summary.admins }}</td><td>{{ result.data.summary.autologin }}</td></tr></tbody></table>
+
+<table><thead><tr><th style="background:#d6e4ff;">Login</th><th style="background:#bae7ff;">Group</th><th style="background:#d9f7be;">Access</th><th style="background:#efdbff;">Authentication</th><th style="background:#ffe7ba;">Admin</th><th style="background:#ffd6e7;">Autologin</th><th style="background:#b5f5ec;">Last connection</th><th style="background:#fff1b8;">Days ago</th></tr></thead><tbody>
+{% for user in result.data.users %}<tr style="background:{% if user.access == 'Blocked' %}#fff1f0{% else %}#f6ffed{% endif %};"><td><strong>{{ user.login }}</strong></td><td>{{ user.group }}</td><td style="color:{% if user.access == 'Blocked' %}#b52b27{% else %}#237804{% endif %};font-weight:bold;">{{ user.access }}</td><td>{{ user.auth_method }}</td><td>{{ 'Yes' if user.admin else 'No' }}</td><td>{{ 'Yes' if user.autologin else 'No' }}</td><td style="background:{% if user.usage == 'recent' %}#d9f7be{% elif user.usage == 'aging' %}#fff1b8{% elif user.usage == 'inactive' %}#ffccc7{% else %}#d9d9d9{% endif %};">{{ user.last_connection }}</td><td style="background:{% if user.usage == 'recent' %}#d9f7be{% elif user.usage == 'aging' %}#fff1b8{% elif user.usage == 'inactive' %}#ffccc7{% else %}#d9d9d9{% endif %};">{{ user.days_since_connection if user.days_since_connection is not none else '—' }}</td></tr>{% else %}<tr><td colspan="8">No user records detected.</td></tr>{% endfor %}
+</tbody></table>
+
+<h2>Groups and access rules</h2>
+<table><thead><tr><th style="background:#d6e4ff;">Group</th><th style="background:#bae7ff;">Members</th><th style="background:#d9f7be;">Access</th><th style="background:#efdbff;">Authentication</th><th style="background:#ffe7ba;">Admin / Autologin</th><th style="background:#b5f5ec;">Allowed destinations</th><th style="background:#ffd6e7;">Routing and additional settings</th></tr></thead><tbody>
+{% for group in result.data.groups %}<tr style="background:{% if group.access == 'Blocked' %}#fff1f0{% else %}#f6ffed{% endif %};"><td><strong>{{ group.name }}</strong></td><td>{{ group.members }}</td><td style="color:{% if group.access == 'Blocked' %}#b52b27{% else %}#237804{% endif %};font-weight:bold;">{{ group.access }}</td><td>{{ group.auth_method }}</td><td>Admin: {{ 'Yes' if group.admin else 'No' }}<br />Autologin: {{ 'Yes' if group.autologin else 'No' }}</td><td>{% for rule in group.access_rules %}<code>{{ rule }}</code><br />{% else %}Inherited / no group-specific ACL{% endfor %}</td><td>Gateway: {{ group.reroute_gateway }}<br />Profiles: {{ group.allow_profiles }}<br />Block local LAN: {{ 'Yes' if group.block_local_network else 'No' }}{% if group.static_ipv4 %}<br />Static IP: {{ group.static_ipv4 }}{% endif %}{% for route in group.bypass_routes %}<br />Bypass: <code>{{ route }}</code>{% endfor %}</td></tr>{% else %}<tr><td colspan="7">No declared groups detected.</td></tr>{% endfor %}
+</tbody></table>
+{% endfor %}
+<hr style="border:0;border-top:5px solid #34495e;margin:30px 0 18px;" />
+[[/WINHUB_REPORT]]

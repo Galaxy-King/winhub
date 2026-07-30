@@ -11,12 +11,25 @@ if [[ $EUID -ne 0 ]]; then
   exit 1
 fi
 
+if [[ ! -r /etc/os-release ]]; then
+  echo "Unsupported system: /etc/os-release is missing." >&2
+  exit 1
+fi
+. /etc/os-release
+case "${ID:-}:${ID_LIKE:-}" in
+  debian:*|ubuntu:*|*:debian*|*:ubuntu*) ;;
+  *) echo "Warning: ${PRETTY_NAME:-unknown Linux} is not an officially tested Debian/Ubuntu/Proxmox platform." >&2 ;;
+esac
+
+command -v systemctl >/dev/null || { echo "systemd is required." >&2; exit 1; }
+
 systemctl stop "$service_name" 2>/dev/null || true
 mkdir -p "$install_dir" "$config_dir" "$data_dir"
 cp -a . "$install_dir/"
 chmod 0755 "$install_dir"
 chmod 0755 "$install_dir/WinHUBLinuxAgent" "$install_dir"/*.sh
 chmod 0700 "$data_dir"
+chown -R root:root "$install_dir" "$config_dir" "$data_dir"
 
 if [[ ! -f "$config_dir/winhub_agent.conf" ]]; then
   cp "$install_dir/winhub_agent.conf.example" "$config_dir/winhub_agent.conf"

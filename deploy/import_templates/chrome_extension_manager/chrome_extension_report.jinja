@@ -1,0 +1,209 @@
+[[WINHUB_REPORT title="Chrome Extension Policy Report"]]
+{% set ns = namespace(ok=0, changed=0, warning=0, conflict=0, failed=0, requested=[]) -%}
+{% for r in results -%}
+{% if r.status != 'Success' or not r.data -%}
+{% set ns.failed = ns.failed + 1 -%}
+{% else -%}
+{% if r.data.changed -%}
+{% set ns.changed = ns.changed + 1 -%}
+{% endif -%}
+{% if r.data.conflicts -%}
+{% set ns.conflict = ns.conflict + 1 -%}
+{% endif -%}
+{% if r.data.warnings -%}
+{% set ns.warning = ns.warning + 1 -%}
+{% endif -%}
+{% if not r.data.changed and not r.data.conflicts and not r.data.warnings -%}
+{% set ns.ok = ns.ok + 1 -%}
+{% endif -%}
+{% endif -%}
+{% if r.status == 'Success' and r.data and r.data.requested_extensions -%}
+{% for ext in r.data.requested_extensions -%}
+{% if ext not in ns.requested -%}
+{% set ns.requested = ns.requested + [ext] -%}
+{% endif -%}
+{% endfor -%}
+{% endif -%}
+{% endfor -%}
+
+CHROME EXTENSION POLICY REPORT: {{ job_title }}
+
+OVERALL STATUS: {% if ns.failed or ns.conflict %}ATTENTION REQUIRED{% elif ns.warning %}COMPLETED WITH WARNINGS{% elif ns.changed %}CHANGED{% else %}OK / NO CHANGES{% endif %}
+
+SUMMARY
+- Total endpoints: {{ results|length }}
+- Changed: {{ ns.changed }}
+- OK / no changes: {{ ns.ok }}
+- Warnings: {{ ns.warning }}
+- Conflicts: {{ ns.conflict }}
+- Task failures: {{ ns.failed }}
+- Requested extensions: {{ ns.requested|join(', ') if ns.requested else '-' }}
+
+AUDIT COVERAGE
+{% for r in results if r.status == 'Success' and r.data -%}
+- {{ r.host }} | Scope={{ r.data.scope or '-' }} | Machine={{ 'yes' if r.data.policies and (r.data.policies|selectattr('label', 'equalto', 'Machine Chrome policy')|list) else 'unknown' }} | Users={{ (r.data.policies|selectattr('account')|rejectattr('label', 'equalto', 'Default User Template')|list|length) if r.data.policies else 0 }} | DefaultUser={{ 'yes' if r.data.policies and (r.data.policies|selectattr('label', 'equalto', 'Default User Template')|list) else 'no/hidden' }}
+{% else -%}
+- none
+{% endfor %}
+{% if not ns.requested %}
+
+NOTE
+- Audit was run without ExtensionIds. The report can show all existing policy state, but target-specific conflicts such as "requested extension is missing from allowlist" cannot be fully evaluated. For install planning, run Audit with the same ExtensionIds you plan to deploy.
+{% endif %}
+
+IMPORTANT WARNINGS / CONFLICTS
+{% set alert_count = namespace(value=0) -%}
+{% for r in results if r.status == 'Success' and r.data and (r.data.conflicts or r.data.warnings) -%}
+{% set alert_count.value = alert_count.value + 1 -%}
+
+!!! {{ r.host }} | {{ r.data.browser or 'Chrome' }} | {{ r.data.action or '-' }} | {{ r.data.scope or '-' }} | {{ r.data.status or '-' }}
+{% if r.data.conflicts %}
+  CONFLICTS:
+{% if r.data.conflicts is string %}
+  - {{ r.data.conflicts }}
+{% else %}
+{% for item in r.data.conflicts if item %}
+  - {{ item }}
+{% endfor %}
+{% endif %}
+{% endif %}
+{% if r.data.warnings %}
+  WARNINGS:
+{% if r.data.warnings is string %}
+  - {{ r.data.warnings }}
+{% else %}
+{% for item in r.data.warnings if item %}
+  - {{ item }}
+{% endfor %}
+{% endif %}
+{% endif %}
+{% endfor -%}
+{% if alert_count.value == 0 %}
+- none
+{% endif %}
+
+TASK FAILURES
+{% for r in results if r.status != 'Success' or not r.data -%}
+- {{ r.host }} | {{ r.status }} | {{ r.log }}
+{% else -%}
+- none
+{% endfor %}
+
+CHANGES / OPERATIONS
+{% for r in results if r.status == 'Success' and r.data and r.data.operations -%}
+
+{{ r.host }} | changed={{ r.data.changed }} | {{ r.data.browser or 'Chrome' }} | {{ r.data.action or '-' }} | {{ r.data.scope or '-' }}
+{% if r.data.operations is string %}
+- {{ r.data.operations }}
+{% else %}
+{% for item in r.data.operations if item %}
+- {{ item }}
+{% endfor %}
+{% endif %}
+{% else -%}
+- none
+{% endfor %}
+
+HOST DETAILS
+{% for r in results if r.status == 'Success' and r.data -%}
+
+================================================================================
+HOST: {{ r.host }}
+STATUS: {{ r.data.status or '-' }}
+BROWSER / ACTION / SCOPE: {{ r.data.browser or 'Chrome' }} / {{ r.data.action or '-' }} / {{ r.data.scope or '-' }}
+CHANGED: {{ r.data.changed }}
+REQUESTED EXTENSIONS: {{ r.data.requested_extensions|join(', ') if r.data.requested_extensions else '-' }}
+{% if r.data.invalid_extensions %}
+INVALID EXTENSIONS IGNORED: {{ r.data.invalid_extensions|join(', ') if r.data.invalid_extensions is not string else r.data.invalid_extensions }}
+{% endif %}
+
+{% if r.data.warnings %}
+HOST WARNINGS:
+{% if r.data.warnings is string %}
+- {{ r.data.warnings }}
+{% else %}
+{% for item in r.data.warnings if item %}
+- {{ item }}
+{% endfor %}
+{% endif %}
+{% endif %}
+
+{% if r.data.conflicts %}
+HOST CONFLICTS:
+{% if r.data.conflicts is string %}
+- {{ r.data.conflicts }}
+{% else %}
+{% for item in r.data.conflicts if item %}
+- {{ item }}
+{% endfor %}
+{% endif %}
+{% endif %}
+
+TARGETS FOUND
+{% for p in r.data.policies if p.account and p.label != 'Default User Template' -%}
+- {{ p.account }} | source={{ p.profile_source or '-' }} | enabled={{ p.local_user_enabled if p.local_user_enabled is not none else '-' }} | hive={{ 'ok' if p.after else 'missing/error' }}
+{% else -%}
+- no user profile targets
+{% endfor %}
+{% for p in r.data.policies if p.label == 'Default User Template' -%}
+- Default User Template | hive={{ 'ok' if p.after else 'missing/error' }}
+{% endfor %}
+
+POLICIES AND EXTENSIONS
+{% for p in r.data.policies %}
+{% set has_policy = p.changed or p.conflicts or p.warnings or (p.label and ('Machine' in p.label or 'Default User Template' in p.label)) or (p.after and (p.after.forcelist or p.after.blocklist or p.after.allowlist or p.after.extension_settings_present)) %}
+{% set is_user_target = p.account and p.label != 'Default User Template' %}
+{% if has_policy or is_user_target %}
+
+-- {{ p.label or '-' }} | changed={{ p.changed }}
+{% if p.account and p.label != 'Default User Template' %}
+  Target: {{ p.account }} | source={{ p.profile_source or '-' }} | enabled={{ p.local_user_enabled if p.local_user_enabled is not none else '-' }} | hive={{ 'ok' if p.after else 'missing/error' }}
+{% endif %}
+{% if p.warnings %}
+  Policy warnings:
+{% for item in p.warnings if item %}
+  - {{ item }}
+{% endfor %}
+{% endif %}
+{% if p.conflicts %}
+  Policy conflicts:
+{% for item in p.conflicts if item %}
+  - {{ item }}
+{% endfor %}
+{% endif %}
+{% if not p.after %}
+  Policy hive: missing or unavailable
+{% else %}
+  Force-installed extensions:
+{% if p.after and p.after.forcelist %}
+{% for item in p.after.forcelist %}
+  - {{ item.extension_id or item.value }}{% if item.value and ';' in item.value %} | {{ item.value.split(';', 1)[1] }}{% endif %}
+{% endfor %}
+{% else %}
+  - none
+{% endif %}
+  Blocklist:
+{% if p.after and p.after.blocklist %}
+{% for item in p.after.blocklist %}
+  - {{ item.value }}
+{% endfor %}
+{% else %}
+  - none
+{% endif %}
+  Allowlist:
+{% if p.after and p.after.allowlist %}
+{% for item in p.after.allowlist %}
+  - {{ item.value }}
+{% endfor %}
+{% else %}
+  - none
+{% endif %}
+  ExtensionSettings: {{ 'present' if p.after and p.after.extension_settings_present else 'absent' }}
+{% endif %}
+{% endif %}
+{% endfor %}
+{% else -%}
+
+- none
+{% endfor %}
+[[/WINHUB_REPORT]]

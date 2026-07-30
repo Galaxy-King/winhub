@@ -14,10 +14,10 @@ using Microsoft.Extensions.Logging;
 
 namespace WinHUBLinuxAgent;
 
-public record EnrollPayload(string global_token, string hw_id, string hostname, string os_version, string os_type, string agent_version, NetworkInterfaceInfo[] network_interfaces, HostInventoryInfo host_info, string previous_auth_token, string previous_hw_id, string agent_public_key_pem, string agent_key_fingerprint, string signed_at, string signed_nonce, string signature);
-public record PollPayload(string hw_id, string auth_token, string agent_version, string agent_public_key_pem, string agent_key_fingerprint, string signed_at, string signed_nonce, string signature);
-public record TelemetryPayload(string hw_id, string auth_token, string agent_version, double cpu, double ram, double disk_c, HostInventoryInfo? host_info, string agent_public_key_pem, string agent_key_fingerprint, string signed_at, string signed_nonce, string signature);
-public record ResultPayload(string hw_id, string auth_token, string agent_version, string task_id, string status, string log, string agent_public_key_pem, string agent_key_fingerprint, string signed_at, string signed_nonce, string signature);
+public record EnrollPayload(string global_token, string hw_id, string hostname, string os_version, string os_type, string agent_version, NetworkInterfaceInfo[] network_interfaces, HostInventoryInfo host_info, string previous_auth_token, string previous_hw_id, string agent_public_key_pem, string agent_key_fingerprint, string body_hash, string signed_at, string signed_nonce, string signature);
+public record PollPayload(string hw_id, string auth_token, string agent_version, string agent_public_key_pem, string agent_key_fingerprint, string body_hash, string signed_at, string signed_nonce, string signature);
+public record TelemetryPayload(string hw_id, string auth_token, string agent_version, double cpu, double ram, double disk_c, HostInventoryInfo? host_info, string agent_public_key_pem, string agent_key_fingerprint, string body_hash, string signed_at, string signed_nonce, string signature);
+public record ResultPayload(string hw_id, string auth_token, string agent_version, string task_id, string status, string log, string agent_public_key_pem, string agent_key_fingerprint, string body_hash, string signed_at, string signed_nonce, string signature);
 public record NetworkInterfaceInfo(string name, string description, string type, string status, string mac, string[] ipv4, string[] ipv6, string[] gateways, string[] dns_servers, bool dhcp_enabled, long speed_mbps);
 public record VolumeInfo(string name, string label, string format, string type, long total_gb, long free_gb, bool ready);
 public record BitLockerInventoryInfo(string status, int encrypted_percentage, string protection_status, string conversion_status, string raw_summary);
@@ -39,6 +39,9 @@ public class AgentConfig
     public bool IgnoreTlsCertificateErrors { get; set; } = false;
     public string ServerCertificateSha256 { get; set; } = "";
     public bool RequireTaskSignature { get; set; } = true;
+    public string ExecutionMode { get; set; } = "allowlist";
+    public string[] AllowedActions { get; set; } = ["agent_update"];
+    public bool AllowCrossHostUpdateDownloads { get; set; } = false;
 }
 
 public class AgentSecrets
@@ -78,9 +81,9 @@ public class Worker : BackgroundService
     private readonly HttpClient _httpClient;
     private AgentConfig _config = new();
     private bool _signatureWarningLogged;
-    private readonly string ConfigDirectory = "/etc/winhub-agent";
-    private readonly string DataDirectory = "/var/lib/winhub-agent";
-    private readonly string UpdatesDirectory = "/var/lib/winhub-agent/updates";
+    private readonly string ConfigDirectory = OperatingSystem.IsMacOS() ? "/Library/Application Support/WinHUB/Config" : "/etc/winhub-agent";
+    private readonly string DataDirectory = OperatingSystem.IsMacOS() ? "/Library/Application Support/WinHUB/Data" : "/var/lib/winhub-agent";
+    private string UpdatesDirectory => Path.Combine(DataDirectory, "updates");
     private string ConfigFilePath => Path.Combine(ConfigDirectory, "winhub_agent.conf");
     private string BootstrapConfigFilePath => Path.Combine(ConfigDirectory, "winhub_agent.bootstrap.conf");
     private string TokenFilePath => Path.Combine(DataDirectory, "agent.token");
@@ -110,8 +113,9 @@ public class Worker : BackgroundService
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
-        _logger.LogInformation("WinHUB Linux Agent starting...");
+        _logger.LogInformation("WinHUB {Platform} Agent starting...", OperatingSystem.IsMacOS() ? "macOS" : "Linux");
         LoadConfig();
+        ValidateStartupSecurity();
         Directory.CreateDirectory(DataDirectory);
         Directory.CreateDirectory(UpdatesDirectory);
         RestrictPath(DataDirectory, UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute);
@@ -167,7 +171,7 @@ public class Worker : BackgroundService
 
     private bool ValidateServerCertificate(HttpRequestMessage message, System.Security.Cryptography.X509Certificates.X509Certificate2? cert, System.Security.Cryptography.X509Certificates.X509Chain? chain, SslPolicyErrors errors)
     {
-        if (_config.IgnoreTlsCertificateErrors) return true;
+        if (_config.IgnoreTlsCertificateErrors && !OperatingSystem.IsMacOS()) return true;
         string pinned = NormalizeThumbprint(_config.ServerCertificateSha256);
         if (!string.IsNullOrWhiteSpace(pinned) && cert != null)
         {
@@ -175,6 +179,19 @@ public class Worker : BackgroundService
             return CryptographicOperations.FixedTimeEquals(Encoding.ASCII.GetBytes(actual), Encoding.ASCII.GetBytes(pinned));
         }
         return errors == SslPolicyErrors.None;
+    }
+
+    private void ValidateStartupSecurity()
+    {
+        if (!Uri.TryCreate(_config.ServerUrl, UriKind.Absolute, out Uri? serverUri))
+            throw new InvalidOperationException("ServerUrl must be an absolute URL.");
+        if (OperatingSystem.IsMacOS() && !serverUri.Scheme.Equals(Uri.UriSchemeHttps, StringComparison.OrdinalIgnoreCase))
+            throw new InvalidOperationException("The macOS agent requires an HTTPS ServerUrl.");
+        if (OperatingSystem.IsMacOS() && _config.IgnoreTlsCertificateErrors)
+        {
+            _config.IgnoreTlsCertificateErrors = false;
+            _logger.LogWarning("IgnoreTlsCertificateErrors is forbidden on macOS and was ignored.");
+        }
     }
 
     private void LoadConfig()
@@ -234,7 +251,10 @@ public class Worker : BackgroundService
                 nameof(AgentConfig.MaxResultLogBytes),
                 nameof(AgentConfig.IgnoreTlsCertificateErrors),
                 nameof(AgentConfig.ServerCertificateSha256),
-                nameof(AgentConfig.RequireTaskSignature)
+                nameof(AgentConfig.RequireTaskSignature),
+                nameof(AgentConfig.ExecutionMode),
+                nameof(AgentConfig.AllowedActions),
+                nameof(AgentConfig.AllowCrossHostUpdateDownloads)
             };
             return required.Any(key => !doc.RootElement.TryGetProperty(key, out _));
         }
@@ -253,13 +273,13 @@ public class Worker : BackgroundService
                 string enrollmentToken = GetProtectedSecret("GlobalApiKey");
                 if (string.IsNullOrWhiteSpace(enrollmentToken))
                 {
-                    _logger.LogError("Enrollment token is missing. Put GlobalApiKey in /etc/winhub-agent/winhub_agent.bootstrap.conf, then restart.");
+                    _logger.LogError("Enrollment token is missing. Put GlobalApiKey in {BootstrapConfig}, then restart.", BootstrapConfigFilePath);
                     await Task.Delay(TimeSpan.FromSeconds(30), stoppingToken);
                     continue;
                 }
 
-                var signature = CreateAgentSignature("/api/agent/enroll", previousAuthToken, AgentBuildInfo.Version);
-                var payload = new EnrollPayload(enrollmentToken, HardwareId, Environment.MachineName, FriendlyOsName, "Linux", AgentBuildInfo.Version, GetNetworkInterfaces(), GetCachedHostInventory(true), previousAuthToken, previousHwId, AgentPublicKeyPem, AgentKeyFingerprint, signature.SignedAt, signature.Nonce, signature.Signature);
+                var unsignedPayload = new EnrollPayload(enrollmentToken, HardwareId, Environment.MachineName, FriendlyOsName, OperatingSystem.IsMacOS() ? "macOS" : "Linux", AgentBuildInfo.Version, GetNetworkInterfaces(), GetCachedHostInventory(true), previousAuthToken, previousHwId, AgentPublicKeyPem, AgentKeyFingerprint, "", "", "", "");
+                var payload = SignPayload(unsignedPayload, "/api/agent/enroll", previousAuthToken, AppJsonSerializerContext.Default.EnrollPayload);
                 var response = await _httpClient.PostAsync($"{_config.ServerUrl}/api/agent/enroll", JsonContent(payload), stoppingToken);
                 if (response.IsSuccessStatusCode)
                 {
@@ -290,8 +310,8 @@ public class Worker : BackgroundService
     {
         try
         {
-            var signature = CreateAgentSignature("/api/agent/poll", AuthToken, AgentBuildInfo.Version);
-            var payload = new PollPayload(HardwareId, AuthToken, AgentBuildInfo.Version, AgentPublicKeyPem, AgentKeyFingerprint, signature.SignedAt, signature.Nonce, signature.Signature);
+            var unsignedPayload = new PollPayload(HardwareId, AuthToken, AgentBuildInfo.Version, AgentPublicKeyPem, AgentKeyFingerprint, "", "", "", "");
+            var payload = SignPayload(unsignedPayload, "/api/agent/poll", AuthToken, AppJsonSerializerContext.Default.PollPayload);
             var response = await _httpClient.PostAsync($"{_config.ServerUrl}/api/agent/poll", JsonContent(payload), stoppingToken);
             if (!response.IsSuccessStatusCode)
             {
@@ -330,10 +350,20 @@ public class Worker : BackgroundService
                 return timing;
             }
 
+            if (!IsActionAllowed(action))
+            {
+                string mode = NormalizeExecutionMode();
+                _logger.LogWarning("Task rejected by execution policy. TaskId={TaskId}, Action={Action}, Mode={Mode}", taskId, action, mode);
+                await ReportResultAsync(taskId, "Error", $"Action '{action}' is denied by local ExecutionMode '{mode}'.", stoppingToken);
+                return timing;
+            }
+
             if (action == "reboot")
             {
                 await ReportResultAsync(taskId, "Success", "Reboot command received...", stoppingToken);
-                Process.Start(new ProcessStartInfo("/bin/systemctl", "reboot") { UseShellExecute = false });
+                Process.Start(OperatingSystem.IsMacOS()
+                    ? new ProcessStartInfo("/sbin/shutdown", "-r now") { UseShellExecute = false }
+                    : new ProcessStartInfo("/bin/systemctl", "reboot") { UseShellExecute = false });
                 return timing;
             }
 
@@ -367,13 +397,28 @@ public class Worker : BackgroundService
         _logger.LogInformation("Poll status: {Status}", status);
     }
 
+    private string NormalizeExecutionMode()
+    {
+        string mode = (_config.ExecutionMode ?? "allowlist").Trim().ToLowerInvariant();
+        return mode is "disabled" or "allowlist" or "full" ? mode : "disabled";
+    }
+
+    private bool IsActionAllowed(string action)
+    {
+        string mode = NormalizeExecutionMode();
+        if (mode == "disabled") return false;
+        if (mode == "full") return true;
+        return (_config.AllowedActions ?? [])
+            .Any(value => value.Equals(action, StringComparison.OrdinalIgnoreCase));
+    }
+
     private async Task SendTelemetryAsync(CancellationToken stoppingToken)
     {
         if (string.IsNullOrEmpty(AuthToken)) return;
         try
         {
-            var signature = CreateAgentSignature("/api/agent/telemetry", AuthToken, AgentBuildInfo.Version);
-            var payload = new TelemetryPayload(HardwareId, AuthToken, AgentBuildInfo.Version, Math.Round(GetCpuUsage(), 2), Math.Round(GetRamUsage(), 2), Math.Round(GetRootFreeGb(), 2), GetCachedHostInventory(false), AgentPublicKeyPem, AgentKeyFingerprint, signature.SignedAt, signature.Nonce, signature.Signature);
+            var unsignedPayload = new TelemetryPayload(HardwareId, AuthToken, AgentBuildInfo.Version, Math.Round(GetCpuUsage(), 2), Math.Round(GetRamUsage(), 2), Math.Round(GetRootFreeGb(), 2), GetCachedHostInventory(false), AgentPublicKeyPem, AgentKeyFingerprint, "", "", "", "");
+            var payload = SignPayload(unsignedPayload, "/api/agent/telemetry", AuthToken, AppJsonSerializerContext.Default.TelemetryPayload);
             var response = await _httpClient.PostAsync($"{_config.ServerUrl}/api/agent/telemetry", JsonContent(payload), stoppingToken);
             if (response.IsSuccessStatusCode)
                 _logger.LogInformation("Telemetry sent. CPU: {Cpu}% | RAM: {Ram}% | /: {Disk} GB", payload.cpu, payload.ram, payload.disk_c);
@@ -441,14 +486,35 @@ public class Worker : BackgroundService
             if (string.IsNullOrWhiteSpace(packageUrl)) return ("Error", "agent_update requires payload.package_url.");
             Uri downloadUri = BuildUpdatePackageUri(packageUrl);
             Directory.CreateDirectory(UpdatesDirectory);
-            string packagePath = Path.Combine(UpdatesDirectory, $"WinHUBLinuxAgent_{taskId}.tar.gz");
+            string safeTaskId = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(taskId ?? ""))).ToLowerInvariant()[..24];
+            string packagePath = Path.Combine(UpdatesDirectory, $"{(OperatingSystem.IsMacOS() ? "WinHUBMacAgent" : "WinHUBLinuxAgent")}_{safeTaskId}.tar.gz");
+            const long maxUpdateBytes = 512L * 1024 * 1024;
             using (var response = await _httpClient.GetAsync(downloadUri, HttpCompletionOption.ResponseHeadersRead, stoppingToken))
             {
                 response.EnsureSuccessStatusCode();
+                if (response.Content.Headers.ContentLength is long contentLength && contentLength > maxUpdateBytes)
+                    return ("Error", $"Agent update package exceeds the {maxUpdateBytes / 1024 / 1024} MB limit.");
                 await using var source = await response.Content.ReadAsStreamAsync(stoppingToken);
-                await using var destination = File.Create(packagePath);
-                await source.CopyToAsync(destination, stoppingToken);
+                await using var destination = new FileStream(packagePath, FileMode.CreateNew, FileAccess.Write, FileShare.None, 81920, FileOptions.Asynchronous | FileOptions.SequentialScan);
+                byte[] buffer = new byte[81920];
+                long total = 0;
+                int read;
+                while ((read = await source.ReadAsync(buffer, stoppingToken)) > 0)
+                {
+                    total += read;
+                    if (total > maxUpdateBytes)
+                    {
+                        destination.Close();
+                        File.Delete(packagePath);
+                        return ("Error", $"Agent update package exceeds the {maxUpdateBytes / 1024 / 1024} MB limit.");
+                    }
+                    await destination.WriteAsync(buffer.AsMemory(0, read), stoppingToken);
+                }
             }
+            if (string.IsNullOrWhiteSpace(expectedSha256))
+                return ("Error", "Secure agent update requires payload.sha256.");
+            if (expectedSha256.Length != 64)
+                return ("Error", "Agent update SHA256 must contain exactly 64 hexadecimal characters.");
             if (!string.IsNullOrWhiteSpace(expectedSha256))
             {
                 string actualSha256 = ComputeFileSha256(packagePath);
@@ -459,16 +525,27 @@ public class Worker : BackgroundService
                 }
             }
 
-            string updateScript = "/opt/winhub-linux-agent/update-linux-agent.sh";
+            string updateScript = OperatingSystem.IsMacOS()
+                ? "/Library/PrivilegedHelperTools/com.winhub.agent/update-macos-agent.sh"
+                : "/opt/winhub-linux-agent/update-linux-agent.sh";
             if (!File.Exists(updateScript)) return ("Error", $"{updateScript} was not found.");
-            string launcherPath = Path.Combine(UpdatesDirectory, $"launch_update_{taskId}.sh");
+            string launcherPath = Path.Combine(UpdatesDirectory, $"launch_update_{safeTaskId}.sh");
             await File.WriteAllTextAsync(launcherPath, $"#!/usr/bin/env bash\nset -euo pipefail\nsleep 3\n{ShellQuote(updateScript)} --package {ShellQuote(packagePath)}\n", new UTF8Encoding(false), stoppingToken);
             RestrictPath(launcherPath, UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute);
-            Process.Start(new ProcessStartInfo("/bin/bash", launcherPath)
+            ProcessStartInfo updateLauncher;
+            if (OperatingSystem.IsMacOS())
             {
-                UseShellExecute = false,
-                WorkingDirectory = "/opt/winhub-linux-agent"
-            });
+                updateLauncher = new ProcessStartInfo("/bin/launchctl");
+                foreach (string argument in new[] { "submit", "-l", $"com.winhub.agent.updater.{safeTaskId}", "--", "/bin/bash", launcherPath })
+                    updateLauncher.ArgumentList.Add(argument);
+            }
+            else
+            {
+                updateLauncher = new ProcessStartInfo("/bin/bash", launcherPath);
+            }
+            updateLauncher.UseShellExecute = false;
+            updateLauncher.WorkingDirectory = Path.GetDirectoryName(updateScript) ?? "/";
+            Process.Start(updateLauncher);
             return ("Success", $"Agent update package staged at {packagePath}. Detached updater launched.");
         }
         catch (Exception ex)
@@ -481,8 +558,8 @@ public class Worker : BackgroundService
     {
         try
         {
-            var signature = CreateAgentSignature("/api/agent/result", AuthToken, AgentBuildInfo.Version);
-            var payload = new ResultPayload(HardwareId, AuthToken, AgentBuildInfo.Version, taskId, status, TrimResultLog(log), AgentPublicKeyPem, AgentKeyFingerprint, signature.SignedAt, signature.Nonce, signature.Signature);
+            var unsignedPayload = new ResultPayload(HardwareId, AuthToken, AgentBuildInfo.Version, taskId, status, TrimResultLog(log), AgentPublicKeyPem, AgentKeyFingerprint, "", "", "", "");
+            var payload = SignPayload(unsignedPayload, "/api/agent/result", AuthToken, AppJsonSerializerContext.Default.ResultPayload);
             await _httpClient.PostAsync($"{_config.ServerUrl}/api/agent/result", JsonContent(payload), stoppingToken);
         }
         catch { }
@@ -600,7 +677,9 @@ public class Worker : BackgroundService
     private HostInventoryInfo GetHostInventory()
     {
         string hostname = Environment.MachineName;
-        string domain = RunCommandSnapshot("hostname", "-d", 3, 300).Trim();
+        string domain = OperatingSystem.IsMacOS()
+            ? RunCommandSnapshot("/usr/sbin/scutil", "--get LocalHostName", 3, 300).Trim()
+            : RunCommandSnapshot("hostname", "-d", 3, 300).Trim();
         if (domain == "unavailable" || domain == "timeout") domain = "";
         string fqdn = string.IsNullOrWhiteSpace(domain) ? hostname : $"{hostname}.{domain}";
         long uptime = ReadUptimeSeconds();
@@ -615,7 +694,7 @@ public class Worker : BackgroundService
             RuntimeInformation.ProcessArchitecture.ToString(),
             TimeZoneInfo.Local.Id,
             Environment.ProcessorCount,
-            (ulong)Math.Round(ReadMeminfoValueKb("MemTotal") / 1024.0),
+            GetTotalMemoryMb(),
             uptime,
             uptime > 0 ? DateTime.UtcNow.AddSeconds(-uptime).ToString("o") : "",
             GetVolumes(),
@@ -625,11 +704,11 @@ public class Worker : BackgroundService
 
     private SecurityInventoryInfo GetSecurityInventory()
     {
-        bool pendingReboot = File.Exists("/var/run/reboot-required") || File.Exists("/run/reboot-required");
+        bool pendingReboot = !OperatingSystem.IsMacOS() && (File.Exists("/var/run/reboot-required") || File.Exists("/run/reboot-required"));
         string firewall = DetectFirewallState();
         bool veracrypt = CommandExists("veracrypt") || Directory.Exists("/usr/share/veracrypt");
         bool truecrypt = CommandExists("truecrypt") || Directory.Exists("/usr/share/truecrypt");
-        LinuxEncryptionInventoryInfo linuxEncryption = GetLinuxEncryptionInventory();
+        LinuxEncryptionInventoryInfo linuxEncryption = OperatingSystem.IsMacOS() ? GetMacEncryptionInventory() : GetLinuxEncryptionInventory();
         return new SecurityInventoryInfo(
             pendingReboot,
             firewall,
@@ -646,6 +725,20 @@ public class Worker : BackgroundService
 
     private VolumeInfo[] GetVolumes()
     {
+        if (OperatingSystem.IsMacOS())
+        {
+            try
+            {
+                return DriveInfo.GetDrives()
+                    .Where(drive => drive.IsReady && (drive.Name == "/" || drive.Name.StartsWith("/Volumes/", StringComparison.Ordinal)))
+                    .Take(64)
+                    .Select(drive => new VolumeInfo(drive.Name, drive.VolumeLabel, drive.DriveFormat, drive.DriveType.ToString(),
+                        (long)Math.Round(drive.TotalSize / 1024.0 / 1024.0 / 1024.0),
+                        (long)Math.Round(drive.AvailableFreeSpace / 1024.0 / 1024.0 / 1024.0), true))
+                    .ToArray();
+            }
+            catch { return Array.Empty<VolumeInfo>(); }
+        }
         try
         {
             string[] allowedFs =
@@ -684,6 +777,16 @@ public class Worker : BackgroundService
         {
             return Array.Empty<VolumeInfo>();
         }
+    }
+
+    private static LinuxEncryptionInventoryInfo GetMacEncryptionInventory()
+    {
+        string statusOutput = RunCommandSnapshot("/usr/bin/fdesetup", "status", 5, 2000);
+        string lowered = statusOutput.ToLowerInvariant();
+        string status = lowered.Contains("filevault is on") ? "encrypted" :
+            lowered.Contains("filevault is off") ? "not_encrypted" : "unknown";
+        string[] methods = status == "encrypted" ? ["FileVault"] : [];
+        return new LinuxEncryptionInventoryInfo(status, methods, "/", statusOutput);
     }
 
     private static LinuxEncryptionInventoryInfo GetLinuxEncryptionInventory()
@@ -808,12 +911,50 @@ public class Worker : BackgroundService
         }
     }
 
-    private (string SignedAt, string Nonce, string Signature) CreateAgentSignature(string path, string authToken, string agentVersion)
+    private EnrollPayload SignPayload(EnrollPayload value, string path, string token, System.Text.Json.Serialization.Metadata.JsonTypeInfo<EnrollPayload> typeInfo)
+    {
+        string hash = ComputeAgentBodyHash(JsonSerializer.Serialize(value, typeInfo));
+        var signed = CreateAgentSignature(path, token, AgentBuildInfo.Version, hash);
+        return value with { body_hash = hash, signed_at = signed.SignedAt, signed_nonce = signed.Nonce, signature = signed.Signature };
+    }
+
+    private PollPayload SignPayload(PollPayload value, string path, string token, System.Text.Json.Serialization.Metadata.JsonTypeInfo<PollPayload> typeInfo)
+    {
+        string hash = ComputeAgentBodyHash(JsonSerializer.Serialize(value, typeInfo));
+        var signed = CreateAgentSignature(path, token, AgentBuildInfo.Version, hash);
+        return value with { body_hash = hash, signed_at = signed.SignedAt, signed_nonce = signed.Nonce, signature = signed.Signature };
+    }
+
+    private TelemetryPayload SignPayload(TelemetryPayload value, string path, string token, System.Text.Json.Serialization.Metadata.JsonTypeInfo<TelemetryPayload> typeInfo)
+    {
+        string hash = ComputeAgentBodyHash(JsonSerializer.Serialize(value, typeInfo));
+        var signed = CreateAgentSignature(path, token, AgentBuildInfo.Version, hash);
+        return value with { body_hash = hash, signed_at = signed.SignedAt, signed_nonce = signed.Nonce, signature = signed.Signature };
+    }
+
+    private ResultPayload SignPayload(ResultPayload value, string path, string token, System.Text.Json.Serialization.Metadata.JsonTypeInfo<ResultPayload> typeInfo)
+    {
+        string hash = ComputeAgentBodyHash(JsonSerializer.Serialize(value, typeInfo));
+        var signed = CreateAgentSignature(path, token, AgentBuildInfo.Version, hash);
+        return value with { body_hash = hash, signed_at = signed.SignedAt, signed_nonce = signed.Nonce, signature = signed.Signature };
+    }
+
+    private static string ComputeAgentBodyHash(string json)
+    {
+        using var doc = JsonDocument.Parse(json);
+        string canonical = "{" + string.Join(",", doc.RootElement.EnumerateObject()
+            .Where(p => p.Name is not ("body_hash" or "signed_at" or "signed_nonce" or "signature"))
+            .OrderBy(p => p.Name, StringComparer.Ordinal)
+            .Select(p => $"\"{EscapeJson(p.Name)}\":{CanonicalJson(p.Value)}")) + "}";
+        return Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(canonical))).ToLowerInvariant();
+    }
+
+    private (string SignedAt, string Nonce, string Signature) CreateAgentSignature(string path, string authToken, string agentVersion, string bodyHash)
     {
         string signedAt = DateTimeOffset.UtcNow.ToUnixTimeSeconds().ToString();
         string nonce = Guid.NewGuid().ToString("N");
         if (AgentIdentityKey == null) return (signedAt, nonce, "");
-        string canonical = string.Join("\n", new[] { path ?? "", HardwareId ?? "", authToken ?? "", agentVersion ?? "", signedAt, nonce });
+        string canonical = string.Join("\n", new[] { path ?? "", HardwareId ?? "", authToken ?? "", agentVersion ?? "", bodyHash ?? "", signedAt, nonce });
         byte[] signature = AgentIdentityKey.SignData(Encoding.UTF8.GetBytes(canonical), HashAlgorithmName.SHA256, RSASignaturePadding.Pkcs1);
         return (signedAt, nonce, Convert.ToBase64String(signature));
     }
@@ -842,8 +983,10 @@ public class Worker : BackgroundService
 
     private static string GeneratePersistentHardwareId()
     {
-        string machineId = ReadFirstExistingText("/etc/machine-id", "/var/lib/dbus/machine-id").Trim();
-        string source = string.Join("|", new[] { "winhub-linux-agent-install-v1", Guid.NewGuid().ToString("N"), machineId, Environment.MachineName, DateTimeOffset.UtcNow.ToUnixTimeMilliseconds().ToString() });
+        string machineId = OperatingSystem.IsMacOS()
+            ? RunCommandSnapshot("/usr/sbin/ioreg", "-rd1 -c IOPlatformExpertDevice", 5, 8000)
+            : ReadFirstExistingText("/etc/machine-id", "/var/lib/dbus/machine-id").Trim();
+        string source = string.Join("|", new[] { OperatingSystem.IsMacOS() ? "winhub-macos-agent-install-v1" : "winhub-linux-agent-install-v1", Guid.NewGuid().ToString("N"), machineId, Environment.MachineName, DateTimeOffset.UtcNow.ToUnixTimeMilliseconds().ToString() });
         return "WINHUB-" + Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(source))).ToLowerInvariant();
     }
 
@@ -944,6 +1087,12 @@ public class Worker : BackgroundService
 
     private string GetFriendlyOsName()
     {
+        if (OperatingSystem.IsMacOS())
+        {
+            string version = RunCommandSnapshot("/usr/bin/sw_vers", "-productVersion", 3, 200).Trim();
+            string build = RunCommandSnapshot("/usr/bin/sw_vers", "-buildVersion", 3, 200).Trim();
+            return $"macOS {version} ({build})".Trim();
+        }
         try
         {
             var values = File.ReadAllLines("/etc/os-release")
@@ -974,6 +1123,7 @@ public class Worker : BackgroundService
 
     private static (ulong Idle, ulong Total)? ReadCpuTimes()
     {
+        if (OperatingSystem.IsMacOS()) return null;
         try
         {
             string[] parts = File.ReadLines("/proc/stat").First().Split(' ', StringSplitOptions.RemoveEmptyEntries);
@@ -987,6 +1137,16 @@ public class Worker : BackgroundService
 
     private static double GetRamUsage()
     {
+        if (OperatingSystem.IsMacOS())
+        {
+            double totalBytes = ReadSysctlNumber("hw.memsize");
+            string vm = RunCommandSnapshot("/usr/bin/vm_stat", "", 5, 12000);
+            double pageSize = 4096;
+            var pageSizeMatch = System.Text.RegularExpressions.Regex.Match(vm, @"page size of (\d+) bytes");
+            if (pageSizeMatch.Success) double.TryParse(pageSizeMatch.Groups[1].Value, out pageSize);
+            double freePages = ReadVmStatPages(vm, "Pages free") + ReadVmStatPages(vm, "Pages inactive") + ReadVmStatPages(vm, "Pages speculative");
+            return totalBytes <= 0 ? 0 : Math.Clamp((totalBytes - freePages * pageSize) * 100.0 / totalBytes, 0, 100);
+        }
         double total = ReadMeminfoValueKb("MemTotal");
         double available = ReadMeminfoValueKb("MemAvailable");
         return total <= 0 ? 0 : (total - available) * 100.0 / total;
@@ -1016,6 +1176,13 @@ public class Worker : BackgroundService
 
     private static long ReadUptimeSeconds()
     {
+        if (OperatingSystem.IsMacOS())
+        {
+            string boot = RunCommandSnapshot("/usr/sbin/sysctl", "-n kern.boottime", 3, 300);
+            var match = System.Text.RegularExpressions.Regex.Match(boot, @"sec\s*=\s*(\d+)");
+            return match.Success && long.TryParse(match.Groups[1].Value, out long seconds)
+                ? Math.Max(0, DateTimeOffset.UtcNow.ToUnixTimeSeconds() - seconds) : 0;
+        }
         try
         {
             string first = File.ReadAllText("/proc/uptime").Split(' ', StringSplitOptions.RemoveEmptyEntries)[0];
@@ -1026,6 +1193,11 @@ public class Worker : BackgroundService
 
     private static string DetectFirewallState()
     {
+        if (OperatingSystem.IsMacOS())
+        {
+            string state = RunCommandSnapshot("/usr/libexec/ApplicationFirewall/socketfilterfw", "--getglobalstate", 4, 1000).ToLowerInvariant();
+            return state.Contains("enabled") ? "enabled" : state.Contains("disabled") ? "disabled" : "unknown";
+        }
         if (CommandExists("ufw"))
         {
             string ufw = RunCommandSnapshot("ufw", "status", 4, 1000).ToLowerInvariant();
@@ -1042,6 +1214,7 @@ public class Worker : BackgroundService
 
     private static string DetectAntivirusState()
     {
+        if (OperatingSystem.IsMacOS()) return "xprotect";
         if (CommandExists("clamdscan") || CommandExists("clamscan")) return "clamav_installed";
         return "unknown";
     }
@@ -1059,6 +1232,8 @@ public class Worker : BackgroundService
 
     private static string RunCommandSnapshot(string fileName, string arguments, int timeoutSeconds, int maxChars)
     {
+        if (OperatingSystem.IsMacOS())
+            return RunMacCommandSnapshot(fileName, arguments, timeoutSeconds, maxChars);
         try
         {
             using var process = Process.Start(new ProcessStartInfo(fileName, arguments)
@@ -1072,19 +1247,62 @@ public class Worker : BackgroundService
             if (process == null) return "unavailable";
             string output = "";
             string error = "";
-            Task stdout = Task.Run(async () => output = await process.StandardOutput.ReadToEndAsync());
-            Task stderr = Task.Run(async () => error = await process.StandardError.ReadToEndAsync());
+            // Avoid async PipeStream reads here. Some macOS/.NET single-file runtime
+            // combinations can abort in StreamReader.ReadToEndAsync while launchd is
+            // starting the daemon. Dedicated threads keep both pipes draining without
+            // relying on that runtime path.
+            var stdoutThread = new Thread(() => output = process.StandardOutput.ReadToEnd()) { IsBackground = true };
+            var stderrThread = new Thread(() => error = process.StandardError.ReadToEnd()) { IsBackground = true };
+            stdoutThread.Start();
+            stderrThread.Start();
             if (!process.WaitForExit(timeoutSeconds * 1000))
             {
                 TryKill(process);
+                stdoutThread.Join(1000);
+                stderrThread.Join(1000);
                 return "timeout";
             }
-            Task.WaitAll(stdout, stderr);
+            stdoutThread.Join(2000);
+            stderrThread.Join(2000);
             string combined = (output + "\n" + error).Trim();
             if (string.IsNullOrWhiteSpace(combined)) return process.ExitCode == 0 ? "ok" : $"exit {process.ExitCode}";
             return combined.Length > maxChars ? combined[..maxChars] + "\n[truncated]" : combined;
         }
         catch { return "unavailable"; }
+    }
+
+    private static string RunMacCommandSnapshot(string fileName, string arguments, int timeoutSeconds, int maxChars)
+    {
+        string outputPath = Path.Combine(Path.GetTempPath(), $"winhub_snapshot_{Guid.NewGuid():N}.log");
+        try
+        {
+            // Do not use ProcessStartInfo redirected streams on macOS. Certain .NET 8
+            // self-contained runtimes abort in System.IO.Pipes on recent macOS builds.
+            // The random root-owned file avoids managed pipes entirely.
+            using (FileStream file = new(outputPath, FileMode.CreateNew, FileAccess.Write, FileShare.None))
+            {
+                RestrictPath(outputPath, UnixFileMode.UserRead | UnixFileMode.UserWrite);
+            }
+            string command = $"{ShellQuote(fileName)} {arguments} > {ShellQuote(outputPath)} 2>&1";
+            var startInfo = new ProcessStartInfo("/bin/sh") { UseShellExecute = false };
+            startInfo.ArgumentList.Add("-c");
+            startInfo.ArgumentList.Add(command);
+            using var process = Process.Start(startInfo);
+            if (process == null) return "unavailable";
+            if (!process.WaitForExit(timeoutSeconds * 1000))
+            {
+                TryKill(process);
+                return "timeout";
+            }
+            string combined = File.ReadAllText(outputPath).Trim();
+            if (string.IsNullOrWhiteSpace(combined)) return process.ExitCode == 0 ? "ok" : $"exit {process.ExitCode}";
+            return combined.Length > maxChars ? combined[..maxChars] + "\n[truncated]" : combined;
+        }
+        catch { return "unavailable"; }
+        finally
+        {
+            try { File.Delete(outputPath); } catch { }
+        }
     }
 
     private static string ReadFirstExistingText(params string[] paths)
@@ -1098,6 +1316,25 @@ public class Worker : BackgroundService
             catch { }
         }
         return "";
+    }
+
+    private static ulong GetTotalMemoryMb()
+    {
+        if (OperatingSystem.IsMacOS())
+            return (ulong)Math.Max(0, Math.Round(ReadSysctlNumber("hw.memsize") / 1024.0 / 1024.0));
+        return (ulong)Math.Max(0, Math.Round(ReadMeminfoValueKb("MemTotal") / 1024.0));
+    }
+
+    private static double ReadSysctlNumber(string name)
+    {
+        string value = RunCommandSnapshot("/usr/sbin/sysctl", $"-n {name}", 3, 200).Trim();
+        return double.TryParse(value, System.Globalization.NumberStyles.Number, System.Globalization.CultureInfo.InvariantCulture, out double result) ? result : 0;
+    }
+
+    private static double ReadVmStatPages(string text, string label)
+    {
+        var match = System.Text.RegularExpressions.Regex.Match(text, "^" + System.Text.RegularExpressions.Regex.Escape(label) + @":\s+(\d+)\.", System.Text.RegularExpressions.RegexOptions.Multiline);
+        return match.Success && double.TryParse(match.Groups[1].Value, out double pages) ? pages : 0;
     }
 
     private int GetConfiguredPollIntervalSeconds() => ClampSeconds(_config.PollIntervalSeconds, 10, 3600);
@@ -1121,19 +1358,25 @@ public class Worker : BackgroundService
     }
     private Uri BuildUpdatePackageUri(string packageUrl)
     {
+        if (!Uri.TryCreate(_config.ServerUrl.TrimEnd('/') + "/", UriKind.Absolute, out var baseUri) || !IsHttpUri(baseUri))
+            throw new InvalidOperationException("ServerUrl must use http or https for agent updates.");
+        Uri result;
         if (Uri.TryCreate(packageUrl, UriKind.Absolute, out var absolute))
         {
-            if (IsHttpUri(absolute)) return absolute;
-            throw new InvalidOperationException($"Unsupported agent package URL scheme '{absolute.Scheme}'. Use http or https.");
+            if (IsHttpUri(absolute)) result = absolute;
+            else
+                throw new InvalidOperationException($"Unsupported agent package URL scheme '{absolute.Scheme}'. Use http or https.");
         }
-
-        if (!Uri.TryCreate(_config.ServerUrl.TrimEnd('/') + "/", UriKind.Absolute, out var baseUri) || !IsHttpUri(baseUri))
+        else
         {
-            string scheme = baseUri?.Scheme ?? "invalid";
-            throw new InvalidOperationException($"ServerUrl must use http or https for agent updates. Current scheme: '{scheme}'.");
+            result = new Uri(baseUri, packageUrl.TrimStart('/'));
         }
-
-        return new Uri(baseUri, packageUrl.TrimStart('/'));
+        if (OperatingSystem.IsMacOS() && !result.Scheme.Equals(Uri.UriSchemeHttps, StringComparison.OrdinalIgnoreCase))
+            throw new InvalidOperationException("The macOS agent accepts update packages over HTTPS only.");
+        if (!_config.AllowCrossHostUpdateDownloads &&
+            (!result.Host.Equals(baseUri.Host, StringComparison.OrdinalIgnoreCase) || result.Port != baseUri.Port))
+            throw new InvalidOperationException("Cross-host agent update downloads are disabled.");
+        return result;
     }
 
     private static bool IsHttpUri(Uri uri) =>
@@ -1150,7 +1393,7 @@ public class Worker : BackgroundService
         int maxBytes = Math.Max(4096, _config.MaxResultLogBytes);
         byte[] raw = Encoding.UTF8.GetBytes(log ?? "");
         if (raw.Length <= maxBytes) return log ?? "";
-        return Encoding.UTF8.GetString(raw.Take(maxBytes).ToArray()) + $"\n\n[WinHUB Linux Agent] Result log truncated to {maxBytes} bytes.";
+        return Encoding.UTF8.GetString(raw.Take(maxBytes).ToArray()) + $"\n\n[WinHUB Agent] Result log truncated to {maxBytes} bytes.";
     }
     private static string NormalizeThumbprint(string value) => new((value ?? "").Where(Uri.IsHexDigit).Select(char.ToUpperInvariant).ToArray());
     private static bool FixedTimeEqualsHex(string left, string right)

@@ -1,0 +1,68 @@
+{
+  "format": "winhub-template-library",
+  "version": 1,
+  "exported_at": "2026-07-06T00:00:00Z",
+  "templates": [
+    {
+      "id": "3b4b40e1-7ef8-4d08-8548-7d3de623c301",
+      "name": "Windows Service Manager",
+      "category": "Windows Administration",
+      "action_type": "run_script",
+      "type": "action",
+      "payload": {
+        "script": "$ErrorActionPreference = \"Stop\"\n\ntry { [Console]::OutputEncoding = [System.Text.Encoding]::UTF8 } catch { }\n\n$Mode = \"{{Mode}}\"\n$ServiceInput = @\"\n{{Services}}\n\"@\n$WaitSeconds = \"{{WaitSeconds}}\"\n\nfunction ConvertTo-PlainObject {\n    param($Value)\n    if ($null -eq $Value) { return $null }\n    if ($Value -is [string] -or $Value -is [bool] -or $Value -is [int] -or $Value -is [long] -or $Value -is [double] -or $Value -is [decimal]) { return $Value }\n    if ($Value -is [System.Collections.IDictionary]) {\n        $plain = [ordered]@{}\n        foreach ($key in $Value.Keys) { $plain[[string]$key] = ConvertTo-PlainObject $Value[$key] }\n        return $plain\n    }\n    if ($Value -is [System.Collections.IEnumerable] -and -not ($Value -is [string])) {\n        $items = New-Object System.Collections.ArrayList\n        foreach ($item in $Value) { [void]$items.Add((ConvertTo-PlainObject $item)) }\n        return ,$items\n    }\n    $properties = $Value.PSObject.Properties | Where-Object { $_.MemberType -in @(\"NoteProperty\", \"Property\") -and $_.Name -notmatch \"^PS\" }\n    if ($properties.Count -gt 0) {\n        $plain = [ordered]@{}\n        foreach ($property in $properties) { $plain[$property.Name] = ConvertTo-PlainObject $property.Value }\n        return $plain\n    }\n    return [string]$Value\n}\n\nfunction Split-ServiceList {\n    param([string]$Text)\n    if (-not $Text) { return @() }\n    @($Text -split \"[,;`r`n]+\" | ForEach-Object { $_.Trim() } | Where-Object { $_ } | Select-Object -Unique)\n}\n\nfunction Get-ServiceRecord {\n    param([string]$Name)\n    $svc = Get-Service -Name $Name -ErrorAction SilentlyContinue\n    if (-not $svc) {\n        $svc = Get-Service -DisplayName $Name -ErrorAction SilentlyContinue | Select-Object -First 1\n    }\n    return $svc\n}\n\nfunction Wait-ServiceStateSafe {\n    param($Service, [string]$TargetStatus, [int]$TimeoutSeconds)\n    try {\n        $Service.WaitForStatus([System.ServiceProcess.ServiceControllerStatus]::$TargetStatus, [TimeSpan]::FromSeconds($TimeoutSeconds))\n        return $true\n    } catch {\n        return $false\n    }\n}\n\ntry {\n    $validModes = @(\"Status\", \"Start\", \"Stop\", \"Restart\")\n    if ($validModes -notcontains $Mode) { $Mode = \"Status\" }\n    $timeout = 30\n    try { $timeout = [Math]::Max(1, [Math]::Min(300, [int]$WaitSeconds)) } catch { $timeout = 30 }\n\n    $serviceNames = @(Split-ServiceList $ServiceInput)\n    if ($serviceNames.Count -eq 0) { throw \"Specify at least one service name or display name.\" }\n\n    $results = @()\n    foreach ($requestedName in $serviceNames) {\n        $item = [ordered]@{\n            requested = $requestedName\n            name = $null\n            display_name = $null\n            mode = $Mode\n            before = $null\n            after = $null\n            changed = $false\n            success = $false\n            message = \"\"\n        }\n\n        try {\n            $service = Get-ServiceRecord -Name $requestedName\n            if (-not $service) {\n                $item.message = \"Service not found\"\n                $results += [pscustomobject]$item\n                continue\n            }\n\n            $item.name = $service.Name\n            $item.display_name = $service.DisplayName\n            $item.before = [string]$service.Status\n\n            if ($Mode -eq \"Status\") {\n                $item.after = [string]$service.Status\n                $item.success = $true\n                $item.message = \"Status read\"\n                $results += [pscustomobject]$item\n                continue\n            }\n\n            if ($Mode -eq \"Start\") {\n                if ($service.Status -ne \"Running\") {\n                    Start-Service -Name $service.Name -ErrorAction Stop\n                    $service.Refresh()\n                    [void](Wait-ServiceStateSafe -Service $service -TargetStatus \"Running\" -TimeoutSeconds $timeout)\n                    $service.Refresh()\n                    $item.changed = $true\n                }\n                $item.after = [string]$service.Status\n                $item.success = ($service.Status -eq \"Running\")\n                $item.message = if ($item.success) { \"Service is running\" } else { \"Service did not reach Running state\" }\n                $results += [pscustomobject]$item\n                continue\n            }\n\n            if ($Mode -eq \"Stop\") {\n                if ($service.Status -ne \"Stopped\") {\n                    Stop-Service -Name $service.Name -Force -ErrorAction Stop\n                    $service.Refresh()\n                    [void](Wait-ServiceStateSafe -Service $service -TargetStatus \"Stopped\" -TimeoutSeconds $timeout)\n                    $service.Refresh()\n                    $item.changed = $true\n                }\n                $item.after = [string]$service.Status\n                $item.success = ($service.Status -eq \"Stopped\")\n                $item.message = if ($item.success) { \"Service is stopped\" } else { \"Service did not reach Stopped state\" }\n                $results += [pscustomobject]$item\n                continue\n            }\n\n            if ($Mode -eq \"Restart\") {\n                if ($service.Status -ne \"Stopped\") {\n                    Stop-Service -Name $service.Name -Force -ErrorAction Stop\n                    $service.Refresh()\n                    [void](Wait-ServiceStateSafe -Service $service -TargetStatus \"Stopped\" -TimeoutSeconds $timeout)\n                }\n                Start-Service -Name $service.Name -ErrorAction Stop\n                $service.Refresh()\n                [void](Wait-ServiceStateSafe -Service $service -TargetStatus \"Running\" -TimeoutSeconds $timeout)\n                $service.Refresh()\n                $item.changed = $true\n                $item.after = [string]$service.Status\n                $item.success = ($service.Status -eq \"Running\")\n                $item.message = if ($item.success) { \"Service restarted and running\" } else { \"Service did not reach Running state after restart\" }\n                $results += [pscustomobject]$item\n                continue\n            }\n        } catch {\n            try { if ($service) { $service.Refresh(); $item.after = [string]$service.Status } } catch { }\n            $item.success = $false\n            $item.message = $_.Exception.Message\n            $results += [pscustomobject]$item\n        }\n    }\n\n    $failed = @($results | Where-Object { -not $_.success })\n    $changed = @($results | Where-Object { $_.changed })\n    $result = [pscustomobject][ordered]@{\n        schema = \"winhub.windows_service_manager.v1\"\n        computer_name = $env:COMPUTERNAME\n        checked_at_utc = (Get-Date).ToUniversalTime().ToString(\"o\")\n        mode = $Mode\n        requested_services = @($serviceNames)\n        total = @($results).Count\n        success_count = @($results | Where-Object { $_.success }).Count\n        failed_count = @($failed).Count\n        changed_count = @($changed).Count\n        status = if (@($failed).Count -eq 0) { \"Success\" } elseif (@($results | Where-Object { $_.success }).Count -gt 0) { \"Partial failure\" } else { \"Failed\" }\n        results = @($results)\n    }\n\n    ConvertTo-PlainObject $result | ConvertTo-Json -Depth 8 -Compress\n    if (@($failed).Count -gt 0) { exit 2 }\n}\ncatch {\n    $errorResult = [pscustomobject][ordered]@{\n        schema = \"winhub.windows_service_manager.v1\"\n        computer_name = $env:COMPUTERNAME\n        checked_at_utc = (Get-Date).ToUniversalTime().ToString(\"o\")\n        mode = $Mode\n        status = \"Script error\"\n        error = $_.Exception.Message\n        results = @()\n    }\n    ConvertTo-PlainObject $errorResult | ConvertTo-Json -Depth 8 -Compress\n    exit 1\n}\n",
+        "__report_template_id": "df828b33-df9f-44cc-8141-bb0464939b43",
+        "__variable_schema": {
+          "Mode": {
+            "type": "select",
+            "label": "Service action",
+            "default": "Status",
+            "options": [
+              "Status",
+              "Start",
+              "Stop",
+              "Restart"
+            ]
+          },
+          "Services": {
+            "type": "textarea",
+            "label": "Service names",
+            "default": "",
+            "placeholder": "Spooler,W32Time\nWinRM"
+          },
+          "WaitSeconds": {
+            "type": "number",
+            "label": "Wait timeout seconds",
+            "default": "30",
+            "min": 1,
+            "max": 300
+          }
+        },
+        "__template_policy": {
+          "hide_code": false,
+          "lock_edit": false,
+          "lock_delete": false,
+          "disable_run": false
+        }
+      },
+      "is_approved": false
+    },
+    {
+      "id": "df828b33-df9f-44cc-8141-bb0464939b43",
+      "name": "Windows Service Manager Report",
+      "category": "Windows Administration",
+      "action_type": "run_script",
+      "type": "report",
+      "payload": {
+        "script": "[[WINHUB_REPORT title=\"Windows Service Manager Report\"]]\n{% set ns = namespace(ok=0, partial=0, failed=0, changed=0) -%}\n{% for r in results -%}\n{% if r.status != 'Success' or not r.data -%}\n{% set ns.failed = ns.failed + 1 -%}\n{% elif r.data.failed_count and r.data.failed_count > 0 -%}\n{% set ns.partial = ns.partial + 1 -%}\n{% else -%}\n{% set ns.ok = ns.ok + 1 -%}\n{% endif -%}\n{% if r.data and r.data.changed_count -%}{% set ns.changed = ns.changed + r.data.changed_count -%}{% endif -%}\n{% endfor %}\nWindows service manager: {{ job_title }}\n\nSUMMARY\n- Total endpoints: {{ results|length }}\n- OK endpoints: {{ ns.ok }}\n- Partial endpoints: {{ ns.partial }}\n- Failed endpoints: {{ ns.failed }}\n- Changed services: {{ ns.changed }}\n\nSERVICE RESULTS\n{% for r in results if r.status == 'Success' and r.data -%}\n\n{{ r.host }} | mode={{ r.data.mode or '-' }} | {{ r.data.status or '-' }} | success={{ r.data.success_count or 0 }}/{{ r.data.total or 0 }} | changed={{ r.data.changed_count or 0 }}\n{% for s in r.data.results %}\n- {{ s.requested or '-' }}{% if s.name %} ({{ s.name }}){% endif %}: {{ s.before or '-' }} -> {{ s.after or '-' }} | success={{ s.success }} | changed={{ s.changed }} | {{ s.message or '-' }}\n{% endfor %}\n{% else -%}\n- none\n{% endfor %}\n\nFAILURES\n{% for r in results if r.status != 'Success' or not r.data -%}\n- {{ r.host }} | {{ r.status }} | {{ r.log }}\n{% endfor %}\n{% for r in results if r.status == 'Success' and r.data and r.data.results -%}\n{% for s in r.data.results if not s.success -%}\n- {{ r.host }} | {{ s.requested or '-' }}{% if s.name %} / {{ s.name }}{% endif %} | {{ s.message or '-' }}\n{% endfor %}\n{% endfor %}\n[[/WINHUB_REPORT]]\n",
+        "__template_policy": {
+          "hide_code": false,
+          "lock_edit": false,
+          "lock_delete": false,
+          "disable_run": false
+        }
+      },
+      "is_approved": false
+    }
+  ]
+}

@@ -13,7 +13,11 @@ Restart=always
 RestartSec=10
 KillSignal=SIGTERM
 TimeoutStopSec=30
-NoNewPrivileges=false
+UMask=0077
+PrivateTmp=true
+NoNewPrivileges=true
+LockPersonality=true
+RestrictRealtime=true
 
 [Install]
 WantedBy=multi-user.target
