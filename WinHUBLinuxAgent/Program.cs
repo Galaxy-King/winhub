@@ -8,6 +8,13 @@ if (args.Any(arg => arg.Equals("--version", StringComparison.OrdinalIgnoreCase) 
     return;
 }
 
+if (args.Any(arg => arg.Equals("--self-test", StringComparison.OrdinalIgnoreCase)))
+{
+    Worker.RunProtocolSelfTest();
+    Console.WriteLine("WinHUB Linux Agent protocol self-test: OK");
+    return;
+}
+
 var builder = Host.CreateDefaultBuilder(args)
     .UseSystemd()
     .ConfigureServices(services =>

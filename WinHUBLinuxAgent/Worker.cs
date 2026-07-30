@@ -77,6 +77,31 @@ internal partial class AppJsonSerializerContext : JsonSerializerContext { }
 
 public class Worker : BackgroundService
 {
+    private sealed class UnicodeScalarComparer : IComparer<string>
+    {
+        public static readonly UnicodeScalarComparer Instance = new();
+
+        public int Compare(string? left, string? right)
+        {
+            if (ReferenceEquals(left, right)) return 0;
+            if (left is null) return -1;
+            if (right is null) return 1;
+
+            var leftRunes = left.EnumerateRunes().GetEnumerator();
+            var rightRunes = right.EnumerateRunes().GetEnumerator();
+            while (true)
+            {
+                bool hasLeft = leftRunes.MoveNext();
+                bool hasRight = rightRunes.MoveNext();
+                if (!hasLeft || !hasRight)
+                    return hasLeft ? 1 : hasRight ? -1 : 0;
+
+                int comparison = leftRunes.Current.Value.CompareTo(rightRunes.Current.Value);
+                if (comparison != 0) return comparison;
+            }
+        }
+    }
+
     private readonly ILogger<Worker> _logger;
     private readonly HttpClient _httpClient;
     private AgentConfig _config = new();
@@ -484,6 +509,10 @@ public class Worker : BackgroundService
             string packageUrl = GetPayloadString(payload, "package_url");
             string expectedSha256 = NormalizeThumbprint(GetPayloadString(payload, "sha256"));
             if (string.IsNullOrWhiteSpace(packageUrl)) return ("Error", "agent_update requires payload.package_url.");
+            if (string.IsNullOrWhiteSpace(expectedSha256))
+                return ("Error", "Secure agent update requires payload.sha256.");
+            if (expectedSha256.Length != 64)
+                return ("Error", "Agent update SHA256 must contain exactly 64 hexadecimal characters.");
             Uri downloadUri = BuildUpdatePackageUri(packageUrl);
             Directory.CreateDirectory(UpdatesDirectory);
             string safeTaskId = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(taskId ?? ""))).ToLowerInvariant()[..24];
@@ -495,7 +524,7 @@ public class Worker : BackgroundService
                 if (response.Content.Headers.ContentLength is long contentLength && contentLength > maxUpdateBytes)
                     return ("Error", $"Agent update package exceeds the {maxUpdateBytes / 1024 / 1024} MB limit.");
                 await using var source = await response.Content.ReadAsStreamAsync(stoppingToken);
-                await using var destination = new FileStream(packagePath, FileMode.CreateNew, FileAccess.Write, FileShare.None, 81920, FileOptions.Asynchronous | FileOptions.SequentialScan);
+                await using var destination = new FileStream(packagePath, FileMode.Create, FileAccess.Write, FileShare.None, 81920, FileOptions.Asynchronous | FileOptions.SequentialScan);
                 byte[] buffer = new byte[81920];
                 long total = 0;
                 int read;
@@ -511,10 +540,6 @@ public class Worker : BackgroundService
                     await destination.WriteAsync(buffer.AsMemory(0, read), stoppingToken);
                 }
             }
-            if (string.IsNullOrWhiteSpace(expectedSha256))
-                return ("Error", "Secure agent update requires payload.sha256.");
-            if (expectedSha256.Length != 64)
-                return ("Error", "Agent update SHA256 must contain exactly 64 hexadecimal characters.");
             if (!string.IsNullOrWhiteSpace(expectedSha256))
             {
                 string actualSha256 = ComputeFileSha256(packagePath);
@@ -530,7 +555,7 @@ public class Worker : BackgroundService
                 : "/opt/winhub-linux-agent/update-linux-agent.sh";
             if (!File.Exists(updateScript)) return ("Error", $"{updateScript} was not found.");
             string launcherPath = Path.Combine(UpdatesDirectory, $"launch_update_{safeTaskId}.sh");
-            await File.WriteAllTextAsync(launcherPath, $"#!/usr/bin/env bash\nset -euo pipefail\nsleep 3\n{ShellQuote(updateScript)} --package {ShellQuote(packagePath)}\n", new UTF8Encoding(false), stoppingToken);
+            await File.WriteAllTextAsync(launcherPath, $"#!/usr/bin/env bash\nset -euo pipefail\ntrap '/bin/rm -f \"$0\"' EXIT\nsleep 3\n{ShellQuote(updateScript)} --package {ShellQuote(packagePath)}\n", new UTF8Encoding(false), stoppingToken);
             RestrictPath(launcherPath, UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute);
             ProcessStartInfo updateLauncher;
             if (OperatingSystem.IsMacOS())
@@ -545,7 +570,8 @@ public class Worker : BackgroundService
             }
             updateLauncher.UseShellExecute = false;
             updateLauncher.WorkingDirectory = Path.GetDirectoryName(updateScript) ?? "/";
-            Process.Start(updateLauncher);
+            if (Process.Start(updateLauncher) == null)
+                return ("Error", "Detached agent updater could not be started.");
             return ("Success", $"Agent update package staged at {packagePath}. Detached updater launched.");
         }
         catch (Exception ex)
@@ -615,7 +641,7 @@ public class Worker : BackgroundService
     {
         return element.ValueKind switch
         {
-            JsonValueKind.Object => "{" + string.Join(",", element.EnumerateObject().OrderBy(p => p.Name, StringComparer.Ordinal).Select(p => $"\"{EscapeJson(p.Name)}\":{CanonicalJson(p.Value)}")) + "}",
+            JsonValueKind.Object => "{" + string.Join(",", element.EnumerateObject().OrderBy(p => p.Name, UnicodeScalarComparer.Instance).Select(p => $"\"{EscapeJson(p.Name)}\":{CanonicalJson(p.Value)}")) + "}",
             JsonValueKind.Array => "[" + string.Join(",", element.EnumerateArray().Select(CanonicalJson)) + "]",
             JsonValueKind.String => "\"" + EscapeJson(element.GetString() ?? "") + "\"",
             JsonValueKind.Number => element.GetRawText(),
@@ -677,18 +703,26 @@ public class Worker : BackgroundService
     private HostInventoryInfo GetHostInventory()
     {
         string hostname = Environment.MachineName;
-        string domain = OperatingSystem.IsMacOS()
-            ? RunCommandSnapshot("/usr/sbin/scutil", "--get LocalHostName", 3, 300).Trim()
-            : RunCommandSnapshot("hostname", "-d", 3, 300).Trim();
-        if (domain == "unavailable" || domain == "timeout") domain = "";
-        string fqdn = string.IsNullOrWhiteSpace(domain) ? hostname : $"{hostname}.{domain}";
+        string domain;
+        string fqdn;
+        bool likelyDomainJoined;
+        if (OperatingSystem.IsMacOS())
+        {
+            (fqdn, domain, likelyDomainJoined) = GetMacHostIdentity(hostname);
+        }
+        else
+        {
+            domain = NormalizeCommandValue(RunCommandSnapshot("hostname", "-d", 3, 300));
+            fqdn = string.IsNullOrWhiteSpace(domain) ? hostname : $"{hostname}.{domain}";
+            likelyDomainJoined = !string.IsNullOrWhiteSpace(domain);
+        }
         long uptime = ReadUptimeSeconds();
         return new HostInventoryInfo(
             hostname,
             fqdn,
             domain,
-            "",
-            !string.IsNullOrWhiteSpace(domain),
+            OperatingSystem.IsMacOS() ? domain : "",
+            likelyDomainJoined,
             FriendlyOsName,
             RuntimeInformation.OSArchitecture.ToString(),
             RuntimeInformation.ProcessArchitecture.ToString(),
@@ -700,6 +734,39 @@ public class Worker : BackgroundService
             GetVolumes(),
             GetSecurityInventory()
         );
+    }
+
+    private static (string Fqdn, string Domain, bool LikelyDomainJoined) GetMacHostIdentity(string hostname)
+    {
+        string directoryInfo = RunCommandSnapshot("/usr/sbin/dsconfigad", "-show", 5, 4000);
+        var domainMatch = System.Text.RegularExpressions.Regex.Match(
+            directoryInfo,
+            @"^\s*Active Directory Domain\s*=\s*(.+?)\s*$",
+            System.Text.RegularExpressions.RegexOptions.Multiline | System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+        string domain = domainMatch.Success ? domainMatch.Groups[1].Value.Trim() : "";
+        bool joined = !string.IsNullOrWhiteSpace(domain);
+
+        string fqdn = NormalizeCommandValue(RunCommandSnapshot("/usr/sbin/scutil", "--get HostName", 3, 500));
+        if (string.IsNullOrWhiteSpace(fqdn))
+            fqdn = NormalizeCommandValue(RunCommandSnapshot("/bin/hostname", "-f", 3, 500));
+        if (string.IsNullOrWhiteSpace(fqdn))
+            fqdn = joined ? $"{hostname}.{domain}" : hostname;
+
+        return (fqdn, domain, joined);
+    }
+
+    private static string NormalizeCommandValue(string value)
+    {
+        string normalized = (value ?? "").Trim();
+        if (string.IsNullOrWhiteSpace(normalized) ||
+            normalized.Equals("ok", StringComparison.OrdinalIgnoreCase) ||
+            normalized.Equals("unavailable", StringComparison.OrdinalIgnoreCase) ||
+            normalized.Equals("timeout", StringComparison.OrdinalIgnoreCase) ||
+            normalized.StartsWith("exit ", StringComparison.OrdinalIgnoreCase) ||
+            normalized.Contains("not set", StringComparison.OrdinalIgnoreCase) ||
+            normalized.Contains("No such key", StringComparison.OrdinalIgnoreCase))
+            return "";
+        return normalized;
     }
 
     private SecurityInventoryInfo GetSecurityInventory()
@@ -815,7 +882,7 @@ public class Worker : BackgroundService
 
         if (rootDevice.StartsWith("/dev/mapper/", StringComparison.Ordinal) || rootDevice.StartsWith("/dev/dm-", StringComparison.Ordinal))
         {
-                string cryptsetup = CommandExists("cryptsetup") ? RunCommandSnapshot("cryptsetup", $"status {Path.GetFileName(rootDevice)}", 5, 3000) : "unavailable";
+            string cryptsetup = CommandExists("cryptsetup") ? RunCommandSnapshot("cryptsetup", $"status {Path.GetFileName(rootDevice)}", 5, 3000) : "unavailable";
             string cryptLower = cryptsetup.ToLowerInvariant();
             if (cryptLower.Contains("type:") || cryptLower.Contains("cipher:") || cryptLower.Contains("device:"))
             {
@@ -944,9 +1011,60 @@ public class Worker : BackgroundService
         using var doc = JsonDocument.Parse(json);
         string canonical = "{" + string.Join(",", doc.RootElement.EnumerateObject()
             .Where(p => p.Name is not ("body_hash" or "signed_at" or "signed_nonce" or "signature"))
-            .OrderBy(p => p.Name, StringComparer.Ordinal)
+            .OrderBy(p => p.Name, UnicodeScalarComparer.Instance)
             .Select(p => $"\"{EscapeJson(p.Name)}\":{CanonicalJson(p.Value)}")) + "}";
         return Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(canonical))).ToLowerInvariant();
+    }
+
+    public static void RunProtocolSelfTest()
+    {
+        const string taskJson = """
+            {
+              "task_id": "task-Привіт-😀",
+              "action": "run_script",
+              "payload": {
+                "script": "printf 'Привіт 👋\\n'",
+                "nested": {"z": 1, "a": true},
+                "items": [3, 2, 1],
+                "\uFFFD": 2,
+                "\uD83D\uDE00": 1
+              }
+            }
+            """;
+        using (var taskDocument = JsonDocument.Parse(taskJson))
+        {
+            JsonElement root = taskDocument.RootElement;
+            string canonicalTask = CanonicalizeTaskBody(
+                root.GetProperty("task_id").GetString() ?? "",
+                root.GetProperty("action").GetString() ?? "",
+                root.GetProperty("payload"));
+            string taskHmac = Convert.ToHexString(HMACSHA256.HashData(
+                Encoding.UTF8.GetBytes("contract-secret-Привіт"),
+                Encoding.UTF8.GetBytes(canonicalTask))).ToLowerInvariant();
+            const string expectedTaskHmac = "9b0785d0b7cf3bc1767cd7a341b5f6b1a5a67594a3d465090cb135a7408e1c46";
+            if (!CryptographicOperations.FixedTimeEquals(Encoding.ASCII.GetBytes(taskHmac), Encoding.ASCII.GetBytes(expectedTaskHmac)))
+                throw new InvalidOperationException($"Task HMAC contract self-test failed. Got {taskHmac}.");
+        }
+
+        const string requestJson = """
+            {
+              "hw_id": "WINHUB-тест-😀",
+              "auth_token": "токен",
+              "agent_version": "9.8.7",
+              "task_id": "task-Привіт-😀",
+              "status": "Success",
+              "log": "Готово 👋\nрядок 2",
+              "host_info": {"\uFFFD": 2, "\uD83D\uDE00": 1},
+              "body_hash": "ignored",
+              "signed_at": "ignored",
+              "signed_nonce": "ignored",
+              "signature": "ignored"
+            }
+            """;
+        string bodyHash = ComputeAgentBodyHash(requestJson);
+        const string expectedBodyHash = "ea4d224686ed1480cce3bd5632e019ea71629bf0d44c4e9e9a27a9295927fdaa";
+        if (!CryptographicOperations.FixedTimeEquals(Encoding.ASCII.GetBytes(bodyHash), Encoding.ASCII.GetBytes(expectedBodyHash)))
+            throw new InvalidOperationException($"Agent body-hash contract self-test failed. Got {bodyHash}.");
     }
 
     private (string SignedAt, string Nonce, string Signature) CreateAgentSignature(string path, string authToken, string agentVersion, string bodyHash)
@@ -1108,6 +1226,25 @@ public class Worker : BackgroundService
 
     private double GetCpuUsage()
     {
+        if (OperatingSystem.IsMacOS())
+        {
+            string snapshot = RunCommandSnapshot("/usr/bin/top", "-l 1 -n 0", 8, 5000);
+            var idleMatches = System.Text.RegularExpressions.Regex.Matches(
+                snapshot,
+                @"([0-9]+(?:\.[0-9]+)?)%\s*idle",
+                System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+            if (idleMatches.Count == 0) return 0;
+
+            string idleText = idleMatches[idleMatches.Count - 1].Groups[1].Value;
+            return double.TryParse(
+                idleText,
+                System.Globalization.NumberStyles.Float,
+                System.Globalization.CultureInfo.InvariantCulture,
+                out double idle)
+                ? Math.Clamp(100.0 - idle, 0.0, 100.0)
+                : 0;
+        }
+
         var current = ReadCpuTimes();
         if (current == null) return 0;
         if (_previousCpuTimes == null)

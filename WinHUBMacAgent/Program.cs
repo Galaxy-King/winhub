@@ -8,6 +8,13 @@ if (args.Any(arg => arg.Equals("--version", StringComparison.OrdinalIgnoreCase) 
     return;
 }
 
+if (args.Any(arg => arg.Equals("--self-test", StringComparison.OrdinalIgnoreCase)))
+{
+    Worker.RunProtocolSelfTest();
+    Console.WriteLine("WinHUB macOS Agent protocol self-test: OK");
+    return;
+}
+
 if (!OperatingSystem.IsMacOS())
     throw new PlatformNotSupportedException("WinHUBMacAgent can only run on macOS.");
 

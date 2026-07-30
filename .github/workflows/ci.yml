@@ -19,7 +19,7 @@ jobs:
       - name: Python compile check
         run: python -m compileall core modules server_debian.py server_prod.py migrations
       - name: Bash syntax check
-        run: bash -n deploy/create_release.sh deploy/debian/*.sh
+        run: bash -n deploy/create_release.sh deploy/debian/*.sh WinHUBLinuxAgent/*.sh WinHUBMacAgent/*.sh
 
   agent:
     runs-on: windows-latest
@@ -30,6 +30,14 @@ jobs:
           dotnet-version: "8.0.x"
       - name: Build Windows agent
         run: dotnet build WinHUBAgent\WinHUBAgent.csproj -c Release
+      - name: Build shared Unix agent code
+        run: dotnet build WinHUBLinuxAgent\WinHUBLinuxAgent.csproj -c Release -p:PublishAot=false
+      - name: Verify Linux agent protocol contract
+        run: dotnet WinHUBLinuxAgent\bin\Release\net8.0\WinHUBLinuxAgent.dll --self-test
+      - name: Build macOS agent managed validation target
+        run: dotnet build WinHUBMacAgent\WinHUBMacAgent.csproj -c Release -p:PublishAot=false -p:RuntimeIdentifier=win-x64 -p:SelfContained=false
+      - name: Verify macOS agent protocol contract
+        run: dotnet WinHUBMacAgent\bin\Release\net8.0\win-x64\WinHUBMacAgent.dll --self-test
       - name: PowerShell parser check
         shell: pwsh
         run: |

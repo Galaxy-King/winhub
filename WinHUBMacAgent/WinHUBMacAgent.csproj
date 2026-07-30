@@ -24,6 +24,7 @@
     <AgentDeployFile Include="uninstall-macos-agent.sh" />
     <AgentDeployFile Include="update-macos-agent.sh" />
     <AgentDeployFile Include="README.md" />
+    <AgentDeployFile Include="BUILD_MAC_M4_UA.md" />
   </ItemGroup>
   <Target Name="CopyAgentDeployFiles" AfterTargets="Publish">
     <Copy SourceFiles="@(AgentDeployFile)" DestinationFolder="$(PublishDir)" SkipUnchangedFiles="true" />

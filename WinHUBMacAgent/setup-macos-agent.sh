@@ -13,13 +13,19 @@ cleanup() {
 }
 trap cleanup EXIT HUP INT TERM
 
-if [[ -f "${runtime_config}" && -f "${bootstrap_config}" ]]; then
-  echo "Using winhub_agent.conf and winhub_agent.bootstrap.conf next to the installer."
+run_installer() {
   if [[ ${WINHUB_ALLOW_UNSIGNED:-0} == "1" ]]; then
     /usr/bin/sudo /usr/bin/env WINHUB_ALLOW_UNSIGNED=1 "${source_dir}/install-macos-agent.sh"
+  elif [[ -n ${WINHUB_EXPECTED_TEAM_ID:-} ]]; then
+    /usr/bin/sudo /usr/bin/env WINHUB_EXPECTED_TEAM_ID="${WINHUB_EXPECTED_TEAM_ID}" "${source_dir}/install-macos-agent.sh"
   else
     /usr/bin/sudo "${source_dir}/install-macos-agent.sh"
   fi
+}
+
+if [[ -f "${runtime_config}" && -f "${bootstrap_config}" ]]; then
+  echo "Using winhub_agent.conf and winhub_agent.bootstrap.conf next to the installer."
+  run_installer
   exit 0
 fi
 
@@ -65,8 +71,4 @@ printf '\n'
 /bin/chmod 0600 "${runtime_config}" "${bootstrap_config}"
 
 unset enrollment_key task_secret
-if [[ ${WINHUB_ALLOW_UNSIGNED:-0} == "1" ]]; then
-  /usr/bin/sudo /usr/bin/env WINHUB_ALLOW_UNSIGNED=1 "${source_dir}/install-macos-agent.sh"
-else
-  /usr/bin/sudo "${source_dir}/install-macos-agent.sh"
-fi
+run_installer
