@@ -19,7 +19,7 @@
             </div>
             <button onclick="closeModal('hostModal')" class="p-2 sm:p-3 bg-white border border-slate-200 hover:bg-slate-50 rounded-xl sm:rounded-2xl text-slate-500 hover:text-slate-800 transition-colors shadow-sm"><svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path d="M6 18L18 6M6 6l12 12" stroke-width="2.5"/></svg></button>
         </div>
-        
+
         <div class="flex border-b border-slate-200 px-6 sm:px-10 shrink-0 bg-white overflow-x-auto no-scrollbar">
             <button onclick="switchHostTab('info')" id="htabBtn_info" class="px-4 py-3 font-bold text-sm text-indigo-600 border-b-2 border-indigo-600 transition-colors whitespace-nowrap">Information & Actions</button>
             <button onclick="switchHostTab('items')" id="htabBtn_items" class="px-4 py-3 font-bold text-sm text-slate-500 border-b-2 border-transparent hover:text-slate-800 transition-colors flex items-center gap-2 whitespace-nowrap">
@@ -65,7 +65,7 @@
                     <div id="mSecurityInfo" class="space-y-3 text-xs"></div>
                 </div>
                 <div class="bg-slate-50 rounded-[2rem] p-6 space-y-4 border border-slate-100"><label class="text-[10px] font-black text-slate-400 uppercase tracking-widest block">Groups</label><div id="mGroups" class="flex flex-wrap gap-2"></div></div>
-                
+
                 {% if permissions.manage_hosts %}
                 <div class="pt-6 border-t border-slate-100 flex flex-col gap-3">
                     <button onclick="setHostApproval('Approved')" id="btnApproveHost" class="w-full py-4 bg-emerald-50 text-emerald-600 rounded-2xl text-xs font-black uppercase tracking-wider hover:bg-emerald-100 transition-all border border-emerald-100">Approve Host</button>
@@ -89,7 +89,7 @@
                     <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"></path></svg>
                 </button>
             </div>
-            
+
             <div class="bg-white rounded-[2.5rem] border border-slate-200 shadow-sm overflow-hidden flex-1">
                 <table class="w-full text-left">
                     <thead class="bg-slate-50/50 border-b border-slate-100 text-[10px] font-black text-slate-400 uppercase tracking-widest">
@@ -283,18 +283,18 @@
                 <button onclick="closeModal('reportViewModal')" class="p-3 bg-white border border-slate-200 hover:bg-slate-50 rounded-2xl text-slate-500 hover:text-slate-800 transition-colors shadow-sm"><svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path d="M6 18L18 6M6 6l12 12" stroke-width="2.5"/></svg></button>
             </div>
         </div>
-        
+
         <div class="flex-1 bg-slate-900 shadow-inner flex flex-col p-6 sm:p-8">
             <textarea id="vrBody" spellcheck="false" class="w-full flex-1 bg-transparent text-emerald-400 font-mono text-sm leading-relaxed resize-none outline-none custom-scrollbar border-0 p-0 focus:ring-0" {% if not permissions.edit_reports %}readonly{% endif %}>Loading...</textarea>
         </div>
-        
+
         <div class="p-6 sm:p-8 border-t border-slate-100 bg-white flex flex-wrap justify-between items-center gap-4 shrink-0">
             {% if permissions.delete_reports %}
             <button onclick="deleteCurrentReport()" class="px-6 py-3.5 bg-white border border-rose-200 text-rose-500 hover:bg-rose-50 rounded-2xl text-xs font-black uppercase transition-all shadow-sm">Delete Report</button>
             {% else %}
             <div></div> <!-- Spacer -->
             {% endif %}
-            
+
             <div class="flex gap-3">
                 {% if permissions.dismiss_reports %}
                 <button onclick="dismissCurrentReport()" class="px-6 py-3.5 bg-white border border-slate-200 text-slate-600 hover:bg-slate-100 rounded-2xl text-xs font-black uppercase transition-all shadow-sm">Dismiss</button>
@@ -321,7 +321,7 @@
             <h2 class="text-2xl font-black text-slate-800 uppercase tracking-tight">Send Secure Report</h2>
             <button onclick="closeModal('reportEmailModal')" class="text-slate-400 hover:text-slate-700 bg-slate-50 p-2 rounded-xl"><svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path></svg></button>
         </div>
-        
+
         <div class="overflow-y-auto custom-scrollbar flex-1 pr-2 space-y-5">
             <div>
                 <label class="text-[10px] font-black text-slate-400 uppercase tracking-widest block mb-2 ml-2">Sender Profile (From)</label>
@@ -362,7 +362,7 @@
                 </div>
             </label>
         </div>
-        
+
         <div class="pt-6 shrink-0 border-t border-slate-100 mt-2">
             <button id="btnSendReport" onclick="sendReportEmail()" class="w-full py-4 bg-indigo-600 hover:bg-indigo-700 text-white rounded-2xl text-sm font-black uppercase shadow-lg transition-all flex justify-center items-center gap-2">
                 <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z"/></svg>
@@ -681,10 +681,10 @@
             <h2 class="text-2xl font-black text-slate-800 uppercase tracking-tight" id="trgModalTitle">New Trigger</h2>
             <button onclick="closeModal('triggerModal')" class="text-slate-400 hover:text-slate-700 bg-slate-50 hover:bg-slate-100 p-2 rounded-xl transition-colors"><svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path></svg></button>
         </div>
-        
+
         <div class="overflow-y-auto custom-scrollbar flex-1 pr-2 space-y-6">
             <input type="hidden" id="trgId">
-            
+
             <div class="grid grid-cols-2 gap-4">
                 <div>
                     <label class="text-[10px] font-black text-slate-400 uppercase tracking-widest block mb-2 ml-2">Trigger Name</label>
@@ -703,7 +703,7 @@
 
             <div class="bg-slate-50 p-6 rounded-3xl border border-slate-200 space-y-4">
                 <label class="text-[10px] font-black text-slate-500 uppercase tracking-widest block mb-2">Condition (IF)</label>
-                
+
                 <div>
                     <label class="text-[10px] font-black text-slate-400 uppercase tracking-widest block mb-1 ml-1">Metric / Item Name</label>
                     <select id="trgMetric" class="w-full p-4 bg-white border border-slate-200 rounded-2xl text-sm font-bold shadow-sm outline-none focus:ring-2 focus:ring-indigo-500">
@@ -748,7 +748,7 @@
                 <span class="text-sm font-bold text-slate-700">Enable this trigger</span>
             </label>
         </div>
-        
+
         <div class="pt-6 shrink-0 border-t border-slate-100 mt-2">
             <button onclick="saveTrigger()" class="w-full bg-indigo-600 hover:bg-indigo-700 text-white rounded-2xl font-black uppercase text-sm py-4 shadow-lg transition-all">Save Trigger</button>
         </div>
@@ -762,10 +762,10 @@
             <h2 class="text-2xl font-black text-slate-800 uppercase tracking-tight" id="schModalTitle">New Schedule</h2>
             <button onclick="closeModal('scheduleModal')" class="text-slate-400 hover:text-slate-700 bg-slate-50 hover:bg-slate-100 p-2 rounded-xl transition-colors"><svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path></svg></button>
         </div>
-        
+
         <div class="overflow-y-auto custom-scrollbar flex-1 pr-2 space-y-6">
             <input type="hidden" id="schId">
-            
+
             <div class="grid grid-cols-2 gap-4">
                 <div>
                     <label class="text-[10px] font-black text-slate-400 uppercase tracking-widest block mb-2 ml-2">Job Name</label>
@@ -873,7 +873,7 @@
                 <span class="text-sm font-bold text-slate-700">Enable this schedule immediately</span>
             </label>
         </div>
-        
+
         <div class="pt-6 shrink-0 border-t border-slate-100 mt-2">
             <button onclick="saveSchedule()" class="w-full bg-indigo-600 hover:bg-indigo-700 text-white rounded-2xl font-black uppercase text-sm py-4 shadow-lg transition-all">Save Schedule</button>
         </div>
@@ -909,12 +909,12 @@
             <h2 class="text-xl font-black text-slate-800 uppercase tracking-tight">Manage Categories</h2>
             <button onclick="closeModal('categoryModal')" class="text-slate-400 hover:text-slate-700 bg-slate-50 hover:bg-slate-100 p-2 rounded-xl transition-colors"><svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path></svg></button>
         </div>
-        
+
         <div class="flex gap-2">
             <input type="text" id="newCategoryName" placeholder="New category name..." class="w-full p-4 bg-slate-50 border border-slate-200 rounded-2xl text-sm font-bold outline-none focus:bg-white focus:ring-4 focus:ring-indigo-500/10 transition-all">
             <button onclick="addCategoryUI()" class="px-6 bg-indigo-600 hover:bg-indigo-700 text-white rounded-2xl font-black text-xl shadow-lg transition-all">+</button>
         </div>
-        
+
         <div class="bg-slate-50 border border-slate-200 rounded-2xl p-4">
             <p class="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-3 px-2">Available Categories</p>
             <div id="categoryListUI" class="max-h-[250px] overflow-y-auto space-y-2 custom-scrollbar pr-2">

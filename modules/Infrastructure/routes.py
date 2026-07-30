@@ -2109,7 +2109,7 @@ def index():
     user_id = session.get('user_id')
     now = datetime.utcnow()
     online_threshold = now - timedelta(minutes=5)
-    
+
     agents = get_allowed_hosts_light(user_id)
     groups = WinHubCore.get_allowed_groups(user_id)
     latest_versions = latest_agent_package_versions_by_platform()
@@ -2133,8 +2133,8 @@ def index():
         'outdated': sum(1 for a in agents if is_agent_outdated(a)),
         'signed': sum(1 for a in agents if bool(getattr(a, "agent_identity_key_enrolled", False))),
     }
-    
-    for a in agents: 
+
+    for a in agents:
         a.is_online = (a.last_seen and a.last_seen >= online_threshold)
         a.last_seen_str = to_kyiv_time(a.last_seen)
         a.last_enrollment_str = to_kyiv_time(getattr(a, "last_enrollment_at", None))
@@ -2193,7 +2193,7 @@ def index():
         else:
             approved_by_hostname[hostname_key] = agent
     stats["review"] = len(pending_agents) + len(rejected_agents) + len(approved_duplicate_pairs)
-        
+
     is_admin = session.get('is_admin')
     permissions = user_permissions(User.query.get(user_id), "Infrastructure")
     if is_admin:
@@ -2212,9 +2212,9 @@ def index():
         t for t in templates_raw
         if not (t.name == "Agent Self Update" and t.action_type == "agent_update" and t.created_by == "System")
     ]
-            
+
     templates = [{
-        "id": t.id, "name": t.name, "category": getattr(t, 'category', 'General'), 
+        "id": t.id, "name": t.name, "category": getattr(t, 'category', 'General'),
         "action_type": t.action_type,
         "type": getattr(t, 'type', 'action'),
         "is_approved": t.is_approved,
@@ -2416,10 +2416,10 @@ def manage_smtp():
             return jsonify({"success": False, "message": "Permission denied"}), 403
         safe_profiles = [{"email": k, "host": v.get("host"), "port": v.get("port"), "keyserver": v.get("keyserver", "")} for k, v in profiles.items()]
         return jsonify({"success": True, "profiles": safe_profiles})
-        
+
     denied = require_permission("manage_smtp")
     if denied: return denied
-        
+
     if request.method == 'POST':
         data = request.json
         email = data.get("email", "").strip()
@@ -2427,10 +2427,10 @@ def manage_smtp():
         port = data.get("port", 587)
         password = data.get("password", "")
         keyserver = data.get("keyserver", "").strip()
-        
+
         if not email or not host or not password:
             return jsonify({"success": False, "message": "Email, Host, and Password are required."}), 400
-            
+
         profiles[email] = {
             "host": host, "port": int(port),
             "password": sec_manager.encrypt_data(password),
@@ -2438,7 +2438,7 @@ def manage_smtp():
         }
         save_smtp_profiles(profiles)
         return jsonify({"success": True})
-        
+
     if request.method == 'DELETE':
         email = request.json.get("email")
         if email in profiles:
@@ -2713,9 +2713,9 @@ def action_report(report_id):
     if not r: return jsonify({"success": False}), 404
     if not can_access_report(report_id):
         return jsonify({"success": False, "message": "Access denied"}), 403
-    
+
     action = request.json.get('action')
-    
+
     if action == 'save':
         denied = require_permission("edit_reports")
         if denied: return denied
@@ -2727,14 +2727,14 @@ def action_report(report_id):
         r.report_data = request.json.get('report_data', '')
         db.session.commit()
         return jsonify({"success": True})
-        
+
     elif action == 'dismiss':
         denied = require_permission("dismiss_reports")
         if denied: return denied
         r.status = 'Dismissed'
         db.session.commit()
         return jsonify({"success": True})
-        
+
     elif action == 'send':
         denied = require_permission("send_reports")
         if denied: return denied
@@ -2761,7 +2761,7 @@ def action_report(report_id):
         if success:
             return jsonify({"success": True, "message": message, "sent": sent_count})
         return jsonify({"success": False, "message": message}), 400
-        
+
     return jsonify({"success": True})
 
 
@@ -4257,15 +4257,15 @@ def create_template():
     if denied: return denied
     data = request.json
     payload_dict = data.get('payload', {})
-    
+
     if 'report_template_id' in data and data['report_template_id']:
         payload_dict['__report_template_id'] = data['report_template_id']
-        
+
     payload_raw = json.dumps(payload_dict)
     is_approved = bool(data.get('is_approved', False))
     category = data.get('category', 'General').strip() or 'General'
-    t_type = data.get('type', 'action') 
-    
+    t_type = data.get('type', 'action')
+
     tid = data.get('id')
     if tid:
         t = TaskTemplate.query.get(tid)
@@ -4311,10 +4311,10 @@ def create_task():
     denied = require_permission("run_tasks")
     if denied: return denied
     data = request.json
-    target_type = data.get('target_type') 
+    target_type = data.get('target_type')
     action = data.get('action')
     is_admin = session.get('is_admin', False)
-    
+
     action_type = 'run_script'
     payload_dict = {}
     template = TaskTemplate.query.get(data.get('template_id')) if data.get('template_id') else None
@@ -4335,20 +4335,20 @@ def create_task():
     elif action == 'run_script':
         action_type = 'run_script'
         payload_dict = dict(data.get('payload', {}))
-        
+
         # Перевірка на випадок порожнього тексту
         if not payload_dict.get('script') or str(payload_dict.get('script')).strip() == "":
             return jsonify({"success": False, "message": "Скрипт порожній. Якщо це шаблон, переконайтеся що адміністратор зберіг його правильно."}), 400
-            
+
         if data.get('template_type') == 'metric':
             payload_dict['__is_metric'] = True
             payload_dict['__metric_name'] = data.get('title', 'Manual Item')
-            
+
     elif action == 'run_template':
         # Залишаємо як фолбек, якщо раптом фронтенд відішле це
         t = template
         own_runnable = bool(t and getattr(t, "created_by", None) == session.get("username") and can("manage_templates"))
-        if not t or (not is_admin and ((not t.is_approved and not own_runnable) or not can_use_template(t))): 
+        if not t or (not is_admin and ((not t.is_approved and not own_runnable) or not can_use_template(t))):
             return jsonify({"success": False, "message": "Template denied or not found"}), 403
         action_type = t.action_type or 'run_script'
         payload_dict = load_template_payload(t)
@@ -4356,8 +4356,8 @@ def create_task():
         if getattr(t, 'type', 'action') == 'metric':
             payload_dict['__is_metric'] = True
             payload_dict['__metric_name'] = t.name
-            
-    elif action == 'reboot': 
+
+    elif action == 'reboot':
         action_type = 'reboot'
         payload_dict = {"command": "restart"}
 
@@ -4446,15 +4446,15 @@ def create_task():
 
     # Розбір цілей
     agent_ids = []
-    if target_type == "hosts": 
+    if target_type == "hosts":
         agent_ids = data.get('target_ids', [])
     elif target_type == "group":
         group = EndpointGroup.query.get(data.get('target_id'))
         if group: agent_ids = [a.id for a in group.endpoints]
 
-    if not agent_ids: 
+    if not agent_ids:
         return jsonify({"success": False, "message": "No targets selected"}), 400
-    
+
     try:
         WinHubCore.dispatch_task(session.get('user_id'), "Infrastructure", action_type, agent_ids, payload_dict, data.get('title', 'Task'))
         return jsonify({"success": True})
@@ -4632,7 +4632,7 @@ def get_tasks():
         AgentTask.endpoint_id.in_(allowed_hosts),
         AgentTask.job_id.in_(job_ids)
     ).order_by(AgentTask.created_at.desc()).all()
-    
+
     jobs = {}
     job_sort_at = {job_id: created_at for job_id, created_at in recent_jobs if job_id}
     for t, hostname, display_name in tasks:
@@ -4644,7 +4644,7 @@ def get_tasks():
         display_label = (display_name or hostname or t.endpoint_id or "Unknown").strip()
         jobs[jid]["tasks"].append({"task_id": t.id, "endpoint_id": t.endpoint_id, "hostname": hostname, "display_name": display_name or "", "name": display_label, "status": t.status or "Pending"})
         jobs[jid]["total"] += 1
-        
+
         status_norm = (t.status or "Pending").capitalize()
         if status_norm == "Success": jobs[jid]["success"] += 1
         elif status_norm == "Error": jobs[jid]["error"] += 1

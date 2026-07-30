@@ -63,7 +63,7 @@ def build_postgres_uri_from_env():
 class Config:
     # Базовий секретний ключ для криптографії Flask (сесії)
     SECRET_KEY = clean_env_value(os.environ.get('SECRET_KEY')) or DEFAULT_SECRET_KEY
-    
+
     # Визначення головних шляхів системи
     BASE_DIR = os.path.abspath(os.path.dirname(os.path.dirname(__file__)))
     DATA_DIR = clean_env_value(os.environ.get('DATA_DIR')) or os.path.join(BASE_DIR, 'data')
@@ -73,7 +73,7 @@ class Config:
     SERVER_KEY_PATH = clean_env_value(os.environ.get('SERVER_KEY_PATH')) or os.path.join(BASE_DIR, 'certs', 'key.pem')
     WINHUB_ROLE = (clean_env_value(os.environ.get('WINHUB_ROLE')) or 'web').lower()
     WINHUB_DISABLE_SCHEDULER = (clean_env_value(os.environ.get('WINHUB_DISABLE_SCHEDULER')) or 'false').lower() in ('1', 'true', 'yes', 'on')
-    
+
     # ---------------------------------------------------------
     # НАЛАШТУВАННЯ БАЗИ ДАНИХ (ДЛЯ 5K ХОСТІВ - ТІЛЬКИ POSTGRESQL)
     # Приклад URL: postgresql://user:pass@localhost:5432/winhub
@@ -125,7 +125,7 @@ class Config:
     SESSION_COOKIE_SAMESITE = clean_env_value(os.environ.get('SESSION_COOKIE_SAMESITE')) or 'Strict'
     HSTS_ENABLED = (clean_env_value(os.environ.get('HSTS_ENABLED')) or ('true' if PRODUCTION_MODE else 'false')).lower() in ('1', 'true', 'yes', 'on')
     SLOW_REQUEST_LOG_SECONDS = env_int('SLOW_REQUEST_LOG_SECONDS', 2, 0, 3600)
-    
+
     # 🚀 ОПТИМІЗАЦІЯ ДЛЯ ВИСОКОГО НАВАНТАЖЕННЯ (Connection Pooling)
     # Додаємо пул з'єднань тільки якщо використовуємо PostgreSQL, бо SQLite цього не підтримує
     if "postgres" in SQLALCHEMY_DATABASE_URI or "postgresql" in SQLALCHEMY_DATABASE_URI:
@@ -135,10 +135,10 @@ class Config:
             "pool_timeout": 30,        # Скільки чекати на вільне підключення (сек)
             "pool_recycle": 1800,      # Перезапуск підключень кожні 30 хв
         }
-    
+
     # Назва сервісу для збереження Master Password у Windows Credential Manager
     SERVICE_NAME = os.environ.get('SERVICE_NAME', 'WinHUB_v2')
-    
+
     # Термін зберігання історії виконання скриптів та їх логів (у днях)
     LOG_RETENTION_DAYS = int(os.environ.get('LOG_RETENTION_DAYS', 30))
     AUDIT_RETENTION_DAYS = int(os.environ.get('AUDIT_RETENTION_DAYS', 365))

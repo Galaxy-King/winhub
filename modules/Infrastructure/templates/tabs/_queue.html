@@ -15,7 +15,7 @@
             <input type="text" id="queueSearch" onkeyup="renderQueue()" placeholder="Search Job Title, Target, Status..." class="w-full pl-12 pr-4 py-3 bg-slate-50 border border-slate-200 rounded-2xl text-sm font-medium focus:bg-white focus:ring-4 focus:ring-indigo-500/10 transition-all outline-none">
             <svg class="w-5 h-5 absolute left-4 top-3 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" stroke-width="3"/></svg>
         </div>
-        
+
         <div class="flex flex-wrap items-center gap-6 w-full md:w-auto justify-between md:justify-end">
             {% if permissions.cleanup_tasks %}
             <div class="relative group z-10">
@@ -50,7 +50,7 @@
                 <button onclick="setQueueStatusFilter('Cancelled', this)" class="q-status-btn px-5 py-2 text-xs font-black uppercase rounded-lg text-slate-500 hover:text-slate-800 transition-all whitespace-nowrap">Cancelled</button>
             </div>
         </div>
-        
+
         <select id="qFilterUser" onchange="renderQueue()" class="bg-slate-50 border border-slate-200 text-slate-600 text-xs font-black uppercase rounded-xl px-4 py-2.5 outline-none cursor-pointer w-full md:w-auto">
             <option value="">All Users</option>
         </select>

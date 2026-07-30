@@ -48,13 +48,13 @@ class SecurityManager:
                     os.makedirs(Config.DATA_DIR, exist_ok=True)
                     with open(key_path, 'w', encoding='utf-8') as f:
                         f.write(master_key)
-                    
+
                     backup_path = os.path.join(Config.DATA_DIR, 'MASTER_KEY_BACKUP.txt')
                     with open(backup_path, 'w', encoding='utf-8') as f:
                         f.write("=== WinHUB System Master Key ===\n\n")
                         f.write(f"Key: {master_key}\n\n")
                         f.write("Keep this file protected and include it in encrypted off-host backups.\n")
-                        
+
                     log.warning(f"Згенеровано новий Master Key. Збережено в {key_path}")
             return Fernet(master_key.encode())
         except Exception as e:

@@ -1336,20 +1336,20 @@ def get_config():
     can_manage_smtp = has_permission(current_user(), "Newsletter", "manage_smtp")
     can_manage_lists = has_permission(current_user(), "Newsletter", "manage_lists")
     profiles = load_smtp_profiles()
-    
+
     senders = []
     for email, conf in profiles.items():
         if can_manage_smtp:
             senders.append(safe_mail_profile(email, conf))
         else:
             senders.append({"email": email})
-            
+
     all_lists = load_lists()
-    
+
     # Маскуємо дані списків для звичайних користувачів
     if not can_manage_lists:
         all_lists = {k: [] for k in all_lists.keys()}
-            
+
     payload = {"success": True, "senders": senders, "lists": all_lists}
     if can_manage_smtp:
         payload["inbound"] = safe_inbound_settings()
@@ -1359,15 +1359,15 @@ def get_config():
 def manage_smtp():
     denied = require_permission("manage_smtp")
     if denied: return denied
-        
+
     data = request.json or {}
     action = data.get("action")
     email = data.get("email", "").strip()
-    
+
     if not email: return jsonify({"success": False, "message": "Email is required."}), 400
-    
+
     profiles = load_smtp_profiles()
-    
+
     if action == "add":
         existing = profiles.get(email, {})
         try:
@@ -1380,12 +1380,12 @@ def manage_smtp():
             return jsonify({"success": False, "message": "SMTP password is required."}), 400
         profiles[email] = profile
         save_smtp_profiles(profiles)
-        
+
     elif action == "delete":
         if email in profiles:
             del profiles[email]
             save_smtp_profiles(profiles)
-            
+
     return jsonify({"success": True, "message": "SMTP configuration updated."})
 
 @newsletter_bp.route("/api/newsletter/test/mail", methods=["POST"])
@@ -1615,14 +1615,14 @@ def save_list():
     data = request.json or {}
     list_name = data.get("list_name", "").strip()
     users = data.get("users", [])
-    
+
     if not list_name: return jsonify({"success": False, "message": "List name is required."}), 400
-    
+
     clean_users = [u.strip() for u in users if u.strip()]
     filepath = os.path.join(LISTS_DIR, f"{list_name}.json")
     with open(filepath, "w", encoding="utf-8") as f:
         json.dump(clean_users, f, indent=4)
-        
+
     return jsonify({"success": True, "message": "List saved successfully."})
 
 @newsletter_bp.route("/api/newsletter/lists/<list_name>", methods=["DELETE"])
@@ -1649,18 +1649,18 @@ def send_newsletter():
         attachments = normalize_attachments(data.get("attachments", []))
     except ValueError as e:
         return jsonify({"success": False, "message": str(e)}), 400
-    
+
     user_id = session.get('user_id')
     room_id = str(user_id)
     is_admin = session.get('is_admin', False)
-    
+
     if not sender_email or not selected_lists or not (body or html_to_text(body_html)):
         return jsonify({"success": False, "message": "Please fill in all required fields."}), 400
 
     profiles = load_smtp_profiles()
     if sender_email not in profiles:
         return jsonify({"success": False, "message": "Sender profile not found."}), 404
-        
+
     all_lists = load_lists()
     target_users = set()
     for lname in selected_lists:
@@ -1669,7 +1669,7 @@ def send_newsletter():
                 recipient = normalize_recipient(item)
                 if recipient:
                     target_users.add(recipient)
-            
+
     if not target_users:
         return jsonify({"success": False, "message": "No recipients found in the selected lists."}), 400
 
@@ -1677,10 +1677,10 @@ def send_newsletter():
     task_id = str(uuid.uuid4())
     log_file = os.path.join(current_app.config['DATA_DIR'], 'logs', f"task_{task_id}.log")
     ensure_parent_dir(log_file)
-    
+
     targets_db = ", ".join(selected_lists)
     if len(targets_db) > 50: targets_db = targets_db[:47] + "..."
-    
+
     new_task = Task(
         id=task_id, user_id=user_id, module_name="Newsletter",
         action="Send Mailing", targets=targets_db, status="Running", log_file=log_file
@@ -1813,7 +1813,7 @@ def fetch_gpg_key(gpg_path, keyserver, email):
     try:
         base_url = keyserver.replace("hkps://", "https://").replace("hkp://", "http://")
         api_url = f"{base_url}/pks/lookup?op=get&options=mr&search={urllib.parse.quote(email)}"
-        
+
         # ІГНОРУВАННЯ ПОМИЛОК SSL (Для самопідписаних сертифікатів)
         ctx = ssl.create_default_context()
         ctx.check_hostname = False
@@ -1861,38 +1861,38 @@ def encrypt_with_gpg(gpg_path, recipient_email, payload):
     unique_id = str(time.time()).replace(".", "")
     tmp_in = os.path.join(tempfile.gettempdir(), f"nl_{unique_id}.eml")
     tmp_out = tmp_in + ".asc"
-    
+
     try:
         mode = "wb" if isinstance(payload, (bytes, bytearray)) else "w"
         kwargs = {} if mode == "wb" else {"encoding": "utf-8"}
         with open(tmp_in, mode, **kwargs) as f:
             f.write(payload)
-            
-        # УВАГА: Видалено шифрування для відправника (-r sender_email), 
+
+        # УВАГА: Видалено шифрування для відправника (-r sender_email),
         # оскільки відсутність його ключа блокує розсилку та викликає таймаути
         cmd = [gpg_path, "--batch", "--yes", "--trust-model", "always",
                "--encrypt", "--armor", "-r", recipient_email,
                "-o", tmp_out, tmp_in]
-        
+
         proc = subprocess.run(cmd, capture_output=True, text=True, timeout=15, stdin=subprocess.DEVNULL, env=gpg_env(), **hidden_subprocess_kwargs())
-                              
+
         if proc.returncode != 0:
             err_msg = proc.stderr.strip() if proc.stderr else "Unknown GPG Error"
             return False, f"GPG Exit {proc.returncode}: {err_msg}"
-            
-        if not os.path.exists(tmp_out): 
+
+        if not os.path.exists(tmp_out):
             return False, "Encryption file not generated"
-            
+
         with open(tmp_out, 'r', encoding='utf-8') as f: encrypted_body = f.read()
         return True, encrypted_body
-        
+
     except subprocess.TimeoutExpired:
         return False, "GPG encryption timed out after 15 seconds"
     except Exception as e:
         return False, f"Exception: {str(e)}"
     finally:
         for f in [tmp_in, tmp_out]:
-            if os.path.exists(f): 
+            if os.path.exists(f):
                 try: os.remove(f)
                 except: pass
 
@@ -1900,20 +1900,20 @@ def encrypt_with_gpg(gpg_path, recipient_email, payload):
 def bg_send_execution(app, task_id, sender_email, smtp_config, target_users, subject, body, body_html, attachments, use_gpg, log_file, room_id, is_admin):
     timestamp = kyiv_log_timestamp()
     ensure_parent_dir(log_file)
-    
+
     def emit_and_write(full_line, public_line=None):
         ensure_parent_dir(log_file)
-        with open(log_file, "a", encoding="utf-8") as f: 
+        with open(log_file, "a", encoding="utf-8") as f:
             f.write(full_line + "\n")
-            
+
         display_line = public_line if public_line is not None else full_line
-        
+
         if display_line != "__HIDE__":
             public_log_file = log_file.replace(".log", "_public.log")
             ensure_parent_dir(public_log_file)
             with open(public_log_file, "a", encoding="utf-8") as f:
                 f.write(display_line + "\n")
-        
+
         actual_emit = full_line if is_admin else display_line
         if room_id and actual_emit != "__HIDE__":
             socketio.emit('log_update', {'data': actual_emit}, to=room_id)
@@ -1923,18 +1923,18 @@ def bg_send_execution(app, task_id, sender_email, smtp_config, target_users, sub
         try:
             keyserver = (smtp_config.get('_recipient_keyserver') or smtp_config.get('keyserver') or '').strip()
             use_gpg = bool(use_gpg)
-            
+
             emit_and_write(f"========== [ {timestamp} ] NEWSLETTER MAILING ==========")
             emit_and_write(f"--- 📤 Sender: {sender_email}")
             emit_and_write(f"--- 👥 Recipients: {len(target_users)}", "__HIDE__")
             emit_and_write(f"--- 📎 Attachments: {len(attachments or [])}", "__HIDE__")
             emit_and_write(f"--- 🔒 GPG Encryption: {'ENABLED' if use_gpg else 'DISABLED'}")
-            
+
             if keyserver:
                 emit_and_write(f"--- 🌐 Keyserver Fallback: {keyserver}", "__HIDE__")
-                
+
             emit_and_write(f"----------------------------------------------------------\n")
-            
+
             # Строге зчитування з .env напряму (бо Flask config може не містити цього ключа)
             gpg_path = app.config.get('GPG_PATH') or os.environ.get('GPG_PATH', 'gpg')
             if use_gpg:
@@ -1942,7 +1942,7 @@ def bg_send_execution(app, task_id, sender_email, smtp_config, target_users, sub
                 if not gpg_ok:
                     emit_and_write(f"❌ [CRITICAL ERROR] GPG unavailable: {gpg_message}", "❌ [CRITICAL ERROR] GPG is unavailable. Sending stopped.")
                     raise Exception("GPG unavailable")
-            
+
             success_count = 0
             error_count = 0
             failure_reasons = {}
@@ -1978,9 +1978,9 @@ def bg_send_execution(app, task_id, sender_email, smtp_config, target_users, sub
                         error_count += 1
                         failure_reasons["Missing/Invalid GPG Key"] = failure_reasons.get("Missing/Invalid GPG Key", 0) + 1
                         continue
-                        
+
                     is_encrypted, encrypted_payload = encrypt_with_gpg(gpg_path, recipient, clear_msg.as_bytes())
-                    
+
                     if not is_encrypted:
                         emit_and_write(f"[{idx}/{len(target_users)}] ❌ Failed: {recipient} (Encryption Error: {encrypted_payload})", "__HIDE__")
                         error_count += 1
@@ -1989,7 +1989,7 @@ def bg_send_execution(app, task_id, sender_email, smtp_config, target_users, sub
                     final_msg = build_encrypted_message(sender_email, recipient, subject, encrypted_payload)
                 else:
                     emit_and_write(f"[{idx}/{len(target_users)}] ⚠️ Sending without GPG encryption: {recipient}", "__HIDE__")
-                
+
                 try:
                     server.send_message(final_msg)
                     emit_and_write(f"[{idx}/{len(target_users)}] ✅ Sent: {recipient}", "__HIDE__")
@@ -1998,21 +1998,21 @@ def bg_send_execution(app, task_id, sender_email, smtp_config, target_users, sub
                     emit_and_write(f"[{idx}/{len(target_users)}] ❌ Failed: {recipient} (SMTP Send Error)", "__HIDE__")
                     error_count += 1
                     failure_reasons["SMTP Connection/Send Error"] = failure_reasons.get("SMTP Connection/Send Error", 0) + 1
-                
+
                 time.sleep(0.01)
 
             if server:
                 server.quit()
                 server = None
-            
+
             # --- FINAL NEWSLETTER SUMMARY ---
             emit_and_write(f"\n==================================================", "__HIDE__")
             emit_and_write(f"📊 NEWSLETTER SENDING SUMMARY", "__HIDE__")
             emit_and_write(f"==================================================", "__HIDE__")
-            
+
             emit_and_write(f"✅ Total Successfully Sent: {success_count}", "__HIDE__")
             emit_and_write(f"❌ Total Failed: {error_count}", "__HIDE__")
-            
+
             if error_count == 0:
                 emit_and_write("✅ Newsletter completed successfully.", "✅ Newsletter completed successfully.")
             else:
@@ -2023,7 +2023,7 @@ def bg_send_execution(app, task_id, sender_email, smtp_config, target_users, sub
                 for reason, count in failure_reasons.items():
                     emit_and_write(f"   - {reason}: {count}", "__HIDE__")
             emit_and_write(f"==================================================", "__HIDE__")
-            
+
             task = Task.query.get(task_id)
             if task:
                 task.status = "Success" if error_count == 0 else "Warning"
@@ -2045,7 +2045,7 @@ def bg_send_execution(app, task_id, sender_email, smtp_config, target_users, sub
                 )
             except Exception as audit_error:
                 log.error(f"Failed to audit Newsletter mailing finish: {audit_error}")
-                
+
         except Exception as e:
             log.error(f"Newsletter Script Error: {traceback.format_exc()}")
             try:

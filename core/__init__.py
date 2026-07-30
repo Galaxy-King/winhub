@@ -165,10 +165,10 @@ def run_scheduled_job(scheduled_task_id, *args, manual_run=False):
 
         run_label = "MANUAL RUN" if manual_run else "TRIGGER"
         log.info(f"[Scheduler] ⚡ {run_label}: Запуск задачі '{st.name}'...")
-        
+
         from core.sdk import WinHubCore
         agent_ids = []
-        if st.target_type == "host": 
+        if st.target_type == "host":
             agent_ids = [st.target_id]
         elif st.target_type == "group":
             group = EndpointGroup.query.get(st.target_id)
@@ -214,12 +214,12 @@ def run_scheduled_job(scheduled_task_id, *args, manual_run=False):
                 payload_dict["__deadline_utc"] = deadline.replace(microsecond=0).isoformat() + "Z"
                 payload_dict["__agent_timeout_seconds"] = max(60, timeout_minutes * 60)
                 payload_dict["__schedule_id"] = st.id
-            
+
             # ДОДАНО: Перевіряємо, чи це шаблон метрики, і додаємо необхідні прапорці
             if getattr(st.template, 'type', 'action') == 'metric':
                 payload_dict['__is_metric'] = True
                 payload_dict['__metric_name'] = st.template.name
-            
+
             # Відправляємо задачу
             job_id = WinHubCore.dispatch_task(
                 user_id=admin_id,
@@ -256,7 +256,7 @@ def reload_scheduler_jobs(ignored_app=None):
     """Оновлює задачі в APScheduler з підтримкою Київського часу"""
     global global_app
     if not global_app: return
-    
+
     scheduler.remove_all_jobs()
     scheduler.add_job(func=scheduled_cleanup, trigger="interval", minutes=10, id="sys_cleanup")
     scheduler.add_job(
@@ -268,12 +268,12 @@ def reload_scheduler_jobs(ignored_app=None):
         coalesce=True,
         replace_existing=True,
     )
-    
+
     with global_app.app_context():
         tasks = ScheduledTask.query.filter_by(is_active=True).all()
         now_kyiv = datetime.now(kyiv_tz)
         log.info(f"[Scheduler] 🔄 Оновлення. Серверний час: {now_kyiv.strftime('%H:%M:%S')}. Активних задач у БД: {len(tasks)}")
-        
+
         for t in tasks:
             try:
                 if t.cron_expr.startswith("DATE:"):
@@ -281,7 +281,7 @@ def reload_scheduler_jobs(ignored_app=None):
                     time_str = t.cron_expr.replace("DATE:", "").strip()
                     naive_run_date = datetime.strptime(time_str, "%Y-%m-%d %H:%M")
                     run_date = naive_run_date.replace(tzinfo=kyiv_tz)
-                    
+
                     # Запускаємо тільки якщо цей час ще не настав
                     if run_date > now_kyiv:
                         trigger = DateTrigger(run_date=run_date, timezone=kyiv_tz)
@@ -500,7 +500,7 @@ def inject_global_template_vars(app):
                     session_idle_timeout_seconds=Config.SESSION_IDLE_TIMEOUT_SECONDS,
                     app_version=get_version(),
                 )
-                
+
             user = User.query.get(session.get('user_id'))
             if not user:
                 return dict(
@@ -512,7 +512,7 @@ def inject_global_template_vars(app):
                     session_idle_timeout_seconds=Config.SESSION_IDLE_TIMEOUT_SECONDS,
                     app_version=get_version(),
                 )
-                
+
             modules_info = []
             for module in get_loaded_modules():
                 mod_id = module.get("id")
@@ -523,7 +523,7 @@ def inject_global_template_vars(app):
                         "url": module.get("url", f"/module/{mod_id}"),
                         "icon": module.get("icon", "")
                     })
-                                
+
             return dict(
                 system_modules=modules_info,
                 username=user.username,
@@ -809,8 +809,8 @@ def create_app():
 
     db.init_app(global_app)
     socketio.init_app(global_app)
-    limiter.init_app(global_app) 
-    
+    limiter.init_app(global_app)
+
     if auth_bp.view_functions.get('api_login'):
         auth_bp.view_functions['api_login'] = limiter.limit(Config.LOGIN_RATE_LIMIT)(auth_bp.view_functions['api_login'])
     if agent_gateway_bp.view_functions.get('enroll_agent'):
@@ -859,7 +859,7 @@ def create_app():
         if not User.query.first():
             raw_password = ''.join(secrets.choice(string.ascii_letters + string.digits) for _ in range(16))
             totp = sec_manager.generate_totp_secret()
-            
+
             admin = User(
                 username='admin',
                 email='admin@localhost',
@@ -870,7 +870,7 @@ def create_app():
             )
             db.session.add(admin)
             db.session.commit()
-            
+
             backup_path = os.path.join(Config.DATA_DIR, 'admin_recovery.txt')
             with open(backup_path, 'w', encoding='utf-8') as f:
                 f.write("=== WINHUB ADMIN RECOVERY ===\n")
@@ -878,10 +878,10 @@ def create_app():
                 f.write(f"Password: {raw_password}\n")
                 f.write(f"2FA Secret: {totp}\n")
                 f.write("\nЗбережіть цей файл у безпечному місці!\n")
-            
+
             print(f"\n[!!!] СТВОРЕНО НОВОГО АДМІНІСТРАТОРА [!!!]")
             print(f"Дані для входу збережено у файл: {backup_path}\n")
-                
+
         load_modules(global_app)
 
         if Config.WINHUB_DISABLE_SCHEDULER:

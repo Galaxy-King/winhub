@@ -69,7 +69,7 @@ class WinHubCore:
             db.session.add(entry)
             db.session.commit()
         return entry
-    
+
     @staticmethod
     def get_allowed_hosts(user_id: int) -> List[Endpoint]:
         user = User.query.get(user_id)
@@ -83,7 +83,7 @@ class WinHubCore:
                 Endpoint.approval_status == "Approved"
             ).distinct().all()
         if user.is_admin: return Endpoint.query.all()
-        
+
         allowed_hosts = set()
         for group in user.allowed_host_groups:
             for host in group.endpoints:
@@ -245,7 +245,7 @@ class WinHubCore:
         total = len(tasks)
         success = sum(1 for t in tasks if t.status == 'Success')
         errors = total - success
-        
+
         # Спробуємо знайти report_template_id в payload першої таски
         report_template_id = None
         try:
@@ -314,7 +314,7 @@ class WinHubCore:
                     )
                 except Exception as e:
                     final_report_text = f"Помилка рендерингу звіту: {str(e)}\n\n"
-        
+
         # Якщо шаблону немає або була помилка — формуємо стандартний список
         if not final_report_text:
             report_lines = []

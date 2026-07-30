@@ -251,7 +251,7 @@ def send_notification_email(subject, recipient, body_content, encrypt=True):
     smtp_server = getattr(Config, 'SMTP_SERVER', os.environ.get('SMTP_SERVER', 'localhost'))
     smtp_port = int(getattr(Config, 'SMTP_PORT', os.environ.get('SMTP_PORT', 587)))
     gpg_path = getattr(Config, 'GPG_PATH', os.environ.get('GPG_PATH', 'gpg'))
-    
+
     smtp_password = get_notification_smtp_password(sender_email)
     if not smtp_password: return False
 
@@ -463,9 +463,9 @@ def get_host_groups():
     page = request.args.get('page', 1, type=int)
     per_page = request.args.get('per_page', 50, type=int)
     pagination = EndpointGroup.query.order_by(EndpointGroup.name).paginate(page=page, per_page=per_page, error_out=False)
-    
+
     return jsonify({
-        "success": True, 
+        "success": True,
         "groups": [{"id": g.id, "name": g.name} for g in pagination.items],
         "total": pagination.total,
         "pages": pagination.pages,
@@ -477,9 +477,9 @@ def get_users():
     page = request.args.get('page', 1, type=int)
     per_page = request.args.get('per_page', 20, type=int)
     pagination = User.query.order_by(User.id).paginate(page=page, per_page=per_page, error_out=False)
-    
+
     return jsonify({
-        "success": True, 
+        "success": True,
         "users": [{
             "id": u.id, "username": u.username, "email": u.email,
             "is_admin": u.is_admin, "is_active": u.is_active,
@@ -540,7 +540,7 @@ def toggle_user(user_id):
 def manage_user(user_id):
     user = User.query.get(user_id)
     if not user: return jsonify({"success": False, "message": "Not found"}), 404
-    
+
     if request.method == 'DELETE':
         if user.username == 'admin' or user.id == session.get('user_id'):
             return jsonify({"success": False, "message": "Protection active."}), 403
@@ -563,11 +563,11 @@ def manage_user(user_id):
         user.password_hash = sec_manager.hash_password(data['password'].strip())
     if 'is_admin' in data: user.is_admin = bool(data['is_admin'])
     if 'allowed_modules' in data: user.allowed_modules = json.dumps(sanitize_allowed_modules(data['allowed_modules']))
-    
+
     if 'allowed_groups' in data:
         group_ids = data['allowed_groups']
         user.allowed_host_groups = EndpointGroup.query.filter(EndpointGroup.id.in_(group_ids)).all()
-        
+
     db.session.commit()
     WinHubCore.audit(
         user_id=session.get('user_id'),
@@ -635,10 +635,10 @@ def create_api_key():
     data = request.json or {}
     name = data.get('name')
     if not name: return jsonify({"success": False, "message": "Key name is required"}), 400
-    
+
     raw_key = f"wh_{secrets.token_urlsafe(40)}"
     key_hash = sec_manager.hash_password(raw_key)
-    
+
     try:
         expires = parse_expiration(data.get('days'))
     except ValueError as e:
@@ -646,12 +646,12 @@ def create_api_key():
 
     permissions = sanitize_allowed_modules(data.get('permissions', []))
     group_scope = sanitize_api_group_scope(data.get('group_scope', []))
-    
+
     new_key = ApiKey(
-        user_id=session.get('user_id'), 
-        name=name, 
-        key_hash=key_hash, 
-        prefix=raw_key[:8], 
+        user_id=session.get('user_id'),
+        name=name,
+        key_hash=key_hash,
+        prefix=raw_key[:8],
         expires_at=expires,
         permissions=json.dumps(permissions + api_scope_tokens(group_scope))
     )
@@ -671,9 +671,9 @@ def create_api_key():
         },
         status="Success"
     )
-    
+
     # Повертаємо raw_key ТІЛЬКИ ОДИН РАЗ
-    return jsonify({"success": True, "raw_key": raw_key}) 
+    return jsonify({"success": True, "raw_key": raw_key})
 
 @admin_bp.route('/api/admin/apikeys/<int:kid>', methods=['DELETE'])
 def delete_api_key(kid):

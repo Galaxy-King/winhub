@@ -8,7 +8,7 @@
 <main class="admin-control-shell flex-1 flex flex-col min-w-0 bg-slate-100 relative z-10">
     <div class="flex-1 overflow-y-auto custom-scrollbar">
         <div class="max-w-[1600px] mx-auto w-full p-6 md:p-10 flex flex-col gap-8">
-            
+
             <header class="bg-white rounded-[2.5rem] shadow-sm border border-slate-200 p-6 flex flex-col lg:flex-row items-center justify-between gap-6 shrink-0 transition-all">
                 <div class="flex items-center gap-5 shrink-0">
                     <div class="w-14 h-14 bg-indigo-600 rounded-2xl flex items-center justify-center text-white shadow-lg shadow-indigo-200">
@@ -19,7 +19,7 @@
                         <p class="text-[11px] font-bold text-slate-400 uppercase tracking-widest mt-1">Users & Access API</p>
                     </div>
                 </div>
-                
+
 	                <div class="relative w-full lg:w-auto min-w-0">
 	                    <button id="adminTabsLeft" type="button" onclick="scrollAdminTabs(-1)" aria-label="Scroll tabs left" class="absolute left-1 top-1/2 -translate-y-1/2 z-10 w-8 h-8 rounded-xl bg-white/95 border border-slate-200 text-slate-500 hover:text-indigo-600 hover:border-indigo-200 shadow-sm flex items-center justify-center transition-all">
 	                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M15 19l-7-7 7-7"></path></svg>
@@ -40,7 +40,7 @@
 	                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M9 5l7 7-7 7"></path></svg>
 	                    </button>
 	                </div>
-                
+
                 <div class="shrink-0 flex gap-3 w-full lg:w-auto">
                     <button id="btnApiHelp" onclick="openApiHelpModal()" class="hidden flex-1 lg:flex-none px-6 py-3 bg-white text-slate-600 rounded-2xl text-xs font-black uppercase hover:text-indigo-700 border border-slate-200 shadow-sm transition-all justify-center items-center gap-2">
                         <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M8.228 9.228a4 4 0 117.071 2.557c-.776.746-1.299 1.151-1.299 2.215M12 18h.01"></path></svg>
@@ -173,7 +173,7 @@
         <button onclick="toggleModal('edit', false)" class="absolute top-6 right-6 text-slate-400 hover:text-slate-600 bg-slate-50 hover:bg-slate-100 p-2 rounded-xl transition-colors"><svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M6 18L18 6M6 6l12 12"></path></svg></button>
         <h3 class="text-2xl font-black text-slate-800 mb-2 uppercase tracking-tight">Edit Access</h3>
         <p class="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-6" id="editUsernameLabel">User Name</p>
-        
+
         <input type="hidden" id="editUserId">
         <div class="mb-6">
             <h4 class="text-[10px] font-black text-indigo-600 uppercase tracking-widest mb-2">User Type</h4>
@@ -197,7 +197,7 @@
                 <div id="groupsContainer" class="space-y-2 max-h-60 overflow-y-auto custom-scrollbar pr-2"></div>
             </div>
         </div>
-        
+
         <div class="mt-8 flex justify-end gap-4">
             <button onclick="toggleModal('edit', false)" class="px-6 py-4 text-slate-500 font-black uppercase text-xs hover:bg-slate-50 rounded-2xl transition-colors">Cancel</button>
             <button onclick="saveUserAccess()" class="px-8 py-4 bg-indigo-600 hover:bg-indigo-700 text-white rounded-2xl text-xs font-black uppercase shadow-lg transition-all">Save Changes</button>
@@ -208,11 +208,11 @@
 <div id="createModal" class="fixed inset-0 z-50 hidden bg-slate-900/60 backdrop-blur-md flex justify-center items-center p-4 animate-in fade-in">
     <div class="bg-white rounded-[3rem] p-10 w-full max-w-3xl shadow-2xl relative max-h-[90vh] overflow-y-auto custom-scrollbar">
         <button onclick="resetAndCloseModal()" class="absolute top-6 right-6 text-slate-400 hover:text-slate-600 bg-slate-50 hover:bg-slate-100 p-2 rounded-xl transition-colors"><svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M6 18L18 6M6 6l12 12"></path></svg></button>
-        
+
         <div id="creationFormArea">
             <h3 class="text-2xl font-black text-slate-800 mb-2 uppercase tracking-tight" id="modalTitleMain">New User</h3>
             <p class="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-6">Create account</p>
-            
+
             <form id="createUserForm" class="space-y-5">
                 <div>
                     <label class="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2 ml-2">Username</label>
@@ -275,7 +275,7 @@
             </div>
             <h3 class="text-xl font-black text-slate-800 mb-2 uppercase tracking-tight">Success!</h3>
             <p class="text-xs text-slate-500 mb-6 font-bold">Please securely save these credentials.</p>
-            
+
             <div class="bg-slate-50 p-6 rounded-3xl border border-slate-200 text-left space-y-4 shadow-inner mb-6">
                 <div><span class="text-[10px] font-black text-slate-400 uppercase tracking-widest block mb-1">Username</span><span id="resUser" class="font-mono font-bold text-sm text-slate-800"></span></div>
                 <div><span class="text-[10px] font-black text-slate-400 uppercase tracking-widest block mb-1">Password</span><span id="resPass" class="font-mono font-bold text-sm text-emerald-600 bg-emerald-50 px-2 py-1 rounded border border-emerald-100"></span></div>
@@ -616,7 +616,7 @@ $StaticPassword = "{{secret:local_admin_password}}"
         if (activeView) activeView.classList.remove('hidden');
         const activeBtn = document.getElementById('tab' + tab.charAt(0).toUpperCase() + tab.slice(1));
         if (activeBtn) activeBtn.className = "admin-tab-btn active px-6 py-2.5 rounded-xl font-black text-xs uppercase tracking-wider transition-all whitespace-nowrap bg-white text-indigo-600 shadow-sm border border-slate-200/50";
-        
+
         const btnCreateMain = document.getElementById('btnCreateMain');
         const btnApiHelp = document.getElementById('btnApiHelp');
         if(tab === 'users') {
@@ -942,7 +942,7 @@ $StaticPassword = "{{secret:local_admin_password}}"
     }
 
     function toggleModal(id, show) { document.getElementById(id + 'Modal').classList.toggle('hidden', !show); }
-    function openCreateUserModal() { 
+    function openCreateUserModal() {
         document.getElementById('modalTitleMain').innerText = 'New User';
         document.getElementById('btnCreate').innerText = 'Create Account';
         document.getElementById('roleToggleArea').classList.remove('hidden');
@@ -951,9 +951,9 @@ $StaticPassword = "{{secret:local_admin_password}}"
         document.getElementById('newEmail').required = true;
         document.getElementById('newRolePreset').value = 'operator';
         applyCreateRolePreset();
-        toggleModal('create', true); 
+        toggleModal('create', true);
     }
-    function openCreateApiModal() { 
+    function openCreateApiModal() {
         document.getElementById('modalTitleMain').innerText = 'New API Key';
         document.getElementById('btnCreate').innerText = 'Create API Key';
         document.getElementById('roleToggleArea').classList.add('hidden');
@@ -963,7 +963,7 @@ $StaticPassword = "{{secret:local_admin_password}}"
         renderApiPermissionPicker([]);
         renderApiGroupScope([]);
         document.getElementById('apiExpiryDays').value = '30';
-        toggleModal('create', true); 
+        toggleModal('create', true);
     }
 
     function openApiHelpModal() {
@@ -1011,7 +1011,7 @@ $StaticPassword = "{{secret:local_admin_password}}"
         document.getElementById('editUsernameLabel').innerText = user.username;
         const normalizedUserModules = normalizeSimpleTokens(user.allowed_modules || []);
         document.getElementById('editRolePreset').value = Object.entries(rolePresets).find(([key, preset]) => !preset.admin && tokensMatch(normalizedUserModules, preset.modules))?.[0] || 'custom';
-        
+
         const mCont = document.getElementById('modulesContainer');
         mCont.innerHTML = sysModules.map(m => `
             <div class="p-3 bg-slate-50 border border-slate-200 rounded-xl">
@@ -1081,7 +1081,7 @@ $StaticPassword = "{{secret:local_admin_password}}"
             });
         const mods = [...moduleOnly, ...permTokens];
         const grps = Array.from(document.querySelectorAll('.grp-cb:checked')).map(cb => cb.value);
-        
+
         try {
             await fetch('/api/admin/users/' + id, {
                 method: 'PUT', headers: {'Content-Type': 'application/json'},
@@ -1095,7 +1095,7 @@ $StaticPassword = "{{secret:local_admin_password}}"
     async function toggleUser(id) { await fetch(`/api/admin/users/${id}/toggle`, {method: 'POST'}); fetchUsers(); }
     async function deleteUser(id) { if(confirm('Delete user?')) { await fetch(`/api/admin/users/${id}`, {method: 'DELETE'}); fetchUsers(); } }
     async function deleteApiKey(id) { if(confirm('Revoke API Key?')) { await fetch(`/api/admin/apikeys/${id}`, {method: 'DELETE'}); fetchApiKeys(); } }
-    
+
     async function resetCredentials(id) {
         if(!confirm("Reset password and 2FA for this user?")) return;
         const res = await fetch(`/api/admin/users/${id}/reset_credentials`, { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify({send_email: true}) });

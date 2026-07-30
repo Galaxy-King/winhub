@@ -26,22 +26,22 @@
             --wh-shadow-soft: 0 10px 26px rgba(15, 61, 138, 0.08);
         }
 
-        body { 
-            font-family: 'Inter', sans-serif; 
-            -webkit-font-smoothing: antialiased; 
+        body {
+            font-family: 'Inter', sans-serif;
+            -webkit-font-smoothing: antialiased;
             -moz-osx-font-smoothing: grayscale;
             background:
                 radial-gradient(circle at top left, rgba(31, 111, 235, 0.08), transparent 32rem),
                 linear-gradient(135deg, #eef4ff 0%, #f8fbff 42%, #edf3fb 100%);
             color: var(--wh-ink);
         }
-        
+
         /* Глобальні скролбари проекту */
         .custom-scrollbar::-webkit-scrollbar { width: 8px; height: 8px; }
         .custom-scrollbar::-webkit-scrollbar-track { background: transparent; }
         .custom-scrollbar::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 10px; border: 2px solid transparent; background-clip: content-box; }
         .custom-scrollbar::-webkit-scrollbar-thumb:hover { background: #94a3b8; border: 2px solid transparent; background-clip: content-box; }
-        
+
         ::-webkit-scrollbar { width: 8px; height: 8px; }
         ::-webkit-scrollbar-track { background: transparent; }
         ::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 10px; border: 2px solid transparent; background-clip: content-box; }
@@ -50,7 +50,7 @@
 
         /* Стилі для згорнутого сайдбара */
         #mainSidebar { transition: width 0.3s cubic-bezier(0.4, 0, 0.2, 1); }
-        #mainSidebar.collapsed { width: 5.5rem; } 
+        #mainSidebar.collapsed { width: 5.5rem; }
         #mainSidebar.collapsed .sidebar-text { display: none; }
         #mainSidebar.collapsed .sidebar-link { justify-content: center; padding-left: 0; padding-right: 0; }
         #mainSidebar.collapsed .sidebar-group-title { opacity: 0; }
@@ -1800,7 +1800,7 @@
                 if (savedState === 'collapsed') {
                     sidebar.classList.add('collapsed');
                 }
-                
+
                 if (window.innerWidth < 768) {
                     sidebar.classList.add('collapsed');
                 }

@@ -16,7 +16,7 @@ class EncryptedText(types.TypeDecorator):
         return sec_manager.decrypt_payload(value) if value else value
 
 class EncryptedString(types.TypeDecorator):
-    impl = types.Text 
+    impl = types.Text
     cache_ok = True
     def process_bind_param(self, value, dialect):
         return sec_manager.encrypt_payload(str(value)) if value else value
@@ -41,11 +41,11 @@ class User(db.Model):
     username = db.Column(db.String(64), unique=True, index=True)
     email = db.Column(db.String(120), unique=True, index=True)
     password_hash = db.Column(db.String(256))
-    totp_secret = db.Column(EncryptedString) 
+    totp_secret = db.Column(EncryptedString)
     is_admin = db.Column(db.Boolean, default=False)
     is_active = db.Column(db.Boolean, default=True)
     force_2fa_setup = db.Column(db.Boolean, default=True)
-    allowed_modules = db.Column(db.Text, default="[]") 
+    allowed_modules = db.Column(db.Text, default="[]")
     allowed_host_groups = db.relationship('EndpointGroup', secondary=user_group_m2m, backref='allowed_users', lazy='dynamic')
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
     tasks = db.relationship('Task', backref='user', lazy=True)
@@ -65,8 +65,8 @@ class ApiKey(db.Model):
     user_id = db.Column(db.Integer, db.ForeignKey('users.id', ondelete="CASCADE"), nullable=False)
     name = db.Column(db.String(100), nullable=False)
     key_hash = db.Column(db.String(256), unique=True, nullable=False)
-    prefix = db.Column(db.String(10), nullable=False) 
-    permissions = db.Column(db.Text, default="[]") 
+    prefix = db.Column(db.String(10), nullable=False)
+    permissions = db.Column(db.Text, default="[]")
     expires_at = db.Column(db.DateTime, nullable=True)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
     is_active = db.Column(db.Boolean, default=True)
@@ -95,17 +95,17 @@ class RegistrationHistory(db.Model):
     hw_id = db.Column(db.String(100), index=True, nullable=False)
     hostname = db.Column(db.String(100))
     ip_address = db.Column(EncryptedString)
-    event_type = db.Column(db.String(50)) 
+    event_type = db.Column(db.String(50))
 
 class Task(db.Model):
     __tablename__ = 'tasks'
-    id = db.Column(db.String(36), primary_key=True) 
+    id = db.Column(db.String(36), primary_key=True)
     user_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=False)
-    module_name = db.Column(db.String(64)) 
-    action = db.Column(db.String(128))     
-    targets = db.Column(db.Text)            
-    status = db.Column(db.String(32), default="Running")   
-    log_file = db.Column(db.String(256))   
+    module_name = db.Column(db.String(64))
+    action = db.Column(db.String(128))
+    targets = db.Column(db.Text)
+    status = db.Column(db.String(32), default="Running")
+    log_file = db.Column(db.String(256))
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
     ended_at = db.Column(db.DateTime, nullable=True)
 
@@ -125,7 +125,7 @@ class Endpoint(db.Model):
     public_key_pem = db.Column(EncryptedText)
     public_key_pem_plain = db.Column(db.Text)
     os_version = db.Column(db.String(100))
-    os_type = db.Column(db.String(50), default="Windows") 
+    os_type = db.Column(db.String(50), default="Windows")
     connection_ip = db.Column(db.String(64), index=True)
     ip_address = db.Column(EncryptedString)
     approval_status = db.Column(db.String(20), default="Pending", index=True)
@@ -143,10 +143,10 @@ class Endpoint(db.Model):
     identity_warning = db.Column(db.String(255))
     identity_duplicate_allowed = db.Column(db.Boolean, default=False, index=True)
     reenroll_allowed_until = db.Column(db.DateTime, nullable=True, index=True)
-    
+
     last_seen = db.Column(db.DateTime, default=datetime.utcnow, index=True)
     is_blocked = db.Column(db.Boolean, default=False, index=True)
-    
+
     groups = db.relationship('EndpointGroup', secondary=endpoint_group_m2m, back_populates='endpoints')
     tasks = db.relationship('AgentTask', back_populates='endpoint', cascade="all, delete-orphan")
     telemetry = db.relationship('TelemetryHistory', back_populates='endpoint', cascade="all, delete-orphan", lazy='dynamic')
@@ -170,14 +170,14 @@ class AgentTask(db.Model):
     id = db.Column(db.String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
     job_id = db.Column(db.String(36), index=True)
     endpoint_id = db.Column(db.String(100), db.ForeignKey('endpoints.id', ondelete="CASCADE"), index=True)
-    
+
     title = db.Column(db.String(150), default="Untitled Task")
     module_source = db.Column(db.String(50))
-    action_type = db.Column(db.String(50)) 
-    payload = db.Column(EncryptedText) 
-    status = db.Column(db.String(20), default="Pending", index=True) 
-    result_log = db.Column(EncryptedText) 
-    
+    action_type = db.Column(db.String(50))
+    payload = db.Column(EncryptedText)
+    status = db.Column(db.String(20), default="Pending", index=True)
+    result_log = db.Column(EncryptedText)
+
     created_at = db.Column(db.DateTime, default=datetime.utcnow, index=True)
     finished_at = db.Column(db.DateTime)
     created_by = db.Column(db.String(100))
@@ -188,11 +188,11 @@ class TelemetryHistory(db.Model):
     __tablename__ = 'telemetry_history'
     id = db.Column(db.Integer, primary_key=True)
     endpoint_id = db.Column(db.String(100), db.ForeignKey('endpoints.id', ondelete="CASCADE"), index=True)
-    
-    cpu_usage = db.Column(db.Float)        
-    ram_usage = db.Column(db.Float)        
-    disk_c_free = db.Column(db.Float)      
-    
+
+    cpu_usage = db.Column(db.Float)
+    ram_usage = db.Column(db.Float)
+    disk_c_free = db.Column(db.Float)
+
     timestamp = db.Column(db.DateTime, default=datetime.utcnow, index=True)
     endpoint = db.relationship('Endpoint', back_populates='telemetry')
 
@@ -209,9 +209,9 @@ class TaskTemplate(db.Model):
     __tablename__ = 'task_templates'
     id = db.Column(db.String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
     name = db.Column(db.String(150), nullable=False)
-    category = db.Column(db.String(100), default="General") 
+    category = db.Column(db.String(100), default="General")
     action_type = db.Column(db.String(50), nullable=False)
-    type = db.Column(db.String(50), default="action") 
+    type = db.Column(db.String(50), default="action")
     payload = db.Column(EncryptedText)
     is_approved = db.Column(db.Boolean, default=False)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
@@ -222,11 +222,11 @@ class ScheduledTask(db.Model):
     id = db.Column(db.String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
     name = db.Column(db.String(150), nullable=False)
     category = db.Column(db.String(100), default="Scheduled")
-    
+
     template_id = db.Column(db.String(36), db.ForeignKey('task_templates.id', ondelete="CASCADE"))
     target_type = db.Column(db.String(20))
     target_id = db.Column(db.String(100))
-    
+
     cron_expr = db.Column(db.String(100), nullable=False)
     is_active = db.Column(db.Boolean, default=True)
     variables = db.Column(EncryptedText)
@@ -238,18 +238,18 @@ class ScheduledTask(db.Model):
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
     created_by = db.Column(db.String(100))
     last_run = db.Column(db.DateTime, nullable=True)
-    
+
     template = db.relationship('TaskTemplate')
 
 class EndpointMetric(db.Model):
     __tablename__ = 'endpoint_metrics'
     id = db.Column(db.Integer, primary_key=True)
     endpoint_id = db.Column(db.String(100), db.ForeignKey('endpoints.id', ondelete="CASCADE"), index=True)
-    
+
     item_name = db.Column(db.String(150), index=True)
     last_value = db.Column(db.Text)
     last_updated = db.Column(db.DateTime, default=datetime.utcnow)
-    
+
     endpoint = db.relationship('Endpoint', back_populates='metrics')
 
 class AgentUpdateRollout(db.Model):
@@ -273,17 +273,17 @@ class TriggerRule(db.Model):
     __tablename__ = 'trigger_rules'
     id = db.Column(db.String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
     name = db.Column(db.String(150), nullable=False)
-    
+
     target_group_id = db.Column(db.String(100), default="all")
-    
+
     metric_name = db.Column(db.String(150), nullable=False)
     operator = db.Column(db.String(20), nullable=False)
     threshold_value = db.Column(db.String(255), nullable=False)
-    
+
     action_template_id = db.Column(db.String(36), db.ForeignKey('task_templates.id', ondelete="SET NULL"), nullable=True)
     is_active = db.Column(db.Boolean, default=True)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
-    
+
     last_run = db.Column(db.DateTime, nullable=True)
     last_status = db.Column(db.String(20), nullable=True)
 

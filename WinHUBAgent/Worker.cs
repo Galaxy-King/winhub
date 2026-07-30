@@ -153,7 +153,7 @@ namespace WinHUBAgent
             HardwareIdFilePath = Path.Combine(DataDirectory, "agent.hwid");
             AgentIdentityKeyFilePath = Path.Combine(DataDirectory, "agent_identity.key");
             LogsDirectory = Path.Combine(DataDirectory, "logs");
-            
+
             var handler = new HttpClientHandler
             {
                 ServerCertificateCustomValidationCallback = (message, cert, chain, errors) =>
@@ -255,7 +255,7 @@ namespace WinHUBAgent
                 {
                     var productName = key.GetValue("ProductName")?.ToString();
                     var displayVersion = key.GetValue("DisplayVersion")?.ToString(); // e.g. 22H2
-                    
+
                     if (!string.IsNullOrEmpty(productName))
                     {
                         if (!string.IsNullOrEmpty(displayVersion))
@@ -266,23 +266,23 @@ namespace WinHUBAgent
             }
             catch { }
             // Фолбек на старий метод, якщо немає доступу до реєстру
-            return Environment.OSVersion.VersionString; 
+            return Environment.OSVersion.VersionString;
         }
 
         protected override async Task ExecuteAsync(CancellationToken stoppingToken)
         {
             _logger.LogInformation("WinHUB Agent Service starting...");
-            
+
             // Завантажуємо налаштування з файлу
             LoadConfig();
-            
+
             Directory.CreateDirectory(DataDirectory);
             EnsureLocalFileSecurity();
 
             HardwareId = GetOrCreateHardwareId();
             EnsureAgentIdentityKey();
             FriendlyOsName = GetFriendlyOsName();
-            
+
             _logger.LogInformation($"Hardware ID: {HardwareId}");
             _logger.LogInformation($"OS Detected: {FriendlyOsName}");
 
@@ -441,7 +441,7 @@ namespace WinHUBAgent
             {
                 float cpuUsage = GetCpuUsage();
                 float ramUsage = 0;
-                
+
                 MEMORYSTATUSEX memStatus = new MEMORYSTATUSEX();
                 memStatus.dwLength = (uint)Marshal.SizeOf<MEMORYSTATUSEX>();
                 if (GlobalMemoryStatusEx(ref memStatus))
@@ -462,9 +462,9 @@ namespace WinHUBAgent
                 var payload = unsignedPayload with { body_hash = bodyHash, signed_at = signature.SignedAt, signed_nonce = signature.Nonce, signature = signature.Signature };
                 string jsonString = JsonSerializer.Serialize(payload, AppJsonSerializerContext.Default.TelemetryPayload);
                 var content = new StringContent(jsonString, Encoding.UTF8, "application/json");
-                
+
                 var response = await _httpClient.PostAsync($"{_config.ServerUrl}/api/agent/telemetry", content, stoppingToken);
-                
+
                 if (response.IsSuccessStatusCode)
                     _logger.LogInformation($"Telemetry sent. CPU: {payload.cpu}% | RAM: {payload.ram}% | C: {payload.disk_c} GB");
             }
@@ -494,10 +494,10 @@ namespace WinHUBAgent
                     var signature = CreateAgentSignature("/api/agent/enroll", previousAuthToken, AgentBuildInfo.Version, bodyHash);
                     var payload = unsignedPayload with { body_hash = bodyHash, signed_at = signature.SignedAt, signed_nonce = signature.Nonce, signature = signature.Signature };
                     string jsonString = JsonSerializer.Serialize(payload, AppJsonSerializerContext.Default.EnrollPayload);
-                    
+
                     var content = new StringContent(jsonString, Encoding.UTF8, "application/json");
                     var response = await _httpClient.PostAsync($"{_config.ServerUrl}/api/agent/enroll", content, stoppingToken);
-                    
+
                     if (response.IsSuccessStatusCode)
                     {
                         var result = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
@@ -547,7 +547,7 @@ namespace WinHUBAgent
                 var payload = unsignedPayload with { body_hash = bodyHash, signed_at = signature.SignedAt, signed_nonce = signature.Nonce, signature = signature.Signature };
                 string jsonString = JsonSerializer.Serialize(payload, AppJsonSerializerContext.Default.PollPayload);
                 var content = new StringContent(jsonString, Encoding.UTF8, "application/json");
-                
+
                 var response = await _httpClient.PostAsync($"{_config.ServerUrl}/api/agent/poll", content, stoppingToken);
                 if (!response.IsSuccessStatusCode)
                 {
@@ -1002,7 +1002,7 @@ namespace WinHUBAgent
                 if (!string.IsNullOrWhiteSpace(stdErr))
                 {
                     outputLog += "\n[ERRORS]\n" + stdErr;
-                    taskStatus = "Error"; 
+                    taskStatus = "Error";
                 }
                 if (process.ExitCode != 0) taskStatus = "Error";
             }

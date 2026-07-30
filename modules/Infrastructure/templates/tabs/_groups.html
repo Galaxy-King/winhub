@@ -36,7 +36,7 @@
                 <button onclick="switchView('groups')" class="p-3 bg-slate-100 hover:bg-slate-200 text-slate-600 rounded-2xl transition-colors shadow-sm"><svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M15 19l-7-7 7-7"/></svg></button>
                 <div><h2 id="gdPageName" class="text-2xl font-black text-slate-800 uppercase tracking-tight">Group Name</h2></div>
             </div>
-            
+
             {% if permissions.manage_groups or permissions.manage_hosts %}
             <div class="flex flex-wrap gap-3 w-full sm:w-auto">
                 {% if permissions.manage_hosts %}

@@ -105,7 +105,7 @@ def _is_newsletter_campaign_audit(entry):
 @history_bp.before_request
 def check_access():
     user = User.query.get(session.get('user_id'))
-    if not user: 
+    if not user:
         return jsonify({"success": False, "message": "Unauthorized"}), 401
     if not has_module_access(user, "HistoryAudit"):
         return jsonify({"success": False, "message": "Access Denied"}), 403
@@ -142,7 +142,7 @@ def get_unified_history():
     user = _current_user()
     is_full_admin = _is_interactive_admin(user)
     history = []
-    
+
     # 1. Системний Аудит (Логіни, Спроби, Доступ до модулів)
     if is_full_admin:
         audits = AuditLog.query.order_by(AuditLog.timestamp.desc()).limit(200).all()
@@ -178,7 +178,7 @@ def get_unified_history():
     q = AgentTask.query
     if not is_full_admin:
         q = q.filter_by(created_by=user.username)
-    
+
     agent_tasks = q.order_by(AgentTask.created_at.desc()).limit(200).all()
     for t in agent_tasks:
         history.append(_history_item(
@@ -215,11 +215,11 @@ def get_unified_history():
 
     # Сортування за об'єктом datetime для точності
     history.sort(key=lambda x: x["timestamp"], reverse=True)
-    
+
     # Очищуємо об'єкт timestamp перед відправкою JSON
     for h in history:
         del h["timestamp"]
-    
+
     return jsonify({"success": True, "history": history[:400]})
 
 @history_bp.route("/api/history/log/<task_id>")
@@ -235,7 +235,7 @@ def get_log_details(task_id):
             return jsonify({"success": False, "message": "Access Denied"}), 403
         entry = AuditLog.query.get(task_id.replace("aud_", ""))
         return jsonify({"success": True, "log": _format_details(entry.details) if entry else "No details available."})
-    
+
     if task_id.startswith("agent_"):
         entry = AgentTask.query.get(task_id.replace("agent_", ""))
         if entry and not is_full_admin and entry.created_by != user.username:
@@ -257,7 +257,7 @@ def get_log_details(task_id):
             with open(log_file, "r", encoding="utf-8", errors="replace") as f:
                 return jsonify({"success": True, "log": f.read()})
         return jsonify({"success": True, "log": f"{entry.module_name}: {entry.action}\nTargets: {entry.targets}\nStatus: {entry.status}"})
-        
+
     if task_id.startswith("reg_"):
         if not is_full_admin:
             return jsonify({"success": False, "message": "Access Denied"}), 403
@@ -281,7 +281,7 @@ def run_cleanup():
         AgentTask.query.filter(AgentTask.created_at < cutoff_date).delete()
         Task.query.filter(Task.created_at < cutoff_date).delete()
         RegistrationHistory.query.filter(RegistrationHistory.timestamp < cutoff_date).delete()
-        
+
         db.session.commit()
         return jsonify({"success": True, "message": f"Cleanup finished. Records older than {retention_days} days removed."})
     except Exception as e:

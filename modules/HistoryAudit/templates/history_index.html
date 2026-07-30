@@ -8,7 +8,7 @@
 <main class="history-audit-shell flex-1 flex flex-col min-w-0 bg-slate-100 relative z-10">
     <div class="flex-1 overflow-y-auto custom-scrollbar">
         <div class="max-w-[1600px] mx-auto w-full p-6 md:p-10 flex flex-col gap-8">
-            
+
             <header class="bg-white rounded-[2.5rem] shadow-sm border border-slate-200 p-6 flex flex-col lg:flex-row items-center justify-between gap-6 shrink-0 transition-all">
                 <div class="flex items-center gap-5 shrink-0">
                     <div class="w-14 h-14 bg-indigo-600 rounded-2xl flex items-center justify-center text-white shadow-lg shadow-indigo-200">
@@ -19,7 +19,7 @@
                         <p class="text-[11px] font-bold text-slate-400 uppercase tracking-widest mt-1">Actions & Security Logs</p>
                     </div>
                 </div>
-                
+
                 <div class="flex items-center gap-4 bg-slate-50 p-2 rounded-2xl border border-slate-200/60 overflow-x-auto shadow-inner w-full lg:w-auto">
                     {% if is_admin %}
                     <span class="px-4 py-2 text-[10px] font-black uppercase tracking-widest bg-emerald-100 text-emerald-700 rounded-xl border border-emerald-200 shadow-sm shrink-0">
@@ -32,7 +32,7 @@
                         <span class="text-xs font-black text-slate-700 uppercase tracking-wider pr-2">{{ username }}</span>
                     </div>
                 </div>
-                
+
                 <div class="shrink-0 flex gap-3 w-full lg:w-auto">
                     {% if permissions.manage_history %}
                     <button onclick="runCleanup()" id="cleanupBtn" class="flex-1 lg:flex-none px-6 py-3 bg-white border border-slate-200 text-rose-500 rounded-2xl text-xs font-black uppercase hover:bg-rose-50 shadow-sm transition-all flex justify-center items-center gap-2">
@@ -98,7 +98,7 @@
         <button onclick="closeLogModal()" class="absolute top-6 right-6 text-slate-400 hover:text-slate-600 bg-slate-50 hover:bg-slate-100 p-2 rounded-xl transition-colors shrink-0"><svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M6 18L18 6M6 6l12 12"></path></svg></button>
         <h3 class="text-2xl font-black text-slate-800 mb-2 uppercase tracking-tight shrink-0">Detailed Log</h3>
         <p class="text-[10px] text-slate-400 font-bold uppercase tracking-widest mb-6 shrink-0" id="logModalSub">Information</p>
-        
+
         <div class="bg-[#0f172a] rounded-2xl border border-slate-800 shadow-inner flex-1 overflow-auto custom-scrollbar p-6">
             <pre id="logContent" class="text-emerald-400 font-mono text-xs whitespace-pre-wrap break-words"></pre>
         </div>
@@ -126,7 +126,7 @@
         const term = document.getElementById('searchInput').value.toLowerCase();
         const typeF = document.getElementById('typeFilter').value;
         const statF = document.getElementById('statusFilter').value;
-        
+
         filteredData = allData.filter(i => {
             const matchTerm = (i.user || '').toLowerCase().includes(term) || (i.action || '').toLowerCase().includes(term) || (i.details || '').toLowerCase().includes(term);
             const matchType = typeF === 'all' || i.type === typeF;
@@ -134,7 +134,7 @@
             if(statF === 'Warning' && i.status === 'Pending') matchStat = true;
             return matchTerm && matchType && matchStat;
         });
-        
+
         currentPage = 1;
         renderTable();
     }
@@ -145,7 +145,7 @@
         const end = start + perPage;
         const pageData = filteredData.slice(start, end);
         const totalPages = Math.ceil(filteredData.length / perPage) || 1;
-        
+
         document.getElementById('pageInfo').innerText = `Page ${currentPage} of ${totalPages} (Total: ${filteredData.length})`;
         document.getElementById('btnPrev').disabled = currentPage === 1;
         document.getElementById('btnNext').disabled = currentPage === totalPages;
@@ -202,7 +202,7 @@
         const anyChecked = document.querySelectorAll('.row-cb:checked').length > 0;
         const btn = document.getElementById('delSelBtn');
         if(btn) btn.style.display = anyChecked ? 'flex' : 'none';
-        
+
         const allCb = document.getElementById('selectAll');
         if(allCb) {
             const allChecked = document.querySelectorAll('.row-cb').length === document.querySelectorAll('.row-cb:checked').length;
@@ -262,7 +262,7 @@
         const btn = document.getElementById('cleanupBtn');
         const oldHtml = btn.innerHTML;
         btn.disabled = true; btn.innerText = "Cleaning...";
-        
+
         try {
             const res = await fetch('/api/history/cleanup', {method: 'POST'});
             const data = await res.json();

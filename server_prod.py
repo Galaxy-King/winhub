@@ -17,7 +17,7 @@ def custom_handle_error(self, context, type, value, tb):
     # Якщо це помилка SSL або обрив з'єднання агента - повністю ігноруємо
     err_str = str(value)
     if issubclass(type, ssl.SSLError) and ("CERTIFICATE_UNKNOWN" in err_str or "UNEXPECTED_EOF" in err_str):
-        return 
+        return
     if issubclass(type, ConnectionAbortedError) and "10053" in err_str:
         return
     original_handle_error(self, context, type, value, tb)
@@ -113,7 +113,7 @@ app = create_app()
 if __name__ == '__main__':
     port = int(os.environ.get('PORT', getattr(Config, 'SERVER_PORT', 8443)))
     host = os.environ.get('HOST', '0.0.0.0')
-    
+
     cert_path = Config.SERVER_CERT_PATH
     key_path = Config.SERVER_KEY_PATH
 
