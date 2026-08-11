@@ -386,6 +386,15 @@ function escapeHtml(value) {
     }[ch]));
 }
 
+function escapeInlineJs(value) {
+    return escapeHtml(String(value ?? '')
+        .replace(/\\/g, '\\\\')
+        .replace(/'/g, "\\'")
+        .replace(/\r/g, '\\r')
+        .replace(/\n/g, '\\n')
+        .replace(/</g, '\\x3c'));
+}
+
 function parseJsonObject(value, fallback = {}) {
     if (!value) return fallback;
     try {
@@ -687,20 +696,20 @@ function renderReports() {
         let dotColor = r.error > 0 ? 'bg-rose-500' : (r.success > 0 ? 'bg-emerald-500' : 'bg-slate-300');
 
         return `
-        <div class="infra-report-card p-5 rounded-2xl border shadow-sm hover:shadow-lg transition-all flex flex-col sm:flex-row items-start sm:items-center justify-between cursor-pointer gap-4" onclick="viewReport('${r.id}')">
+        <div class="infra-report-card p-5 rounded-2xl border shadow-sm hover:shadow-lg transition-all flex flex-col sm:flex-row items-start sm:items-center justify-between cursor-pointer gap-4" onclick="viewReport('${escapeInlineJs(r.id)}')">
             <div class="flex items-center gap-4 w-full sm:w-auto">
                 <div class="w-1.5 h-12 rounded-full ${dotColor} shrink-0 shadow-sm"></div>
                 <div class="min-w-0">
-                    <h3 class="text-sm font-black text-slate-800 tracking-tight truncate">${r.title}</h3>
+                    <h3 class="text-sm font-black text-slate-800 tracking-tight truncate">${escapeHtml(r.title)}</h3>
                     <div class="flex gap-2 items-center mt-1">
-                        <span class="text-[10px] text-slate-400 font-bold uppercase tracking-widest">${r.created_at}</span>
+                        <span class="text-[10px] text-slate-400 font-bold uppercase tracking-widest">${escapeHtml(r.created_at)}</span>
                         <span class="text-slate-300">•</span>
                         <span class="text-[10px] text-slate-500 font-bold">Total: ${r.total} | <span class="text-emerald-500">Succ: ${r.success}</span> | <span class="text-rose-500">Err: ${r.error}</span></span>
                     </div>
                 </div>
             </div>
             <div class="shrink-0">
-                <span class="px-3 py-1.5 rounded-lg text-[10px] font-black uppercase tracking-widest border shadow-sm ${statusCls}">${r.status}</span>
+                <span class="px-3 py-1.5 rounded-lg text-[10px] font-black uppercase tracking-widest border shadow-sm ${statusCls}">${escapeHtml(r.status)}</span>
             </div>
         </div>`;
     }).join('');
@@ -2736,6 +2745,8 @@ function renderFleetCenter() {
         const groups = (host.groups || []).map(group => `<span class="px-2 py-1 rounded-lg bg-slate-100 text-slate-500 border border-slate-200 text-[9px] font-black uppercase">${escapeHtml(group.name)}</span>`).join('');
         const keyClass = host.agent_identity_key_enrolled ? 'text-emerald-700 bg-emerald-50 border-emerald-100' : 'text-violet-700 bg-violet-50 border-violet-100';
         const keyLabel = host.agent_identity_key_enrolled ? 'Key OK' : 'No key';
+        const taskKeyClass = host.task_signature_v2_ready ? 'text-emerald-700 bg-emerald-50 border-emerald-100' : 'text-amber-700 bg-amber-50 border-amber-100';
+        const taskKeyLabel = host.task_signature_v2_ready ? 'Task v2' : 'Task legacy';
         const onlineClass = health.online ? 'bg-emerald-50 text-emerald-700 border-emerald-100' : 'bg-slate-100 text-slate-600 border-slate-200';
         const onlineLabel = health.online ? 'Online' : 'Offline';
         const healthReasons = (health.reasons || []).map(escapeHtml).join(', ') || 'current version, signed key, approved, unblocked';
@@ -2747,10 +2758,10 @@ function renderFleetCenter() {
             : '';
         return `<tr class="${host.possible_duplicate ? 'bg-rose-50/35' : ''}">
             <td class="px-6 py-4">
-                <input type="checkbox" value="${escapeHtml(host.id)}" ${checked} onchange="toggleFleetHostSelection('${escapeHtml(host.id)}', this.checked)" class="fleet-host-cb w-4 h-4 rounded border-slate-300 text-indigo-600 focus:ring-indigo-500">
+                <input type="checkbox" value="${escapeHtml(host.id)}" ${checked} onchange="toggleFleetHostSelection('${escapeInlineJs(host.id)}', this.checked)" class="fleet-host-cb w-4 h-4 rounded border-slate-300 text-indigo-600 focus:ring-indigo-500">
             </td>
             <td class="px-6 py-4">
-                <button onclick="viewHost('${escapeHtml(host.id)}')" class="font-black text-slate-800 hover:text-indigo-600 text-left">${escapeHtml(endpointVisibleName(host))}</button>
+                <button onclick="viewHost('${escapeInlineJs(host.id)}')" class="font-black text-slate-800 hover:text-indigo-600 text-left">${escapeHtml(endpointVisibleName(host))}</button>
                 ${endpointHostnameLine(host)}
                 <div class="text-[10px] font-bold text-slate-400 uppercase mt-1">${escapeHtml(host.os || 'Windows')}</div>
                 ${duplicateBadge}
@@ -2760,6 +2771,7 @@ function renderFleetCenter() {
             <td class="px-6 py-4">
                 <span title="${healthReasons}" class="px-3 py-1 rounded-xl border text-[10px] font-black uppercase ${healthClass}">${health.score || 0}% ${escapeHtml(health.status || 'Unknown')}</span>
                 <span class="ml-1 inline-flex whitespace-nowrap px-2 py-1 rounded-lg border text-[9px] font-black uppercase ${keyClass}" title="Agent request signing key exchange">${keyLabel}</span>
+                <span class="ml-1 inline-flex whitespace-nowrap px-2 py-1 rounded-lg border text-[9px] font-black uppercase ${taskKeyClass}" title="Per-agent task signature migration">${taskKeyLabel}</span>
                 <div class="text-[10px] font-bold text-slate-400 mt-1">${healthReasons}</div>
             </td>
             <td class="px-6 py-4"><span title="${escapeHtml(encryptionTitle)}" class="px-3 py-1 rounded-xl border text-[10px] font-black uppercase ${encryptionClass}">${escapeHtml(encryption.status || 'Unknown')}</span></td>
@@ -3976,28 +3988,28 @@ function renderQueue() {
         if(j.planned && hasActionColumn) {
             actionBtn = `<td class="px-10 py-4 text-right">
                 <div class="flex justify-end gap-2">
-                    ${infraPermissions.run_tasks && j.rollout_id ? `<button onclick="event.stopPropagation(); cancelScheduledRollout('${j.rollout_id}')" class="queue-action-btn p-3 border rounded-2xl transition-colors shadow-sm" title="Cancel scheduled rollout waves"><svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path d="M10 10l4 4m0-4l-4 4M12 22a10 10 0 100-20 10 10 0 000 20z" stroke-width="2.3" stroke-linecap="round" stroke-linejoin="round"/></svg></button>` : ''}
+                    ${infraPermissions.run_tasks && j.rollout_id ? `<button onclick="event.stopPropagation(); cancelScheduledRollout('${escapeInlineJs(j.rollout_id)}')" class="queue-action-btn p-3 border rounded-2xl transition-colors shadow-sm" title="Cancel scheduled rollout waves"><svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path d="M10 10l4 4m0-4l-4 4M12 22a10 10 0 100-20 10 10 0 000 20z" stroke-width="2.3" stroke-linecap="round" stroke-linejoin="round"/></svg></button>` : ''}
                 </div>
             </td>`;
         } else if(!j.planned && hasActionColumn) {
             actionBtn = `<td class="px-10 py-4 text-right">
                 <div class="flex justify-end gap-2">
-                    ${infraPermissions.run_tasks && j.error > 0 ? `<button onclick="event.stopPropagation(); retryFailedJob('${j.job_id}')" class="queue-action-btn p-3 border rounded-2xl transition-colors shadow-sm" title="Retry failed hosts"><svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path d="M4 4v6h6M20 20v-6h-6M5 19A9 9 0 0119 5l1 1M19 5A9 9 0 005 19l-1-1" stroke-width="2.3" stroke-linecap="round" stroke-linejoin="round"/></svg></button>` : ''}
-                    ${infraPermissions.run_tasks && (j.pending + j.running) > 0 && (j.success + j.error) > 0 ? `<button onclick="event.stopPropagation(); finalizeJobReport('${j.job_id}')" class="queue-action-btn p-3 border rounded-2xl transition-colors shadow-sm" title="Finalize report without active hosts"><svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path d="M9 12l2 2 4-5M4 20h16M5 4h14v12H5z" stroke-width="2.3" stroke-linecap="round" stroke-linejoin="round"/></svg></button>` : ''}
-                    ${infraPermissions.run_tasks && (j.pending + j.running) > 0 ? `<button onclick="event.stopPropagation(); cancelPendingJob('${j.job_id}')" class="queue-action-btn p-3 border rounded-2xl transition-colors shadow-sm" title="Cancel pending/running hosts"><svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path d="M10 10l4 4m0-4l-4 4M12 22a10 10 0 100-20 10 10 0 000 20z" stroke-width="2.3" stroke-linecap="round" stroke-linejoin="round"/></svg></button>` : ''}
-                    ${infraPermissions.cleanup_tasks ? `<button onclick="event.stopPropagation(); deleteJob('${j.job_id}')" class="queue-action-btn p-3 border rounded-2xl transition-colors shadow-sm" title="Delete job"><svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" stroke-width="2.5"/></svg></button>` : ''}
+                    ${infraPermissions.run_tasks && j.error > 0 ? `<button onclick="event.stopPropagation(); retryFailedJob('${escapeInlineJs(j.job_id)}')" class="queue-action-btn p-3 border rounded-2xl transition-colors shadow-sm" title="Retry failed hosts"><svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path d="M4 4v6h6M20 20v-6h-6M5 19A9 9 0 0119 5l1 1M19 5A9 9 0 005 19l-1-1" stroke-width="2.3" stroke-linecap="round" stroke-linejoin="round"/></svg></button>` : ''}
+                    ${infraPermissions.run_tasks && (j.pending + j.running) > 0 && (j.success + j.error) > 0 ? `<button onclick="event.stopPropagation(); finalizeJobReport('${escapeInlineJs(j.job_id)}')" class="queue-action-btn p-3 border rounded-2xl transition-colors shadow-sm" title="Finalize report without active hosts"><svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path d="M9 12l2 2 4-5M4 20h16M5 4h14v12H5z" stroke-width="2.3" stroke-linecap="round" stroke-linejoin="round"/></svg></button>` : ''}
+                    ${infraPermissions.run_tasks && (j.pending + j.running) > 0 ? `<button onclick="event.stopPropagation(); cancelPendingJob('${escapeInlineJs(j.job_id)}')" class="queue-action-btn p-3 border rounded-2xl transition-colors shadow-sm" title="Cancel pending/running hosts"><svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path d="M10 10l4 4m0-4l-4 4M12 22a10 10 0 100-20 10 10 0 000 20z" stroke-width="2.3" stroke-linecap="round" stroke-linejoin="round"/></svg></button>` : ''}
+                    ${infraPermissions.cleanup_tasks ? `<button onclick="event.stopPropagation(); deleteJob('${escapeInlineJs(j.job_id)}')" class="queue-action-btn p-3 border rounded-2xl transition-colors shadow-sm" title="Delete job"><svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" stroke-width="2.5"/></svg></button>` : ''}
                 </div>
             </td>`;
         }
 
-        return `<tr class="queue-job-row cursor-pointer transition-colors" onclick="viewJobDetails('${j.job_id}')">
+        return `<tr class="queue-job-row cursor-pointer transition-colors" onclick="viewJobDetails('${escapeInlineJs(j.job_id)}')">
                 <td class="px-10 py-5 font-black text-slate-800 text-lg">
-                    ${j.title || 'Untitled'}
-                    <div class="text-[10px] text-slate-400 uppercase tracking-widest mt-1">By: ${j.created_by || 'System'}</div>
+                    ${escapeHtml(j.title || 'Untitled')}
+                    <div class="text-[10px] text-slate-400 uppercase tracking-widest mt-1">By: ${escapeHtml(j.created_by || 'System')}</div>
                 </td>
-                <td class="px-10 py-5 font-bold text-slate-500">${j.target_summary || 'N/A'}</td>
-                <td class="px-10 py-5 text-center"><span class="px-4 py-1.5 rounded-xl text-[10px] font-black uppercase tracking-wider ${cls}">${statusStr} ${j.total > 1 ? `(${j.success}/${j.total})` : ''}</span></td>
-                <td class="px-10 py-5 text-xs text-slate-400 font-bold text-right">${j.created_at}</td>
+                <td class="px-10 py-5 font-bold text-slate-500">${escapeHtml(j.target_summary || 'N/A')}</td>
+                <td class="px-10 py-5 text-center"><span class="px-4 py-1.5 rounded-xl text-[10px] font-black uppercase tracking-wider ${cls}">${escapeHtml(statusStr)} ${j.total > 1 ? `(${j.success}/${j.total})` : ''}</span></td>
+                <td class="px-10 py-5 text-xs text-slate-400 font-bold text-right">${escapeHtml(j.created_at)}</td>
                 ${actionBtn}
             </tr>`;
     }).join('') || '<tr><td colspan="5" class="p-24 text-center text-slate-300 font-black italic">No tasks match your filters.</td></tr>';
@@ -4491,6 +4503,14 @@ async function viewHost(id) {
         const result = await res.json();
         if (!result.success) return;
         const d = result.data;
+        d.history = (d.history || []).map(h => ({
+            ...h,
+            id: escapeInlineJs(h.id),
+            title: escapeHtml(h.title),
+            by: escapeHtml(h.by),
+            date: escapeHtml(h.date),
+            status: escapeHtml(h.status)
+        }));
         currentViewedHostData = d;
         const visibleName = endpointVisibleName(d);
 
@@ -4512,14 +4532,14 @@ async function viewHost(id) {
             ? '<span class="text-emerald-600 font-black uppercase tracking-widest">Enrolled</span>'
             : '<span class="text-violet-600 font-black uppercase tracking-widest">Missing</span>';
         document.getElementById('mSeen').innerText = d.last_seen || "-";
-        const identityWarning = d.identity_warning ? `<div class="p-3 bg-rose-50 border border-rose-100 rounded-2xl text-xs font-bold text-rose-700">${d.identity_warning}</div>` : '';
+        const identityWarning = d.identity_warning ? `<div class="p-3 bg-rose-50 border border-rose-100 rounded-2xl text-xs font-bold text-rose-700">${escapeHtml(d.identity_warning)}</div>` : '';
         const identityDuplicates = (d.duplicate_matches || []).filter(match => match.strong_match);
         const identityDuplicateWarning = identityDuplicates.length ? `
             <div class="p-3 bg-rose-50 border border-rose-100 rounded-2xl text-xs font-bold text-rose-700">
                 <div class="font-black uppercase tracking-widest text-[10px] mb-2">Possible duplicate identity</div>
                 ${identityDuplicates.map(match => `
                     <div class="mt-1">
-                        <button onclick="viewHost('${escapeHtml(match.id)}')" class="font-black underline decoration-rose-300 underline-offset-2 hover:text-rose-900">${escapeHtml(match.hostname || match.id)}</button>
+                        <button onclick="viewHost('${escapeInlineJs(match.id)}')" class="font-black underline decoration-rose-300 underline-offset-2 hover:text-rose-900">${escapeHtml(match.hostname || match.id)}</button>
                         <span class="text-rose-500">/ ${escapeHtml(match.agent_version || 'unknown')} / ${(match.reasons || []).map(escapeHtml).join(', ')}</span>
                     </div>
                 `).join('')}
@@ -4535,15 +4555,15 @@ async function viewHost(id) {
         else if (d.os_type === "Linux") iconHtml = '<svg class="w-8 h-8 text-amber-500" fill="currentColor" viewBox="0 0 24 24"><path d="M21.1 14.8c-.8 0-1.4.6-1.4 1.4 0 .8.6 1.4 1.4 1.4.8 0 1.4-.6 1.4-1.4 0-.8-.6-1.4-1.4-1.4zm-18.2 0c-.8 0-1.4.6-1.4 1.4 0 .8.6 1.4 1.4 1.4.8 0 1.4-.6 1.4-1.4 0-.8-.6-1.4-1.4-1.4zm10.7-3.6c-1.1-1-2.6-1.5-4-1.4h-.2c-1.4-.1-2.9.4-4 1.4-1.9 1.8-2.6 4.7-2.6 8.3 0 2.2.8 4.2 2.3 5.7 1.2 1.2 2.7 1.8 4.3 1.8s3.1-.6 4.3-1.8c1.5-1.5 2.3-3.5 2.3-5.7.1-3.6-.6-6.5-2.4-8.3zm-5.4 11c-.5 0-.9-.4-.9-.9s.4-.9.9-.9.9.4.9.9-.4.9-.9.9zm3.5 0c-.5 0-.9-.4-.9-.9s.4-.9.9-.9.9.4.9.9-.4.9-.9.9z"/></svg>';
         document.getElementById('mOsIcon').innerHTML = iconHtml;
 
-        document.getElementById('mGroups').innerHTML = d.groups.map(g => `<span class="bg-indigo-50 text-indigo-600 px-3 py-1.5 rounded-xl text-xs font-bold border border-indigo-100 shadow-sm uppercase">${g.name}</span>`).join('') || '<span class="text-slate-400 italic text-sm">Ungrouped</span>';
+        document.getElementById('mGroups').innerHTML = d.groups.map(g => `<span class="bg-indigo-50 text-indigo-600 px-3 py-1.5 rounded-xl text-xs font-bold border border-indigo-100 shadow-sm uppercase">${escapeHtml(g.name)}</span>`).join('') || '<span class="text-slate-400 italic text-sm">Ungrouped</span>';
         const networkInfo = Array.isArray(d.network_info) ? d.network_info : [];
         document.getElementById('mNetworkInfo').innerHTML = networkInfo.map(n => `
             <div class="bg-white border border-slate-200 rounded-2xl p-3">
-                <div class="font-black text-slate-700">${n.name || 'Interface'}</div>
-                <div class="text-[10px] text-slate-400 font-bold mt-1">${n.type || 'Unknown'} / ${n.status || 'Unknown'} / ${n.mac || 'No MAC'}</div>
-                <div class="font-mono text-[10px] text-slate-600 mt-2 break-words">IPv4: ${(n.ipv4 || []).join(', ') || '-'}</div>
-                <div class="font-mono text-[10px] text-slate-600 mt-1 break-words">GW: ${(n.gateways || []).join(', ') || '-'}</div>
-                <div class="font-mono text-[10px] text-slate-600 mt-1 break-words">DNS: ${(n.dns_servers || []).join(', ') || '-'}</div>
+                <div class="font-black text-slate-700">${escapeHtml(n.name || 'Interface')}</div>
+                <div class="text-[10px] text-slate-400 font-bold mt-1">${escapeHtml(n.type || 'Unknown')} / ${escapeHtml(n.status || 'Unknown')} / ${escapeHtml(n.mac || 'No MAC')}</div>
+                <div class="font-mono text-[10px] text-slate-600 mt-2 break-words">IPv4: ${(n.ipv4 || []).map(escapeHtml).join(', ') || '-'}</div>
+                <div class="font-mono text-[10px] text-slate-600 mt-1 break-words">GW: ${(n.gateways || []).map(escapeHtml).join(', ') || '-'}</div>
+                <div class="font-mono text-[10px] text-slate-600 mt-1 break-words">DNS: ${(n.dns_servers || []).map(escapeHtml).join(', ') || '-'}</div>
             </div>
         `).join('') || '<span class="text-slate-400 italic text-sm">No network inventory received</span>';
         const hostInfo = d.host_info || {};
@@ -4558,23 +4578,23 @@ async function viewHost(id) {
             : (encryption.level === 'partial' ? 'bg-amber-50 text-amber-700 border-amber-100' : (encryption.level === 'none' ? 'bg-rose-50 text-rose-700 border-rose-100' : 'bg-slate-100 text-slate-500 border-slate-200'));
         document.getElementById('mHostInfo').innerHTML = `
             <div class="bg-white border border-slate-200 rounded-2xl p-3 space-y-2">
-                <div class="flex justify-between gap-3"><span class="text-slate-400 font-bold">FQDN</span><span class="text-slate-700 font-mono text-right break-all">${hostInfo.fqdn || '-'}</span></div>
-                <div class="flex justify-between gap-3"><span class="text-slate-400 font-bold">Domain</span><span class="text-slate-700 text-right">${hostInfo.domain_name || hostInfo.user_domain_name || '-'}</span></div>
+                <div class="flex justify-between gap-3"><span class="text-slate-400 font-bold">FQDN</span><span class="text-slate-700 font-mono text-right break-all">${escapeHtml(hostInfo.fqdn || '-')}</span></div>
+                <div class="flex justify-between gap-3"><span class="text-slate-400 font-bold">Domain</span><span class="text-slate-700 text-right">${escapeHtml(hostInfo.domain_name || hostInfo.user_domain_name || '-')}</span></div>
                 <div class="flex justify-between gap-3"><span class="text-slate-400 font-bold">Domain Joined</span><span class="text-slate-700">${fmtBool(hostInfo.likely_domain_joined)}</span></div>
                 <div class="flex justify-between gap-3"><span class="text-slate-400 font-bold">CPU / RAM</span><span class="text-slate-700">${hostInfo.processor_count || '-'} cores / ${hostInfo.total_memory_mb ? Math.round(hostInfo.total_memory_mb / 1024) + ' GB' : '-'}</span></div>
-                <div class="flex justify-between gap-3"><span class="text-slate-400 font-bold">Timezone</span><span class="text-slate-700 text-right">${hostInfo.timezone || '-'}</span></div>
-                <div class="flex justify-between gap-3"><span class="text-slate-400 font-bold">Boot UTC</span><span class="text-slate-700 font-mono text-[10px] text-right">${hostInfo.boot_time_utc || '-'}</span></div>
-                <div class="flex justify-between gap-3"><span class="text-slate-400 font-bold">First Seen</span><span class="text-slate-700 font-mono text-[10px] text-right">${d.first_seen || '-'}</span></div>
-                <div class="flex justify-between gap-3"><span class="text-slate-400 font-bold">Last Enrollment</span><span class="text-slate-700 font-mono text-[10px] text-right">${d.last_enrollment_at || '-'}</span></div>
-                <div class="flex justify-between gap-3"><span class="text-slate-400 font-bold">Enroll IP</span><span class="text-slate-700 font-mono text-[10px] text-right">${d.last_enrollment_ip || '-'}</span></div>
+                <div class="flex justify-between gap-3"><span class="text-slate-400 font-bold">Timezone</span><span class="text-slate-700 text-right">${escapeHtml(hostInfo.timezone || '-')}</span></div>
+                <div class="flex justify-between gap-3"><span class="text-slate-400 font-bold">Boot UTC</span><span class="text-slate-700 font-mono text-[10px] text-right">${escapeHtml(hostInfo.boot_time_utc || '-')}</span></div>
+                <div class="flex justify-between gap-3"><span class="text-slate-400 font-bold">First Seen</span><span class="text-slate-700 font-mono text-[10px] text-right">${escapeHtml(d.first_seen || '-')}</span></div>
+                <div class="flex justify-between gap-3"><span class="text-slate-400 font-bold">Last Enrollment</span><span class="text-slate-700 font-mono text-[10px] text-right">${escapeHtml(d.last_enrollment_at || '-')}</span></div>
+                <div class="flex justify-between gap-3"><span class="text-slate-400 font-bold">Enroll IP</span><span class="text-slate-700 font-mono text-[10px] text-right">${escapeHtml(d.last_enrollment_ip || '-')}</span></div>
                 <div class="flex justify-between gap-3"><span class="text-slate-400 font-bold">Attempts</span><span class="text-slate-700 font-black">${d.enrollment_attempts || 0}</span></div>
             </div>
             ${identityWarning}
             ${identityDuplicateWarning}
             ${volumes.length ? volumes.map(v => `
                 <div class="bg-white border border-slate-200 rounded-2xl p-3">
-                    <div class="font-black text-slate-700">${v.name || 'Volume'} ${v.label ? '/ ' + v.label : ''}</div>
-                    <div class="text-[10px] text-slate-400 font-bold mt-1">${v.type || '-'} / ${v.format || '-'} / ${v.ready ? 'Ready' : 'Not ready'}</div>
+                    <div class="font-black text-slate-700">${escapeHtml(v.name || 'Volume')} ${v.label ? '/ ' + escapeHtml(v.label) : ''}</div>
+                    <div class="text-[10px] text-slate-400 font-bold mt-1">${escapeHtml(v.type || '-')} / ${escapeHtml(v.format || '-')} / ${v.ready ? 'Ready' : 'Not ready'}</div>
                     <div class="font-mono text-[10px] text-slate-600 mt-2">Free: ${fmtBytes(v.free_gb)} / Total: ${fmtBytes(v.total_gb)}</div>
                 </div>
             `).join('') : ''}
@@ -4584,10 +4604,10 @@ async function viewHost(id) {
                 <div class="flex justify-between gap-3 items-center"><span class="text-slate-400 font-bold">Encryption</span><span class="px-3 py-1 rounded-xl border text-[10px] font-black uppercase ${encryptionClass}">${escapeHtml(encryption.status || 'Unknown')}</span></div>
                 <div class="flex justify-between gap-3"><span class="text-slate-400 font-bold">Methods</span><span class="text-slate-700 text-right">${(encryption.methods || []).map(escapeHtml).join(', ') || '-'}</span></div>
                 <div class="flex justify-between gap-3"><span class="text-slate-400 font-bold">Pending Reboot</span><span class="${security.pending_reboot ? 'text-amber-600' : 'text-emerald-600'} font-black">${fmtBool(security.pending_reboot)}</span></div>
-                <div class="flex justify-between gap-3"><span class="text-slate-400 font-bold">Firewall Domain</span><span class="text-slate-700">${security.firewall_domain || '-'}</span></div>
-                <div class="flex justify-between gap-3"><span class="text-slate-400 font-bold">Firewall Private</span><span class="text-slate-700">${security.firewall_private || '-'}</span></div>
-                <div class="flex justify-between gap-3"><span class="text-slate-400 font-bold">Firewall Public</span><span class="text-slate-700">${security.firewall_public || '-'}</span></div>
-                <div class="flex justify-between gap-3"><span class="text-slate-400 font-bold">Defender</span><span class="text-slate-700">${security.defender_service_state || '-'}</span></div>
+                <div class="flex justify-between gap-3"><span class="text-slate-400 font-bold">Firewall Domain</span><span class="text-slate-700">${escapeHtml(security.firewall_domain || '-')}</span></div>
+                <div class="flex justify-between gap-3"><span class="text-slate-400 font-bold">Firewall Private</span><span class="text-slate-700">${escapeHtml(security.firewall_private || '-')}</span></div>
+                <div class="flex justify-between gap-3"><span class="text-slate-400 font-bold">Firewall Public</span><span class="text-slate-700">${escapeHtml(security.firewall_public || '-')}</span></div>
+                <div class="flex justify-between gap-3"><span class="text-slate-400 font-bold">Defender</span><span class="text-slate-700">${escapeHtml(security.defender_service_state || '-')}</span></div>
                 <div class="flex justify-between gap-3"><span class="text-slate-400 font-bold">VeraCrypt</span><span class="${security.veracrypt_detected ? 'text-emerald-600' : 'text-slate-500'} font-black">${fmtBool(security.veracrypt_detected)}</span></div>
                 <div class="flex justify-between gap-3"><span class="text-slate-400 font-bold">TrueCrypt</span><span class="${security.truecrypt_detected ? 'text-emerald-600' : 'text-slate-500'} font-black">${fmtBool(security.truecrypt_detected)}</span></div>
                 <div class="pt-2 border-t border-slate-100 grid grid-cols-2 gap-2 text-[10px]">
@@ -4596,7 +4616,7 @@ async function viewHost(id) {
                     <div><span class="text-slate-400 font-bold block">Protection</span><span class="text-slate-700 font-black uppercase">${escapeHtml(bitlocker.protection_status || 'unknown')}</span></div>
                     <div><span class="text-slate-400 font-bold block">Conversion</span><span class="text-slate-700 font-black uppercase">${escapeHtml(bitlocker.conversion_status || 'unknown')}</span></div>
                 </div>
-                <div class="pt-2 border-t border-slate-100"><span class="text-slate-400 font-bold block mb-1">BitLocker</span><span class="font-mono text-[10px] text-slate-600 whitespace-pre-wrap break-words">${security.bitlocker_summary || '-'}</span></div>
+                <div class="pt-2 border-t border-slate-100"><span class="text-slate-400 font-bold block mb-1">BitLocker</span><span class="font-mono text-[10px] text-slate-600 whitespace-pre-wrap break-words">${escapeHtml(security.bitlocker_summary || '-')}</span></div>
             </div>
         `;
 

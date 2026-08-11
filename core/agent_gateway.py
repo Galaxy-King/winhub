@@ -14,7 +14,7 @@ from flask import Blueprint, request, jsonify
 from sqlalchemy.orm import load_only
 from cryptography.exceptions import InvalidSignature
 from cryptography.hazmat.primitives import hashes, serialization
-from cryptography.hazmat.primitives.asymmetric import padding
+from cryptography.hazmat.primitives.asymmetric import padding, rsa
 from core.database import db, Endpoint, AgentTask, RegistrationHistory, TelemetryHistory, ConnectionIpHistory, EndpointGroup, EndpointMetric, TriggerRule, User, TaskTemplate, ScheduledTask
 from core.security import sec_manager
 from core.host_security import apply_endpoint_encryption_status
@@ -56,6 +56,11 @@ POLL_AGENT_COLUMNS = (
     Endpoint.is_blocked,
     Endpoint.approval_status,
     Endpoint.public_key_pem_plain,
+    Endpoint.task_signing_private_key,
+    Endpoint.task_signing_public_key,
+    Endpoint.task_signing_key_id,
+    Endpoint.task_signing_sequence,
+    Endpoint.task_signature_v2_seen_at,
     Endpoint.connection_ip,
     Endpoint.last_seen,
     Endpoint.agent_version,
@@ -159,6 +164,78 @@ def sign_task_message(task_id, action, payload):
     }, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
     secret = str(Config.AGENT_TASK_HMAC_SECRET or Config.SECRET_KEY).encode("utf-8")
     return hmac.new(secret, body.encode("utf-8"), hashlib.sha256).hexdigest()
+
+
+def canonical_task_payload(payload):
+    return json.dumps(payload, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+
+
+def ensure_endpoint_task_signing_key(agent):
+    private_pem = str(getattr(agent, "task_signing_private_key", "") or "").strip()
+    public_pem = str(getattr(agent, "task_signing_public_key", "") or "").strip()
+    key_id = str(getattr(agent, "task_signing_key_id", "") or "").strip()
+    if private_pem and public_pem and key_id:
+        return private_pem, public_pem, key_id
+
+    private_key = rsa.generate_private_key(public_exponent=65537, key_size=3072)
+    private_pem = private_key.private_bytes(
+        encoding=serialization.Encoding.PEM,
+        format=serialization.PrivateFormat.PKCS8,
+        encryption_algorithm=serialization.NoEncryption(),
+    ).decode("ascii")
+    public_key = private_key.public_key()
+    public_pem = public_key.public_bytes(
+        encoding=serialization.Encoding.PEM,
+        format=serialization.PublicFormat.SubjectPublicKeyInfo,
+    ).decode("ascii")
+    public_der = public_key.public_bytes(
+        encoding=serialization.Encoding.DER,
+        format=serialization.PublicFormat.SubjectPublicKeyInfo,
+    )
+    key_id = hashlib.sha256(public_der).hexdigest()
+    agent.task_signing_private_key = private_pem
+    agent.task_signing_public_key = public_pem
+    agent.task_signing_key_id = key_id
+    agent.task_signing_sequence = int(getattr(agent, "task_signing_sequence", 0) or 0)
+    return private_pem, public_pem, key_id
+
+
+def sign_task_message_v2(agent, task_id, action, payload, timeout_seconds):
+    # Serialize sequence allocation on PostgreSQL so concurrent polls cannot
+    # receive the same anti-replay sequence.
+    try:
+        db.session.refresh(agent, with_for_update=True)
+    except TypeError:
+        db.session.refresh(agent)
+    private_pem, public_pem, key_id = ensure_endpoint_task_signing_key(agent)
+    issued_at = int(time.time())
+    sequence = int(getattr(agent, "task_signing_sequence", 0) or 0) + 1
+    agent.task_signing_sequence = sequence
+    fields = {
+        "action": str(action or ""),
+        "endpoint_id": str(agent.id),
+        "expires_at": issued_at + max(120, min(int(timeout_seconds or 1800) + 300, 86400)),
+        "issued_at": issued_at,
+        "key_id": key_id,
+        "payload_hash": hashlib.sha256(canonical_task_payload(payload).encode("utf-8")).hexdigest(),
+        "protocol_version": 2,
+        "sequence": sequence,
+        "task_id": str(task_id),
+        "timeout_seconds": int(timeout_seconds or 1800),
+    }
+    canonical = json.dumps(fields, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+    private_key = serialization.load_pem_private_key(private_pem.encode("ascii"), password=None)
+    signature = private_key.sign(
+        canonical.encode("utf-8"),
+        padding.PSS(mgf=padding.MGF1(hashes.SHA256()), salt_length=hashes.SHA256().digest_size),
+        hashes.SHA256(),
+    )
+    return {
+        "fields": fields,
+        "signature": base64.b64encode(signature).decode("ascii"),
+        "signature_alg": "rsa-pss-sha256",
+        "public_key_pem": public_pem,
+    }
 
 
 @lru_cache(maxsize=2048)
@@ -368,7 +445,7 @@ def get_pending_task_for_agent(endpoint_id):
     task = AgentTask.query.options(load_only(*TASK_DELIVERY_COLUMNS)).filter_by(
         endpoint_id=endpoint_id,
         status="Pending",
-    ).order_by(AgentTask.created_at.asc()).first()
+    ).order_by(AgentTask.created_at.asc()).with_for_update(skip_locked=True).first()
     with pending_task_miss_cache_lock:
         if task:
             pending_task_miss_cache.pop(endpoint_id, None)
@@ -628,6 +705,11 @@ def adopt_duplicate_endpoint_identity(existing_endpoint, new_hw_id, raw_token, d
         auth_token=raw_token,
         public_key_pem=inherited_public_key,
         public_key_pem_plain=inherited_public_key,
+        task_signing_private_key=getattr(existing_endpoint, "task_signing_private_key", None),
+        task_signing_public_key=getattr(existing_endpoint, "task_signing_public_key", None),
+        task_signing_key_id=getattr(existing_endpoint, "task_signing_key_id", None),
+        task_signing_sequence=int(getattr(existing_endpoint, "task_signing_sequence", 0) or 0),
+        task_signature_v2_seen_at=getattr(existing_endpoint, "task_signature_v2_seen_at", None),
         os_version=data.get("os_version", existing_endpoint.os_version),
         os_type=data.get("os_type", existing_endpoint.os_type or "Windows"),
         connection_ip=inherited_ip,
@@ -959,7 +1041,14 @@ def agent_poll():
 
     resp = {"status": "idle", **agent_poll_timing("idle")}
 
-    if task:
+    signature_mode = str(getattr(Config, "AGENT_TASK_SIGNATURE_MODE", "dual") or "dual").lower()
+    if signature_mode not in {"hmac", "dual", "v2"}:
+        signature_mode = "dual"
+    supports_v2 = "rsa-pss-sha256-v2" in str(data.get("task_signature_capabilities") or "").lower()
+
+    if task and signature_mode == "v2" and not supports_v2:
+        resp = {"status": "upgrade_required", "required_task_signature": "rsa-pss-sha256-v2", **agent_poll_timing("idle")}
+    elif task:
         task.status = "PickedUp"
 
         # --- БРОНЕБІЙНИЙ ПАРСИНГ PAYLOAD ДЛЯ АГЕНТА ---
@@ -993,10 +1082,19 @@ def agent_poll():
             "action": task.action_type,
             "payload": payload_dict,
             "timeout_seconds": max(60, task_timeout_seconds),
-            "signature": sign_task_message(task.id, task.action_type, payload_dict),
-            "signature_alg": "hmac-sha256",
             **agent_poll_timing("task"),
         }
+        if signature_mode in {"hmac", "dual"}:
+            resp["signature"] = sign_task_message(task.id, task.action_type, payload_dict)
+            resp["signature_alg"] = "hmac-sha256"
+        if supports_v2 and signature_mode in {"dual", "v2"}:
+            resp["task_signature_v2"] = sign_task_message_v2(
+                agent,
+                task.id,
+                task.action_type,
+                payload_dict,
+                resp["timeout_seconds"],
+            )
         needs_commit = True
 
     if needs_commit:
@@ -1015,6 +1113,17 @@ def agent_result():
     if not signature_ok:
         return jsonify(agent_signature_error_payload(signature_reason, data)), 403
     update_agent_connection(agent)
+    acknowledged_key_id = str(data.get("task_signature_v2_key_id") or "").strip()
+    try:
+        acknowledged_sequence = int(data.get("task_signature_v2_sequence") or 0)
+    except (TypeError, ValueError):
+        acknowledged_sequence = 0
+    if (
+        acknowledged_key_id
+        and acknowledged_key_id == str(getattr(agent, "task_signing_key_id", "") or "")
+        and 0 < acknowledged_sequence <= int(getattr(agent, "task_signing_sequence", 0) or 0)
+    ):
+        agent.task_signature_v2_seen_at = datetime.utcnow()
 
     task = AgentTask.query.options(load_only(*TASK_RESULT_COLUMNS)).filter_by(
         id=data.get('task_id'),

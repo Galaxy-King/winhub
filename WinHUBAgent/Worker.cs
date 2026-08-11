@@ -23,9 +23,9 @@ namespace WinHUBAgent
 {
     // --- МОДЕЛІ ДАНИХ ---
     public record EnrollPayload(string global_token, string hw_id, string hostname, string os_version, string os_type, string agent_version, NetworkInterfaceInfo[] network_interfaces, HostInventoryInfo host_info, string previous_auth_token, string previous_hw_id, string agent_public_key_pem, string agent_key_fingerprint, string body_hash, string signed_at, string signed_nonce, string signature);
-    public record PollPayload(string hw_id, string auth_token, string agent_version, string agent_public_key_pem, string agent_key_fingerprint, string body_hash, string signed_at, string signed_nonce, string signature);
+    public record PollPayload(string hw_id, string auth_token, string agent_version, string agent_public_key_pem, string agent_key_fingerprint, string task_signature_capabilities, string body_hash, string signed_at, string signed_nonce, string signature);
     public record TelemetryPayload(string hw_id, string auth_token, string agent_version, double cpu, double ram, double disk_c, HostInventoryInfo? host_info, string agent_public_key_pem, string agent_key_fingerprint, string body_hash, string signed_at, string signed_nonce, string signature);
-    public record ResultPayload(string hw_id, string auth_token, string agent_version, string task_id, string status, string log, string agent_public_key_pem, string agent_key_fingerprint, string body_hash, string signed_at, string signed_nonce, string signature);
+    public record ResultPayload(string hw_id, string auth_token, string agent_version, string task_id, string status, string log, string agent_public_key_pem, string agent_key_fingerprint, string task_signature_v2_key_id, long task_signature_v2_sequence, string body_hash, string signed_at, string signed_nonce, string signature);
     public record NetworkInterfaceInfo(string name, string description, string type, string status, string mac, string[] ipv4, string[] ipv6, string[] gateways, string[] dns_servers, bool dhcp_enabled, long speed_mbps);
     public record VolumeInfo(string name, string label, string format, string type, long total_gb, long free_gb, bool ready);
     public record BitLockerInventoryInfo(string status, int encrypted_percentage, string protection_status, string conversion_status, string raw_summary);
@@ -47,6 +47,9 @@ namespace WinHUBAgent
         public bool IgnoreTlsCertificateErrors { get; set; } = false;
         public string ServerCertificateSha256 { get; set; } = "";
         public bool RequireTaskSignature { get; set; } = true;
+        public string TaskSigningPublicKeyPem { get; set; } = "";
+        public string TaskSigningKeyId { get; set; } = "";
+        public long TaskSigningLastSequence { get; set; } = 0;
         public int RestartAfterConsecutivePollFailures { get; set; } = 10;
     }
 
@@ -236,6 +239,9 @@ namespace WinHUBAgent
                     nameof(AgentConfig.IgnoreTlsCertificateErrors),
                     nameof(AgentConfig.ServerCertificateSha256),
                     nameof(AgentConfig.RequireTaskSignature),
+                    nameof(AgentConfig.TaskSigningPublicKeyPem),
+                    nameof(AgentConfig.TaskSigningKeyId),
+                    nameof(AgentConfig.TaskSigningLastSequence),
                     nameof(AgentConfig.RestartAfterConsecutivePollFailures)
                 };
                 return required.Any(key => !doc.RootElement.TryGetProperty(key, out _));
@@ -540,7 +546,7 @@ namespace WinHUBAgent
         {
             try
             {
-                var unsignedPayload = new PollPayload(HardwareId, AuthToken, AgentBuildInfo.Version, AgentPublicKeyPem, AgentKeyFingerprint, "", "", "", "");
+                var unsignedPayload = new PollPayload(HardwareId, AuthToken, AgentBuildInfo.Version, AgentPublicKeyPem, AgentKeyFingerprint, "rsa-pss-sha256-v2", "", "", "", "");
                 string unsignedJson = JsonSerializer.Serialize(unsignedPayload, AppJsonSerializerContext.Default.PollPayload);
                 string bodyHash = ComputeAgentBodyHash(unsignedJson);
                 var signature = CreateAgentSignature("/api/agent/poll", AuthToken, AgentBuildInfo.Version, bodyHash);
@@ -1044,7 +1050,7 @@ try {
         {
             try
             {
-                var unsignedPayload = new ResultPayload(HardwareId, AuthToken, AgentBuildInfo.Version, taskId, status, TrimResultLog(log), AgentPublicKeyPem, AgentKeyFingerprint, "", "", "", "");
+                var unsignedPayload = new ResultPayload(HardwareId, AuthToken, AgentBuildInfo.Version, taskId, status, TrimResultLog(log), AgentPublicKeyPem, AgentKeyFingerprint, _config.TaskSigningKeyId, _config.TaskSigningLastSequence, "", "", "", "");
                 string unsignedJson = JsonSerializer.Serialize(unsignedPayload, AppJsonSerializerContext.Default.ResultPayload);
                 string bodyHash = ComputeAgentBodyHash(unsignedJson);
                 var signature = CreateAgentSignature("/api/agent/result", AuthToken, AgentBuildInfo.Version, bodyHash);
@@ -1058,6 +1064,20 @@ try {
 
         private bool ValidateTaskSignature(JsonElement taskResponse)
         {
+            if (taskResponse.TryGetProperty("task_signature_v2", out var signatureV2))
+            {
+                if (CanBootstrapTaskSigningKey() || !string.IsNullOrWhiteSpace(_config.TaskSigningPublicKeyPem))
+                {
+                    return ValidateTaskSignatureV2(taskResponse, signatureV2);
+                }
+                _logger.LogWarning("Per-agent task key was offered over an insecure bootstrap channel; using transitional HMAC verification.");
+            }
+            else if (!string.IsNullOrWhiteSpace(_config.TaskSigningPublicKeyPem))
+            {
+                _logger.LogError("Server omitted the pinned per-agent task signature. Refusing downgrade to HMAC.");
+                return false;
+            }
+
             string secret = GetProtectedSecret("TaskHmacSecret");
             bool hasSignature = taskResponse.TryGetProperty("signature", out var signatureEl);
             string providedSignature = hasSignature ? (signatureEl.GetString() ?? "") : "";
@@ -1101,6 +1121,86 @@ try {
                 _logger.LogError($"Invalid task signature for task {taskId}. Refusing execution.");
             }
             return valid;
+        }
+
+        private bool CanBootstrapTaskSigningKey()
+        {
+            return Uri.TryCreate(_config.ServerUrl, UriKind.Absolute, out var uri)
+                && uri.Scheme.Equals(Uri.UriSchemeHttps, StringComparison.OrdinalIgnoreCase)
+                && !_config.IgnoreTlsCertificateErrors;
+        }
+
+        private bool ValidateTaskSignatureV2(JsonElement taskResponse, JsonElement envelope)
+        {
+            try
+            {
+                JsonElement fields = envelope.GetProperty("fields");
+                string algorithm = envelope.GetProperty("signature_alg").GetString() ?? "";
+                string providedKey = envelope.GetProperty("public_key_pem").GetString() ?? "";
+                string providedSignature = envelope.GetProperty("signature").GetString() ?? "";
+                if (!algorithm.Equals("rsa-pss-sha256", StringComparison.OrdinalIgnoreCase)) return false;
+
+                string taskId = taskResponse.GetProperty("task_id").GetString() ?? "";
+                string action = taskResponse.GetProperty("action").GetString() ?? "";
+                JsonElement payload = taskResponse.GetProperty("payload");
+                int timeoutSeconds = taskResponse.GetProperty("timeout_seconds").GetInt32();
+                string payloadHash = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(CanonicalizeJson(payload)))).ToLowerInvariant();
+                long now = DateTimeOffset.UtcNow.ToUnixTimeSeconds();
+                long issuedAt = fields.GetProperty("issued_at").GetInt64();
+                long expiresAt = fields.GetProperty("expires_at").GetInt64();
+                long sequence = fields.GetProperty("sequence").GetInt64();
+                string keyId = fields.GetProperty("key_id").GetString() ?? "";
+
+                bool fieldsMatch = fields.GetProperty("protocol_version").GetInt32() == 2
+                    && fields.GetProperty("endpoint_id").GetString() == HardwareId
+                    && fields.GetProperty("task_id").GetString() == taskId
+                    && fields.GetProperty("action").GetString() == action
+                    && fields.GetProperty("payload_hash").GetString() == payloadHash
+                    && fields.GetProperty("timeout_seconds").GetInt32() == timeoutSeconds
+                    && issuedAt <= now + 300
+                    && expiresAt >= now
+                    && sequence > _config.TaskSigningLastSequence;
+                if (!fieldsMatch)
+                {
+                    _logger.LogError("Per-agent task signature fields, expiry, or sequence are invalid.");
+                    return false;
+                }
+
+                string publicKey = string.IsNullOrWhiteSpace(_config.TaskSigningPublicKeyPem)
+                    ? providedKey
+                    : _config.TaskSigningPublicKeyPem;
+                using RSA rsa = RSA.Create();
+                rsa.ImportFromPem(publicKey);
+                string actualKeyId = Convert.ToHexString(SHA256.HashData(rsa.ExportSubjectPublicKeyInfo())).ToLowerInvariant();
+                if (actualKeyId != keyId || (!string.IsNullOrWhiteSpace(_config.TaskSigningKeyId) && _config.TaskSigningKeyId != keyId))
+                {
+                    _logger.LogError("Per-agent task signing key does not match the pinned key.");
+                    return false;
+                }
+
+                bool valid = rsa.VerifyData(
+                    Encoding.UTF8.GetBytes(CanonicalizeJson(fields)),
+                    Convert.FromBase64String(providedSignature),
+                    HashAlgorithmName.SHA256,
+                    RSASignaturePadding.Pss);
+                if (!valid)
+                {
+                    _logger.LogError("Invalid per-agent RSA-PSS task signature.");
+                    return false;
+                }
+
+                _config.TaskSigningPublicKeyPem = publicKey;
+                _config.TaskSigningKeyId = keyId;
+                _config.TaskSigningLastSequence = sequence;
+                SaveConfig();
+                RemoveProtectedSecret("TaskHmacSecret");
+                return true;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError("Per-agent task signature validation failed: {Message}", ex.Message);
+                return false;
+            }
         }
 
         private static string CanonicalizeJson(JsonElement element)

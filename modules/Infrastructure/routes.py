@@ -17,7 +17,7 @@ from email.mime.text import MIMEText
 from email.utils import parseaddr
 from urllib.error import HTTPError, URLError
 from urllib.parse import quote, urlsplit
-from urllib.request import Request, urlopen
+from urllib.request import HTTPRedirectHandler, Request, build_opener
 from zoneinfo import ZoneInfo
 from flask import Blueprint, request, jsonify, render_template, session, redirect, url_for, current_app, Response, send_from_directory, stream_with_context
 from sqlalchemy import and_, func, or_
@@ -33,6 +33,9 @@ from core.config import Config
 from core.host_security import encryption_status_from_host_info
 from core.permissions import has_module_access, has_permission, request_api_group_scope, user_permissions
 from core.gpg import fetch_public_key, gpg_env
+from core.report_renderer import validate_report_template
+from core.template_security import current_template_hash, template_approval_valid
+from core.outbound_security import normalized_origin, validate_outbound_url
 
 infrastructure_bp = Blueprint('infrastructure', __name__, template_folder='templates')
 kyiv_tz = ZoneInfo("Europe/Kyiv")
@@ -96,6 +99,8 @@ ENDPOINT_LIST_COLUMNS = (
     Endpoint.os_version,
     Endpoint.os_type,
     Endpoint.public_key_pem_plain,
+    Endpoint.task_signing_key_id,
+    Endpoint.task_signature_v2_seen_at,
     Endpoint.connection_ip,
     Endpoint.approval_status,
     Endpoint.agent_version,
@@ -377,6 +382,11 @@ def normalize_confluence_base_url(value):
         return None
     return base_url
 
+
+class NoCredentialRedirectHandler(HTTPRedirectHandler):
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        return None
+
 def confluence_auth_headers(profile):
     encrypted_token = profile.get("token", "")
     if not encrypted_token:
@@ -404,11 +414,13 @@ def confluence_request(profile, method, path, payload=None, timeout=20):
         "User-Agent": "WinHUB-Confluence-Publisher/1.0",
     }
     try:
+        allowed_schemes = ("https",) if Config.OUTBOUND_POLICY_MODE == "enforce" else ("https", "http")
+        validate_outbound_url(url, "Confluence API", allowed_schemes=allowed_schemes)
         headers.update(confluence_auth_headers(profile))
         if payload is not None:
             data = json.dumps(payload).encode("utf-8")
         req = Request(url, data=data, headers=headers, method=method.upper())
-        with urlopen(req, timeout=timeout) as response:
+        with build_opener(NoCredentialRedirectHandler()).open(req, timeout=timeout) as response:
             body = response.read().decode("utf-8", errors="replace")
             if not body:
                 return True, {}, "OK"
@@ -783,6 +795,22 @@ def load_template_payload(template):
         return {"script": str(template.payload or "")}
 
 
+def approved_report_template(template_id):
+    template = TaskTemplate.query.get(str(template_id or "")) if template_id else None
+    if not template or getattr(template, "type", "action") != "report" or not template_approval_valid(template):
+        return None
+    return template
+
+
+def validate_report_template_payload(template_type, payload):
+    if str(template_type or "action") != "report":
+        return
+    script = payload.get("script", "") if isinstance(payload, dict) else ""
+    if not str(script or "").strip():
+        raise ValueError("Report template script is required")
+    validate_report_template(str(script))
+
+
 TEMPLATE_POLICY_KEY = "__template_policy"
 TEMPLATE_VARIABLE_SCHEMA_KEY = "__variable_schema"
 
@@ -1054,6 +1082,10 @@ def dispatch_infrastructure_task(user_id, action_type, target_ids, payload, titl
     user = User.query.get(user_id)
     if not user:
         raise PermissionError("Invalid user")
+
+    report_template_id = payload.get("__report_template_id") if isinstance(payload, dict) else None
+    if report_template_id and not approved_report_template(report_template_id):
+        raise PermissionError("Approved report template not found or approval seal is invalid")
 
     payload_json = json.dumps(payload, ensure_ascii=False)
     job_id = str(uuid.uuid4())
@@ -2132,6 +2164,7 @@ def index():
         'current': sum(1 for a in agents if is_agent_current(a)),
         'outdated': sum(1 for a in agents if is_agent_outdated(a)),
         'signed': sum(1 for a in agents if bool(getattr(a, "agent_identity_key_enrolled", False))),
+        'task_signature_v2': sum(1 for a in agents if bool(getattr(a, "task_signature_v2_seen_at", None))),
     }
 
     for a in agents:
@@ -2154,6 +2187,7 @@ def index():
         "agent_version": getattr(a, 'agent_version', '') or '',
         "agent_outdated": is_agent_outdated(a),
         "agent_identity_key_enrolled": bool(getattr(a, "agent_identity_key_enrolled", False)),
+        "task_signature_v2_ready": bool(getattr(a, "task_signature_v2_seen_at", None)),
         "is_online": bool(a.last_seen and a.last_seen >= online_threshold),
         "last_seen": to_kyiv_time_short(a.last_seen),
         "encryption": getattr(a, "encryption", {"status": "Unknown", "level": "unknown", "methods": []}),
@@ -2479,6 +2513,9 @@ def manage_confluence_profiles():
             return jsonify({"success": False, "message": "Basic auth requires username/email."}), 400
 
         existing = profiles.get(name, {})
+        origin_changed = bool(existing.get("base_url")) and normalized_origin(existing.get("base_url")) != normalized_origin(base_url)
+        if origin_changed and not token:
+            return jsonify({"success": False, "message": "Confluence URL changed; re-enter the token to bind it to the new origin."}), 400
         if not token and not existing.get("token"):
             return jsonify({"success": False, "message": "Token is required for a new profile."}), 400
 
@@ -3063,7 +3100,8 @@ def import_templates():
                 except Exception:
                     incoming_payload = {"script": incoming_payload}
             payload_raw = json.dumps(incoming_payload, ensure_ascii=False)
-            is_approved = bool(item.get("is_approved", False))
+            is_approved = bool(item.get("is_approved", False)) and bool(session.get("is_admin"))
+            validate_report_template_payload(t_type, incoming_payload)
 
             template_id = str(item.get("id") or "").strip()
             template = TaskTemplate.query.get(template_id) if template_id else None
@@ -3077,9 +3115,12 @@ def import_templates():
                 template.type = t_type
                 template.payload = payload_raw
                 template.is_approved = is_approved
+                template.approved_content_hash = current_template_hash(template) if is_approved else None
+                template.approved_at = datetime.utcnow() if is_approved else None
+                template.approved_by = session.get("username") if is_approved else None
                 updated += 1
             else:
-                db.session.add(TaskTemplate(
+                template = TaskTemplate(
                     id=template_id or str(uuid.uuid4()),
                     name=name,
                     category=category,
@@ -3088,7 +3129,12 @@ def import_templates():
                     payload=payload_raw,
                     is_approved=is_approved,
                     created_by=session.get('username')
-                ))
+                )
+                if is_approved:
+                    template.approved_content_hash = current_template_hash(template)
+                    template.approved_at = datetime.utcnow()
+                    template.approved_by = session.get("username")
+                db.session.add(template)
                 imported += 1
 
         db.session.commit()
@@ -4130,6 +4176,8 @@ def fleet_center():
             "os": endpoint.os_version or getattr(endpoint, "os_type", "Windows"),
             "agent_version": getattr(endpoint, "agent_version", "") or "",
             "agent_identity_key_enrolled": bool(getattr(endpoint, "agent_identity_key_enrolled", False)),
+            "task_signature_v2_ready": bool(getattr(endpoint, "task_signature_v2_seen_at", None)),
+            "task_signature_v2_seen_at": to_kyiv_time_short(getattr(endpoint, "task_signature_v2_seen_at", None)),
             "identity_fingerprint": getattr(endpoint, "identity_fingerprint", "") or "",
             "possible_duplicate": bool(getattr(endpoint, "possible_duplicate", False)),
             "duplicate_matches": getattr(endpoint, "duplicate_matches", []),
@@ -4155,6 +4203,11 @@ def fleet_center():
         },
         "access_note": access_note,
         "packages": packages,
+        "task_signature_v2": {
+            "ready": sum(1 for endpoint in allowed_hosts if getattr(endpoint, "task_signature_v2_seen_at", None)),
+            "visible": len(allowed_hosts),
+            "server_mode": Config.AGENT_TASK_SIGNATURE_MODE,
+        },
     })
 
 
@@ -4255,16 +4308,27 @@ def run_fleet_update():
 def create_template():
     denied = require_permission("manage_templates")
     if denied: return denied
-    data = request.json
+    data = request.json or {}
     payload_dict = data.get('payload', {})
+    if not isinstance(payload_dict, dict):
+        return jsonify({"success": False, "message": "Template payload must be an object"}), 400
+    payload_dict = dict(payload_dict)
 
     if 'report_template_id' in data and data['report_template_id']:
+        if not approved_report_template(data['report_template_id']):
+            return jsonify({"success": False, "message": "Approved report template not found or approval seal is invalid"}), 400
         payload_dict['__report_template_id'] = data['report_template_id']
 
-    payload_raw = json.dumps(payload_dict)
     is_approved = bool(data.get('is_approved', False))
+    if is_approved and not session.get("is_admin"):
+        return jsonify({"success": False, "message": "Only a superadmin can approve executable templates"}), 403
     category = data.get('category', 'General').strip() or 'General'
     t_type = data.get('type', 'action')
+    try:
+        validate_report_template_payload(t_type, payload_dict)
+    except Exception as exc:
+        return jsonify({"success": False, "message": f"Unsafe or invalid report template: {exc}"}), 400
+    payload_raw = json.dumps(payload_dict, ensure_ascii=False)
 
     tid = data.get('id')
     if tid:
@@ -4274,11 +4338,28 @@ def create_template():
                 return jsonify({"success": False, "message": "Template editing is locked by superadmin policy"}), 403
             if not session.get("is_admin"):
                 payload_dict[TEMPLATE_POLICY_KEY] = template_policy(t)
-                payload_raw = json.dumps(payload_dict)
+                payload_raw = json.dumps(payload_dict, ensure_ascii=False)
+            previous_hash = str(getattr(t, "approved_content_hash", "") or "")
             t.name = data.get('name'); t.category = category; t.action_type = data.get('action')
-            t.type = t_type; t.payload = payload_raw; t.is_approved = is_approved
+            t.type = t_type; t.payload = payload_raw
+            new_hash = current_template_hash(t)
+            if session.get("is_admin") and is_approved:
+                t.is_approved = True
+                t.approved_content_hash = new_hash
+                t.approved_at = datetime.utcnow()
+                t.approved_by = session.get("username")
+            elif previous_hash != new_hash or (session.get("is_admin") and "is_approved" in data and not is_approved):
+                t.is_approved = False
+                t.approved_content_hash = None
+                t.approved_at = None
+                t.approved_by = None
     else:
-        db.session.add(TaskTemplate(name=data.get('name'), category=category, action_type=data.get('action'), type=t_type, payload=payload_raw, is_approved=is_approved, created_by=session.get('username')))
+        t = TaskTemplate(name=data.get('name'), category=category, action_type=data.get('action'), type=t_type, payload=payload_raw, is_approved=is_approved, created_by=session.get('username'))
+        if is_approved:
+            t.approved_content_hash = current_template_hash(t)
+            t.approved_at = datetime.utcnow()
+            t.approved_by = session.get("username")
+        db.session.add(t)
     db.session.commit()
     return jsonify({"success": True})
 

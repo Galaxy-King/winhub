@@ -2,11 +2,13 @@ import html
 import json
 import uuid
 from typing import List
-from flask import current_app, g, has_request_context, request, session, render_template_string
+from flask import g, has_request_context, request, session
 from sqlalchemy.exc import PendingRollbackError
 from core.database import db, User, Endpoint, EndpointGroup, AgentTask, TaskTemplate, AuditLog
 from core.security import sec_manager
 from core.permissions import request_api_group_scope
+from core.report_renderer_client import render_report_template
+from core.template_security import template_approval_valid
 
 class WinHubCore:
     @staticmethod
@@ -126,6 +128,12 @@ class WinHubCore:
         user = User.query.get(user_id)
         if not user: raise PermissionError("Invalid user")
 
+        report_template_id = payload.get("__report_template_id") if isinstance(payload, dict) else None
+        if report_template_id:
+            report_template = TaskTemplate.query.get(str(report_template_id))
+            if not report_template or getattr(report_template, "type", "action") != "report" or not template_approval_valid(report_template):
+                raise PermissionError("Approved report template not found or approval seal is invalid")
+
         payload_json = json.dumps(payload)
         job_id = str(uuid.uuid4())
 
@@ -163,13 +171,6 @@ class WinHubCore:
         import json
         import re
         from core.database import AgentTask, AggregatedJob, TaskTemplate, db
-
-        def render_report_template(template_string, context):
-            if has_request_context():
-                return render_template_string(template_string, **context)
-            flask_app = app or current_app._get_current_object()
-            with flask_app.test_request_context("/__winhub_report_render"):
-                return render_template_string(template_string, **context)
 
         def result_log_summary(value, limit=260):
             text = str(value or "").replace("\r", " ").replace("\n", " ").strip()
@@ -295,7 +296,7 @@ class WinHubCore:
         # Якщо є кастомний шаблон звіту — рендеримо через Jinja2
         if report_template_id:
             tpl = TaskTemplate.query.get(report_template_id)
-            if tpl and tpl.payload:
+            if tpl and getattr(tpl, "type", "action") == "report" and template_approval_valid(tpl) and tpl.payload:
                 try:
                     # В payload шаблону звіту лежить сам текст листа
                     template_string = json.loads(tpl.payload).get('script', '')

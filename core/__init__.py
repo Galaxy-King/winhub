@@ -347,6 +347,16 @@ def ensure_endpoint_schema():
         statements.append("ALTER TABLE endpoints ADD COLUMN connection_ip VARCHAR(64)")
     if "public_key_pem_plain" not in columns:
         statements.append("ALTER TABLE endpoints ADD COLUMN public_key_pem_plain TEXT")
+    if "task_signing_private_key" not in columns:
+        statements.append("ALTER TABLE endpoints ADD COLUMN task_signing_private_key TEXT")
+    if "task_signing_public_key" not in columns:
+        statements.append("ALTER TABLE endpoints ADD COLUMN task_signing_public_key TEXT")
+    if "task_signing_key_id" not in columns:
+        statements.append("ALTER TABLE endpoints ADD COLUMN task_signing_key_id VARCHAR(64)")
+    if "task_signing_sequence" not in columns:
+        statements.append("ALTER TABLE endpoints ADD COLUMN task_signing_sequence BIGINT DEFAULT 0")
+    if "task_signature_v2_seen_at" not in columns:
+        statements.append("ALTER TABLE endpoints ADD COLUMN task_signature_v2_seen_at TIMESTAMP")
     if "network_info" not in columns:
         statements.append("ALTER TABLE endpoints ADD COLUMN network_info TEXT")
     if "host_info" not in columns:
@@ -384,7 +394,40 @@ def ensure_endpoint_schema():
         db.session.execute(text("UPDATE endpoints SET encryption_level = 'unknown' WHERE encryption_level IS NULL OR encryption_level = ''"))
         db.session.execute(text("UPDATE endpoints SET encryption_methods = '' WHERE encryption_methods IS NULL"))
         db.session.execute(text("UPDATE endpoints SET identity_duplicate_allowed = FALSE WHERE identity_duplicate_allowed IS NULL"))
+        db.session.execute(text("UPDATE endpoints SET task_signing_sequence = 0 WHERE task_signing_sequence IS NULL"))
     db.session.commit()
+
+
+def ensure_template_approval_schema():
+    inspector = inspect(db.engine)
+    if "task_templates" not in inspector.get_table_names():
+        return
+    columns = {column["name"] for column in inspector.get_columns("task_templates")}
+    statements = []
+    if "approved_content_hash" not in columns:
+        statements.append("ALTER TABLE task_templates ADD COLUMN approved_content_hash VARCHAR(64)")
+    if "approved_at" not in columns:
+        statements.append("ALTER TABLE task_templates ADD COLUMN approved_at TIMESTAMP")
+    if "approved_by" not in columns:
+        statements.append("ALTER TABLE task_templates ADD COLUMN approved_by VARCHAR(100)")
+    for statement in statements:
+        db.session.execute(text(statement))
+    if statements:
+        db.session.commit()
+
+    # Existing approved templates are sealed exactly once during this additive
+    # migration. Any later content change invalidates the seal at runtime.
+    from core.template_security import current_template_hash
+
+    changed = False
+    for template in TaskTemplate.query.filter_by(is_approved=True).all():
+        if not getattr(template, "approved_content_hash", None):
+            template.approved_content_hash = current_template_hash(template)
+            template.approved_at = template.approved_at or datetime.utcnow()
+            template.approved_by = template.approved_by or "migration"
+            changed = True
+    if changed:
+        db.session.commit()
 
 def ensure_scheduler_schema():
     inspector = inspect(db.engine)
@@ -704,6 +747,10 @@ def apply_security_headers(response):
     response.headers.setdefault("X-Frame-Options", "DENY")
     response.headers.setdefault("Referrer-Policy", "same-origin")
     response.headers.setdefault("Permissions-Policy", "camera=(), microphone=(), geolocation=()")
+    if Config.CSP_MODE == "enforce":
+        response.headers.setdefault("Content-Security-Policy", Config.CSP_POLICY)
+    elif Config.CSP_MODE == "report-only":
+        response.headers.setdefault("Content-Security-Policy-Report-Only", Config.CSP_POLICY)
     if session.get("logged_in") and not request.path.startswith("/static/"):
         response.headers.setdefault("Cache-Control", "no-store, no-cache, must-revalidate, max-age=0")
         response.headers.setdefault("Pragma", "no-cache")
@@ -849,6 +896,7 @@ def create_app():
             )
             raise
         ensure_endpoint_schema()
+        ensure_template_approval_schema()
         ensure_scheduler_schema()
         backfill_endpoint_encryption_status()
         ensure_audit_schema()

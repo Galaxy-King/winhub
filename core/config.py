@@ -99,6 +99,7 @@ class Config:
     AGENT_ENROLLMENT_ALLOWLIST = clean_env_value(os.environ.get('AGENT_ENROLLMENT_ALLOWLIST')) or ''
     AGENT_ALLOW_REENROLL_EXISTING = (clean_env_value(os.environ.get('AGENT_ALLOW_REENROLL_EXISTING')) or 'false').lower() in ('1', 'true', 'yes', 'on')
     AGENT_TASK_HMAC_SECRET = clean_env_value(os.environ.get('AGENT_TASK_HMAC_SECRET')) or SECRET_KEY
+    AGENT_TASK_SIGNATURE_MODE = (clean_env_value(os.environ.get('AGENT_TASK_SIGNATURE_MODE')) or 'dual').lower()
     AGENT_MAX_RESULT_LOG_BYTES = int(os.environ.get('AGENT_MAX_RESULT_LOG_BYTES', 262144))
     AGENT_TASK_TIMEOUT_SECONDS = int(os.environ.get('AGENT_TASK_TIMEOUT_SECONDS', 1800))
     AGENT_PACKAGE_MAX_UPLOAD_MB = int(os.environ.get('AGENT_PACKAGE_MAX_UPLOAD_MB', 256))
@@ -125,6 +126,16 @@ class Config:
     SESSION_COOKIE_SAMESITE = clean_env_value(os.environ.get('SESSION_COOKIE_SAMESITE')) or 'Strict'
     HSTS_ENABLED = (clean_env_value(os.environ.get('HSTS_ENABLED')) or ('true' if PRODUCTION_MODE else 'false')).lower() in ('1', 'true', 'yes', 'on')
     SLOW_REQUEST_LOG_SECONDS = env_int('SLOW_REQUEST_LOG_SECONDS', 2, 0, 3600)
+    REPORT_RENDERER_MODE = (clean_env_value(os.environ.get('REPORT_RENDERER_MODE')) or 'subprocess').lower()
+    REPORT_RENDERER_TIMEOUT_SECONDS = env_int('REPORT_RENDERER_TIMEOUT_SECONDS', 10, 1, 120)
+    OUTBOUND_POLICY_MODE = (clean_env_value(os.environ.get('OUTBOUND_POLICY_MODE')) or 'audit').lower()
+    OUTBOUND_ALLOWED_HOSTS = clean_env_value(os.environ.get('OUTBOUND_ALLOWED_HOSTS')) or ''
+    CSP_MODE = (clean_env_value(os.environ.get('CSP_MODE')) or 'report-only').lower()
+    CSP_POLICY = clean_env_value(os.environ.get('CSP_POLICY')) or (
+        "default-src 'self'; base-uri 'self'; object-src 'none'; frame-ancestors 'none'; "
+        "form-action 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; "
+        "img-src 'self' data:; font-src 'self' data:; connect-src 'self' ws: wss:"
+    )
 
     # 🚀 ОПТИМІЗАЦІЯ ДЛЯ ВИСОКОГО НАВАНТАЖЕННЯ (Connection Pooling)
     # Додаємо пул з'єднань тільки якщо використовуємо PostgreSQL, бо SQLite цього не підтримує

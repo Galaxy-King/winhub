@@ -31,6 +31,7 @@ from core.sdk import WinHubCore
 from core.config import Config
 from core.permissions import has_module_access, has_permission, user_permissions
 from core.gpg import gpg_env
+from core.outbound_security import normalized_origin, validate_outbound_host, validate_outbound_url
 
 log = logging.getLogger("winhub.newsletter")
 
@@ -47,6 +48,38 @@ MAX_ATTACHMENT_BYTES = int(os.environ.get("NEWSLETTER_MAX_ATTACHMENT_BYTES", str
 MAX_TOTAL_ATTACHMENT_BYTES = int(os.environ.get("NEWSLETTER_MAX_TOTAL_ATTACHMENT_BYTES", str(25 * 1024 * 1024)))
 _inbound_worker_started = False
 _inbound_worker_lock = threading.Lock()
+
+
+def outbound_policy_enforced():
+    return str(getattr(Config, "OUTBOUND_POLICY_MODE", "audit") or "audit").lower() == "enforce"
+
+
+def open_smtp_connection(host, port, purpose, timeout=15):
+    port = int(port or 587)
+    validate_outbound_host(host, port, purpose)
+    tls_context = ssl.create_default_context() if outbound_policy_enforced() else None
+    if port == 465:
+        if tls_context is not None:
+            return smtplib.SMTP_SSL(host, port, timeout=timeout, context=tls_context)
+        return smtplib.SMTP_SSL(host, port, timeout=timeout)
+    connection = smtplib.SMTP(host, port, timeout=timeout)
+    if tls_context is not None:
+        connection.starttls(context=tls_context)
+    else:
+        connection.starttls()
+    return connection
+
+
+def open_imap_connection(host, port, use_ssl, purpose):
+    port = int(port or (993 if use_ssl else 143))
+    validate_outbound_host(host, port, purpose)
+    if not use_ssl:
+        if outbound_policy_enforced():
+            raise ValueError(f"Blocked {purpose}: IMAP without TLS is not allowed in enforce mode")
+        return imaplib.IMAP4(host, port)
+    if outbound_policy_enforced():
+        return imaplib.IMAP4_SSL(host, port, ssl_context=ssl.create_default_context())
+    return imaplib.IMAP4_SSL(host, port)
 
 try:
     KYIV_TZ = ZoneInfo("Europe/Kyiv")
@@ -277,10 +310,27 @@ def normalize_mail_profile(email, raw, existing=None, for_save=False):
         "failed_folder": str(raw.get("failed_folder") or existing.get("failed_folder") or "Failed").strip(),
     }
 
+    smtp_origin_unchanged = (
+        not existing
+        or (
+            str(existing.get("host") or "").strip().lower() == profile["host"].lower()
+            and int(existing.get("port") or 587) == profile["port"]
+            and str(existing.get("email") or email).strip().lower() == email
+        )
+    )
+    imap_origin_unchanged = (
+        not existing
+        or (
+            str(existing.get("imap_host") or "").strip().lower() == profile["imap_host"].lower()
+            and int(existing.get("imap_port") or 993) == profile["imap_port"]
+            and str(existing.get("imap_user") or email).strip().lower() == profile["imap_user"].lower()
+        )
+    )
+
     smtp_password = str(raw.get("password") or raw.get("smtp_password") or "")
     if smtp_password:
         profile["password"] = encrypt_pass(smtp_password) if for_save else smtp_password
-    elif existing.get("password") and not raw.get("clear_smtp_password"):
+    elif existing.get("password") and not raw.get("clear_smtp_password") and smtp_origin_unchanged:
         profile["password"] = existing.get("password")
     if raw.get("clear_smtp_password"):
         profile.pop("password", None)
@@ -288,7 +338,7 @@ def normalize_mail_profile(email, raw, existing=None, for_save=False):
     imap_password = str(raw.get("imap_password") or "")
     if imap_password:
         profile["imap_password"] = encrypt_pass(imap_password) if for_save else imap_password
-    elif existing.get("imap_password") and not raw.get("clear_imap_password"):
+    elif existing.get("imap_password") and not raw.get("clear_imap_password") and imap_origin_unchanged:
         profile["imap_password"] = existing.get("imap_password")
     if raw.get("clear_imap_password"):
         profile.pop("imap_password", None)
@@ -485,10 +535,31 @@ def normalize_ldap_profile(raw, existing=None, for_save=False):
         "ldap_allowed_groups": str(raw.get("ldap_allowed_groups") or existing.get("ldap_allowed_groups") or "").strip(),
     }
 
+    existing_freeipa_url = str(existing.get("freeipa_api_url") or "")
+    current_freeipa_url = str(profile["freeipa_api_url"] or "")
+    if existing_freeipa_url and "://" not in existing_freeipa_url:
+        existing_freeipa_url = "https://" + existing_freeipa_url
+    if current_freeipa_url and "://" not in current_freeipa_url:
+        current_freeipa_url = "https://" + current_freeipa_url
+    freeipa_origin_unchanged = (
+        not existing
+        or (
+            normalized_origin(existing_freeipa_url) == normalized_origin(current_freeipa_url)
+            and str(existing.get("freeipa_api_user") or "").strip() == profile["freeipa_api_user"]
+        )
+    )
+    ldap_origin_unchanged = (
+        not existing
+        or (
+            normalized_origin(existing.get("ldap_uri")) == normalized_origin(profile["ldap_uri"])
+            and str(existing.get("ldap_bind_dn") or "").strip() == profile["ldap_bind_dn"]
+        )
+    )
+
     freeipa_password = str(raw.get("freeipa_api_password") or "")
     if freeipa_password:
         profile["freeipa_api_password"] = encrypt_pass(freeipa_password) if for_save else freeipa_password
-    elif existing.get("freeipa_api_password") and not raw.get("clear_freeipa_api_password"):
+    elif existing.get("freeipa_api_password") and not raw.get("clear_freeipa_api_password") and freeipa_origin_unchanged:
         profile["freeipa_api_password"] = existing.get("freeipa_api_password")
     if raw.get("clear_freeipa_api_password"):
         profile.pop("freeipa_api_password", None)
@@ -496,7 +567,7 @@ def normalize_ldap_profile(raw, existing=None, for_save=False):
     ldap_password = str(raw.get("ldap_bind_password") or "")
     if ldap_password:
         profile["ldap_bind_password"] = encrypt_pass(ldap_password) if for_save else ldap_password
-    elif existing.get("ldap_bind_password") and not raw.get("clear_ldap_bind_password"):
+    elif existing.get("ldap_bind_password") and not raw.get("clear_ldap_bind_password") and ldap_origin_unchanged:
         profile["ldap_bind_password"] = existing.get("ldap_bind_password")
     if raw.get("clear_ldap_bind_password"):
         profile.pop("ldap_bind_password", None)
@@ -557,6 +628,8 @@ def ldap_profile_groups(profile, limit=100):
     profile = profile or {}
     base_url = freeipa_api_base_url(profile)
     if base_url:
+        web_schemes = ("https",) if Config.OUTBOUND_POLICY_MODE == "enforce" else ("https", "http")
+        validate_outbound_url(base_url, "FreeIPA API", allowed_schemes=web_schemes)
         try:
             import requests
         except ImportError as e:
@@ -575,6 +648,7 @@ def ldap_profile_groups(profile, limit=100):
             data={"user": username, "password": password},
             headers={"Referer": referer, "Content-Type": "application/x-www-form-urlencoded", "Accept": "text/plain"},
             timeout=20,
+            allow_redirects=False,
         )
         login.raise_for_status()
         response = session.post(
@@ -582,6 +656,7 @@ def ldap_profile_groups(profile, limit=100):
             json={"method": "group_find", "params": [[], {"all": True, "sizelimit": int(limit)}], "id": 0},
             headers={"Referer": referer, "Content-Type": "application/json", "Accept": "application/json"},
             timeout=20,
+            allow_redirects=False,
         )
         response.raise_for_status()
         payload = response.json()
@@ -598,7 +673,7 @@ def ldap_profile_groups(profile, limit=100):
         return sorted(set(groups))
 
     try:
-        from ldap3 import ALL, SUBTREE, Connection, Server
+        from ldap3 import ALL, SUBTREE, Connection, Server, Tls
     except ImportError as e:
         raise RuntimeError("Python package 'ldap3' is not installed.") from e
 
@@ -610,7 +685,17 @@ def ldap_profile_groups(profile, limit=100):
     if not uri or not bind_dn or not bind_password or not group_base_dn:
         raise ValueError("LDAP URI, bind DN, bind password and group base DN are required for this test.")
 
-    conn = Connection(Server(uri, get_info=ALL), user=bind_dn, password=bind_password, auto_bind=True, receive_timeout=15)
+    ldap_schemes = ("ldaps",) if Config.OUTBOUND_POLICY_MODE == "enforce" else ("ldap", "ldaps")
+    validate_outbound_url(uri, "LDAP directory", allowed_schemes=ldap_schemes)
+    tls = Tls(validate=ssl.CERT_REQUIRED) if outbound_policy_enforced() else None
+    conn = Connection(
+        Server(uri, get_info=ALL, tls=tls),
+        user=bind_dn,
+        password=bind_password,
+        auto_bind=True,
+        auto_referrals=False,
+        receive_timeout=15,
+    )
     try:
         if not conn.search(group_base_dn, "(objectClass=*)", search_scope=SUBTREE, attributes=[group_name_attr], size_limit=int(limit)):
             return []
@@ -644,6 +729,8 @@ def freeipa_api_recipients_from_group(group_name, profile=None):
     base_url = freeipa_api_base_url(profile)
     if not base_url:
         return None
+    web_schemes = ("https",) if Config.OUTBOUND_POLICY_MODE == "enforce" else ("https", "http")
+    validate_outbound_url(base_url, "FreeIPA API", allowed_schemes=web_schemes)
 
     try:
         import requests
@@ -677,6 +764,7 @@ def freeipa_api_recipients_from_group(group_name, profile=None):
             "Accept": "text/plain",
         },
         timeout=20,
+        allow_redirects=False,
     )
     login.raise_for_status()
 
@@ -690,6 +778,7 @@ def freeipa_api_recipients_from_group(group_name, profile=None):
         json=group_payload,
         headers={"Referer": referer, "Content-Type": "application/json", "Accept": "application/json"},
         timeout=20,
+        allow_redirects=False,
     )
     group_response.raise_for_status()
     group_data = group_response.json()
@@ -713,6 +802,7 @@ def freeipa_api_recipients_from_group(group_name, profile=None):
             json=user_payload,
             headers={"Referer": referer, "Content-Type": "application/json", "Accept": "application/json"},
             timeout=20,
+            allow_redirects=False,
         )
         user_response.raise_for_status()
         user_data = user_response.json()
@@ -756,7 +846,7 @@ def ldap_recipients_from_group(group_name, profile=None):
         return api_result
 
     try:
-        from ldap3 import ALL, BASE, SUBTREE, Connection, Server
+        from ldap3 import ALL, BASE, SUBTREE, Connection, Server, Tls
         from ldap3.utils.conv import escape_filter_chars
     except ImportError as e:
         raise RuntimeError("Python package 'ldap3' is not installed.") from e
@@ -773,8 +863,18 @@ def ldap_recipients_from_group(group_name, profile=None):
     if not uri or not bind_dn or not bind_password or not group_base_dn:
         raise ValueError("LDAP settings are incomplete. Check NEWSLETTER_LDAP_URI, BIND_DN, BIND_PASSWORD and BASE_DN.")
 
-    server = Server(uri, get_info=ALL)
-    conn = Connection(server, user=bind_dn, password=bind_password, auto_bind=True, receive_timeout=15)
+    ldap_schemes = ("ldaps",) if Config.OUTBOUND_POLICY_MODE == "enforce" else ("ldap", "ldaps")
+    validate_outbound_url(uri, "LDAP directory", allowed_schemes=ldap_schemes)
+    tls = Tls(validate=ssl.CERT_REQUIRED) if outbound_policy_enforced() else None
+    server = Server(uri, get_info=ALL, tls=tls)
+    conn = Connection(
+        server,
+        user=bind_dn,
+        password=bind_password,
+        auto_bind=True,
+        auto_referrals=False,
+        receive_timeout=15,
+    )
     try:
         group_filter = f"({group_name_attr}={escape_filter_chars(group_name)})"
         if not conn.search(group_base_dn, group_filter, search_scope=SUBTREE, attributes=[group_member_attr]):
@@ -1134,7 +1234,7 @@ def poll_inbound_mailbox(app, mailbox):
 
     imap = None
     try:
-        imap = imaplib.IMAP4_SSL(host, port) if use_ssl else imaplib.IMAP4(host, port)
+        imap = open_imap_connection(host, port, use_ssl, "newsletter IMAP")
         imap.login(user, password)
         imap.select(folder)
         typ, data = imap.uid("SEARCH", None, "UNSEEN")
@@ -1408,11 +1508,7 @@ def test_mail_profile():
     if profile.get("host") and profile.get("password"):
         try:
             smtp_password = profile_secret(profile.get("password"))
-            if int(profile.get("port") or 587) == 465:
-                smtp = smtplib.SMTP_SSL(profile["host"], int(profile.get("port") or 465), timeout=15)
-            else:
-                smtp = smtplib.SMTP(profile["host"], int(profile.get("port") or 587), timeout=15)
-                smtp.starttls()
+            smtp = open_smtp_connection(profile["host"], int(profile.get("port") or 587), "newsletter SMTP test")
             smtp.login(profile["email"], smtp_password)
             smtp.quit()
             smtp_result = {"ok": True, "message": "SMTP login OK."}
@@ -1423,7 +1519,12 @@ def test_mail_profile():
         imap = None
         try:
             imap_password = profile_secret(profile.get("imap_password"))
-            imap = imaplib.IMAP4_SSL(profile["imap_host"], int(profile.get("imap_port") or 993)) if profile.get("imap_ssl", True) else imaplib.IMAP4(profile["imap_host"], int(profile.get("imap_port") or 143))
+            imap = open_imap_connection(
+                profile["imap_host"],
+                int(profile.get("imap_port") or 993),
+                bool(profile.get("imap_ssl", True)),
+                "newsletter IMAP test",
+            )
             imap.login(profile["imap_user"], imap_password)
             typ, _ = imap.select(profile.get("imap_folder") or "INBOX", readonly=True)
             if typ != "OK":
@@ -1949,8 +2050,7 @@ def bg_send_execution(app, task_id, sender_email, smtp_config, target_users, sub
 
             emit_and_write(f"⏳ Connecting to SMTP server ({smtp_config['host']}:{smtp_config['port']})...", "⏳ Connecting to mail server...")
             try:
-                server = smtplib.SMTP(smtp_config['host'], smtp_config['port'])
-                server.starttls()
+                server = open_smtp_connection(smtp_config['host'], smtp_config['port'], "newsletter SMTP delivery", timeout=30)
                 decrypted_pass = decrypt_pass(smtp_config['password'])
                 server.login(sender_email, decrypted_pass)
                 emit_and_write(f"✅ SMTP Authentication Successful.\n", "✅ Mail server connection established.\n")

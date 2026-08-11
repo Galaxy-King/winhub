@@ -10,6 +10,9 @@
   "IgnoreTlsCertificateErrors": false,
   "ServerCertificateSha256": "SERVER_CERT_SHA256_WITHOUT_COLONS",
   "RequireTaskSignature": true,
+  "TaskSigningPublicKeyPem": "",
+  "TaskSigningKeyId": "",
+  "TaskSigningLastSequence": 0,
   "ExecutionMode": "allowlist",
   "AllowedActions": ["agent_update"],
   "AllowCrossHostUpdateDownloads": false

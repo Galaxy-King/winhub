@@ -18,6 +18,8 @@ jobs:
           pip install -r requirements.txt
       - name: Python compile check
         run: python -m compileall core modules server_debian.py server_prod.py migrations
+      - name: Security regression tests
+        run: python -m unittest discover -s tests -v
       - name: Bash syntax check
         run: bash -n deploy/create_release.sh deploy/debian/*.sh WinHUBLinuxAgent/*.sh WinHUBMacAgent/*.sh
 

@@ -1063,6 +1063,42 @@
     const maxAttachmentBytes = 10 * 1024 * 1024;
     const maxTotalAttachmentBytes = 25 * 1024 * 1024;
 
+    function escapeHtml(value) {
+        return String(value ?? '').replace(/[&<>"']/g, ch => ({
+            '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
+        }[ch]));
+    }
+
+    function escapeInlineJs(value) {
+        return escapeHtml(String(value ?? '')
+            .replace(/\\/g, '\\\\')
+            .replace(/'/g, "\\'")
+            .replace(/\r/g, '\\r')
+            .replace(/\n/g, '\\n')
+            .replace(/</g, '\\x3c'));
+    }
+
+    function sanitizeNewsletterHtml(value) {
+        const allowedTags = new Set(['A','B','BR','DIV','EM','H1','H2','H3','HR','I','LI','OL','P','SPAN','STRONG','U','UL']);
+        const parsed = new DOMParser().parseFromString(String(value || ''), 'text/html');
+        parsed.body.querySelectorAll('*').forEach(node => {
+            if (!allowedTags.has(node.tagName)) {
+                node.replaceWith(...node.childNodes);
+                return;
+            }
+            Array.from(node.attributes).forEach(attribute => {
+                const name = attribute.name.toLowerCase();
+                if (name === 'href' && node.tagName === 'A') {
+                    if (!/^(https?:|mailto:)/i.test(attribute.value.trim())) node.removeAttribute(attribute.name);
+                } else if (!['href', 'title'].includes(name)) {
+                    node.removeAttribute(attribute.name);
+                }
+            });
+            if (node.tagName === 'A') node.setAttribute('rel', 'noopener noreferrer');
+        });
+        return parsed.body.innerHTML;
+    }
+
     window.onload = () => {
         normalizeEditorToolbarLabels();
         loadConfig();
@@ -1173,7 +1209,7 @@
         if (!draft) return;
         if (draft.sender && document.getElementById('nlSender')) document.getElementById('nlSender').value = draft.sender;
         if (document.getElementById('nlSubject')) document.getElementById('nlSubject').value = draft.subject || '';
-        if (document.getElementById('nlEditor')) document.getElementById('nlEditor').innerHTML = draft.body_html || draft.body || '';
+        if (document.getElementById('nlEditor')) document.getElementById('nlEditor').innerHTML = sanitizeNewsletterHtml(draft.body_html || draft.body || '');
         if (document.getElementById('nlUseGpg')) document.getElementById('nlUseGpg').checked = draft.use_gpg !== false;
         const selectedLists = new Set(draft.lists || []);
         document.querySelectorAll('.nl-list-cb').forEach(cb => { cb.checked = selectedLists.has(cb.value); });
@@ -1202,7 +1238,7 @@
         if (moduleData.senders.length === 0) {
             senderSelect.innerHTML = '<option value="" disabled selected>No profiles configured (Contact Admin)</option>';
         } else {
-            senderSelect.innerHTML = moduleData.senders.map(s => `<option value="${s.email}">${s.email}</option>`).join('');
+            senderSelect.innerHTML = moduleData.senders.map(s => `<option value="${escapeHtml(s.email)}">${escapeHtml(s.email)}</option>`).join('');
         }
 
         // Checkboxes & Right Panel Lists
@@ -1217,8 +1253,8 @@
             // Regular users do not see the count badge
             cbContainer.innerHTML = listNames.map(name => `
                 <label class="nl-list-option flex items-center gap-3 p-3 hover:bg-cyan-500/10 rounded-lg cursor-pointer transition-all">
-                    <input type="checkbox" value="${name}" class="nl-list-cb w-4 h-4 text-indigo-600 border-slate-300 rounded cursor-pointer">
-                    <span class="text-sm font-bold text-cyan-50 flex-1">${name}</span>
+                    <input type="checkbox" value="${escapeHtml(name)}" class="nl-list-cb w-4 h-4 text-indigo-600 border-slate-300 rounded cursor-pointer">
+                    <span class="text-sm font-bold text-cyan-50 flex-1">${escapeHtml(name)}</span>
                     ${moduleData.lists[name].length > 0 ? `<span class="text-xs bg-cyan-400/15 text-cyan-100 border border-cyan-300/20 px-2 py-0.5 rounded-full font-bold">${moduleData.lists[name].length}</span>` : ''}
                 </label>
             `).join('');
@@ -1228,12 +1264,12 @@
                 rightPanel.innerHTML = listNames.map(name => `
                     <div class="flex justify-between items-center p-3 bg-slate-950/35 border border-cyan-400/20 rounded-lg hover:border-cyan-300/45 hover:bg-cyan-500/10 transition-colors">
                         <div>
-                            <div class="font-bold text-cyan-50 text-sm">${name}</div>
+                            <div class="font-bold text-cyan-50 text-sm">${escapeHtml(name)}</div>
                             <div class="text-xs text-cyan-100/70 mt-0.5 font-bold">${moduleData.lists[name].length} users</div>
                         </div>
                         <div class="flex gap-2">
-                            <button onclick="openListModal('${name}')" class="p-1.5 text-cyan-100 hover:text-white hover:bg-cyan-400/15 rounded transition-colors bg-slate-900/60 border border-cyan-300/20 shadow-sm"><svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z"></path></svg></button>
-                            <button onclick="deleteList('${name}')" class="p-1.5 text-rose-300 hover:text-white hover:bg-rose-500/20 rounded transition-colors bg-slate-900/60 border border-rose-300/20 shadow-sm"><svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"></path></svg></button>
+                            <button onclick="openListModal('${escapeInlineJs(name)}')" class="p-1.5 text-cyan-100 hover:text-white hover:bg-cyan-400/15 rounded transition-colors bg-slate-900/60 border border-cyan-300/20 shadow-sm"><svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z"></path></svg></button>
+                            <button onclick="deleteList('${escapeInlineJs(name)}')" class="p-1.5 text-rose-300 hover:text-white hover:bg-rose-500/20 rounded transition-colors bg-slate-900/60 border border-rose-300/20 shadow-sm"><svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"></path></svg></button>
                         </div>
                     </div>
                 `).join('');
@@ -1298,7 +1334,7 @@
 
         list.innerHTML = files.map(file => `
             <div class="flex items-center justify-between gap-3 p-2 rounded border border-cyan-400/20 bg-slate-950/35">
-                <span class="truncate font-bold">${file.name}</span>
+                <span class="truncate font-bold">${escapeHtml(file.name)}</span>
                 <span class="shrink-0 text-cyan-100/70 font-mono">${formatBytes(file.size)}</span>
             </div>
         `).join('');
@@ -1427,8 +1463,8 @@
         const chunk = filtered.slice(0, 300);
         container.innerHTML = chunk.map(u => `
             <div class="flex justify-between items-center bg-slate-950/45 border border-cyan-400/20 p-2 rounded shadow-sm">
-                <span class="font-mono text-sm font-bold text-cyan-50">${u}</span>
-                <button onclick="removeUser('${u}')" class="text-rose-300 hover:text-rose-100 transition-colors"><svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path></svg></button>
+                <span class="font-mono text-sm font-bold text-cyan-50">${escapeHtml(u)}</span>
+                <button onclick="removeUser('${escapeInlineJs(u)}')" class="text-rose-300 hover:text-rose-100 transition-colors"><svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path></svg></button>
             </div>
         `).join('') + (filtered.length > 300 ? `<div class="text-center text-xs text-slate-400 mt-2 font-bold">+ ${filtered.length - 300} more hidden for UI performance</div>` : '');
     }
@@ -1527,8 +1563,8 @@
                         <div class="text-xs text-cyan-100/70 font-mono mt-1 truncate">IMAP: ${escapeHtml(profile.imap_user || profile.email)} @ ${escapeHtml(profile.imap_host || 'not set')}</div>
                     </div>
                     <div class="flex items-center gap-2">
-                        <button onclick="editMailProfile('${profile.email}')" class="px-3 py-1.5 rounded bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-bold">Edit</button>
-                        <button onclick="deleteSmtpProfile('${profile.email}')" class="px-3 py-1.5 rounded bg-rose-50 hover:bg-rose-100 text-rose-700 text-xs font-bold">Delete</button>
+                        <button onclick="editMailProfile('${escapeInlineJs(profile.email)}')" class="px-3 py-1.5 rounded bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-bold">Edit</button>
+                        <button onclick="deleteSmtpProfile('${escapeInlineJs(profile.email)}')" class="px-3 py-1.5 rounded bg-rose-50 hover:bg-rose-100 text-rose-700 text-xs font-bold">Delete</button>
                     </div>
                 </div>
                 <div class="grid grid-cols-3 gap-2 mt-3 text-xs">
@@ -1673,8 +1709,8 @@
                     <span class="text-[11px] font-bold px-2 py-0.5 rounded-full ${profile.enabled === false ? 'bg-slate-200 text-slate-600' : 'bg-emerald-100 text-emerald-700'}">${profile.enabled === false ? 'Disabled' : 'Enabled'}</span>
                 </div>
                 <div class="flex items-center justify-end gap-2 mt-3">
-                    <button type="button" onclick="editLdapProfile('${profile.id}')" class="px-3 py-1.5 rounded bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-bold">Edit</button>
-                    <button type="button" onclick="deleteLdapProfile('${profile.id}')" class="px-3 py-1.5 rounded bg-rose-50 hover:bg-rose-100 text-rose-700 text-xs font-bold">Delete</button>
+                    <button type="button" onclick="editLdapProfile('${escapeInlineJs(profile.id)}')" class="px-3 py-1.5 rounded bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-bold">Edit</button>
+                    <button type="button" onclick="deleteLdapProfile('${escapeInlineJs(profile.id)}')" class="px-3 py-1.5 rounded bg-rose-50 hover:bg-rose-100 text-rose-700 text-xs font-bold">Delete</button>
                 </div>
             </div>
         `).join('');
@@ -1791,11 +1827,11 @@
 
     function profileOptionsHtml(selected = '', includeAuto = false) {
         const prefix = includeAuto ? '<option value="">Auto-select same as inbound</option>' : '<option value="">Select mail profile</option>';
-        return prefix + moduleData.senders.map(profile => `<option value="${profile.email}" ${profile.email === selected ? 'selected' : ''}>${profile.email}</option>`).join('');
+        return prefix + moduleData.senders.map(profile => `<option value="${escapeHtml(profile.email)}" ${profile.email === selected ? 'selected' : ''}>${escapeHtml(profile.email)}</option>`).join('');
     }
 
     function ldapProfileOptionsHtml(selected = '') {
-        return '<option value="">No LDAP profile</option>' + ldapProfileDrafts.map(profile => `<option value="${profile.id}" ${profile.id === selected ? 'selected' : ''}>${escapeHtml(profile.name)}</option>`).join('');
+        return '<option value="">No LDAP profile</option>' + ldapProfileDrafts.map(profile => `<option value="${escapeHtml(profile.id)}" ${profile.id === selected ? 'selected' : ''}>${escapeHtml(profile.name)}</option>`).join('');
     }
 
     function renderInboundRelaySettings() {
@@ -1848,8 +1884,8 @@
                         <div><span class="font-bold">LDAP:</span> ${groups.length}</div>
                     </div>
                     <div class="flex items-center justify-end gap-2 mt-3">
-                        <button type="button" onclick="editInboundMailbox('${route.id}')" class="px-3 py-1.5 rounded bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-bold">Edit</button>
-                        <button type="button" onclick="deleteInboundMailbox('${route.id}')" class="px-3 py-1.5 rounded bg-rose-50 hover:bg-rose-100 text-rose-700 text-xs font-bold">Delete</button>
+                        <button type="button" onclick="editInboundMailbox('${escapeInlineJs(route.id)}')" class="px-3 py-1.5 rounded bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-bold">Edit</button>
+                        <button type="button" onclick="deleteInboundMailbox('${escapeInlineJs(route.id)}')" class="px-3 py-1.5 rounded bg-rose-50 hover:bg-rose-100 text-rose-700 text-xs font-bold">Delete</button>
                     </div>
                 </div>`;
         }).join('');

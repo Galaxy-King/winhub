@@ -118,7 +118,7 @@
             if(data.success) {
                 allData = data.history;
                 applyFilters();
-            } else tbody.innerHTML = `<tr><td colspan="6" class="p-10 text-center text-rose-500 font-bold">${data.message}</td></tr>`;
+            } else tbody.innerHTML = `<tr><td colspan="6" class="p-10 text-center text-rose-500 font-bold">${escapeHtml(data.message)}</td></tr>`;
         } catch(e) { tbody.innerHTML = `<tr><td colspan="6" class="p-10 text-center text-rose-500 font-bold">Network Error.</td></tr>`; }
     }
 
@@ -167,23 +167,39 @@
             else if(i.type === 'registration') tCls = 'audit-type-badge audit-type-registration';
             else if(i.type === 'module') tCls = 'audit-type-badge audit-type-module';
 
-            const checkbox = canManageHistory ? `<td class="px-6 py-4 text-center" onclick="event.stopPropagation()"><input type="checkbox" value="${i.id}" class="row-cb w-4 h-4 text-indigo-600 rounded border-slate-300 focus:ring-indigo-500 cursor-pointer" onchange="toggleDelBtn()"></td>` : '';
+            const safeId = escapeInlineJs(i.id);
+            const checkbox = canManageHistory ? `<td class="px-6 py-4 text-center" onclick="event.stopPropagation()"><input type="checkbox" value="${escapeHtml(i.id)}" class="row-cb w-4 h-4 text-indigo-600 rounded border-slate-300 focus:ring-indigo-500 cursor-pointer" onchange="toggleDelBtn()"></td>` : '';
 
-            const actionClick = `onclick="viewLog('${i.id}')" class="hover:bg-slate-50/80 cursor-pointer transition-colors"`;
+            const actionClick = `onclick="viewLog('${safeId}')" class="hover:bg-slate-50/80 cursor-pointer transition-colors"`;
 
             return `
             <tr ${actionClick}>
                 ${checkbox}
-                <td class="px-6 py-5 text-xs font-bold text-slate-500">${i.date}</td>
-                <td class="px-6 py-5 font-black text-slate-700">${i.user}</td>
-                <td class="px-6 py-5"><span class="px-3 py-1.5 rounded-lg text-[9px] font-black uppercase tracking-widest border shadow-sm ${tCls}">${i.type}</span></td>
+                <td class="px-6 py-5 text-xs font-bold text-slate-500">${escapeHtml(i.date)}</td>
+                <td class="px-6 py-5 font-black text-slate-700">${escapeHtml(i.user)}</td>
+                <td class="px-6 py-5"><span class="px-3 py-1.5 rounded-lg text-[9px] font-black uppercase tracking-widest border shadow-sm ${tCls}">${escapeHtml(i.type)}</span></td>
                 <td class="px-6 py-5">
-                    <div class="font-bold text-slate-800 text-sm mb-1">${i.action}</div>
-                    <div class="text-xs text-slate-400 max-w-3xl whitespace-normal leading-relaxed">${i.details}</div>
+                    <div class="font-bold text-slate-800 text-sm mb-1">${escapeHtml(i.action)}</div>
+                    <div class="text-xs text-slate-400 max-w-3xl whitespace-normal leading-relaxed">${escapeHtml(i.details)}</div>
                 </td>
-                <td class="px-6 py-5 text-center"><span class="px-3 py-1.5 rounded-lg text-[9px] font-black uppercase tracking-widest border shadow-sm ${sCls}">${i.status}</span></td>
+                <td class="px-6 py-5 text-center"><span class="px-3 py-1.5 rounded-lg text-[9px] font-black uppercase tracking-widest border shadow-sm ${sCls}">${escapeHtml(i.status)}</span></td>
             </tr>`;
         }).join('');
+    }
+
+    function escapeHtml(value) {
+        return String(value ?? '').replace(/[&<>"']/g, ch => ({
+            '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
+        }[ch]));
+    }
+
+    function escapeInlineJs(value) {
+        return escapeHtml(String(value ?? '')
+            .replace(/\\/g, '\\\\')
+            .replace(/'/g, "\\'")
+            .replace(/\r/g, '\\r')
+            .replace(/\n/g, '\\n')
+            .replace(/</g, '\\x3c'));
     }
 
     document.getElementById('searchInput').addEventListener('input', applyFilters);

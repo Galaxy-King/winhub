@@ -15,9 +15,9 @@ using Microsoft.Extensions.Logging;
 namespace WinHUBLinuxAgent;
 
 public record EnrollPayload(string global_token, string hw_id, string hostname, string os_version, string os_type, string agent_version, NetworkInterfaceInfo[] network_interfaces, HostInventoryInfo host_info, string previous_auth_token, string previous_hw_id, string agent_public_key_pem, string agent_key_fingerprint, string body_hash, string signed_at, string signed_nonce, string signature);
-public record PollPayload(string hw_id, string auth_token, string agent_version, string agent_public_key_pem, string agent_key_fingerprint, string body_hash, string signed_at, string signed_nonce, string signature);
+public record PollPayload(string hw_id, string auth_token, string agent_version, string agent_public_key_pem, string agent_key_fingerprint, string task_signature_capabilities, string body_hash, string signed_at, string signed_nonce, string signature);
 public record TelemetryPayload(string hw_id, string auth_token, string agent_version, double cpu, double ram, double disk_c, HostInventoryInfo? host_info, string agent_public_key_pem, string agent_key_fingerprint, string body_hash, string signed_at, string signed_nonce, string signature);
-public record ResultPayload(string hw_id, string auth_token, string agent_version, string task_id, string status, string log, string agent_public_key_pem, string agent_key_fingerprint, string body_hash, string signed_at, string signed_nonce, string signature);
+public record ResultPayload(string hw_id, string auth_token, string agent_version, string task_id, string status, string log, string agent_public_key_pem, string agent_key_fingerprint, string task_signature_v2_key_id, long task_signature_v2_sequence, string body_hash, string signed_at, string signed_nonce, string signature);
 public record NetworkInterfaceInfo(string name, string description, string type, string status, string mac, string[] ipv4, string[] ipv6, string[] gateways, string[] dns_servers, bool dhcp_enabled, long speed_mbps);
 public record VolumeInfo(string name, string label, string format, string type, long total_gb, long free_gb, bool ready);
 public record BitLockerInventoryInfo(string status, int encrypted_percentage, string protection_status, string conversion_status, string raw_summary);
@@ -39,6 +39,9 @@ public class AgentConfig
     public bool IgnoreTlsCertificateErrors { get; set; } = false;
     public string ServerCertificateSha256 { get; set; } = "";
     public bool RequireTaskSignature { get; set; } = true;
+    public string TaskSigningPublicKeyPem { get; set; } = "";
+    public string TaskSigningKeyId { get; set; } = "";
+    public long TaskSigningLastSequence { get; set; } = 0;
     public string ExecutionMode { get; set; } = "allowlist";
     public string[] AllowedActions { get; set; } = ["agent_update"];
     public bool AllowCrossHostUpdateDownloads { get; set; } = false;
@@ -277,6 +280,9 @@ public class Worker : BackgroundService
                 nameof(AgentConfig.IgnoreTlsCertificateErrors),
                 nameof(AgentConfig.ServerCertificateSha256),
                 nameof(AgentConfig.RequireTaskSignature),
+                nameof(AgentConfig.TaskSigningPublicKeyPem),
+                nameof(AgentConfig.TaskSigningKeyId),
+                nameof(AgentConfig.TaskSigningLastSequence),
                 nameof(AgentConfig.ExecutionMode),
                 nameof(AgentConfig.AllowedActions),
                 nameof(AgentConfig.AllowCrossHostUpdateDownloads)
@@ -335,7 +341,7 @@ public class Worker : BackgroundService
     {
         try
         {
-            var unsignedPayload = new PollPayload(HardwareId, AuthToken, AgentBuildInfo.Version, AgentPublicKeyPem, AgentKeyFingerprint, "", "", "", "");
+            var unsignedPayload = new PollPayload(HardwareId, AuthToken, AgentBuildInfo.Version, AgentPublicKeyPem, AgentKeyFingerprint, "rsa-pss-sha256-v2", "", "", "", "");
             var payload = SignPayload(unsignedPayload, "/api/agent/poll", AuthToken, AppJsonSerializerContext.Default.PollPayload);
             var response = await _httpClient.PostAsync($"{_config.ServerUrl}/api/agent/poll", JsonContent(payload), stoppingToken);
             if (!response.IsSuccessStatusCode)
@@ -584,7 +590,7 @@ public class Worker : BackgroundService
     {
         try
         {
-            var unsignedPayload = new ResultPayload(HardwareId, AuthToken, AgentBuildInfo.Version, taskId, status, TrimResultLog(log), AgentPublicKeyPem, AgentKeyFingerprint, "", "", "", "");
+            var unsignedPayload = new ResultPayload(HardwareId, AuthToken, AgentBuildInfo.Version, taskId, status, TrimResultLog(log), AgentPublicKeyPem, AgentKeyFingerprint, _config.TaskSigningKeyId, _config.TaskSigningLastSequence, "", "", "", "");
             var payload = SignPayload(unsignedPayload, "/api/agent/result", AuthToken, AppJsonSerializerContext.Default.ResultPayload);
             await _httpClient.PostAsync($"{_config.ServerUrl}/api/agent/result", JsonContent(payload), stoppingToken);
         }
@@ -606,6 +612,18 @@ public class Worker : BackgroundService
 
     private bool ValidateTaskSignature(JsonElement taskResponse)
     {
+        if (taskResponse.TryGetProperty("task_signature_v2", out var signatureV2))
+        {
+            if (CanBootstrapTaskSigningKey() || !string.IsNullOrWhiteSpace(_config.TaskSigningPublicKeyPem))
+                return ValidateTaskSignatureV2(taskResponse, signatureV2);
+            _logger.LogWarning("Per-agent task key was offered over an insecure bootstrap channel; using transitional HMAC verification.");
+        }
+        else if (!string.IsNullOrWhiteSpace(_config.TaskSigningPublicKeyPem))
+        {
+            _logger.LogError("Server omitted the pinned per-agent task signature. Refusing downgrade to HMAC.");
+            return false;
+        }
+
         string secret = GetProtectedSecret("TaskHmacSecret");
         string providedSignature = taskResponse.TryGetProperty("signature", out var signatureEl) ? signatureEl.GetString() ?? "" : "";
         if (string.IsNullOrWhiteSpace(secret))
@@ -629,6 +647,79 @@ public class Worker : BackgroundService
         string body = CanonicalizeTaskBody(taskId, action, payload);
         string expected = Convert.ToHexString(HMACSHA256.HashData(Encoding.UTF8.GetBytes(secret), Encoding.UTF8.GetBytes(body))).ToLowerInvariant();
         return FixedTimeEqualsHex(expected, providedSignature.Trim().ToLowerInvariant());
+    }
+
+    private bool CanBootstrapTaskSigningKey()
+    {
+        return Uri.TryCreate(_config.ServerUrl, UriKind.Absolute, out var uri)
+            && uri.Scheme.Equals(Uri.UriSchemeHttps, StringComparison.OrdinalIgnoreCase)
+            && !_config.IgnoreTlsCertificateErrors;
+    }
+
+    private bool ValidateTaskSignatureV2(JsonElement taskResponse, JsonElement envelope)
+    {
+        try
+        {
+            JsonElement fields = envelope.GetProperty("fields");
+            string algorithm = envelope.GetProperty("signature_alg").GetString() ?? "";
+            string providedKey = envelope.GetProperty("public_key_pem").GetString() ?? "";
+            string providedSignature = envelope.GetProperty("signature").GetString() ?? "";
+            if (!algorithm.Equals("rsa-pss-sha256", StringComparison.OrdinalIgnoreCase)) return false;
+
+            string taskId = taskResponse.GetProperty("task_id").GetString() ?? "";
+            string action = taskResponse.GetProperty("action").GetString() ?? "";
+            JsonElement payload = taskResponse.GetProperty("payload");
+            int timeoutSeconds = taskResponse.GetProperty("timeout_seconds").GetInt32();
+            string payloadHash = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(CanonicalJson(payload)))).ToLowerInvariant();
+            long now = DateTimeOffset.UtcNow.ToUnixTimeSeconds();
+            long issuedAt = fields.GetProperty("issued_at").GetInt64();
+            long expiresAt = fields.GetProperty("expires_at").GetInt64();
+            long sequence = fields.GetProperty("sequence").GetInt64();
+            string keyId = fields.GetProperty("key_id").GetString() ?? "";
+
+            bool fieldsMatch = fields.GetProperty("protocol_version").GetInt32() == 2
+                && fields.GetProperty("endpoint_id").GetString() == HardwareId
+                && fields.GetProperty("task_id").GetString() == taskId
+                && fields.GetProperty("action").GetString() == action
+                && fields.GetProperty("payload_hash").GetString() == payloadHash
+                && fields.GetProperty("timeout_seconds").GetInt32() == timeoutSeconds
+                && issuedAt <= now + 300
+                && expiresAt >= now
+                && sequence > _config.TaskSigningLastSequence;
+            if (!fieldsMatch)
+            {
+                _logger.LogError("Per-agent task signature fields, expiry, or sequence are invalid.");
+                return false;
+            }
+
+            string publicKey = string.IsNullOrWhiteSpace(_config.TaskSigningPublicKeyPem) ? providedKey : _config.TaskSigningPublicKeyPem;
+            using RSA rsa = RSA.Create();
+            rsa.ImportFromPem(publicKey);
+            string actualKeyId = Convert.ToHexString(SHA256.HashData(rsa.ExportSubjectPublicKeyInfo())).ToLowerInvariant();
+            if (actualKeyId != keyId || (!string.IsNullOrWhiteSpace(_config.TaskSigningKeyId) && _config.TaskSigningKeyId != keyId))
+            {
+                _logger.LogError("Per-agent task signing key does not match the pinned key.");
+                return false;
+            }
+            bool valid = rsa.VerifyData(Encoding.UTF8.GetBytes(CanonicalJson(fields)), Convert.FromBase64String(providedSignature), HashAlgorithmName.SHA256, RSASignaturePadding.Pss);
+            if (!valid)
+            {
+                _logger.LogError("Invalid per-agent RSA-PSS task signature.");
+                return false;
+            }
+
+            _config.TaskSigningPublicKeyPem = publicKey;
+            _config.TaskSigningKeyId = keyId;
+            _config.TaskSigningLastSequence = sequence;
+            SaveConfig();
+            RemoveProtectedSecret("TaskHmacSecret");
+            return true;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError("Per-agent task signature validation failed: {Message}", ex.Message);
+            return false;
+        }
     }
 
     private static string CanonicalizeTaskBody(string taskId, string action, JsonElement payload)
@@ -1018,6 +1109,18 @@ public class Worker : BackgroundService
 
     public static void RunProtocolSelfTest()
     {
+        const string v2FieldsJson = """
+            {"sequence":7,"task_id":"task-1","issued_at":1000,"action":"run_script","protocol_version":2,"payload_hash":"def","key_id":"abc","expires_at":2000,"endpoint_id":"endpoint-1","timeout_seconds":300}
+            """;
+        using (var v2Document = JsonDocument.Parse(v2FieldsJson))
+        {
+            string canonicalV2 = CanonicalJson(v2Document.RootElement);
+            string v2Hash = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(canonicalV2))).ToLowerInvariant();
+            const string expectedV2Hash = "1e96cb746aad196aee4bfdf4399e3f0af62d52f828e2357b0ea821a9d9f89267";
+            if (!CryptographicOperations.FixedTimeEquals(Encoding.ASCII.GetBytes(v2Hash), Encoding.ASCII.GetBytes(expectedV2Hash)))
+                throw new InvalidOperationException($"Task signature v2 canonicalization self-test failed. Got {v2Hash}.");
+        }
+
         const string taskJson = """
             {
               "task_id": "task-Привіт-😀",
@@ -1190,6 +1293,25 @@ public class Worker : BackgroundService
         if (name == "GlobalApiKey") store.GlobalApiKey = encoded;
         else if (name == "TaskHmacSecret") store.TaskHmacSecret = encoded;
         else return;
+        File.WriteAllText(SecretsFilePath, JsonSerializer.Serialize(store, AppJsonSerializerContext.Default.AgentSecrets));
+        RestrictPath(SecretsFilePath, UnixFileMode.UserRead | UnixFileMode.UserWrite);
+    }
+
+    private void RemoveProtectedSecret(string name)
+    {
+        var store = LoadSecretStore();
+        bool changed = false;
+        if (name == "GlobalApiKey" && !string.IsNullOrWhiteSpace(store.GlobalApiKey))
+        {
+            store.GlobalApiKey = "";
+            changed = true;
+        }
+        else if (name == "TaskHmacSecret" && !string.IsNullOrWhiteSpace(store.TaskHmacSecret))
+        {
+            store.TaskHmacSecret = "";
+            changed = true;
+        }
+        if (!changed) return;
         File.WriteAllText(SecretsFilePath, JsonSerializer.Serialize(store, AppJsonSerializerContext.Default.AgentSecrets));
         RestrictPath(SecretsFilePath, UnixFileMode.UserRead | UnixFileMode.UserWrite);
     }

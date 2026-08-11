@@ -6,6 +6,7 @@ import urllib.request
 import ssl
 
 from core.config import Config
+from core.outbound_security import validate_outbound_url
 
 
 def hidden_subprocess_kwargs():
@@ -88,13 +89,23 @@ def fetch_public_key(keyserver, search):
     else:
         api_url = f"{base_url}/pks/lookup?op=get&options=mr&search={urllib.parse.quote(lookup)}"
     try:
+        web_schemes = ("https",) if Config.OUTBOUND_POLICY_MODE == "enforce" else ("https", "http")
+        validate_outbound_url(api_url, "GPG keyserver", allowed_schemes=web_schemes)
         context = ssl.create_default_context()
         req = urllib.request.Request(api_url, headers={"User-Agent": "WinHUB GPG Key Import"})
-        with urllib.request.urlopen(req, timeout=15, context=context) as response:
-            key_text = response.read().decode("utf-8", errors="replace")
+        opener = urllib.request.build_opener(urllib.request.HTTPSHandler(context=context), _NoRedirectHandler())
+        with opener.open(req, timeout=15) as response:
+            key_text = response.read(2 * 1024 * 1024 + 1).decode("utf-8", errors="replace")
+            if len(key_text.encode("utf-8")) > 2 * 1024 * 1024:
+                return False, "Keyserver response is too large."
     except Exception as exc:
         return False, f"Keyserver fetch failed: {exc}"
     return import_public_key(key_text)
+
+
+class _NoRedirectHandler(urllib.request.HTTPRedirectHandler):
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        return None
 
 
 def list_public_keys():
