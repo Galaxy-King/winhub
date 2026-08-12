@@ -6,7 +6,7 @@
     {% if csrf_token %}<meta name="csrf-token" content="{{ csrf_token }}">{% endif %}
     <title>{% block title %}WinHUB{% endblock %}</title>
     <link rel="stylesheet" href="{{ url_for('static', filename='css/tailwind.local.css', v=app_version) }}">
-    <style>
+    <style nonce="{{ csp_nonce }}">
         :root {
             --wh-blue-950: #07152e;
             --wh-blue-900: #092b63;
@@ -812,7 +812,7 @@
 
     {% block content %}{% endblock %}
 
-    <style id="winhub-final-neon-theme">
+    <style id="winhub-final-neon-theme" nonce="{{ csp_nonce }}">
         :root {
             --wh-neon-bg: #050b14;
             --wh-neon-bg-2: #08111f;
@@ -1720,7 +1720,7 @@
         }
     </style>
 
-    <script>
+    <script nonce="{{ csp_nonce }}">
         (function() {
             const originalFetch = window.fetch.bind(window);
             const safeMethods = new Set(['GET', 'HEAD', 'OPTIONS', 'TRACE']);

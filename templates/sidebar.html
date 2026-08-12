@@ -85,7 +85,7 @@
 </aside>
 
 <!-- Скрипт миттєвого згортання -->
-<script>
+<script nonce="{{ csp_nonce }}">
     function toggleSidebar() {
         const sb = document.getElementById('mainSidebar');
         sb.classList.toggle('collapsed');

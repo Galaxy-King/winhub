@@ -1,6 +1,7 @@
 import hashlib
 import importlib.util
 import json
+import re
 import socket
 import sys
 import types
@@ -61,6 +62,62 @@ class TemplateApprovalTests(unittest.TestCase):
         original = self.security.template_content_hash("run_script", "action", {"script": "echo safe"})
         changed = self.security.template_content_hash("run_script", "action", {"script": "echo changed"})
         self.assertNotEqual(original, changed)
+
+
+class ContentSecurityPolicyTests(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        cls.csp = load_file("winhub_csp_test", "core/csp.py")
+
+    def test_default_policy_uses_nonce_for_script_and_style_blocks(self):
+        policy = self.csp.DEFAULT_CSP_POLICY
+        self.assertIn("script-src 'self' 'nonce-{nonce}'", policy)
+        self.assertIn("style-src 'self' 'nonce-{nonce}'", policy)
+        self.assertNotIn("script-src 'self' 'unsafe-inline'", policy)
+        self.assertNotIn("style-src 'self' 'unsafe-inline'", policy)
+
+    def test_nonce_is_unique_and_is_rendered_into_policy(self):
+        first = self.csp.new_csp_nonce()
+        second = self.csp.new_csp_nonce()
+        self.assertNotEqual(first, second)
+        rendered = self.csp.render_csp_policy(self.csp.DEFAULT_CSP_POLICY, first)
+        self.assertNotIn("{nonce}", rendered)
+        self.assertIn(f"'nonce-{first}'", rendered)
+
+    def test_transition_keeps_compatibility_enforced_and_reports_nonce_policy(self):
+        nonce = self.csp.new_csp_nonce()
+        headers = self.csp.build_csp_headers(
+            "enforce",
+            self.csp.COMPATIBILITY_CSP_POLICY,
+            "report-only",
+            self.csp.DEFAULT_CSP_POLICY,
+            nonce,
+        )
+        self.assertIn("'unsafe-inline'", headers["Content-Security-Policy"])
+        self.assertIn(f"'nonce-{nonce}'", headers["Content-Security-Policy-Report-Only"])
+
+    def test_nonce_enforcement_replaces_compatibility_policy(self):
+        nonce = self.csp.new_csp_nonce()
+        headers = self.csp.build_csp_headers(
+            "enforce",
+            self.csp.COMPATIBILITY_CSP_POLICY,
+            "enforce",
+            self.csp.DEFAULT_CSP_POLICY,
+            nonce,
+        )
+        enforced = headers["Content-Security-Policy"]
+        self.assertIn(f"'nonce-{nonce}'", enforced)
+        self.assertNotIn("script-src 'self' 'unsafe-inline'", enforced)
+        self.assertNotIn("Content-Security-Policy-Report-Only", headers)
+
+    def test_all_template_script_and_style_tags_carry_nonce(self):
+        template_paths = list((ROOT / "templates").rglob("*.html"))
+        template_paths.extend((ROOT / "modules").glob("*/templates/**/*.html"))
+        for template_path in sorted(set(template_paths)):
+            source = template_path.read_text(encoding="utf-8")
+            for tag in re.findall(r"<(?:script|style)\b[^>]*>", source, flags=re.IGNORECASE):
+                with self.subTest(template=str(template_path), tag=tag):
+                    self.assertIn('nonce="{{ csp_nonce }}"', tag)
 
 
 class OutboundPolicyTests(unittest.TestCase):

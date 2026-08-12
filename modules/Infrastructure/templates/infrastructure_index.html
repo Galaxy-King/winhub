@@ -5,15 +5,15 @@
 {% block extra_head %}
 <link rel="stylesheet" href="{{ url_for('static', filename='vendor/codemirror/5.65.16/codemirror.min.css', v=app_version) }}">
 <link rel="stylesheet" href="{{ url_for('static', filename='vendor/codemirror/5.65.16/theme/material-darker.min.css', v=app_version) }}">
-<script src="{{ url_for('static', filename='vendor/codemirror/5.65.16/codemirror.min.js', v=app_version) }}"></script>
-<script src="{{ url_for('static', filename='vendor/codemirror/5.65.16/addon/edit/matchbrackets.min.js', v=app_version) }}"></script>
-<script src="{{ url_for('static', filename='vendor/codemirror/5.65.16/mode/powershell/powershell.min.js', v=app_version) }}"></script>
-<script src="{{ url_for('static', filename='vendor/codemirror/5.65.16/mode/shell/shell.min.js', v=app_version) }}"></script>
-<script src="{{ url_for('static', filename='vendor/codemirror/5.65.16/mode/xml/xml.min.js', v=app_version) }}"></script>
-<script src="{{ url_for('static', filename='vendor/codemirror/5.65.16/mode/javascript/javascript.min.js', v=app_version) }}"></script>
-<script src="{{ url_for('static', filename='vendor/codemirror/5.65.16/mode/css/css.min.js', v=app_version) }}"></script>
-<script src="{{ url_for('static', filename='vendor/codemirror/5.65.16/mode/htmlmixed/htmlmixed.min.js', v=app_version) }}"></script>
-	<style>
+<script nonce="{{ csp_nonce }}" src="{{ url_for('static', filename='vendor/codemirror/5.65.16/codemirror.min.js', v=app_version) }}"></script>
+<script nonce="{{ csp_nonce }}" src="{{ url_for('static', filename='vendor/codemirror/5.65.16/addon/edit/matchbrackets.min.js', v=app_version) }}"></script>
+<script nonce="{{ csp_nonce }}" src="{{ url_for('static', filename='vendor/codemirror/5.65.16/mode/powershell/powershell.min.js', v=app_version) }}"></script>
+<script nonce="{{ csp_nonce }}" src="{{ url_for('static', filename='vendor/codemirror/5.65.16/mode/shell/shell.min.js', v=app_version) }}"></script>
+<script nonce="{{ csp_nonce }}" src="{{ url_for('static', filename='vendor/codemirror/5.65.16/mode/xml/xml.min.js', v=app_version) }}"></script>
+<script nonce="{{ csp_nonce }}" src="{{ url_for('static', filename='vendor/codemirror/5.65.16/mode/javascript/javascript.min.js', v=app_version) }}"></script>
+<script nonce="{{ csp_nonce }}" src="{{ url_for('static', filename='vendor/codemirror/5.65.16/mode/css/css.min.js', v=app_version) }}"></script>
+<script nonce="{{ csp_nonce }}" src="{{ url_for('static', filename='vendor/codemirror/5.65.16/mode/htmlmixed/htmlmixed.min.js', v=app_version) }}"></script>
+	<style nonce="{{ csp_nonce }}">
 		    .cm-s-winhub-neon.CodeMirror {
 		        height: 450px;
 		        border: 1px solid rgba(56, 189, 248, 0.42);
@@ -307,7 +307,7 @@
 {% endblock %}
 
 {% block content %}
-    <script src="{{ url_for('static', filename='vendor/chart.js/chart.umd.js', v=app_version) }}"></script>
+    <script nonce="{{ csp_nonce }}" src="{{ url_for('static', filename='vendor/chart.js/chart.umd.js', v=app_version) }}"></script>
 
     {% include "sidebar.html" %}
 
@@ -443,7 +443,7 @@
     <!-- ПІДКЛЮЧЕННЯ ВСІХ МОДАЛОК З ОДНОГО ФАЙЛУ -->
     {% include "modals/_modals.html" %}
 
-<style>
+<style nonce="{{ csp_nonce }}">
     /* Кастомні скролбари */
     .custom-scrollbar::-webkit-scrollbar { width: 8px; }
     .custom-scrollbar::-webkit-scrollbar-track { background: transparent; }
@@ -1018,11 +1018,11 @@
     }
 </style>
 
-<script>
+<script nonce="{{ csp_nonce }}">
     window.WinhubHosts = {{ available_hosts | tojson }};
     window.WinhubPermissions = {{ permissions | tojson }};
     window.WinhubIsAdmin = {{ 'true' if is_admin else 'false' }};
     window.WinhubCanManageSoftware = {{ 'true' if permissions.manage_software else 'false' }};
 </script>
-<script src="{{ url_for('static', filename='js/infrastructure.js', v=app_version) }}"></script>
+<script nonce="{{ csp_nonce }}" src="{{ url_for('static', filename='js/infrastructure.js', v=app_version) }}"></script>
 {% endblock %}
