@@ -8,6 +8,8 @@ import shutil
 from urllib.parse import quote_plus, urlsplit, urlunsplit
 from dotenv import load_dotenv
 
+from core.csp import COMPATIBILITY_CSP_POLICY, DEFAULT_CSP_POLICY
+
 # Завантаження змінних з .env файлу
 load_dotenv()
 
@@ -131,11 +133,9 @@ class Config:
     OUTBOUND_POLICY_MODE = (clean_env_value(os.environ.get('OUTBOUND_POLICY_MODE')) or 'audit').lower()
     OUTBOUND_ALLOWED_HOSTS = clean_env_value(os.environ.get('OUTBOUND_ALLOWED_HOSTS')) or ''
     CSP_MODE = (clean_env_value(os.environ.get('CSP_MODE')) or 'report-only').lower()
-    CSP_POLICY = clean_env_value(os.environ.get('CSP_POLICY')) or (
-        "default-src 'self'; base-uri 'self'; object-src 'none'; frame-ancestors 'none'; "
-        "form-action 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; "
-        "img-src 'self' data:; font-src 'self' data:; connect-src 'self' ws: wss:"
-    )
+    CSP_POLICY = clean_env_value(os.environ.get('CSP_POLICY')) or COMPATIBILITY_CSP_POLICY
+    CSP_NONCE_MODE = (clean_env_value(os.environ.get('CSP_NONCE_MODE')) or 'report-only').lower()
+    CSP_NONCE_POLICY = clean_env_value(os.environ.get('CSP_NONCE_POLICY')) or DEFAULT_CSP_POLICY
 
     # 🚀 ОПТИМІЗАЦІЯ ДЛЯ ВИСОКОГО НАВАНТАЖЕННЯ (Connection Pooling)
     # Додаємо пул з'єднань тільки якщо використовуємо PostgreSQL, бо SQLite цього не підтримує

@@ -3,7 +3,7 @@
 {% block title %}Login - WinHUB{% endblock %}
 
 {% block extra_head %}
-<style>
+<style nonce="{{ csp_nonce }}">
     body .login-shell {
         background:
             radial-gradient(circle at 15% 0%, rgba(34, 211, 238, 0.20), transparent 24rem),
@@ -180,7 +180,7 @@
     </div>
 </div>
 
-<script>
+<script nonce="{{ csp_nonce }}">
     const form = document.getElementById('loginForm');
     const submitBtn = document.getElementById('submitBtn');
     const errorMsg = document.getElementById('errorMsg');

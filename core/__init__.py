@@ -21,6 +21,7 @@ from apscheduler.triggers.cron import CronTrigger
 from apscheduler.triggers.date import DateTrigger
 
 from core.config import Config
+from core.csp import build_csp_headers, new_csp_nonce
 from core.database import db, User, Endpoint, AgentTask, AuditLog, TelemetryHistory, ScheduledTask, EndpointGroup, ApiKey, TaskTemplate
 from core.security import sec_manager
 from core.host_security import apply_endpoint_encryption_status
@@ -531,6 +532,10 @@ def ensure_audit_schema():
 # ====================================================================
 def inject_global_template_vars(app):
     @app.context_processor
+    def inject_csp_vars():
+        return {"csp_nonce": getattr(g, "csp_nonce", "")}
+
+    @app.context_processor
     def inject_vars():
         try:
             if not session.get('logged_in'):
@@ -646,6 +651,7 @@ def session_ping():
 def handle_security_and_auth():
     g.request_id = str(uuid.uuid4())
     g.request_started_at = time.perf_counter()
+    g.csp_nonce = new_csp_nonce()
     open_endpoints = ['auth.login_page', 'auth.api_login', 'auth.forgot_password', 'auth.reset_password', 'core_routes.health', 'static']
     if request.path.startswith('/api/agent/'): return None
     if request.path.startswith('/api/public/agent-packages/') or request.path.startswith('/api/public/software-packages/'):
@@ -747,10 +753,15 @@ def apply_security_headers(response):
     response.headers.setdefault("X-Frame-Options", "DENY")
     response.headers.setdefault("Referrer-Policy", "same-origin")
     response.headers.setdefault("Permissions-Policy", "camera=(), microphone=(), geolocation=()")
-    if Config.CSP_MODE == "enforce":
-        response.headers.setdefault("Content-Security-Policy", Config.CSP_POLICY)
-    elif Config.CSP_MODE == "report-only":
-        response.headers.setdefault("Content-Security-Policy-Report-Only", Config.CSP_POLICY)
+    csp_headers = build_csp_headers(
+        Config.CSP_MODE,
+        Config.CSP_POLICY,
+        Config.CSP_NONCE_MODE,
+        Config.CSP_NONCE_POLICY,
+        g.csp_nonce,
+    )
+    for header_name, header_value in csp_headers.items():
+        response.headers.setdefault(header_name, header_value)
     if session.get("logged_in") and not request.path.startswith("/static/"):
         response.headers.setdefault("Cache-Control", "no-store, no-cache, must-revalidate, max-age=0")
         response.headers.setdefault("Pragma", "no-cache")

@@ -105,7 +105,7 @@
     </div>
 </div>
 
-<script>
+<script nonce="{{ csp_nonce }}">
     let allData = []; let filteredData = [];
     let currentPage = 1; const perPage = 100;
     const canManageHistory = {{ 'true' if permissions.manage_history else 'false' }};

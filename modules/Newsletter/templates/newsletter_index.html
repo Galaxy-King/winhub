@@ -3,8 +3,8 @@
 {% block title %}Newsletter Manager - WinHUB{% endblock %}
 
 {% block extra_head %}
-<script src="{{ url_for('static', filename='vendor/socket.io/socket.io.min.js', v=app_version) }}"></script>
-<style>
+<script nonce="{{ csp_nonce }}" src="{{ url_for('static', filename='vendor/socket.io/socket.io.min.js', v=app_version) }}"></script>
+<style nonce="{{ csp_nonce }}">
     /* Toggle Switch Custom CSS for GPG Slider */
     .toggle-switch { position: relative; display: inline-block; width: 44px; height: 24px; flex-shrink: 0;}
     .toggle-switch input { opacity: 0; width: 0; height: 0; }
@@ -1047,7 +1047,7 @@
 </div>
 {% endif %}
 
-<script>
+<script nonce="{{ csp_nonce }}">
     const socket = io();
     const terminal = document.getElementById('terminalBody');
     let moduleData = { senders: [], lists: {} };

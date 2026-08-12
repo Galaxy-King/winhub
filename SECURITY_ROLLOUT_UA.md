@@ -9,6 +9,7 @@ AGENT_TASK_SIGNATURE_MODE=dual
 OUTBOUND_POLICY_MODE=audit
 OUTBOUND_ALLOWED_HOSTS=
 CSP_MODE=report-only
+CSP_NONCE_MODE=report-only
 REPORT_RENDERER_MODE=subprocess
 ```
 
@@ -61,11 +62,26 @@ AGENT_TASK_SIGNATURE_MODE=v2
 агент з pinned key відхиляє downgrade до HMAC та підпис, призначений іншому
 `endpoint_id`.
 
-Після перевірки браузерної консолі CSP можна перевести з `report-only` у:
+На наявному сервері сумісну CSP можна залишити в `enforce`, а nonce-політику
+спочатку ввімкнути паралельно без блокування:
 
 ```dotenv
 CSP_MODE=enforce
+CSP_NONCE_MODE=report-only
 ```
+
+У цьому стані `Content-Security-Policy` продовжує блокувати за сумісною
+політикою, а `Content-Security-Policy-Report-Only` перевіряє нову політику з
+унікальним nonce для кожної відповіді. Після перевірки входу, основних сторінок,
+Fleet Center, звітів та відсутності CSP-помилок у консолі браузера:
+
+```dotenv
+CSP_NONCE_MODE=enforce
+```
+
+Новий режим прибирає загальний `unsafe-inline` для блоків `<script>` і `<style>`.
+Наявні HTML event/style attributes тимчасово ізольовані директивами
+`script-src-attr` та `style-src-attr`, доки вони поетапно переносяться у статичні файли.
 
 Після кожної зміни `/etc/winhub/winhub.env`:
 
@@ -83,6 +99,7 @@ Rollback не потребує відкату БД:
 AGENT_TASK_SIGNATURE_MODE=dual
 OUTBOUND_POLICY_MODE=audit
 CSP_MODE=report-only
+CSP_NONCE_MODE=report-only
 ```
 
 Агент, який уже пінить v2-ключ, навмисно не повернеться до HMAC. Це захист від
