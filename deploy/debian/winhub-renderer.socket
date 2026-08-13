@@ -1,0 +1,15 @@
+[Unit]
+Description=WinHUB isolated report renderer socket
+
+[Socket]
+ListenStream=/run/winhub-renderer.sock
+Accept=yes
+SocketMode=0660
+SocketUser=winhub
+SocketGroup=winhub
+RemoveOnStop=true
+Backlog=16
+MaxConnections=16
+
+[Install]
+WantedBy=sockets.target

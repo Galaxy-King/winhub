@@ -6,12 +6,15 @@ import fnmatch
 import ipaddress
 import logging
 import socket
+import threading
+from contextlib import contextmanager
 from urllib.parse import urlsplit
 
 from core.config import Config
 
 
 log = logging.getLogger("winhub.outbound")
+_dns_pin_lock = threading.RLock()
 
 
 class OutboundPolicyError(ValueError):
@@ -74,18 +77,79 @@ def validate_outbound_host(hostname, port=None, purpose="outbound request"):
     return addresses
 
 
-def validate_outbound_url(url, purpose="outbound request", allowed_schemes=("https",)):
+def _parse_outbound_url(url, allowed_schemes):
     parsed = urlsplit(str(url or "").strip())
     if parsed.scheme.lower() not in allowed_schemes or not parsed.hostname or parsed.username or parsed.password:
         raise OutboundPolicyError("Invalid outbound URL")
-    port = parsed.port or {
+    try:
+        parsed.port
+    except ValueError as exc:
+        raise OutboundPolicyError("Invalid outbound URL port") from exc
+    return parsed
+
+
+def _outbound_port(parsed):
+    return parsed.port or {
         "http": 80,
         "https": 443,
         "ldap": 389,
         "ldaps": 636,
     }.get(parsed.scheme.lower(), 0)
-    validate_outbound_host(parsed.hostname, port, purpose)
+
+
+def validate_outbound_url(url, purpose="outbound request", allowed_schemes=("https",)):
+    parsed = _parse_outbound_url(url, allowed_schemes)
+    validate_outbound_host(parsed.hostname, _outbound_port(parsed), purpose)
     return parsed
+
+
+def _normalized_dns_name(value):
+    if isinstance(value, bytes):
+        value = value.decode("ascii", errors="ignore")
+    return str(value or "").strip().rstrip(".").lower()
+
+
+@contextmanager
+def pinned_outbound_host(hostname, port=None, purpose="outbound request"):
+    """Validate once and connect only to those approved IP addresses."""
+    normalized_host = _normalized_dns_name(hostname)
+    addresses = validate_outbound_host(normalized_host, port, purpose)
+    mode = str(getattr(Config, "OUTBOUND_POLICY_MODE", "audit") or "audit").lower()
+    if mode != "enforce":
+        yield addresses
+        return
+
+    ordered_addresses = tuple(sorted((str(address) for address in addresses), key=lambda value: (":" in value, value)))
+    with _dns_pin_lock:
+        original_getaddrinfo = socket.getaddrinfo
+
+        def pinned_getaddrinfo(host, service, family=0, type=0, proto=0, flags=0):
+            if _normalized_dns_name(host) != normalized_host:
+                return original_getaddrinfo(host, service, family, type, proto, flags)
+
+            answers = []
+            numeric_flag = flags | getattr(socket, "AI_NUMERICHOST", 0)
+            for address in ordered_addresses:
+                address_family = socket.AF_INET6 if ":" in address else socket.AF_INET
+                if family not in (0, socket.AF_UNSPEC, address_family):
+                    continue
+                answers.extend(original_getaddrinfo(address, service, address_family, type, proto, numeric_flag))
+            if not answers:
+                raise socket.gaierror(socket.EAI_NONAME, "No approved address matches the requested socket family")
+            return answers
+
+        socket.getaddrinfo = pinned_getaddrinfo
+        try:
+            yield addresses
+        finally:
+            socket.getaddrinfo = original_getaddrinfo
+
+
+@contextmanager
+def pinned_outbound_url(url, purpose="outbound request", allowed_schemes=("https",)):
+    parsed = _parse_outbound_url(url, allowed_schemes)
+    with pinned_outbound_host(parsed.hostname, _outbound_port(parsed), purpose):
+        yield parsed
 
 
 def normalized_origin(url):

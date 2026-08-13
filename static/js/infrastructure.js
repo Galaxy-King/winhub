@@ -537,7 +537,7 @@ async function fetchSmtpProfilesGlobally() {
             if (selDep) {
                 const currentVal = selDep.value;
                 selDep.innerHTML = '<option value="">-- Select Sender Profile --</option>' +
-                    smtpProfiles.map(p => `<option value="${p.email}">${p.email}</option>`).join('');
+                    smtpProfiles.map(p => `<option value="${escapeHtml(p.email)}">${escapeHtml(p.email)}</option>`).join('');
                 if (currentVal) selDep.value = currentVal;
             }
 
@@ -546,7 +546,7 @@ async function fetchSmtpProfilesGlobally() {
             if (selRep) {
                 const currentVal = selRep.value;
                 selRep.innerHTML = '<option value="">-- Select Sender Profile --</option>' +
-                    smtpProfiles.map(p => `<option value="${p.email}">${p.email}</option>`).join('');
+                    smtpProfiles.map(p => `<option value="${escapeHtml(p.email)}">${escapeHtml(p.email)}</option>`).join('');
                 if (currentVal) selRep.value = currentVal;
             }
         }
@@ -1399,10 +1399,10 @@ function renderSecretsList() {
     list.innerHTML = templateSecrets.map(s => `
         <div class="template-secret-row flex justify-between items-center bg-slate-50 p-4 rounded-xl border border-slate-100">
             <div>
-                <p class="font-black text-slate-800 text-sm">${s.name}</p>
-                <p class="text-[10px] font-mono text-indigo-600 mt-1">${s.placeholder}</p>
+                <p class="font-black text-slate-800 text-sm">${escapeHtml(s.name)}</p>
+                <p class="text-[10px] font-mono text-indigo-600 mt-1">${escapeHtml(s.placeholder)}</p>
             </div>
-            <button onclick="deleteTemplateSecret('${s.name}')" class="p-2 text-rose-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition-colors">
+            <button onclick="deleteTemplateSecret('${escapeInlineJs(s.name)}')" class="p-2 text-rose-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition-colors">
                 <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"></path></svg>
             </button>
         </div>
@@ -1490,9 +1490,9 @@ function renderCategoryListUI() {
             const isDefault = defaultCategories.includes(cat);
             listEl.innerHTML += `
                 <div class="flex justify-between items-center p-4 bg-white rounded-2xl border border-slate-100 shadow-sm mb-2">
-                    <span class="font-bold text-slate-700 text-sm">${cat}</span>
+                    <span class="font-bold text-slate-700 text-sm">${escapeHtml(cat)}</span>
                     ${!isDefault
-                        ? `<button onclick="deleteCategoryUI('${cat}')" class="text-rose-400 hover:text-rose-600 hover:bg-rose-50 p-2 rounded-xl transition-colors"><svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"></path></svg></button>`
+                        ? `<button onclick="deleteCategoryUI('${escapeInlineJs(cat)}')" class="text-rose-400 hover:text-rose-600 hover:bg-rose-50 p-2 rounded-xl transition-colors"><svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"></path></svg></button>`
                         : `<span class="text-[8px] uppercase font-black text-slate-400 tracking-widest bg-slate-100 px-2 py-1 rounded">System</span>`}
                 </div>
             `;
@@ -1748,7 +1748,7 @@ function renderMultiHostList(query) {
         const isChecked = multiHostSelectedIds.has(hostId) ? 'checked' : '';
         const blockedBadge = h.is_blocked ? '<span class="ml-2 px-2 py-0.5 rounded bg-rose-50 text-rose-600 border border-rose-100 text-[9px] font-black uppercase">Blocked</span>' : '';
         const approval = h.approval_status || 'Approved';
-        const approvalBadge = approval !== 'Approved' ? `<span class="ml-2 px-2 py-0.5 rounded bg-amber-50 text-amber-600 border border-amber-100 text-[9px] font-black uppercase">${approval}</span>` : '';
+        const approvalBadge = approval !== 'Approved' ? `<span class="ml-2 px-2 py-0.5 rounded bg-amber-50 text-amber-600 border border-amber-100 text-[9px] font-black uppercase">${escapeHtml(approval)}</span>` : '';
         const versionBadge = h.agent_outdated ? '<span class="ml-2 px-2 py-0.5 rounded bg-amber-50 text-amber-700 border border-amber-100 text-[9px] font-black uppercase">Outdated</span>' : '';
         const statusBadge = multiHostStatusBadge(h);
         const disabled = approval !== 'Approved' || h.is_blocked ? 'disabled' : '';
@@ -3660,9 +3660,9 @@ async function loadHostMetrics() {
         if(result.success && result.data.length > 0) {
             tbody.innerHTML = result.data.map(m => `
                 <tr class="hover:bg-slate-50 transition-colors">
-                    <td class="px-8 py-5 font-black text-slate-700">${m.item_name}</td>
-                    <td class="px-8 py-5"><span class="bg-purple-50 text-purple-700 font-mono text-sm px-3 py-1 rounded-lg border border-purple-100">${m.last_value || 'No data'}</span></td>
-                    <td class="px-8 py-5 text-right text-xs font-bold text-slate-400">${m.last_updated}</td>
+                    <td class="px-8 py-5 font-black text-slate-700">${escapeHtml(m.item_name)}</td>
+                    <td class="px-8 py-5"><span class="bg-purple-50 text-purple-700 font-mono text-sm px-3 py-1 rounded-lg border border-purple-100">${escapeHtml(m.last_value || 'No data')}</span></td>
+                    <td class="px-8 py-5 text-right text-xs font-bold text-slate-400">${escapeHtml(m.last_updated)}</td>
                 </tr>
             `).join('');
         } else {
@@ -4385,7 +4385,7 @@ async function viewTaskDetails(taskId) {
     document.getElementById('tId').innerText = 'Task ID: ' + d.id;
     document.getElementById('tHost').innerText = d.name || d.hostname || 'Unknown';
     const statusStr = d.status || 'Pending';
-    document.getElementById('tStatus').innerHTML = `<span class="uppercase tracking-widest text-[10px] bg-white px-3 py-1 rounded-xl shadow-sm border border-slate-100 font-black ${statusStr === 'Success' ? 'text-emerald-500' : (statusStr === 'Error' ? 'text-rose-500' : 'text-amber-500')}">${statusStr}</span>`;
+    document.getElementById('tStatus').innerHTML = `<span class="uppercase tracking-widest text-[10px] bg-white px-3 py-1 rounded-xl shadow-sm border border-slate-100 font-black ${statusStr === 'Success' ? 'text-emerald-500' : (statusStr === 'Error' ? 'text-rose-500' : 'text-amber-500')}">${escapeHtml(statusStr)}</span>`;
     document.getElementById('tLog').innerText = d.log || "Waiting for agent pulse...";
     openModal('taskModal');
 }
@@ -4474,10 +4474,10 @@ function renderJobTaskRows() {
     body.innerHTML = filteredTasks.map(t => {
         const statusStr = t.status || 'Pending';
         const hostCell = t.endpoint_id
-            ? `<button onclick="viewHostFromJob('${escapeHtml(t.endpoint_id)}')" class="font-black text-slate-800 hover:text-indigo-600 text-left">${escapeHtml(t.name || t.display_name || t.hostname || 'Unknown')}</button>`
+            ? `<button onclick="viewHostFromJob('${escapeInlineJs(t.endpoint_id)}')" class="font-black text-slate-800 hover:text-indigo-600 text-left">${escapeHtml(t.name || t.display_name || t.hostname || 'Unknown')}</button>`
             : `<span class="font-black text-slate-700">${escapeHtml(t.name || t.display_name || t.hostname || 'Unknown')}</span>`;
         const logCell = t.task_id
-            ? `<button onclick="viewTaskDetails('${t.task_id}')" class="px-4 py-2 bg-white border border-slate-200 rounded-xl text-xs font-black uppercase text-indigo-600 hover:bg-indigo-50 transition-colors shadow-sm">View Log</button>`
+            ? `<button onclick="viewTaskDetails('${escapeInlineJs(t.task_id)}')" class="px-4 py-2 bg-white border border-slate-200 rounded-xl text-xs font-black uppercase text-indigo-600 hover:bg-indigo-50 transition-colors shadow-sm">View Log</button>`
             : `<span class="px-4 py-2 bg-sky-50 border border-sky-100 rounded-xl text-xs font-black uppercase text-sky-600">Planned</span>`;
         return `<tr class="hover:bg-slate-50 transition-colors">
             <td class="px-6 py-4 text-base">${hostCell}</td>
@@ -4837,15 +4837,15 @@ async function openGroupFullView(id) {
 
     document.getElementById('groupHostsBody').innerHTML = data.data.members.map(m => `
         <tr class="hover:bg-slate-50/80 transition-colors">
-            <td class="px-10 py-5 font-black text-slate-700 text-lg cursor-pointer" onclick="viewHost('${m.id}')">
+            <td class="px-10 py-5 font-black text-slate-700 text-lg cursor-pointer" onclick="viewHost('${escapeInlineJs(m.id)}')">
                 ${escapeHtml(endpointVisibleName(m))}
                 ${endpointHostnameLine(m)}
             </td>
             <td class="px-10 py-5">
-                <div class="text-[10px] font-black uppercase tracking-widest text-slate-400 mb-1">${m.os_type}</div>
-                <div class="text-sm font-bold text-slate-600">${m.ip}</div>
+                <div class="text-[10px] font-black uppercase tracking-widest text-slate-400 mb-1">${escapeHtml(m.os_type)}</div>
+                <div class="text-sm font-bold text-slate-600">${escapeHtml(m.ip)}</div>
             </td>
-            ${infraPermissions.manage_groups ? `<td class="px-10 py-5 text-right"><button onclick="removeHostFromGroup('${m.id}')" class="px-4 py-2 bg-white text-rose-500 border border-slate-200 hover:bg-rose-50 rounded-xl text-xs font-black uppercase transition-all shadow-sm">Remove</button></td>` : ''}
+            ${infraPermissions.manage_groups ? `<td class="px-10 py-5 text-right"><button onclick="removeHostFromGroup('${escapeInlineJs(m.id)}')" class="px-4 py-2 bg-white text-rose-500 border border-slate-200 hover:bg-rose-50 rounded-xl text-xs font-black uppercase transition-all shadow-sm">Remove</button></td>` : ''}
         </tr>`).join('') || '<tr><td colspan="3" class="p-16 text-center text-slate-300 font-black uppercase tracking-widest text-sm">No hosts in this group</td></tr>';
 
     switchView('group-detail');
@@ -4888,7 +4888,7 @@ function renderAddHostList(q) {
     const filtered = currentGroupNonMembers.filter(m => `${m.name || ''} ${m.display_name || ''} ${m.hostname || ''}`.toLowerCase().includes(q));
     list.innerHTML = filtered.map(m => `
         <label class="group-add-host-row flex items-center gap-4 p-4 border-b border-slate-100 hover:bg-slate-50 cursor-pointer transition-colors group">
-            <input type="checkbox" value="${m.id}" class="add-host-cb w-5 h-5 text-indigo-600 rounded border-slate-300 focus:ring-indigo-500" onchange="document.getElementById('selCount').innerText = document.querySelectorAll('.add-host-cb:checked').length">
+            <input type="checkbox" value="${escapeHtml(m.id)}" class="add-host-cb w-5 h-5 text-indigo-600 rounded border-slate-300 focus:ring-indigo-500" onchange="document.getElementById('selCount').innerText = document.querySelectorAll('.add-host-cb:checked').length">
             <span class="min-w-0">
                 <span class="font-black text-slate-700 text-sm group-hover:text-indigo-600 transition-colors">${escapeHtml(endpointVisibleName(m))}</span>
                 ${endpointHostnameLine(m)}

@@ -4,6 +4,7 @@ import string
 import json
 import os
 import smtplib
+import ssl
 import subprocess
 import tempfile
 import uuid
@@ -22,6 +23,7 @@ from core.module_registry import get_module_registry
 from core.permissions import MODULE_PERMISSION_CATALOG, all_permission_tokens_for_module, has_permission, parse_allowed_modules
 from core.sdk import WinHubCore
 from core.gpg import gpg_env, import_public_key, fetch_public_key, list_public_keys, delete_public_key, validate_gpg
+from core.outbound_security import pinned_outbound_host
 from core.production_readiness import build_production_readiness
 
 log = logging.getLogger("winhub.admin")
@@ -277,11 +279,15 @@ def send_notification_email(subject, recipient, body_content, encrypt=True):
         msg['Subject'] = f"WinHUB: {subject}" + (" [SECURE]" if encrypt else "")
         msg['From'] = sender_email
         msg['To'] = recipient
-        with smtplib.SMTP(smtp_server, smtp_port) as server:
-            server.starttls()
-            server.login(sender_email, smtp_password)
-            server.send_message(msg)
-            return True
+        with pinned_outbound_host(smtp_server, smtp_port, "administration notification SMTP"):
+            with smtplib.SMTP(smtp_server, smtp_port) as server:
+                if Config.OUTBOUND_POLICY_MODE == "enforce":
+                    server.starttls(context=ssl.create_default_context())
+                else:
+                    server.starttls()
+                server.login(sender_email, smtp_password)
+                server.send_message(msg)
+                return True
     except Exception: return False
 
 def _as_utc(value):

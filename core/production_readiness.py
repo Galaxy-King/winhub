@@ -148,6 +148,14 @@ def build_production_readiness(db=None, User=None, Endpoint=None):
     )
     _warn(
         checks,
+        "agent_task_signature_v2",
+        "Per-agent task signatures",
+        str(getattr(Config, "AGENT_TASK_SIGNATURE_MODE", "") or "").lower() == "v2",
+        detail=f"AGENT_TASK_SIGNATURE_MODE={getattr(Config, 'AGENT_TASK_SIGNATURE_MODE', '')}.",
+        action="After every endpoint shows Task v2, set AGENT_TASK_SIGNATURE_MODE=v2.",
+    )
+    _warn(
+        checks,
         "enrollment_window",
         "Agent enrollment window",
         not bool(getattr(Config, "AGENT_ENROLLMENT_ENABLED", True)) or bool(str(getattr(Config, "AGENT_ENROLLMENT_ALLOWLIST", "") or "").strip()),
@@ -169,6 +177,32 @@ def build_production_readiness(db=None, User=None, Endpoint=None):
         bool(getattr(Config, "HSTS_ENABLED", False)),
         detail="HSTS is enabled.",
         action="Set HSTS_ENABLED=true and serve only through HTTPS.",
+    )
+    _warn(
+        checks,
+        "outbound_policy",
+        "Credentialed outbound policy",
+        str(getattr(Config, "OUTBOUND_POLICY_MODE", "") or "").lower() == "enforce",
+        detail=f"OUTBOUND_POLICY_MODE={getattr(Config, 'OUTBOUND_POLICY_MODE', '')}.",
+        action="Test integrations, configure OUTBOUND_ALLOWED_HOSTS where required, then set OUTBOUND_POLICY_MODE=enforce.",
+    )
+    _warn(
+        checks,
+        "csp_nonce",
+        "Per-response CSP nonce",
+        str(getattr(Config, "CSP_NONCE_MODE", "") or "").lower() == "enforce",
+        detail=f"CSP_NONCE_MODE={getattr(Config, 'CSP_NONCE_MODE', '')}.",
+        action="After report-only validation, set CSP_NONCE_MODE=enforce.",
+    )
+    renderer_mode = str(getattr(Config, "REPORT_RENDERER_MODE", "") or "").lower()
+    renderer_socket = str(getattr(Config, "REPORT_RENDERER_SOCKET", "") or "")
+    _warn(
+        checks,
+        "isolated_report_renderer",
+        "Isolated report renderer",
+        renderer_mode == "service" and bool(renderer_socket and os.path.exists(renderer_socket)),
+        detail=f"REPORT_RENDERER_MODE={renderer_mode or 'unset'}, socket={renderer_socket or 'unset'}.",
+        action="Enable winhub-renderer.socket and set REPORT_RENDERER_MODE=service.",
     )
     _warn(
         checks,
@@ -312,8 +346,12 @@ def build_production_readiness(db=None, User=None, Endpoint=None):
             "AGENT_REQUIRE_SIGNED_REQUESTS": "true",
             "AGENT_SIGNATURE_MAX_SKEW_SECONDS": "900",
             "AGENT_ALLOW_LEGACY_AGENT_SIGNATURES": "false",
+            "AGENT_TASK_SIGNATURE_MODE": "v2",
             "SESSION_COOKIE_SECURE": "true",
             "SESSION_COOKIE_SAMESITE": "Strict",
             "HSTS_ENABLED": "true",
+            "OUTBOUND_POLICY_MODE": "enforce",
+            "CSP_NONCE_MODE": "enforce",
+            "REPORT_RENDERER_MODE": "service",
         },
     }

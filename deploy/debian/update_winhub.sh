@@ -181,6 +181,10 @@ python3 -m venv "${APP_DIR}/venv"
 "${APP_DIR}/venv/bin/python" -m pip install --upgrade pip wheel
 "${APP_DIR}/venv/bin/pip" install -r "${APP_DIR}/requirements.txt"
 
+if ! id winhub-renderer >/dev/null 2>&1; then
+  useradd --system --home /nonexistent --shell /usr/sbin/nologin winhub-renderer
+fi
+
 if [[ -f "${APP_DIR}/alembic.ini" && -d "${APP_DIR}/migrations/versions" ]]; then
   echo "[WinHUB] Running database migrations"
   if [[ -x "${MIGRATE_SCRIPT}" ]]; then
@@ -192,18 +196,22 @@ fi
 
 install -m 0644 "${APP_DIR}/deploy/debian/winhub.service" /etc/systemd/system/winhub.service
 install -m 0644 "${APP_DIR}/deploy/debian/winhub-agent.service" /etc/systemd/system/winhub-agent.service
+install -m 0644 "${APP_DIR}/deploy/debian/winhub-renderer.socket" /etc/systemd/system/winhub-renderer.socket
+install -m 0644 "${APP_DIR}/deploy/debian/winhub-renderer@.service" /etc/systemd/system/winhub-renderer@.service
 ENV_FILE="${ENV_FILE}" APP_DIR="${APP_DIR}" bash "${RENDER_NGINX_SCRIPT}" /etc/nginx/sites-available/winhub
 ln -sfn /etc/nginx/sites-available/winhub /etc/nginx/sites-enabled/winhub
 install -m 0644 "${APP_DIR}/deploy/debian/winhub.logrotate" /etc/logrotate.d/winhub
-chmod 0755 "${APP_DIR}/deploy/debian/backup_winhub.sh" "${APP_DIR}/deploy/debian/healthcheck_winhub.sh" "${APP_DIR}/deploy/debian/migrate_winhub.sh" "${APP_DIR}/deploy/debian/render_nginx_config.sh" "${APP_DIR}/deploy/debian/restore_winhub.sh" "${APP_DIR}/deploy/debian/rollback_winhub.sh" "${APP_DIR}/deploy/debian/update_winhub.sh"
+chmod 0755 "${APP_DIR}/deploy/debian/backup_winhub.sh" "${APP_DIR}/deploy/debian/healthcheck_winhub.sh" "${APP_DIR}/deploy/debian/security_smoke_test.sh" "${APP_DIR}/deploy/debian/migrate_winhub.sh" "${APP_DIR}/deploy/debian/render_nginx_config.sh" "${APP_DIR}/deploy/debian/restore_winhub.sh" "${APP_DIR}/deploy/debian/rollback_winhub.sh" "${APP_DIR}/deploy/debian/update_winhub.sh"
 
 chown -R winhub:winhub "${APP_DIR}" /var/lib/winhub /var/log/winhub
+chmod 0750 /var/lib/winhub /var/log/winhub
 chown -R root:winhub /etc/winhub
 chmod 0750 /etc/winhub /etc/winhub/certs
 chmod 0640 "${ENV_FILE}"
 chmod 0640 /etc/winhub/certs/*.pem 2>/dev/null || true
 
 systemctl daemon-reload
+systemctl enable --now winhub-renderer.socket
 nginx -t
 systemctl restart winhub
 if awk -F= '/^[[:space:]]*AGENT_BACKEND_PORT[[:space:]]*=/{gsub(/[ \047"\r]/, "", $2); if ($2 != "") found=1} END{exit found ? 0 : 1}' "${ENV_FILE}"; then

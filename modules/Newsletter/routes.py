@@ -31,7 +31,7 @@ from core.sdk import WinHubCore
 from core.config import Config
 from core.permissions import has_module_access, has_permission, user_permissions
 from core.gpg import gpg_env
-from core.outbound_security import normalized_origin, validate_outbound_host, validate_outbound_url
+from core.outbound_security import normalized_origin, pinned_outbound_host, pinned_outbound_url
 
 log = logging.getLogger("winhub.newsletter")
 
@@ -56,30 +56,31 @@ def outbound_policy_enforced():
 
 def open_smtp_connection(host, port, purpose, timeout=15):
     port = int(port or 587)
-    validate_outbound_host(host, port, purpose)
     tls_context = ssl.create_default_context() if outbound_policy_enforced() else None
-    if port == 465:
+    with pinned_outbound_host(host, port, purpose):
+        if port == 465:
+            if tls_context is not None:
+                return smtplib.SMTP_SSL(host, port, timeout=timeout, context=tls_context)
+            return smtplib.SMTP_SSL(host, port, timeout=timeout)
+        connection = smtplib.SMTP(host, port, timeout=timeout)
         if tls_context is not None:
-            return smtplib.SMTP_SSL(host, port, timeout=timeout, context=tls_context)
-        return smtplib.SMTP_SSL(host, port, timeout=timeout)
-    connection = smtplib.SMTP(host, port, timeout=timeout)
-    if tls_context is not None:
-        connection.starttls(context=tls_context)
-    else:
-        connection.starttls()
-    return connection
+            connection.starttls(context=tls_context)
+        else:
+            connection.starttls()
+        return connection
 
 
 def open_imap_connection(host, port, use_ssl, purpose):
     port = int(port or (993 if use_ssl else 143))
-    validate_outbound_host(host, port, purpose)
     if not use_ssl:
         if outbound_policy_enforced():
             raise ValueError(f"Blocked {purpose}: IMAP without TLS is not allowed in enforce mode")
-        return imaplib.IMAP4(host, port)
-    if outbound_policy_enforced():
-        return imaplib.IMAP4_SSL(host, port, ssl_context=ssl.create_default_context())
-    return imaplib.IMAP4_SSL(host, port)
+        with pinned_outbound_host(host, port, purpose):
+            return imaplib.IMAP4(host, port)
+    with pinned_outbound_host(host, port, purpose):
+        if outbound_policy_enforced():
+            return imaplib.IMAP4_SSL(host, port, ssl_context=ssl.create_default_context())
+        return imaplib.IMAP4_SSL(host, port)
 
 try:
     KYIV_TZ = ZoneInfo("Europe/Kyiv")
@@ -629,7 +630,6 @@ def ldap_profile_groups(profile, limit=100):
     base_url = freeipa_api_base_url(profile)
     if base_url:
         web_schemes = ("https",) if Config.OUTBOUND_POLICY_MODE == "enforce" else ("https", "http")
-        validate_outbound_url(base_url, "FreeIPA API", allowed_schemes=web_schemes)
         try:
             import requests
         except ImportError as e:
@@ -640,26 +640,29 @@ def ldap_profile_groups(profile, limit=100):
         if not username or not password:
             raise ValueError("FreeIPA API user and password are required for this test.")
 
-        session = requests.Session()
-        session.verify = bool(profile.get("freeipa_api_verify_tls", True))
-        referer = f"{base_url}/ipa"
-        login = session.post(
-            f"{base_url}/ipa/session/login_password",
-            data={"user": username, "password": password},
-            headers={"Referer": referer, "Content-Type": "application/x-www-form-urlencoded", "Accept": "text/plain"},
-            timeout=20,
-            allow_redirects=False,
-        )
-        login.raise_for_status()
-        response = session.post(
-            f"{base_url}/ipa/session/json",
-            json={"method": "group_find", "params": [[], {"all": True, "sizelimit": int(limit)}], "id": 0},
-            headers={"Referer": referer, "Content-Type": "application/json", "Accept": "application/json"},
-            timeout=20,
-            allow_redirects=False,
-        )
-        response.raise_for_status()
-        payload = response.json()
+        with pinned_outbound_url(base_url, "FreeIPA API", allowed_schemes=web_schemes):
+            session = requests.Session()
+            session.verify = True if outbound_policy_enforced() else bool(profile.get("freeipa_api_verify_tls", True))
+            if outbound_policy_enforced():
+                session.trust_env = False
+            referer = f"{base_url}/ipa"
+            login = session.post(
+                f"{base_url}/ipa/session/login_password",
+                data={"user": username, "password": password},
+                headers={"Referer": referer, "Content-Type": "application/x-www-form-urlencoded", "Accept": "text/plain"},
+                timeout=20,
+                allow_redirects=False,
+            )
+            login.raise_for_status()
+            response = session.post(
+                f"{base_url}/ipa/session/json",
+                json={"method": "group_find", "params": [[], {"all": True, "sizelimit": int(limit)}], "id": 0},
+                headers={"Referer": referer, "Content-Type": "application/json", "Accept": "application/json"},
+                timeout=20,
+                allow_redirects=False,
+            )
+            response.raise_for_status()
+            payload = response.json()
         if payload.get("error"):
             raise ValueError(f"FreeIPA group lookup failed: {payload['error']}")
         results = payload.get("result", {}).get("result", []) or []
@@ -686,16 +689,16 @@ def ldap_profile_groups(profile, limit=100):
         raise ValueError("LDAP URI, bind DN, bind password and group base DN are required for this test.")
 
     ldap_schemes = ("ldaps",) if Config.OUTBOUND_POLICY_MODE == "enforce" else ("ldap", "ldaps")
-    validate_outbound_url(uri, "LDAP directory", allowed_schemes=ldap_schemes)
     tls = Tls(validate=ssl.CERT_REQUIRED) if outbound_policy_enforced() else None
-    conn = Connection(
-        Server(uri, get_info=ALL, tls=tls),
-        user=bind_dn,
-        password=bind_password,
-        auto_bind=True,
-        auto_referrals=False,
-        receive_timeout=15,
-    )
+    with pinned_outbound_url(uri, "LDAP directory", allowed_schemes=ldap_schemes):
+        conn = Connection(
+            Server(uri, get_info=ALL, tls=tls),
+            user=bind_dn,
+            password=bind_password,
+            auto_bind=True,
+            auto_referrals=False,
+            receive_timeout=15,
+        )
     try:
         if not conn.search(group_base_dn, "(objectClass=*)", search_scope=SUBTREE, attributes=[group_name_attr], size_limit=int(limit)):
             return []
@@ -730,7 +733,6 @@ def freeipa_api_recipients_from_group(group_name, profile=None):
     if not base_url:
         return None
     web_schemes = ("https",) if Config.OUTBOUND_POLICY_MODE == "enforce" else ("https", "http")
-    validate_outbound_url(base_url, "FreeIPA API", allowed_schemes=web_schemes)
 
     try:
         import requests
@@ -750,22 +752,25 @@ def freeipa_api_recipients_from_group(group_name, profile=None):
 
     verify_tls = bool(profile.get("freeipa_api_verify_tls", inbound_bool_setting("freeipa_api_verify_tls", "NEWSLETTER_FREEIPA_API_VERIFY_TLS", True)))
     session = requests.Session()
-    session.verify = verify_tls
+    session.verify = True if outbound_policy_enforced() else verify_tls
+    if outbound_policy_enforced():
+        session.trust_env = False
     login_url = f"{base_url}/ipa/session/login_password"
     api_url = f"{base_url}/ipa/session/json"
     referer = f"{base_url}/ipa"
 
-    login = session.post(
-        login_url,
-        data={"user": username, "password": password},
-        headers={
-            "Referer": referer,
-            "Content-Type": "application/x-www-form-urlencoded",
-            "Accept": "text/plain",
-        },
-        timeout=20,
-        allow_redirects=False,
-    )
+    with pinned_outbound_url(login_url, "FreeIPA API login", allowed_schemes=web_schemes):
+        login = session.post(
+            login_url,
+            data={"user": username, "password": password},
+            headers={
+                "Referer": referer,
+                "Content-Type": "application/x-www-form-urlencoded",
+                "Accept": "text/plain",
+            },
+            timeout=20,
+            allow_redirects=False,
+        )
     login.raise_for_status()
 
     group_payload = {
@@ -773,13 +778,14 @@ def freeipa_api_recipients_from_group(group_name, profile=None):
         "params": [[group_name], {"all": True, "rights": False}],
         "id": 0,
     }
-    group_response = session.post(
-        api_url,
-        json=group_payload,
-        headers={"Referer": referer, "Content-Type": "application/json", "Accept": "application/json"},
-        timeout=20,
-        allow_redirects=False,
-    )
+    with pinned_outbound_url(api_url, "FreeIPA API group lookup", allowed_schemes=web_schemes):
+        group_response = session.post(
+            api_url,
+            json=group_payload,
+            headers={"Referer": referer, "Content-Type": "application/json", "Accept": "application/json"},
+            timeout=20,
+            allow_redirects=False,
+        )
     group_response.raise_for_status()
     group_data = group_response.json()
     if group_data.get("error"):
@@ -797,13 +803,14 @@ def freeipa_api_recipients_from_group(group_name, profile=None):
             "params": [[uid], {"all": True, "rights": False}],
             "id": 0,
         }
-        user_response = session.post(
-            api_url,
-            json=user_payload,
-            headers={"Referer": referer, "Content-Type": "application/json", "Accept": "application/json"},
-            timeout=20,
-            allow_redirects=False,
-        )
+        with pinned_outbound_url(api_url, "FreeIPA API user lookup", allowed_schemes=web_schemes):
+            user_response = session.post(
+                api_url,
+                json=user_payload,
+                headers={"Referer": referer, "Content-Type": "application/json", "Accept": "application/json"},
+                timeout=20,
+                allow_redirects=False,
+            )
         user_response.raise_for_status()
         user_data = user_response.json()
         if user_data.get("error"):
@@ -864,17 +871,17 @@ def ldap_recipients_from_group(group_name, profile=None):
         raise ValueError("LDAP settings are incomplete. Check NEWSLETTER_LDAP_URI, BIND_DN, BIND_PASSWORD and BASE_DN.")
 
     ldap_schemes = ("ldaps",) if Config.OUTBOUND_POLICY_MODE == "enforce" else ("ldap", "ldaps")
-    validate_outbound_url(uri, "LDAP directory", allowed_schemes=ldap_schemes)
     tls = Tls(validate=ssl.CERT_REQUIRED) if outbound_policy_enforced() else None
-    server = Server(uri, get_info=ALL, tls=tls)
-    conn = Connection(
-        server,
-        user=bind_dn,
-        password=bind_password,
-        auto_bind=True,
-        auto_referrals=False,
-        receive_timeout=15,
-    )
+    with pinned_outbound_url(uri, "LDAP directory", allowed_schemes=ldap_schemes):
+        server = Server(uri, get_info=ALL, tls=tls)
+        conn = Connection(
+            server,
+            user=bind_dn,
+            password=bind_password,
+            auto_bind=True,
+            auto_referrals=False,
+            receive_timeout=15,
+        )
     try:
         group_filter = f"({group_name_attr}={escape_filter_chars(group_name)})"
         if not conn.search(group_base_dn, group_filter, search_scope=SUBTREE, attributes=[group_member_attr]):
@@ -1909,6 +1916,11 @@ def validate_gpg(gpg_path):
     except Exception as e:
         return False, str(e)
 
+class _NewsletterNoRedirectHandler(urllib.request.HTTPRedirectHandler):
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        return None
+
+
 def fetch_gpg_key(gpg_path, keyserver, email):
     """Миттєве завантаження ключа через стандартний HTTPS API сервера SKS (Обхід багів dirmngr)"""
     try:
@@ -1917,14 +1929,24 @@ def fetch_gpg_key(gpg_path, keyserver, email):
 
         # ІГНОРУВАННЯ ПОМИЛОК SSL (Для самопідписаних сертифікатів)
         ctx = ssl.create_default_context()
-        ctx.check_hostname = False
-        ctx.verify_mode = ssl.CERT_NONE
+        if not outbound_policy_enforced():
+            ctx.check_hostname = False
+            ctx.verify_mode = ssl.CERT_NONE
 
         # Намагаємося завантажити ключ з HTTP/HTTPS
         try:
-            req = urllib.request.Request(api_url, headers={'User-Agent': 'Mozilla/5.0 (WinHUB)'})
-            with urllib.request.urlopen(req, timeout=10, context=ctx) as response:
-                key_data = response.read().decode('utf-8')
+            web_schemes = ("https",) if outbound_policy_enforced() else ("https", "http")
+            with pinned_outbound_url(api_url, "Newsletter GPG keyserver", allowed_schemes=web_schemes):
+                req = urllib.request.Request(api_url, headers={'User-Agent': 'Mozilla/5.0 (WinHUB)'})
+                opener = urllib.request.build_opener(
+                    urllib.request.ProxyHandler({}),
+                    urllib.request.HTTPSHandler(context=ctx),
+                    _NewsletterNoRedirectHandler(),
+                )
+                with opener.open(req, timeout=10) as response:
+                    key_data = response.read(2 * 1024 * 1024 + 1).decode('utf-8', errors='replace')
+                    if len(key_data.encode('utf-8')) > 2 * 1024 * 1024:
+                        return False, "Keyserver response is too large."
         except Exception as e:
             return False, f"HTTP Fetch Error: {str(e)}"
 
