@@ -98,6 +98,9 @@ apt-get install -y \
 if ! id winhub >/dev/null 2>&1; then
   useradd --system --home "${APP_DIR}" --shell /usr/sbin/nologin winhub
 fi
+if ! id winhub-renderer >/dev/null 2>&1; then
+  useradd --system --home /nonexistent --shell /usr/sbin/nologin winhub-renderer
+fi
 
 mkdir -p "${APP_DIR}" "${ENV_DIR}/certs" "${DATA_DIR}/logs" "${DATA_DIR}/gnupg" "${LOG_DIR}"
 rsync -a \
@@ -130,12 +133,15 @@ fi
 
 install -m 0644 "${APP_DIR}/deploy/debian/winhub.service" /etc/systemd/system/winhub.service
 install -m 0644 "${APP_DIR}/deploy/debian/winhub-agent.service" /etc/systemd/system/winhub-agent.service
+install -m 0644 "${APP_DIR}/deploy/debian/winhub-renderer.socket" /etc/systemd/system/winhub-renderer.socket
+install -m 0644 "${APP_DIR}/deploy/debian/winhub-renderer@.service" /etc/systemd/system/winhub-renderer@.service
 ENV_FILE="${ENV_DIR}/winhub.env" APP_DIR="${APP_DIR}" bash "${APP_DIR}/deploy/debian/render_nginx_config.sh" /etc/nginx/sites-available/winhub
 ln -sfn /etc/nginx/sites-available/winhub /etc/nginx/sites-enabled/winhub
 install -m 0644 "${APP_DIR}/deploy/debian/winhub.logrotate" /etc/logrotate.d/winhub
-chmod 0755 "${APP_DIR}/deploy/debian/backup_winhub.sh" "${APP_DIR}/deploy/debian/healthcheck_winhub.sh" "${APP_DIR}/deploy/debian/migrate_winhub.sh" "${APP_DIR}/deploy/debian/render_nginx_config.sh" "${APP_DIR}/deploy/debian/restore_winhub.sh" "${APP_DIR}/deploy/debian/rollback_winhub.sh" "${APP_DIR}/deploy/debian/update_winhub.sh"
+chmod 0755 "${APP_DIR}/deploy/debian/backup_winhub.sh" "${APP_DIR}/deploy/debian/healthcheck_winhub.sh" "${APP_DIR}/deploy/debian/security_smoke_test.sh" "${APP_DIR}/deploy/debian/migrate_winhub.sh" "${APP_DIR}/deploy/debian/render_nginx_config.sh" "${APP_DIR}/deploy/debian/restore_winhub.sh" "${APP_DIR}/deploy/debian/rollback_winhub.sh" "${APP_DIR}/deploy/debian/update_winhub.sh"
 
 chown -R winhub:winhub "${APP_DIR}" "${DATA_DIR}" "${LOG_DIR}"
+chmod 0750 "${DATA_DIR}" "${LOG_DIR}"
 chmod 0700 "${DATA_DIR}/gnupg"
 chown -R root:winhub "${ENV_DIR}"
 chmod 0750 "${ENV_DIR}"
@@ -144,6 +150,7 @@ chmod 0640 "${ENV_DIR}/winhub.env"
 chmod 0640 "${ENV_DIR}/certs/"*.pem
 
 systemctl daemon-reload
+systemctl enable --now winhub-renderer.socket
 nginx -t
 
 if awk -F= '/^[[:space:]]*AGENT_BACKEND_PORT[[:space:]]*=/{gsub(/[ \047"\r]/, "", $2); if ($2 != "") found=1} END{exit found ? 0 : 1}' "${ENV_DIR}/winhub.env"; then

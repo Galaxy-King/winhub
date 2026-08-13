@@ -416,6 +416,8 @@ $StaticPassword = "{{secret:local_admin_password}}"
 <script nonce="{{ csp_nonce }}">
     let sysModules = [];
     let sysGroups = [];
+    let currentUsersById = new Map();
+    let currentApiKeysById = new Map();
     let currentTab = 'users';
     let auditPage = 1;
     let auditPages = 1;
@@ -566,22 +568,22 @@ $StaticPassword = "{{secret:local_admin_password}}"
         const container = document.getElementById(containerId);
         container.innerHTML = sysModules.map(m => `
             <div class="p-4 bg-slate-50 border border-slate-200 rounded-2xl">
-                <div class="font-black text-slate-800 text-sm mb-3">${m.name}</div>
+                <div class="font-black text-slate-800 text-sm mb-3">${escapeHtml(m.name)}</div>
                 ${(m.permissions || []).length ? `
                     <div class="space-y-2">
                         ${m.permissions.map(p => {
                             const token = `${m.id}:${p.id}`;
                             return `
                                 <label class="flex items-center gap-2 cursor-pointer">
-                                    <input type="checkbox" value="${token}" class="api-perm-cb w-3.5 h-3.5 text-indigo-600 rounded border-slate-300 focus:ring-indigo-500" ${selectedSet.has(token) ? 'checked' : ''}>
-                                    <span class="text-xs font-bold text-slate-600">${p.name}</span>
+                                    <input type="checkbox" value="${escapeHtml(token)}" class="api-perm-cb w-3.5 h-3.5 text-indigo-600 rounded border-slate-300 focus:ring-indigo-500" ${selectedSet.has(token) ? 'checked' : ''}>
+                                    <span class="text-xs font-bold text-slate-600">${escapeHtml(p.name)}</span>
                                 </label>
                             `;
                         }).join('')}
                     </div>
                 ` : `
                     <label class="flex items-center gap-2 cursor-pointer">
-                        <input type="checkbox" value="${m.id}" class="api-perm-cb w-3.5 h-3.5 text-indigo-600 rounded border-slate-300 focus:ring-indigo-500" ${selectedSet.has(m.id) ? 'checked' : ''}>
+                        <input type="checkbox" value="${escapeHtml(m.id)}" class="api-perm-cb w-3.5 h-3.5 text-indigo-600 rounded border-slate-300 focus:ring-indigo-500" ${selectedSet.has(m.id) ? 'checked' : ''}>
                         <span class="text-xs font-bold text-slate-600">Module access</span>
                     </label>
                 `}
@@ -598,8 +600,8 @@ $StaticPassword = "{{secret:local_admin_password}}"
         const container = document.getElementById(containerId);
         container.innerHTML = sysGroups.map(g => `
             <label class="flex items-center gap-3 p-3 bg-slate-50 border border-slate-200 hover:bg-slate-100 rounded-xl cursor-pointer transition-colors">
-                <input type="checkbox" value="${g.id}" class="api-group-scope-cb w-4 h-4 text-indigo-600 rounded border-slate-300 focus:ring-indigo-500" ${selectedSet.has(g.id) ? 'checked' : ''}>
-                <span class="text-sm font-bold text-slate-700">${g.name}</span>
+                <input type="checkbox" value="${escapeHtml(g.id)}" class="api-group-scope-cb w-4 h-4 text-indigo-600 rounded border-slate-300 focus:ring-indigo-500" ${selectedSet.has(g.id) ? 'checked' : ''}>
+                <span class="text-sm font-bold text-slate-700">${escapeHtml(g.name)}</span>
             </label>
         `).join('') || '<div class="text-xs font-bold text-slate-400 p-4 bg-slate-50 rounded-xl">No groups available.</div>';
     }
@@ -683,6 +685,15 @@ $StaticPassword = "{{secret:local_admin_password}}"
         }[ch]));
     }
 
+    function escapeInlineJs(value) {
+        return escapeHtml(String(value ?? '')
+            .replace(/\\/g, '\\\\')
+            .replace(/'/g, "\\'")
+            .replace(/\r/g, '\\r')
+            .replace(/\n/g, '\\n')
+            .replace(/</g, '\\x3c'));
+    }
+
     function compactDetails(details) {
         if(!details) return '';
         try {
@@ -711,15 +722,15 @@ $StaticPassword = "{{secret:local_admin_password}}"
             document.getElementById('auditPageLabel').innerText = `Page ${data.current_page || 1} / ${auditPages}`;
             const moduleSelect = document.getElementById('auditModule');
             if(moduleSelect && moduleSelect.options.length <= 1) {
-                moduleSelect.innerHTML = '<option value="">All modules</option>' + (data.modules || []).map(m => `<option value="${m}">${m}</option>`).join('');
+                moduleSelect.innerHTML = '<option value="">All modules</option>' + (data.modules || []).map(m => `<option value="${escapeHtml(m)}">${escapeHtml(m)}</option>`).join('');
             }
             const statusSelect = document.getElementById('auditStatus');
             if(statusSelect && statusSelect.options.length <= 1) {
-                statusSelect.innerHTML = '<option value="">All statuses</option>' + (data.statuses || []).map(s => `<option value="${s}">${s}</option>`).join('');
+                statusSelect.innerHTML = '<option value="">All statuses</option>' + (data.statuses || []).map(s => `<option value="${escapeHtml(s)}">${escapeHtml(s)}</option>`).join('');
             }
             tbody.innerHTML = (data.logs || []).map(row => `
                 <tr class="hover:bg-slate-50/80 transition-colors align-top">
-                    <td class="px-8 py-5 text-xs font-bold text-slate-500 whitespace-nowrap">${row.timestamp ? new Date(row.timestamp).toLocaleString() : ''}</td>
+                    <td class="px-8 py-5 text-xs font-bold text-slate-500 whitespace-nowrap">${escapeHtml(row.timestamp ? new Date(row.timestamp).toLocaleString() : '')}</td>
                     <td class="px-8 py-5">
                         <div class="font-black text-slate-800 text-sm">${escapeHtml(row.actor_name || row.user || 'System')}</div>
                         <div class="text-[10px] font-black text-slate-400 uppercase tracking-widest">${escapeHtml(row.actor_type || 'user')}</div>
@@ -767,7 +778,7 @@ $StaticPassword = "{{secret:local_admin_password}}"
             if(!data.success) throw new Error(data.message || 'Failed');
             const fileSelect = document.getElementById('systemLogFile');
             const currentValue = fileSelect.value || data.selected;
-            fileSelect.innerHTML = (data.files || []).map(f => `<option value="${f.id}" ${f.id === currentValue ? 'selected' : ''}>${f.name}${f.exists ? '' : ' (missing)'}</option>`).join('');
+            fileSelect.innerHTML = (data.files || []).map(f => `<option value="${escapeHtml(f.id)}" ${f.id === currentValue ? 'selected' : ''}>${escapeHtml(f.name)}${f.exists ? '' : ' (missing)'}</option>`).join('');
             output.textContent = (data.lines || []).join('\n') || 'No log lines found.';
         } catch(e) {
             output.textContent = 'Failed to load system logs.';
@@ -885,14 +896,15 @@ $StaticPassword = "{{secret:local_admin_password}}"
             const res = await fetch('/api/admin/users');
             const data = await res.json();
             if(data.success) {
+                currentUsersById = new Map((data.users || []).map(user => [String(user.id), user]));
                 tbody.innerHTML = data.users.map(u => `
                     <tr class="hover:bg-slate-50/80 transition-colors">
                         <td class="px-10 py-5">
-                            <div class="font-black text-slate-800 text-lg">${u.username}</div>
-                            <div class="text-[10px] text-slate-400 font-bold tracking-widest mt-1">${u.email}</div>
+                            <div class="font-black text-slate-800 text-lg">${escapeHtml(u.username)}</div>
+                            <div class="text-[10px] text-slate-400 font-bold tracking-widest mt-1">${escapeHtml(u.email)}</div>
                         </td>
                         <td class="px-10 py-5">
-                            <span class="px-3 py-1.5 rounded-xl text-[10px] font-black uppercase tracking-widest ${u.is_admin ? 'bg-indigo-100 text-indigo-700' : 'bg-slate-100 text-slate-600'}">${userTypeLabel(u)}</span>
+                            <span class="px-3 py-1.5 rounded-xl text-[10px] font-black uppercase tracking-widest ${u.is_admin ? 'bg-indigo-100 text-indigo-700' : 'bg-slate-100 text-slate-600'}">${escapeHtml(userTypeLabel(u))}</span>
                             <span class="px-3 py-1.5 rounded-xl text-[10px] font-black uppercase tracking-widest ml-2 ${u.is_active ? 'bg-emerald-100 text-emerald-700' : 'bg-rose-100 text-rose-700'}">${u.is_active ? 'Active' : 'Locked'}</span>
                         </td>
                         <td class="px-10 py-5">
@@ -902,10 +914,10 @@ $StaticPassword = "{{secret:local_admin_password}}"
                             <span class="bg-slate-100 text-slate-600 px-3 py-1 rounded-lg text-xs font-bold border border-slate-200">${u.is_admin ? 'ALL' : u.allowed_groups.length}</span>
                         </td>
                         <td class="px-10 py-5 text-right flex justify-end gap-2">
-                            ${!u.is_admin ? `<button onclick='openEditModal(${JSON.stringify(u)})' class="px-4 py-2 bg-white text-slate-600 hover:text-indigo-600 rounded-xl text-xs font-black uppercase transition-colors border border-slate-200 shadow-sm">Access</button>` : ''}
-                            <button onclick="resetCredentials(${u.id})" class="px-4 py-2 bg-white text-slate-600 hover:text-amber-600 rounded-xl text-xs font-black uppercase transition-colors border border-slate-200 shadow-sm">Reset</button>
-                            <button onclick="toggleUser(${u.id})" class="px-4 py-2 bg-white text-slate-600 hover:text-indigo-600 rounded-xl text-xs font-black uppercase transition-colors border border-slate-200 shadow-sm">${u.is_active ? 'Lock' : 'Unlock'}</button>
-                            ${u.username !== 'admin' ? `<button onclick="deleteUser(${u.id})" class="p-2 bg-white text-slate-400 hover:text-rose-600 rounded-xl transition-colors border border-slate-200 shadow-sm"><svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"></path></svg></button>` : ''}
+                            ${!u.is_admin ? `<button onclick="openEditModalById('${escapeInlineJs(u.id)}')" class="px-4 py-2 bg-white text-slate-600 hover:text-indigo-600 rounded-xl text-xs font-black uppercase transition-colors border border-slate-200 shadow-sm">Access</button>` : ''}
+                            <button onclick="resetCredentials('${escapeInlineJs(u.id)}')" class="px-4 py-2 bg-white text-slate-600 hover:text-amber-600 rounded-xl text-xs font-black uppercase transition-colors border border-slate-200 shadow-sm">Reset</button>
+                            <button onclick="toggleUser('${escapeInlineJs(u.id)}')" class="px-4 py-2 bg-white text-slate-600 hover:text-indigo-600 rounded-xl text-xs font-black uppercase transition-colors border border-slate-200 shadow-sm">${u.is_active ? 'Lock' : 'Unlock'}</button>
+                            ${u.username !== 'admin' ? `<button onclick="deleteUser('${escapeInlineJs(u.id)}')" class="p-2 bg-white text-slate-400 hover:text-rose-600 rounded-xl transition-colors border border-slate-200 shadow-sm"><svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"></path></svg></button>` : ''}
                         </td>
                     </tr>
                 `).join('');
@@ -919,21 +931,22 @@ $StaticPassword = "{{secret:local_admin_password}}"
             const res = await fetch('/api/admin/apikeys');
             const data = await res.json();
             if(data.success) {
+                currentApiKeysById = new Map((data.keys || []).map(key => [String(key.id), key]));
                 tbody.innerHTML = data.keys.map(k => `
                     <tr class="hover:bg-slate-50/80 transition-colors">
-                        <td class="px-10 py-5 font-black text-slate-800">${k.name}</td>
-                        <td class="px-10 py-5 font-mono text-indigo-600 font-bold bg-indigo-50 px-2 rounded border border-indigo-100">${k.prefix}*****</td>
-                        <td class="px-10 py-5 text-slate-500 font-bold">${k.user}</td>
-                        <td class="px-10 py-5"><span class="bg-slate-100 text-slate-600 px-3 py-1 rounded-lg text-xs font-bold border border-slate-200">${permissionSummary(k.permissions)}</span></td>
+                        <td class="px-10 py-5 font-black text-slate-800">${escapeHtml(k.name)}</td>
+                        <td class="px-10 py-5 font-mono text-indigo-600 font-bold bg-indigo-50 px-2 rounded border border-indigo-100">${escapeHtml(k.prefix)}*****</td>
+                        <td class="px-10 py-5 text-slate-500 font-bold">${escapeHtml(k.user)}</td>
+                        <td class="px-10 py-5"><span class="bg-slate-100 text-slate-600 px-3 py-1 rounded-lg text-xs font-bold border border-slate-200">${escapeHtml(permissionSummary(k.permissions))}</span></td>
                         <td class="px-10 py-5">
                             <div class="flex flex-col gap-1">
-                                <span class="bg-slate-100 text-slate-600 px-3 py-1 rounded-lg text-xs font-bold border border-slate-200 w-fit">${scopeSummary(k.group_scope)}</span>
-                                <span class="text-[10px] font-bold text-slate-400 uppercase tracking-widest">${k.expires}</span>
+                                <span class="bg-slate-100 text-slate-600 px-3 py-1 rounded-lg text-xs font-bold border border-slate-200 w-fit">${escapeHtml(scopeSummary(k.group_scope))}</span>
+                                <span class="text-[10px] font-bold text-slate-400 uppercase tracking-widest">${escapeHtml(k.expires)}</span>
                             </div>
                         </td>
                         <td class="px-10 py-5 text-right flex justify-end gap-2">
-                            <button onclick='openApiAccessModal(${JSON.stringify(k)})' class="px-4 py-2 bg-white text-slate-600 hover:text-indigo-600 rounded-xl text-xs font-black uppercase transition-colors border border-slate-200 shadow-sm">Access</button>
-                            <button onclick="deleteApiKey(${k.id})" class="p-2 bg-white text-slate-400 hover:text-rose-600 rounded-xl transition-colors border border-slate-200 shadow-sm"><svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"></path></svg></button>
+                            <button onclick="openApiAccessModalById('${escapeInlineJs(k.id)}')" class="px-4 py-2 bg-white text-slate-600 hover:text-indigo-600 rounded-xl text-xs font-black uppercase transition-colors border border-slate-200 shadow-sm">Access</button>
+                            <button onclick="deleteApiKey('${escapeInlineJs(k.id)}')" class="p-2 bg-white text-slate-400 hover:text-rose-600 rounded-xl transition-colors border border-slate-200 shadow-sm"><svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"></path></svg></button>
                         </td>
                     </tr>
                 `).join('') || '<tr><td colspan="6" class="p-16 text-center text-slate-400 font-bold">No API keys.</td></tr>';
@@ -979,6 +992,11 @@ $StaticPassword = "{{secret:local_admin_password}}"
         toggleModal('apiAccess', true);
     }
 
+    function openApiAccessModalById(id) {
+        const key = currentApiKeysById.get(String(id));
+        if (key) openApiAccessModal(key);
+    }
+
     function applyCreateRolePreset() {
         const role = document.getElementById('newRolePreset')?.value || 'operator';
         const preset = rolePresets[role] || rolePresets.operator;
@@ -1016,17 +1034,17 @@ $StaticPassword = "{{secret:local_admin_password}}"
         mCont.innerHTML = sysModules.map(m => `
             <div class="p-3 bg-slate-50 border border-slate-200 rounded-xl">
                 <label class="flex items-center gap-3 cursor-pointer">
-                    <input type="checkbox" value="${m.id}" class="mod-cb w-4 h-4 text-indigo-600 rounded border-slate-300 focus:ring-indigo-500" ${hasModuleGrant(user, m.id) ? 'checked' : ''} onchange="toggleModulePermissions('${m.id}', this.checked)">
-                    <span class="text-sm font-black text-slate-700">${m.name}</span>
+                    <input type="checkbox" value="${escapeHtml(m.id)}" class="mod-cb w-4 h-4 text-indigo-600 rounded border-slate-300 focus:ring-indigo-500" ${hasModuleGrant(user, m.id) ? 'checked' : ''} onchange="toggleModulePermissions('${escapeInlineJs(m.id)}', this.checked)">
+                    <span class="text-sm font-black text-slate-700">${escapeHtml(m.name)}</span>
                 </label>
                 ${(m.permissions || []).length ? `
-                    <div id="permBlock_${m.id}" class="mt-3 ml-7 space-y-2 ${hasModuleGrant(user, m.id) ? '' : 'hidden'}">
+                    <div id="permBlock_${escapeHtml(m.id)}" class="mt-3 ml-7 space-y-2 ${hasModuleGrant(user, m.id) ? '' : 'hidden'}">
                         ${m.permissions.map(p => {
                             const token = `${m.id}:${p.id}`;
                             return `
                                 <label class="flex items-center gap-2 cursor-pointer">
-                                    <input type="checkbox" value="${token}" class="perm-cb perm-${m.id} w-3.5 h-3.5 text-indigo-600 rounded border-slate-300 focus:ring-indigo-500" ${normalizedUserModules.includes(token) ? 'checked' : ''}>
-                                    <span class="text-xs font-bold text-slate-500">${p.name}</span>
+                                    <input type="checkbox" value="${escapeHtml(token)}" class="perm-cb perm-${escapeHtml(m.id)} w-3.5 h-3.5 text-indigo-600 rounded border-slate-300 focus:ring-indigo-500" ${normalizedUserModules.includes(token) ? 'checked' : ''}>
+                                    <span class="text-xs font-bold text-slate-500">${escapeHtml(p.name)}</span>
                                 </label>
                             `;
                         }).join('')}
@@ -1038,12 +1056,17 @@ $StaticPassword = "{{secret:local_admin_password}}"
         const gCont = document.getElementById('groupsContainer');
         gCont.innerHTML = sysGroups.map(g => `
             <label class="flex items-center gap-3 p-3 bg-slate-50 border border-slate-200 hover:bg-slate-100 rounded-xl cursor-pointer transition-colors">
-                <input type="checkbox" value="${g.id}" class="grp-cb w-4 h-4 text-indigo-600 rounded border-slate-300 focus:ring-indigo-500" ${user.allowed_groups.includes(g.id) ? 'checked' : ''}>
-                <span class="text-sm font-bold text-slate-700">${g.name}</span>
+                <input type="checkbox" value="${escapeHtml(g.id)}" class="grp-cb w-4 h-4 text-indigo-600 rounded border-slate-300 focus:ring-indigo-500" ${user.allowed_groups.includes(g.id) ? 'checked' : ''}>
+                <span class="text-sm font-bold text-slate-700">${escapeHtml(g.name)}</span>
             </label>
         `).join('');
 
         toggleModal('edit', true);
+    }
+
+    function openEditModalById(id) {
+        const user = currentUsersById.get(String(id));
+        if (user) openEditModal(user);
     }
 
     function applyRolePresetToAccess(role) {

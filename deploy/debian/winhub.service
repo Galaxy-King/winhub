@@ -1,7 +1,7 @@
 [Unit]
 Description=WinHUB production server
-After=network-online.target postgresql.service
-Wants=network-online.target
+After=network-online.target postgresql.service winhub-renderer.socket
+Wants=network-online.target winhub-renderer.socket
 
 [Service]
 Type=simple

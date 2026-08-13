@@ -7,6 +7,7 @@ import html
 import logging
 import threading
 import smtplib
+import ssl
 import ast
 import re
 import subprocess
@@ -17,7 +18,7 @@ from email.mime.text import MIMEText
 from email.utils import parseaddr
 from urllib.error import HTTPError, URLError
 from urllib.parse import quote, urlsplit
-from urllib.request import HTTPRedirectHandler, Request, build_opener
+from urllib.request import HTTPRedirectHandler, ProxyHandler, Request, build_opener
 from zoneinfo import ZoneInfo
 from flask import Blueprint, request, jsonify, render_template, session, redirect, url_for, current_app, Response, send_from_directory, stream_with_context
 from sqlalchemy import and_, func, or_
@@ -35,7 +36,7 @@ from core.permissions import has_module_access, has_permission, request_api_grou
 from core.gpg import fetch_public_key, gpg_env
 from core.report_renderer import validate_report_template
 from core.template_security import current_template_hash, template_approval_valid
-from core.outbound_security import normalized_origin, validate_outbound_url
+from core.outbound_security import normalized_origin, pinned_outbound_host, pinned_outbound_url
 
 infrastructure_bp = Blueprint('infrastructure', __name__, template_folder='templates')
 kyiv_tz = ZoneInfo("Europe/Kyiv")
@@ -415,16 +416,16 @@ def confluence_request(profile, method, path, payload=None, timeout=20):
     }
     try:
         allowed_schemes = ("https",) if Config.OUTBOUND_POLICY_MODE == "enforce" else ("https", "http")
-        validate_outbound_url(url, "Confluence API", allowed_schemes=allowed_schemes)
-        headers.update(confluence_auth_headers(profile))
-        if payload is not None:
-            data = json.dumps(payload).encode("utf-8")
-        req = Request(url, data=data, headers=headers, method=method.upper())
-        with build_opener(NoCredentialRedirectHandler()).open(req, timeout=timeout) as response:
-            body = response.read().decode("utf-8", errors="replace")
-            if not body:
-                return True, {}, "OK"
-            return True, json.loads(body), "OK"
+        with pinned_outbound_url(url, "Confluence API", allowed_schemes=allowed_schemes):
+            headers.update(confluence_auth_headers(profile))
+            if payload is not None:
+                data = json.dumps(payload).encode("utf-8")
+            req = Request(url, data=data, headers=headers, method=method.upper())
+            with build_opener(ProxyHandler({}), NoCredentialRedirectHandler()).open(req, timeout=timeout) as response:
+                body = response.read().decode("utf-8", errors="replace")
+                if not body:
+                    return True, {}, "OK"
+                return True, json.loads(body), "OK"
     except HTTPError as exc:
         body = exc.read().decode("utf-8", errors="replace")[:1000]
         return False, None, f"Confluence HTTP {exc.code}: {body or exc.reason}"
@@ -1659,26 +1660,31 @@ def send_report_email(title, report_body, sender_email, recipient_list, custom_m
 
         sent_count = 0
         server_class = smtplib.SMTP_SSL if port == 465 else smtplib.SMTP
-        with server_class(host, port, timeout=20) as server:
-            if port != 465:
-                server.starttls()
-            dec_pass = sec_manager.decrypt_data(smtp_conf['password'])
-            server.login(sender_email, dec_pass)
+        tls_context = ssl.create_default_context() if Config.OUTBOUND_POLICY_MODE == "enforce" else None
+        with pinned_outbound_host(host, port, "report SMTP delivery"):
+            server_options = {"timeout": 20}
+            if port == 465 and tls_context is not None:
+                server_options["context"] = tls_context
+            with server_class(host, port, **server_options) as server:
+                if port != 465:
+                    server.starttls(context=tls_context) if tls_context is not None else server.starttls()
+                dec_pass = sec_manager.decrypt_data(smtp_conf['password'])
+                server.login(sender_email, dec_pass)
 
-            for rec in recipients:
-                body_to_send = final_body
-                if use_gpg:
-                    encrypted, encrypted_body, error_text = encrypt_report_body(final_body, rec, sender_email, smtp_conf.get("keyserver"))
-                    if not encrypted:
-                        return False, f"GPG encryption failed for {rec}: {error_text}", sent_count
-                    body_to_send = encrypted_body
+                for rec in recipients:
+                    body_to_send = final_body
+                    if use_gpg:
+                        encrypted, encrypted_body, error_text = encrypt_report_body(final_body, rec, sender_email, smtp_conf.get("keyserver"))
+                        if not encrypted:
+                            return False, f"GPG encryption failed for {rec}: {error_text}", sent_count
+                        body_to_send = encrypted_body
 
-                msg = MIMEText(body_to_send, 'plain', 'utf-8')
-                msg['Subject'] = str(title or '').strip() or "Report"
-                msg['From'] = sender_email
-                msg['To'] = rec
-                server.send_message(msg)
-                sent_count += 1
+                    msg = MIMEText(body_to_send, 'plain', 'utf-8')
+                    msg['Subject'] = str(title or '').strip() or "Report"
+                    msg['From'] = sender_email
+                    msg['To'] = rec
+                    server.send_message(msg)
+                    sent_count += 1
 
         return True, f"Report sent to {sent_count} recipient(s).", sent_count
     except smtplib.SMTPAuthenticationError:

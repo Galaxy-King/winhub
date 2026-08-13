@@ -111,7 +111,7 @@ def render_report(template_string: str, context: dict[str, Any]) -> str:
     return output
 
 
-def _worker() -> int:
+def _apply_resource_limits(required: bool = False) -> None:
     if os.name == "posix":
         try:
             import resource
@@ -122,9 +122,16 @@ def _worker() -> int:
             resource.setrlimit(resource.RLIMIT_NOFILE, (32, 32))
             if hasattr(resource, "RLIMIT_NPROC"):
                 resource.setrlimit(resource.RLIMIT_NPROC, (0, 0))
-        except (OSError, ValueError):
-            pass
+        except (ImportError, OSError, ValueError) as exc:
+            if required:
+                raise RuntimeError("Required renderer resource limits could not be applied") from exc
+    elif required:
+        raise RuntimeError("Required renderer resource limits are unavailable on this platform")
+
+
+def _worker(require_limits: bool = False) -> int:
     try:
+        _apply_resource_limits(required=require_limits)
         request = json.load(sys.stdin)
         output = render_report(str(request.get("template") or ""), request.get("context") or {})
         json.dump({"ok": True, "output": output}, sys.stdout, ensure_ascii=False)
@@ -140,5 +147,6 @@ def _worker() -> int:
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--worker", action="store_true")
+    parser.add_argument("--require-limits", action="store_true")
     args = parser.parse_args()
-    raise SystemExit(_worker() if args.worker else 64)
+    raise SystemExit(_worker(require_limits=args.require_limits) if args.worker else 64)

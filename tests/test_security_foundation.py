@@ -120,6 +120,45 @@ class ContentSecurityPolicyTests(unittest.TestCase):
                     self.assertIn('nonce="{{ csp_nonce }}"', tag)
 
 
+class StoredXssRegressionTests(unittest.TestCase):
+    def test_agent_and_user_controlled_infrastructure_fields_are_escaped(self):
+        source = (ROOT / "static/js/infrastructure.js").read_text(encoding="utf-8")
+        required_escapes = [
+            "${escapeHtml(m.item_name)}",
+            "${escapeHtml(m.last_value || 'No data')}",
+            "${escapeHtml(m.last_updated)}",
+            "${escapeHtml(m.os_type)}",
+            "${escapeHtml(m.ip)}",
+            "${escapeInlineJs(m.id)}",
+            "${escapeHtml(s.name)}",
+            "${escapeHtml(s.placeholder)}",
+            "${escapeInlineJs(s.name)}",
+            "${escapeInlineJs(t.task_id)}",
+        ]
+        for escaped_expression in required_escapes:
+            with self.subTest(expression=escaped_expression):
+                self.assertIn(escaped_expression, source)
+
+    def test_administration_lists_escape_stored_values_and_do_not_embed_objects_in_handlers(self):
+        source = (ROOT / "templates/admin_users.html").read_text(encoding="utf-8")
+        required_escapes = [
+            "${escapeHtml(u.username)}",
+            "${escapeHtml(u.email)}",
+            "${escapeHtml(k.name)}",
+            "${escapeHtml(k.prefix)}",
+            "${escapeHtml(k.user)}",
+            "${escapeHtml(k.expires)}",
+            "${escapeHtml(g.name)}",
+            "${escapeHtml(p.name)}",
+            "${escapeHtml(row.module || 'General')}",
+        ]
+        for escaped_expression in required_escapes:
+            with self.subTest(expression=escaped_expression):
+                self.assertIn(escaped_expression, source)
+        self.assertNotIn("openEditModal(${JSON.stringify(u)})", source)
+        self.assertNotIn("openApiAccessModal(${JSON.stringify(k)})", source)
+
+
 class OutboundPolicyTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
@@ -156,6 +195,42 @@ class OutboundPolicyTests(unittest.TestCase):
                 self.policy.validate_outbound_url("https://wiki.internal/rest/api", "test")
         finally:
             self.Config.OUTBOUND_ALLOWED_HOSTS = ""
+
+    def test_enforce_mode_pins_connection_to_the_validated_dns_answer(self):
+        public_answer = [(socket.AF_INET, socket.SOCK_STREAM, 6, "", ("93.184.216.34", 443))]
+        rebound_answer = [(socket.AF_INET, socket.SOCK_STREAM, 6, "", ("169.254.169.254", 443))]
+        hostname_queries = 0
+
+        def rebinding_resolver(host, port, *args, **kwargs):
+            nonlocal hostname_queries
+            if str(host).lower() == "public.example":
+                hostname_queries += 1
+                return public_answer if hostname_queries == 1 else rebound_answer
+            if str(host) == "93.184.216.34":
+                return public_answer
+            return rebound_answer
+
+        with mock.patch.object(self.policy.socket, "getaddrinfo", side_effect=rebinding_resolver):
+            with self.policy.pinned_outbound_host("public.example", 443, "test"):
+                connected = self.policy.socket.getaddrinfo("public.example", 443, type=socket.SOCK_STREAM)
+
+        self.assertEqual(hostname_queries, 1)
+        self.assertEqual({item[4][0] for item in connected}, {"93.184.216.34"})
+
+
+class RendererDeploymentTests(unittest.TestCase):
+    def test_systemd_renderer_is_a_separate_no_network_identity(self):
+        service = (ROOT / "deploy/debian/winhub-renderer@.service").read_text(encoding="utf-8")
+        socket_unit = (ROOT / "deploy/debian/winhub-renderer.socket").read_text(encoding="utf-8")
+        self.assertIn("User=winhub-renderer", service)
+        self.assertIn("Group=winhub-renderer", service)
+        self.assertIn("PrivateNetwork=true", service)
+        self.assertIn("InaccessiblePaths=/etc/winhub /var/lib/winhub /var/log/winhub", service)
+        self.assertIn("RestrictAddressFamilies=AF_UNIX", service)
+        self.assertIn("SystemCallFilter=~@network-io", service)
+        self.assertIn("--require-limits", service)
+        self.assertIn("SocketMode=0660", socket_unit)
+
 
 
 class TaskSignatureContractTests(unittest.TestCase):

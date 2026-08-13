@@ -129,6 +129,7 @@ class Config:
     HSTS_ENABLED = (clean_env_value(os.environ.get('HSTS_ENABLED')) or ('true' if PRODUCTION_MODE else 'false')).lower() in ('1', 'true', 'yes', 'on')
     SLOW_REQUEST_LOG_SECONDS = env_int('SLOW_REQUEST_LOG_SECONDS', 2, 0, 3600)
     REPORT_RENDERER_MODE = (clean_env_value(os.environ.get('REPORT_RENDERER_MODE')) or 'subprocess').lower()
+    REPORT_RENDERER_SOCKET = clean_env_value(os.environ.get('REPORT_RENDERER_SOCKET')) or '/run/winhub-renderer.sock'
     REPORT_RENDERER_TIMEOUT_SECONDS = env_int('REPORT_RENDERER_TIMEOUT_SECONDS', 10, 1, 120)
     OUTBOUND_POLICY_MODE = (clean_env_value(os.environ.get('OUTBOUND_POLICY_MODE')) or 'audit').lower()
     OUTBOUND_ALLOWED_HOSTS = clean_env_value(os.environ.get('OUTBOUND_ALLOWED_HOSTS')) or ''
@@ -184,4 +185,6 @@ def production_secret_errors():
         errors.append("AGENT_TASK_HMAC_SECRET must be a unique 32+ character task-signing secret in production.")
     if Config.AGENT_TASK_HMAC_SECRET == Config.SECRET_KEY:
         errors.append("AGENT_TASK_HMAC_SECRET must be different from SECRET_KEY in production.")
+    if Config.REPORT_RENDERER_MODE == "inprocess":
+        errors.append("REPORT_RENDERER_MODE=inprocess is not allowed in production.")
     return errors
