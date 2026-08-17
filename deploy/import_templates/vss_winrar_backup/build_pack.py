@@ -49,8 +49,8 @@ variable_schema = {
     },
     "winrar_path": {
         "type": "text",
-        "label": "WinRAR executable",
-        "default": r"C:\Program Files\WinRAR\WinRAR.exe",
+        "label": "RAR console executable",
+        "default": r"C:\Program Files\WinRAR\Rar.exe",
     },
     "temp_root": {
         "type": "text",
