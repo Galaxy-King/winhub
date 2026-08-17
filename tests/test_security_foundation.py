@@ -133,6 +133,10 @@ class TemplateCloneTests(unittest.TestCase):
         self.assertIn('id="btnCloneTemplate"', template)
         self.assertIn('onclick="exportSelectedTemplate()"', template)
         self.assertIn('onclick="cloneSelectedTemplate()"', template)
+        self.assertNotIn('class="sr-only"', template)
+        self.assertIn('aria-label="Save template"', template)
+        self.assertIn('aria-label="Download selected template"', template)
+        self.assertIn('aria-label="Clone selected template"', template)
         self.assertEqual(template.count("cloneTemplate('{{ t.id }}')"), 0)
         self.assertEqual(template.count("exportTemplate('{{ t.id }}')"), 0)
 
