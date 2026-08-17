@@ -38,7 +38,7 @@ variable_schema = {
     },
     "single_folders": {
         "type": "textarea",
-        "label": "Single-level source folders (one per line)",
+        "label": "Single source folders - full tree (one per line)",
         "default": "",
         "placeholder": "C:\\Exports",
     },

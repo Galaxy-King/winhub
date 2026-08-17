@@ -262,9 +262,9 @@ try {
         if (Test-Path -LiteralPath $folder -PathType Container) {
             $ExistingSingleFolders.Add($folder)
         } elseif ($FailOnMissingSource) {
-            throw "Single-level source folder does not exist: $folder"
+            throw "Single source folder does not exist: $folder"
         } else {
-            $Warnings.Add("Single-level source folder does not exist and was skipped: $folder")
+            $Warnings.Add("Single source folder does not exist and was skipped: $folder")
         }
     }
     if (($ExistingRecursiveFolders.Count + $ExistingSingleFolders.Count) -eq 0) {
@@ -330,7 +330,7 @@ try {
 
     $ArchiveRequests = @()
     $ArchiveRequests += @($ExistingRecursiveFolders.ToArray() | ForEach-Object { [pscustomobject]@{ path = $_; mode = 'recursive'; switch = '-r' } })
-    $ArchiveRequests += @($ExistingSingleFolders.ToArray() | ForEach-Object { [pscustomobject]@{ path = $_; mode = 'single-level'; switch = '-r-' } })
+    $ArchiveRequests += @($ExistingSingleFolders.ToArray() | ForEach-Object { [pscustomobject]@{ path = $_; mode = 'single-full-tree'; switch = '-r' } })
 
     foreach ($request in $ArchiveRequests) {
         $ArchiveIndex++
@@ -344,23 +344,12 @@ try {
             throw "Source '$($request.path)' is not visible inside the VSS snapshot at '$shadowSource'."
         }
 
-        $firstEligibleFile = if ($request.mode -eq 'recursive') {
-            @(Get-ChildItem -LiteralPath $shadowSource -File -Force -Recurse -ErrorAction Stop | Select-Object -First 1)
-        } else {
-            @(Get-ChildItem -LiteralPath $shadowSource -File -Force -ErrorAction Stop | Select-Object -First 1)
-        }
+        $firstEligibleFile = @(
+            Get-ChildItem -LiteralPath $shadowSource -File -Force -Recurse -ErrorAction Stop |
+                Select-Object -First 1
+        )
         if ($firstEligibleFile.Count -eq 0) {
             throw "Source '$($request.path)' contains no files eligible for '$($request.mode)' backup mode."
-        }
-
-        # With recursion disabled, passing only a directory makes Rar.exe add
-        # the directory entry without its direct files. The wildcard includes
-        # files from this level while -r- still prevents descending into child
-        # directories. Recursive mode keeps the directory path as its root.
-        $archiveInput = if ($request.mode -eq 'single-level') {
-            Join-Path $shadowSource '*'
-        } else {
-            $shadowSource
         }
 
         $sourceToken = ConvertTo-SafeFileToken ($request.path -replace ':', '') 'source'
@@ -375,7 +364,7 @@ try {
             "-m$CompressionLevel",
             "-hp$ArchivePassword",
             $localArchivePath,
-            $archiveInput
+            $shadowSource
         )
         # Rar.exe is a console process, so PowerShell waits for it and keeps the
         # VSS snapshot and temporary workspace alive until archiving finishes.

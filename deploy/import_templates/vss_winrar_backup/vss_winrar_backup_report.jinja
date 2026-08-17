@@ -72,7 +72,7 @@
 <h3>Configured sources</h3>
 <p><strong>Recursive:</strong></p>
 <ul>{% for folder in result.data.recursive_folders %}<li><code>{{ folder }}</code></li>{% else %}<li>None</li>{% endfor %}</ul>
-<p><strong>Single level:</strong></p>
+<p><strong>Single sources (full tree):</strong></p>
 <ul>{% for folder in result.data.single_folders %}<li><code>{{ folder }}</code></li>{% else %}<li>None</li>{% endfor %}</ul>
 
 {% if result.data.deleted_by_retention %}
@@ -88,4 +88,3 @@
 {% endif %}
 {% endfor %}
 [[/WINHUB_REPORT]]
-

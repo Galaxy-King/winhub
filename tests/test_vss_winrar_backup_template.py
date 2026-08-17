@@ -27,10 +27,11 @@ class VssWinRarBackupTemplateTests(unittest.TestCase):
         self.assertIn("$WinRarPath = $consoleRarPath", self.script)
         self.assertIn("& $WinRarPath @winRarArguments", self.script)
 
-    def test_single_level_mode_uses_wildcard_and_rejects_no_file_archives(self):
-        self.assertIn("Join-Path $shadowSource '*'", self.script)
+    def test_single_folder_mode_archives_the_complete_tree(self):
+        self.assertIn("mode = 'single-full-tree'; switch = '-r'", self.script)
+        self.assertNotIn("switch = '-r-'", self.script)
         self.assertIn("contains no files eligible for", self.script)
-        self.assertIn("$archiveInput", self.script)
+        self.assertIn("Get-ChildItem -LiteralPath $shadowSource -File -Force -Recurse", self.script)
 
 
 if __name__ == "__main__":
