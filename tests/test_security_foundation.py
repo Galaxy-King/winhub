@@ -125,6 +125,34 @@ class TemplateCloneTests(unittest.TestCase):
         self.assertIn("__variable_schema", cloned)
         self.assertNotIn("__template_policy", cloned)
 
+    def test_template_actions_are_in_the_builder_toolbar(self):
+        template = (ROOT / "modules/Infrastructure/templates/tabs/_deploy.html").read_text(encoding="utf-8")
+
+        self.assertIn('id="btnSaveTemplate"', template)
+        self.assertIn('id="btnExportTemplate"', template)
+        self.assertIn('id="btnCloneTemplate"', template)
+        self.assertIn('onclick="exportSelectedTemplate()"', template)
+        self.assertIn('onclick="cloneSelectedTemplate()"', template)
+        self.assertEqual(template.count("cloneTemplate('{{ t.id }}')"), 0)
+        self.assertEqual(template.count("exportTemplate('{{ t.id }}')"), 0)
+
+    def test_template_library_access_does_not_expose_another_users_private_draft(self):
+        from flask import Flask, session
+        from modules.Infrastructure import routes
+
+        app = Flask(__name__)
+        app.secret_key = "template-access-test"
+        with app.test_request_context("/"):
+            session["username"] = "alice"
+            session["is_admin"] = False
+            own_draft = types.SimpleNamespace(created_by="alice", is_approved=False)
+            foreign_draft = types.SimpleNamespace(created_by="bob", is_approved=False)
+            shared_template = types.SimpleNamespace(created_by="bob", is_approved=True)
+            with mock.patch.object(routes, "can", return_value=True), mock.patch.object(routes, "can_use_template", return_value=True):
+                self.assertTrue(routes.can_access_template_library_entry(own_draft))
+                self.assertFalse(routes.can_access_template_library_entry(foreign_draft))
+                self.assertTrue(routes.can_access_template_library_entry(shared_template))
+
 
 class ContentSecurityPolicyTests(unittest.TestCase):
     @classmethod

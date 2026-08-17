@@ -1511,6 +1511,17 @@ def can_use_template(template):
         return True
     return template_run_policy_allows(template)
 
+
+def can_access_template_library_entry(template):
+    if not template:
+        return False
+    if session.get("is_admin"):
+        return True
+    if getattr(template, "created_by", None) == session.get("username") and can("manage_templates"):
+        return True
+    return bool(getattr(template, "is_approved", False) and can_use_template(template))
+
+
 def require_permission(permission_id):
     if not can(permission_id):
         return jsonify({"success": False, "message": "Permission denied"}), 403
@@ -3065,12 +3076,17 @@ def export_templates():
 
 @infrastructure_bp.route('/api/infrastructure/templates/<tid>/export', methods=['GET'])
 def export_single_template(tid):
-    denied = require_superadmin()
-    if denied: return denied
+    denied = require_permission("manage_templates")
+    if denied:
+        return denied
 
     t = TaskTemplate.query.get(tid)
     if not t:
         return jsonify({"success": False, "message": "Template not found"}), 404
+    if not can_access_template_library_entry(t):
+        return jsonify({"success": False, "message": "Template not found"}), 404
+    if not can_view_template_code(t):
+        return jsonify({"success": False, "message": "Template code export is blocked by superadmin policy"}), 403
 
     payload = {
         "format": "winhub-template-library",
@@ -4403,6 +4419,8 @@ def clone_template(tid):
 
     source = TaskTemplate.query.get(tid)
     if not source:
+        return jsonify({"success": False, "message": "Template not found"}), 404
+    if not can_access_template_library_entry(source):
         return jsonify({"success": False, "message": "Template not found"}), 404
     if not can_view_template_code(source) or not can_edit_template(source):
         return jsonify({"success": False, "message": "Template cloning is blocked by superadmin policy"}), 403

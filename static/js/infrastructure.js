@@ -1922,6 +1922,13 @@ function confirmMultiHostSelection() {
 }
 
 // --- WORKSPACE BUILDER ---
+function setTemplateToolbarButtonState(id, enabled, enabledTitle, disabledTitle) {
+    const button = document.getElementById(id);
+    if (!button) return;
+    button.disabled = !enabled;
+    button.title = enabled ? enabledTitle : disabledTitle;
+}
+
 function resetWorkspace(clearPersistedState = true) {
     editingTemplateId = null; selectedTemplateId = null; currentTemplateVariables = []; currentTemplateVariableSchema = {};
     if (clearPersistedState) localStorage.removeItem(infraStateKeys.template);
@@ -1938,8 +1945,10 @@ function resetWorkspace(clearPersistedState = true) {
     if(saveTemplateBtn) {
         saveTemplateBtn.disabled = false;
         saveTemplateBtn.classList.remove('opacity-50', 'cursor-not-allowed');
-        saveTemplateBtn.title = '';
+        saveTemplateBtn.title = 'Save template';
     }
+    setTemplateToolbarButtonState('btnExportTemplate', false, 'Download selected template', 'Select a saved template to download');
+    setTemplateToolbarButtonState('btnCloneTemplate', false, 'Clone selected template', 'Select an editable template to clone');
 
     const isAdmin = checkIsAdmin();
     const actionEl = document.getElementById('depAction');
@@ -2025,13 +2034,15 @@ function loadTemplate(el) {
     if(actEl) actEl.value = el.dataset.action || 'run_script';
 
     const canEditTemplate = el.dataset.canEdit !== 'false' && canViewCode;
+    setTemplateToolbarButtonState('btnExportTemplate', canViewCode, 'Download selected template', 'Template code export is blocked by policy');
+    setTemplateToolbarButtonState('btnCloneTemplate', canEditTemplate, 'Clone selected template', 'Template cloning is blocked by policy');
     if (isAdmin && canEditTemplate) {
         editingTemplateId = el.dataset.id;
         const saveTemplateBtn = document.getElementById('btnSaveTemplate');
         if(saveTemplateBtn) {
             saveTemplateBtn.disabled = false;
             saveTemplateBtn.classList.remove('opacity-50', 'cursor-not-allowed');
-            saveTemplateBtn.title = '';
+            saveTemplateBtn.title = 'Save template';
         }
         try {
             const policy = JSON.parse(el.dataset.policy || '{}');
@@ -2325,6 +2336,16 @@ function exportTemplates() {
 
 function exportTemplate(id) {
     window.location.href = '/api/infrastructure/templates/' + encodeURIComponent(id) + '/export';
+}
+
+function exportSelectedTemplate() {
+    if (!selectedTemplateId) return alert('Select a saved template to download.');
+    exportTemplate(selectedTemplateId);
+}
+
+function cloneSelectedTemplate() {
+    if (!selectedTemplateId) return alert('Select an editable template to clone.');
+    cloneTemplate(selectedTemplateId);
 }
 
 async function cloneTemplate(id) {
