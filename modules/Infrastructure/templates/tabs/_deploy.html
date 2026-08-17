@@ -188,7 +188,7 @@
                                  onclick="loadTemplate(this)">
 
                                 <!-- Colored header marks the template type. -->
-                                <div class="template-card-header px-4 py-3 pr-16">
+	                                <div class="template-card-header px-4 py-3 pr-24">
                                     <h4 class="font-black text-white text-xs truncate transition-colors">{{ t.name }}</h4>
                                 </div>
 
@@ -215,7 +215,10 @@
                                     {% endif %}
                                 </div>
 
-                                <button onclick="event.stopPropagation(); exportTemplate('{{ t.id }}')" class="absolute top-2.5 right-9 opacity-0 group-hover:opacity-100 text-white/70 hover:text-white transition-all {% if not permissions.manage_templates or not t.can_view_code %}hidden{% endif %}" title="Export this template">
+	                                <button onclick="event.stopPropagation(); cloneTemplate('{{ t.id }}')" class="absolute top-2.5 right-[4.5rem] opacity-0 group-hover:opacity-100 text-white/70 hover:text-white transition-all {% if not permissions.manage_templates or not t.can_view_code or not t.can_edit %}hidden{% endif %}" title="Clone template">
+	                                    <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 8h11a2 2 0 012 2v9a2 2 0 01-2 2h-9a2 2 0 01-2-2V8zm0 8H5a2 2 0 01-2-2V5a2 2 0 012-2h9a2 2 0 012 2v3"></path></svg>
+	                                </button>
+	                                <button onclick="event.stopPropagation(); exportTemplate('{{ t.id }}')" class="absolute top-2.5 right-9 opacity-0 group-hover:opacity-100 text-white/70 hover:text-white transition-all {% if not permissions.manage_templates or not t.can_view_code %}hidden{% endif %}" title="Export this template">
                                     <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 3v12m0 0l-4-4m4 4l4-4M4 17v2a2 2 0 002 2h12a2 2 0 002-2v-2"></path></svg>
                                 </button>
                                 <button onclick="event.stopPropagation(); deleteTemplate('{{ t.id }}')" class="absolute top-2.5 right-2 opacity-0 group-hover:opacity-100 text-white/70 hover:text-rose-100 transition-all {% if not permissions.manage_templates or not t.can_delete %}hidden{% endif %}" title="Delete template">

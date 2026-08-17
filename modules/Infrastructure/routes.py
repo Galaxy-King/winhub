@@ -796,6 +796,27 @@ def load_template_payload(template):
         return {"script": str(template.payload or "")}
 
 
+def next_template_clone_name(source_name, existing_names):
+    source_name = str(source_name or "Template").strip() or "Template"
+    existing = {str(name or "").strip().casefold() for name in existing_names}
+    clone_number = 1
+    while True:
+        suffix = " clone" if clone_number == 1 else f" clone {clone_number}"
+        prefix = source_name[:max(1, 150 - len(suffix))].rstrip()
+        candidate = f"{prefix}{suffix}"
+        if candidate.casefold() not in existing:
+            return candidate
+        clone_number += 1
+
+
+def clone_template_payload(template):
+    payload = dict(load_template_payload(template))
+    # Approval and governance policy belongs to the original template. A clone
+    # starts as an editable private draft and must be reviewed independently.
+    payload.pop(TEMPLATE_POLICY_KEY, None)
+    return payload
+
+
 def approved_report_template(template_id):
     template = TaskTemplate.query.get(str(template_id or "")) if template_id else None
     if not template or getattr(template, "type", "action") != "report" or not template_approval_valid(template):
@@ -4372,6 +4393,61 @@ def create_template():
         db.session.add(t)
     db.session.commit()
     return jsonify({"success": True})
+
+
+@infrastructure_bp.route('/api/infrastructure/templates/<tid>/clone', methods=['POST'])
+def clone_template(tid):
+    denied = require_permission("manage_templates")
+    if denied:
+        return denied
+
+    source = TaskTemplate.query.get(tid)
+    if not source:
+        return jsonify({"success": False, "message": "Template not found"}), 404
+    if not can_view_template_code(source) or not can_edit_template(source):
+        return jsonify({"success": False, "message": "Template cloning is blocked by superadmin policy"}), 403
+
+    payload_dict = clone_template_payload(source)
+    template_type = getattr(source, "type", "action") or "action"
+    try:
+        validate_report_template_payload(template_type, payload_dict)
+    except Exception as exc:
+        return jsonify({"success": False, "message": f"Unsafe or invalid report template: {exc}"}), 400
+
+    existing_names = [row[0] for row in db.session.query(TaskTemplate.name).all()]
+    cloned = TaskTemplate(
+        name=next_template_clone_name(source.name, existing_names),
+        category=(str(source.category or "General").strip() or "General"),
+        action_type=source.action_type,
+        type=template_type,
+        payload=json.dumps(payload_dict, ensure_ascii=False),
+        is_approved=False,
+        approved_content_hash=None,
+        approved_at=None,
+        approved_by=None,
+        created_by=session.get("username"),
+    )
+    db.session.add(cloned)
+    db.session.flush()
+    write_infra_audit(
+        "template_cloned",
+        "task_template",
+        cloned.id,
+        {
+            "source_template_id": source.id,
+            "source_template_name": source.name,
+            "clone_template_name": cloned.name,
+        },
+    )
+    db.session.commit()
+    return jsonify({
+        "success": True,
+        "template": {
+            "id": cloned.id,
+            "name": cloned.name,
+        },
+    }), 201
+
 
 @infrastructure_bp.route('/api/infrastructure/templates/<tid>', methods=['DELETE'])
 def delete_template(tid):

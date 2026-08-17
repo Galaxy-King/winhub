@@ -2327,6 +2327,24 @@ function exportTemplate(id) {
     window.location.href = '/api/infrastructure/templates/' + encodeURIComponent(id) + '/export';
 }
 
+async function cloneTemplate(id) {
+    if (!id) return;
+    try {
+        const res = await fetch('/api/infrastructure/templates/' + encodeURIComponent(id) + '/clone', {
+            method: 'POST'
+        });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok || !data.success || !data.template?.id) {
+            return alert(data.message || 'Failed to clone template.');
+        }
+
+        localStorage.setItem(infraStateKeys.template, data.template.id);
+        window.location.reload();
+    } catch(e) {
+        alert('Error cloning template.');
+    }
+}
+
 async function importTemplates(input) {
     const file = input?.files?.[0];
     if (!file) return;

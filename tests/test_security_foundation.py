@@ -95,6 +95,37 @@ class TemplateVariableSubstitutionTests(unittest.TestCase):
         )
 
 
+class TemplateCloneTests(unittest.TestCase):
+    def test_clone_name_is_unique_and_limited_to_database_column(self):
+        from modules.Infrastructure.routes import next_template_clone_name
+
+        self.assertEqual(next_template_clone_name("Backup", []), "Backup clone")
+        self.assertEqual(
+            next_template_clone_name("Backup", ["backup CLONE", "Backup clone 2"]),
+            "Backup clone 3",
+        )
+        self.assertLessEqual(len(next_template_clone_name("x" * 200, [])), 150)
+
+    def test_clone_keeps_functional_payload_but_drops_governance_policy(self):
+        from modules.Infrastructure.routes import clone_template_payload
+
+        source = types.SimpleNamespace(payload=json.dumps({
+            "script": "backup {{destination}}",
+            "__variable_schema": {"destination": {"type": "text"}},
+            "__report_template_id": "report-id",
+            "__auto_email_toggle": True,
+            "__template_policy": {"lock_edit": True, "disable_run": True},
+        }))
+
+        cloned = clone_template_payload(source)
+
+        self.assertEqual(cloned["script"], "backup {{destination}}")
+        self.assertEqual(cloned["__report_template_id"], "report-id")
+        self.assertTrue(cloned["__auto_email_toggle"])
+        self.assertIn("__variable_schema", cloned)
+        self.assertNotIn("__template_policy", cloned)
+
+
 class ContentSecurityPolicyTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
