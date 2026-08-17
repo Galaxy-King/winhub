@@ -112,4 +112,4 @@ Report уже прив’язаний до action template. Окремо дод�
 
 ## Report і пошта
 
-Action повертає компактний JSON. Звіт показує створені архіви, розмір, перевірку, retention, warnings, етап помилки та UNC destination. Відправку налаштовуйте у WinHUB через report/email workflow або Post-Execution — SMTP/GPG логіки в PowerShell немає.
+Action повертає компактний JSON. Report формується як звичайний текст без HTML-тегів, тому однаково читається у вікні Reports, email і після GPG-розшифрування. Він показує створені архіви, розмір, перевірку, retention, warnings, етап помилки та UNC destination. Відправку налаштовуйте у WinHUB через report/email workflow або Post-Execution — SMTP/GPG логіки в PowerShell немає.

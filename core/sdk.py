@@ -198,16 +198,16 @@ class WinHubCore:
                     '<div style="border:1px solid #f59e0b;background:#451a03;color:#fffbeb;'
                     'padding:12px 14px;margin:0 0 18px 0;border-radius:10px;">'
                     '<h2 style="margin:0 0 8px 0;color:#fde68a;font-size:18px;">'
-                    "Report generated with ignored hosts</h2>"
-                    '<p style="margin:0 0 8px 0;">Some endpoints did not return a successful result before the job deadline. '
-                    "They were not expanded in the report body.</p>"
+                    "Failed endpoints</h2>"
+                    '<p style="margin:0 0 8px 0;">The following endpoints did not complete successfully. '
+                    "They were not included in success-only report sections.</p>"
                     f'<ul style="margin:0;padding-left:20px;">{items}</ul>'
                     "</div>\n"
                 )
             lines = [
-                "REPORT GENERATED WITH IGNORED HOSTS",
-                "Some endpoints did not return a successful result before the job deadline. "
-                "They were not expanded in the report body.",
+                "FAILED ENDPOINTS",
+                "The following endpoints did not complete successfully. "
+                "They were not included in success-only report sections.",
             ]
             for item in ignored_results:
                 lines.append(
@@ -218,6 +218,8 @@ class WinHubCore:
 
         def prepend_ignored_banner(report_text, ignored_results):
             if not ignored_results:
+                return report_text
+            if "FAILED ENDPOINT DETAILS" in str(report_text or "").upper():
                 return report_text
             html_mode = report_looks_html(report_text)
             return build_ignored_banner(ignored_results, html_mode=html_mode) + (report_text or "")
@@ -265,7 +267,14 @@ class WinHubCore:
             parsed_data = {}
             try:
                 parsed_data = json.loads(t.result_log)
-                log_text = "JSON Object"
+                if isinstance(parsed_data, dict):
+                    log_text = str(
+                        parsed_data.get("error")
+                        or parsed_data.get("message")
+                        or "Structured JSON result"
+                    )
+                else:
+                    log_text = result_log_summary(parsed_data)
             except:
                 log_text = t.result_log.strip() if t.result_log else "No output"
 

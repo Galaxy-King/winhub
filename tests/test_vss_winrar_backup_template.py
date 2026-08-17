@@ -18,6 +18,14 @@ class VssWinRarBackupTemplateTests(unittest.TestCase):
         self.assertEqual(self.templates["action"]["payload"]["script"], self.script)
         self.assertEqual(self.templates["report"]["payload"]["script"], self.report)
 
+    def test_report_is_plain_text(self):
+        self.assertIn("VSS WINRAR BACKUP", self.report)
+        self.assertIn("CREATED ARCHIVES", self.report)
+        self.assertIn("FAILED ENDPOINT DETAILS", self.report)
+        self.assertNotIn("<table", self.report)
+        self.assertNotIn("<div", self.report)
+        self.assertNotIn("<h1", self.report)
+
     def test_action_uses_console_rar_executable(self):
         action_payload = self.templates["action"]["payload"]
         rar_field = action_payload["__variable_schema"]["winrar_path"]
