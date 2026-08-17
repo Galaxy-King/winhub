@@ -181,7 +181,7 @@ try {
     if ([string]::IsNullOrWhiteSpace($ProjectName)) { $ProjectName = 'Backup' }
     if ([string]::IsNullOrWhiteSpace($TaskName)) { $TaskName = 'VSS WinRAR backup' }
     if ([string]::IsNullOrWhiteSpace($ArchivePrefix)) { $ArchivePrefix = 'WinHUB' }
-    if ([string]::IsNullOrWhiteSpace($WinRarPath)) { $WinRarPath = 'C:\Program Files\WinRAR\WinRAR.exe' }
+    if ([string]::IsNullOrWhiteSpace($WinRarPath)) { $WinRarPath = 'C:\Program Files\WinRAR\Rar.exe' }
     if ([string]::IsNullOrWhiteSpace($TempRoot)) { $TempRoot = 'C:\ProgramData\WinHUB\BackupTemp' }
     if ([string]::IsNullOrWhiteSpace($VerifyMode)) { $VerifyMode = 'Size' }
 
@@ -198,8 +198,16 @@ try {
     if (@('None', 'Size', 'SHA256') -notcontains $VerifyMode) {
         throw "Verify mode must be None, Size, or SHA256. Received '$VerifyMode'."
     }
+    if ([System.IO.Path]::GetFileName($WinRarPath) -ieq 'WinRAR.exe') {
+        $consoleRarPath = Join-Path (Split-Path -Parent $WinRarPath) 'Rar.exe'
+        if (Test-Path -LiteralPath $consoleRarPath -PathType Leaf) {
+            $WinRarPath = $consoleRarPath
+        } else {
+            throw "The GUI executable '$WinRarPath' cannot be used by the non-interactive WinHUB Agent. Point this field to the console executable Rar.exe. Expected path: '$consoleRarPath'."
+        }
+    }
     if (-not (Test-Path -LiteralPath $WinRarPath -PathType Leaf)) {
-        throw "WinRAR was not found at '$WinRarPath'."
+        throw "RAR console executable was not found at '$WinRarPath'."
     }
 
     $DiskShadowPath = Join-Path $env:SystemRoot 'System32\diskshadow.exe'
@@ -254,9 +262,9 @@ try {
         if (Test-Path -LiteralPath $folder -PathType Container) {
             $ExistingSingleFolders.Add($folder)
         } elseif ($FailOnMissingSource) {
-            throw "Single-level source folder does not exist: $folder"
+            throw "Single source folder does not exist: $folder"
         } else {
-            $Warnings.Add("Single-level source folder does not exist and was skipped: $folder")
+            $Warnings.Add("Single source folder does not exist and was skipped: $folder")
         }
     }
     if (($ExistingRecursiveFolders.Count + $ExistingSingleFolders.Count) -eq 0) {
@@ -322,7 +330,7 @@ try {
 
     $ArchiveRequests = @()
     $ArchiveRequests += @($ExistingRecursiveFolders.ToArray() | ForEach-Object { [pscustomobject]@{ path = $_; mode = 'recursive'; switch = '-r' } })
-    $ArchiveRequests += @($ExistingSingleFolders.ToArray() | ForEach-Object { [pscustomobject]@{ path = $_; mode = 'single-level'; switch = '-r-' } })
+    $ArchiveRequests += @($ExistingSingleFolders.ToArray() | ForEach-Object { [pscustomobject]@{ path = $_; mode = 'single-full-tree'; switch = '-r' } })
 
     foreach ($request in $ArchiveRequests) {
         $ArchiveIndex++
@@ -334,6 +342,14 @@ try {
         $shadowSource = if ([string]::IsNullOrWhiteSpace($relativePath)) { $shadowRoot } else { Join-Path $shadowRoot $relativePath }
         if (-not (Test-Path -LiteralPath $shadowSource -PathType Container)) {
             throw "Source '$($request.path)' is not visible inside the VSS snapshot at '$shadowSource'."
+        }
+
+        $firstEligibleFile = @(
+            Get-ChildItem -LiteralPath $shadowSource -File -Force -Recurse -ErrorAction Stop |
+                Select-Object -First 1
+        )
+        if ($firstEligibleFile.Count -eq 0) {
+            throw "Source '$($request.path)' contains no files eligible for '$($request.mode)' backup mode."
         }
 
         $sourceToken = ConvertTo-SafeFileToken ($request.path -replace ':', '') 'source'
@@ -350,6 +366,10 @@ try {
             $localArchivePath,
             $shadowSource
         )
+        # Rar.exe is a console process, so PowerShell waits for it and keeps the
+        # VSS snapshot and temporary workspace alive until archiving finishes.
+        # WinRAR.exe is a GUI process and can detach under a service session,
+        # leaving an orphan process that holds the agent output pipes open.
         $WinRarOutput = @(& $WinRarPath @winRarArguments 2>&1)
         $WinRarExitCode = $LASTEXITCODE
         if ($WinRarExitCode -ne 0 -or -not (Test-Path -LiteralPath $localArchivePath -PathType Leaf)) {

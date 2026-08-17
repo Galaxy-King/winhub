@@ -1,91 +1,91 @@
 [[WINHUB_REPORT title="VSS WinRAR Backup - {{ job_title }}"]]
-<h1>VSS WinRAR Backup</h1>
-<p><strong>Job:</strong> {{ job_title }}</p>
+{% set ns = namespace(archives=0, bytes=0, warnings=0, retention_deleted=0) -%}
+{% for result in results -%}
+{% if result.data and result.data.archives -%}
+{% set ns.archives = ns.archives + (result.data.archives|length) -%}
+{% for archive in result.data.archives -%}
+{% set ns.bytes = ns.bytes + (archive.size_bytes or 0) -%}
+{% endfor -%}
+{% endif -%}
+{% if result.data and result.data.warnings -%}{% set ns.warnings = ns.warnings + (result.data.warnings|length) -%}{% endif -%}
+{% if result.data and result.data.deleted_by_retention -%}{% set ns.retention_deleted = ns.retention_deleted + (result.data.deleted_by_retention|length) -%}{% endif -%}
+{% endfor -%}
+VSS WINRAR BACKUP
+=================
+Job: {{ job_title }}
+Status: {% if ignored_results %}COMPLETED WITH ERRORS{% else %}SUCCESS{% endif %}
 
-{% set ns = namespace(total=0, archives=0, bytes=0, warnings=0, retention_deleted=0) %}
-{% for result in results %}
-{% set ns.total = ns.total + 1 %}
-{% if result.data and result.data.archives %}
-{% set ns.archives = ns.archives + (result.data.archives|length) %}
-{% for archive in result.data.archives %}
-{% set ns.bytes = ns.bytes + (archive.size_bytes or 0) %}
-{% endfor %}
-{% endif %}
-{% if result.data and result.data.warnings %}{% set ns.warnings = ns.warnings + (result.data.warnings|length) %}{% endif %}
-{% if result.data and result.data.deleted_by_retention %}{% set ns.retention_deleted = ns.retention_deleted + (result.data.deleted_by_retention|length) %}{% endif %}
-{% endfor %}
-
-<div style="border:2px solid {% if ignored_results %}#d48806{% else %}#237804{% endif %};padding:14px;background:{% if ignored_results %}#fffbe6{% else %}#f6ffed{% endif %};border-radius:10px;">
-  <h2 style="margin-top:0;">Status: {% if ignored_results %}COMPLETED WITH ERRORS{% else %}SUCCESS{% endif %}</h2>
-  <table>
-    <thead><tr><th>Successful endpoints</th><th>Failed endpoints</th><th>Archives</th><th>Total size</th><th>Warnings</th><th>Retention deletions</th></tr></thead>
-    <tbody><tr><td>{{ results|length }}</td><td>{{ ignored_results|length }}</td><td>{{ ns.archives }}</td><td>{{ (ns.bytes / 1048576)|round(2) }} MB</td><td>{{ ns.warnings }}</td><td>{{ ns.retention_deleted }}</td></tr></tbody>
-  </table>
-</div>
+SUMMARY
+-------
+Successful endpoints: {{ results|length }}
+Failed endpoints: {{ ignored_results|length }}
+Archives created: {{ ns.archives }}
+Total archive size: {{ (ns.bytes / 1048576)|round(2) }} MB
+Warnings: {{ ns.warnings }}
+Retention deletions: {{ ns.retention_deleted }}
 
 {% if ignored_results %}
-<h2>Failed endpoints</h2>
-<table>
-  <thead><tr><th>Endpoint</th><th>Status</th><th>Stage / error</th></tr></thead>
-  <tbody>
-  {% for result in ignored_results %}
-    <tr>
-      <td><strong>{{ result.host }}</strong></td>
-      <td>{{ result.status }}</td>
-      <td>{% if result.data and result.data.error %}{{ result.data.error }}{% else %}{{ result.log }}{% endif %}</td>
-    </tr>
-  {% endfor %}
-  </tbody>
-</table>
+FAILED ENDPOINT DETAILS
+-----------------------
+{% for result in ignored_results %}
+- Endpoint: {{ result.host }}
+  Status: {{ result.status }}
+  Error: {% if result.data and result.data.error %}{{ result.data.error }}{% else %}{{ result.log }}{% endif %}
+{% endfor %}
 {% endif %}
-
 {% for result in results %}
-<hr style="border:0;border-top:4px solid #34495e;margin:28px 0 18px;" />
-<h2>{{ result.host }}</h2>
-<table>
-  <tbody>
-    <tr><th>Project</th><td>{{ result.data.project }}</td><th>Task</th><td>{{ result.data.task }}</td></tr>
-    <tr><th>Destination</th><td colspan="3"><code>{{ result.data.backup_destination }}</code></td></tr>
-    <tr><th>Started</th><td>{{ result.data.started_at }}</td><th>Finished / duration</th><td>{{ result.data.finished_at }} / {{ result.data.duration_seconds }} sec</td></tr>
-  </tbody>
-</table>
+========================================================================
+ENDPOINT: {{ result.host }}
+========================================================================
+Project: {{ result.data.project }}
+Task: {{ result.data.task }}
+Destination: {{ result.data.backup_destination }}
+Started: {{ result.data.started_at }}
+Finished: {{ result.data.finished_at }}
+Duration: {{ result.data.duration_seconds }} seconds
 
-<h3>Created archives</h3>
-<table>
-  <thead><tr><th>Source</th><th>Mode</th><th>Archive</th><th>Size</th><th>Verification</th><th>Destination</th></tr></thead>
-  <tbody>
-  {% for archive in result.data.archives %}
-    <tr>
-      <td><code>{{ archive.source }}</code></td>
-      <td>{{ archive.mode }}</td>
-      <td>{{ archive.name }}</td>
-      <td>{{ archive.size_mb }} MB</td>
-      <td>{{ archive.verification }}</td>
-      <td><code>{{ archive.destination }}</code></td>
-    </tr>
-  {% else %}
-    <tr><td colspan="6">No archives were returned.</td></tr>
-  {% endfor %}
-  </tbody>
-</table>
+CREATED ARCHIVES
+----------------
+{% for archive in result.data.archives %}
+- Archive: {{ archive.name }}
+  Source: {{ archive.source }}
+  Mode: {{ archive.mode }}
+  Size: {{ archive.size_mb }} MB
+  Verification: {{ archive.verification }}
+  Destination: {{ archive.destination }}
+{% else %}
+- none
+{% endfor %}
 
-<h3>Configured sources</h3>
-<p><strong>Recursive:</strong></p>
-<ul>{% for folder in result.data.recursive_folders %}<li><code>{{ folder }}</code></li>{% else %}<li>None</li>{% endfor %}</ul>
-<p><strong>Single level:</strong></p>
-<ul>{% for folder in result.data.single_folders %}<li><code>{{ folder }}</code></li>{% else %}<li>None</li>{% endfor %}</ul>
+CONFIGURED SOURCES
+------------------
+Recursive sources:
+{% for folder in result.data.recursive_folders %}
+- {{ folder }}
+{% else %}
+- none
+{% endfor %}
+
+Single sources (full tree):
+{% for folder in result.data.single_folders %}
+- {{ folder }}
+{% else %}
+- none
+{% endfor %}
 
 {% if result.data.deleted_by_retention %}
-<h3>Deleted by retention (older than {{ result.data.retention_days }} days)</h3>
-<ul>{% for item in result.data.deleted_by_retention %}<li>{{ item }}</li>{% endfor %}</ul>
+DELETED BY RETENTION (older than {{ result.data.retention_days }} days)
+----------------------------------------------------------------
+{% for item in result.data.deleted_by_retention %}
+- {{ item }}
+{% endfor %}
 {% endif %}
-
 {% if result.data.warnings %}
-<div style="border:2px solid #d48806;background:#fffbe6;padding:10px;border-radius:8px;">
-  <strong>Warnings</strong>
-  <ul>{% for warning in result.data.warnings %}<li>{{ warning }}</li>{% endfor %}</ul>
-</div>
+WARNINGS
+--------
+{% for warning in result.data.warnings %}
+- {{ warning }}
+{% endfor %}
 {% endif %}
 {% endfor %}
 [[/WINHUB_REPORT]]
-

@@ -38,7 +38,7 @@ variable_schema = {
     },
     "single_folders": {
         "type": "textarea",
-        "label": "Single-level source folders (one per line)",
+        "label": "Single source folders - full tree (one per line)",
         "default": "",
         "placeholder": "C:\\Exports",
     },
@@ -49,8 +49,8 @@ variable_schema = {
     },
     "winrar_path": {
         "type": "text",
-        "label": "WinRAR executable",
-        "default": r"C:\Program Files\WinRAR\WinRAR.exe",
+        "label": "RAR console executable",
+        "default": r"C:\Program Files\WinRAR\Rar.exe",
     },
     "temp_root": {
         "type": "text",

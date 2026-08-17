@@ -50,7 +50,7 @@ Base64 тут не є шифруванням. Воно лише гарантує
 
 - Windows Server/Windows із доступним `diskshadow.exe` та VSS.
 - WinHUB Agent запущений з адміністративними правами.
-- WinRAR встановлений; типовий шлях — `C:\Program Files\WinRAR\WinRAR.exe`.
+- WinRAR встановлений разом із консольною утилітою; типовий шлях — `C:\Program Files\WinRAR\Rar.exe`. GUI-файл `WinRAR.exe` не використовується, бо під сервісним обліковим записом він може відокремитися від PowerShell і залишитися завислим процесом.
 - Достатньо вільного місця у `C:\ProgramData\WinHUB\BackupTemp` для всіх архівів одного запуску.
 - Із сервера є маршрут до NAS, DNS (якщо використовується hostname) і відкритий TCP 445.
 - SMB account має `Create/Write/Read`. Для retention також потрібне право `Delete` у цільовій папці.
@@ -74,9 +74,9 @@ Report уже прив’язаний до action template. Окремо дод�
 | `Backup task name` | Зрозуміла назва конкретного бекапу. |
 | `SMB destination (UNC)` | Тільки UNC, наприклад `\\192.168.36.201\2Scope_backup\term36_101`. Не вказуйте `Z:`. |
 | `Recursive source folders` | По одному локальному шляху в рядку. Архівуються всі підпапки (`WinRAR -r`). |
-| `Single-level source folders` | По одному локальному шляху в рядку. Підпапки не обходяться (`WinRAR -r-`). |
+| `Single source folders - full tree` | По одному локальному шляху в рядку. Кожна вказана директорія архівується повністю як окреме джерело: усі файли, усі підпапки та їхня внутрішня структура. Це відповідає `SingleFolders` із початкового прикладу. |
 | `Archive filename prefix` | Префікс файлів; retention видаляє тільки архіви з цим префіксом і hostname. |
-| `WinRAR executable` | Повний шлях до `WinRAR.exe` на endpoint. |
+| `RAR console executable` | Повний шлях до консольного `Rar.exe` на endpoint. Якщо у старій версії шаблону залишився шлях до `WinRAR.exe`, скрипт автоматично використає `Rar.exe` з тієї самої папки. |
 | `Local temporary root` | Виділена локальна папка, не корінь диска. Для кожного запуску створюється окрема `run_*` папка. |
 | `Compression level` | `5` відповідає методу з прикладу; `0` швидше, але без стискання. |
 | `Verification` | `Size` рекомендовано; `SHA256` надійніше, але повторно читає великі файли через мережу. |
@@ -112,4 +112,4 @@ Report уже прив’язаний до action template. Окремо дод�
 
 ## Report і пошта
 
-Action повертає компактний JSON. Звіт показує створені архіви, розмір, перевірку, retention, warnings, етап помилки та UNC destination. Відправку налаштовуйте у WinHUB через report/email workflow або Post-Execution — SMTP/GPG логіки в PowerShell немає.
+Action повертає компактний JSON. Report формується як звичайний текст без HTML-тегів, тому однаково читається у вікні Reports, email і після GPG-розшифрування. Він показує створені архіви, розмір, перевірку, retention, warnings, етап помилки та UNC destination. Відправку налаштовуйте у WinHUB через report/email workflow або Post-Execution — SMTP/GPG логіки в PowerShell немає.
