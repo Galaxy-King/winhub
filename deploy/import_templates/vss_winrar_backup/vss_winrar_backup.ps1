@@ -344,6 +344,25 @@ try {
             throw "Source '$($request.path)' is not visible inside the VSS snapshot at '$shadowSource'."
         }
 
+        $firstEligibleFile = if ($request.mode -eq 'recursive') {
+            @(Get-ChildItem -LiteralPath $shadowSource -File -Force -Recurse -ErrorAction Stop | Select-Object -First 1)
+        } else {
+            @(Get-ChildItem -LiteralPath $shadowSource -File -Force -ErrorAction Stop | Select-Object -First 1)
+        }
+        if ($firstEligibleFile.Count -eq 0) {
+            throw "Source '$($request.path)' contains no files eligible for '$($request.mode)' backup mode."
+        }
+
+        # With recursion disabled, passing only a directory makes Rar.exe add
+        # the directory entry without its direct files. The wildcard includes
+        # files from this level while -r- still prevents descending into child
+        # directories. Recursive mode keeps the directory path as its root.
+        $archiveInput = if ($request.mode -eq 'single-level') {
+            Join-Path $shadowSource '*'
+        } else {
+            $shadowSource
+        }
+
         $sourceToken = ConvertTo-SafeFileToken ($request.path -replace ':', '') 'source'
         $modeToken = if ($request.mode -eq 'recursive') { 'rec' } else { 'single' }
         $archiveName = '{0}_{1}_{2:D2}_{3}_{4}_{5}_{6}.rar' -f $SafePrefix, $SafeComputerName, $ArchiveIndex, $sourceToken, $modeToken, $Timestamp, $RunToken
@@ -356,7 +375,7 @@ try {
             "-m$CompressionLevel",
             "-hp$ArchivePassword",
             $localArchivePath,
-            $shadowSource
+            $archiveInput
         )
         # Rar.exe is a console process, so PowerShell waits for it and keeps the
         # VSS snapshot and temporary workspace alive until archiving finishes.
