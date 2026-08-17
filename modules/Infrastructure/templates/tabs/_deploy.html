@@ -188,7 +188,7 @@
                                  onclick="loadTemplate(this)">
 
                                 <!-- Colored header marks the template type. -->
-	                                <div class="template-card-header px-4 py-3 pr-24">
+	                                <div class="template-card-header px-4 py-3 pr-10">
                                     <h4 class="font-black text-white text-xs truncate transition-colors">{{ t.name }}</h4>
                                 </div>
 
@@ -215,12 +215,6 @@
                                     {% endif %}
                                 </div>
 
-	                                <button onclick="event.stopPropagation(); cloneTemplate('{{ t.id }}')" class="absolute top-2.5 right-[4.5rem] opacity-0 group-hover:opacity-100 text-white/70 hover:text-white transition-all {% if not permissions.manage_templates or not t.can_view_code or not t.can_edit %}hidden{% endif %}" title="Clone template">
-	                                    <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 8h11a2 2 0 012 2v9a2 2 0 01-2 2h-9a2 2 0 01-2-2V8zm0 8H5a2 2 0 01-2-2V5a2 2 0 012-2h9a2 2 0 012 2v3"></path></svg>
-	                                </button>
-	                                <button onclick="event.stopPropagation(); exportTemplate('{{ t.id }}')" class="absolute top-2.5 right-9 opacity-0 group-hover:opacity-100 text-white/70 hover:text-white transition-all {% if not permissions.manage_templates or not t.can_view_code %}hidden{% endif %}" title="Export this template">
-                                    <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 3v12m0 0l-4-4m4 4l4-4M4 17v2a2 2 0 002 2h12a2 2 0 002-2v-2"></path></svg>
-                                </button>
                                 <button onclick="event.stopPropagation(); deleteTemplate('{{ t.id }}')" class="absolute top-2.5 right-2 opacity-0 group-hover:opacity-100 text-white/70 hover:text-rose-100 transition-all {% if not permissions.manage_templates or not t.can_delete %}hidden{% endif %}" title="Delete template">
                                     <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 14l2-2m0 0l2-2m-2 2l-2-2m2 2l2 2m7-2a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>
                                 </button>
@@ -244,17 +238,30 @@
                     <h2 id="builderTitle" class="text-lg font-black text-slate-800 uppercase tracking-tight">Deployment Builder</h2>
                 </div>
 
-	                <div class="flex items-center gap-3">
+	                <div class="flex flex-wrap items-center justify-end gap-2">
 	                    <div class="flex bg-slate-100 p-1 rounded-xl border border-slate-200 shadow-inner">
-	                        <button id="workspaceTabBuilder" onclick="switchWorkspaceTab('builder')" class="px-4 py-2 bg-white text-indigo-700 rounded-lg text-[10px] font-black uppercase shadow-sm">Builder</button>
-	                        <button id="workspaceTabGuide" onclick="switchWorkspaceTab('guide')" class="px-4 py-2 text-slate-500 rounded-lg text-[10px] font-black uppercase">Guide</button>
+	                        <button id="workspaceTabBuilder" onclick="switchWorkspaceTab('builder')" class="px-3 py-2 bg-white text-indigo-700 rounded-lg text-[10px] font-black uppercase shadow-sm">Builder</button>
+	                        <button id="workspaceTabGuide" onclick="switchWorkspaceTab('guide')" class="px-3 py-2 text-slate-500 rounded-lg text-[10px] font-black uppercase">Guide</button>
 	                    </div>
-                    <label id="depIsApprovedWrapper" class="flex items-center gap-2 cursor-pointer bg-white px-3 py-2.5 rounded-xl border border-slate-200 hover:bg-slate-100 transition-all shadow-sm {% if not permissions.manage_templates %}hidden{% endif %}">
+                    <label id="depIsApprovedWrapper" class="flex items-center gap-2 cursor-pointer bg-white px-2.5 py-2 rounded-xl border border-slate-200 hover:bg-slate-100 transition-all shadow-sm {% if not permissions.manage_templates %}hidden{% endif %}">
                         <input type="checkbox" id="depIsApproved" class="w-4 h-4 text-indigo-600 rounded border-slate-300 focus:ring-indigo-500">
-                        <span class="text-[10px] font-black text-slate-500 uppercase">Share with Team</span>
+                        <span class="text-[9px] font-black text-slate-500 uppercase">Share with Team</span>
                     </label>
-                    <button onclick="saveAsTemplate()" id="btnSaveTemplate" class="px-5 py-3 bg-slate-800 text-white rounded-xl text-[10px] font-black uppercase hover:bg-slate-900 transition-all shadow-sm {% if not permissions.manage_templates %}hidden{% endif %}">Save Template</button>
-                    <button onclick="submitDeployment()" id="btnDeploy" class="px-8 py-3 bg-indigo-600 text-white rounded-xl text-[10px] font-black uppercase hover:bg-indigo-700 shadow-lg shadow-indigo-200 transition-all">Execute Task</button>
+                    <div class="flex items-center gap-1.5 {% if not permissions.manage_templates %}hidden{% endif %}" aria-label="Template actions">
+                        <button type="button" onclick="saveAsTemplate()" id="btnSaveTemplate" class="w-10 h-10 inline-flex items-center justify-center bg-slate-800 text-white rounded-xl hover:bg-slate-900 transition-all shadow-sm" title="Save template" aria-label="Save template">
+                            <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 3h12l2 2v16H5V3zm3 0v6h8V3M8 21v-7h8v7"></path></svg>
+                            <span class="sr-only">Save template</span>
+                        </button>
+                        <button type="button" onclick="exportSelectedTemplate()" id="btnExportTemplate" class="w-10 h-10 inline-flex items-center justify-center bg-white text-sky-700 border border-sky-200 rounded-xl hover:bg-sky-50 transition-all shadow-sm disabled:opacity-40 disabled:cursor-not-allowed" title="Select a saved template to download" aria-label="Download selected template" disabled>
+                            <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 3v12m0 0l-4-4m4 4l4-4M4 17v2a2 2 0 002 2h12a2 2 0 002-2v-2"></path></svg>
+                            <span class="sr-only">Download selected template</span>
+                        </button>
+                        <button type="button" onclick="cloneSelectedTemplate()" id="btnCloneTemplate" class="w-10 h-10 inline-flex items-center justify-center bg-white text-indigo-700 border border-indigo-200 rounded-xl hover:bg-indigo-50 transition-all shadow-sm disabled:opacity-40 disabled:cursor-not-allowed" title="Select an editable template to clone" aria-label="Clone selected template" disabled>
+                            <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 8h11a2 2 0 012 2v9a2 2 0 01-2 2h-9a2 2 0 01-2-2V8zm0 8H5a2 2 0 01-2-2V5a2 2 0 012-2h9a2 2 0 012 2v3"></path></svg>
+                            <span class="sr-only">Clone selected template</span>
+                        </button>
+                    </div>
+                    <button onclick="submitDeployment()" id="btnDeploy" class="px-6 py-2.5 bg-indigo-600 text-white rounded-xl text-[10px] font-black uppercase hover:bg-indigo-700 shadow-lg shadow-indigo-200 transition-all">Execute Task</button>
                 </div>
             </div>
 
