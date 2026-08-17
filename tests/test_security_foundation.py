@@ -64,6 +64,37 @@ class TemplateApprovalTests(unittest.TestCase):
         self.assertNotEqual(original, changed)
 
 
+class TemplateVariableSubstitutionTests(unittest.TestCase):
+    def test_windows_and_unc_backslashes_are_inserted_literally(self):
+        from modules.Infrastructure.routes import apply_template_variables
+
+        payload = {
+            "script": (
+                "destination={{backup_destination}}\n"
+                "source={{source_folder}}\n"
+                "user={{smb_username}}\n"
+                "literal={{literal_backreference}}"
+            )
+        }
+        variables = {
+            "backup_destination": r"\\192.168.36.201\2Scope_backup\term36_101",
+            "source_folder": r"C:\Bases",
+            "smb_username": r"DOMAIN\backup-user",
+            "literal_backreference": r"value\g<2>\1",
+        }
+
+        rendered, unresolved = apply_template_variables(payload, variables)
+
+        self.assertEqual(unresolved, [])
+        self.assertEqual(
+            rendered["script"],
+            "destination=\\\\192.168.36.201\\2Scope_backup\\term36_101\n"
+            "source=C:\\Bases\n"
+            "user=DOMAIN\\backup-user\n"
+            "literal=value\\g<2>\\1",
+        )
+
+
 class ContentSecurityPolicyTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):

@@ -1,0 +1,154 @@
+{
+  "format": "winhub-template-library",
+  "version": 1,
+  "exported_at": "2026-08-04T00:00:00Z",
+  "templates": [
+    {
+      "id": "c1fa1a74-18e2-4b3b-9a6b-d51e14a5823f",
+      "name": "VSS WinRAR Backup Report",
+      "category": "Backup",
+      "action_type": "run_script",
+      "type": "report",
+      "is_approved": true,
+      "created_by": "Template Pack",
+      "payload": {
+        "script": "[[WINHUB_REPORT title=\"VSS WinRAR Backup - {{ job_title }}\"]]\n<h1>VSS WinRAR Backup</h1>\n<p><strong>Job:</strong> {{ job_title }}</p>\n\n{% set ns = namespace(total=0, archives=0, bytes=0, warnings=0, retention_deleted=0) %}\n{% for result in results %}\n{% set ns.total = ns.total + 1 %}\n{% if result.data and result.data.archives %}\n{% set ns.archives = ns.archives + (result.data.archives|length) %}\n{% for archive in result.data.archives %}\n{% set ns.bytes = ns.bytes + (archive.size_bytes or 0) %}\n{% endfor %}\n{% endif %}\n{% if result.data and result.data.warnings %}{% set ns.warnings = ns.warnings + (result.data.warnings|length) %}{% endif %}\n{% if result.data and result.data.deleted_by_retention %}{% set ns.retention_deleted = ns.retention_deleted + (result.data.deleted_by_retention|length) %}{% endif %}\n{% endfor %}\n\n<div style=\"border:2px solid {% if ignored_results %}#d48806{% else %}#237804{% endif %};padding:14px;background:{% if ignored_results %}#fffbe6{% else %}#f6ffed{% endif %};border-radius:10px;\">\n  <h2 style=\"margin-top:0;\">Status: {% if ignored_results %}COMPLETED WITH ERRORS{% else %}SUCCESS{% endif %}</h2>\n  <table>\n    <thead><tr><th>Successful endpoints</th><th>Failed endpoints</th><th>Archives</th><th>Total size</th><th>Warnings</th><th>Retention deletions</th></tr></thead>\n    <tbody><tr><td>{{ results|length }}</td><td>{{ ignored_results|length }}</td><td>{{ ns.archives }}</td><td>{{ (ns.bytes / 1048576)|round(2) }} MB</td><td>{{ ns.warnings }}</td><td>{{ ns.retention_deleted }}</td></tr></tbody>\n  </table>\n</div>\n\n{% if ignored_results %}\n<h2>Failed endpoints</h2>\n<table>\n  <thead><tr><th>Endpoint</th><th>Status</th><th>Stage / error</th></tr></thead>\n  <tbody>\n  {% for result in ignored_results %}\n    <tr>\n      <td><strong>{{ result.host }}</strong></td>\n      <td>{{ result.status }}</td>\n      <td>{% if result.data and result.data.error %}{{ result.data.error }}{% else %}{{ result.log }}{% endif %}</td>\n    </tr>\n  {% endfor %}\n  </tbody>\n</table>\n{% endif %}\n\n{% for result in results %}\n<hr style=\"border:0;border-top:4px solid #34495e;margin:28px 0 18px;\" />\n<h2>{{ result.host }}</h2>\n<table>\n  <tbody>\n    <tr><th>Project</th><td>{{ result.data.project }}</td><th>Task</th><td>{{ result.data.task }}</td></tr>\n    <tr><th>Destination</th><td colspan=\"3\"><code>{{ result.data.backup_destination }}</code></td></tr>\n    <tr><th>Started</th><td>{{ result.data.started_at }}</td><th>Finished / duration</th><td>{{ result.data.finished_at }} / {{ result.data.duration_seconds }} sec</td></tr>\n  </tbody>\n</table>\n\n<h3>Created archives</h3>\n<table>\n  <thead><tr><th>Source</th><th>Mode</th><th>Archive</th><th>Size</th><th>Verification</th><th>Destination</th></tr></thead>\n  <tbody>\n  {% for archive in result.data.archives %}\n    <tr>\n      <td><code>{{ archive.source }}</code></td>\n      <td>{{ archive.mode }}</td>\n      <td>{{ archive.name }}</td>\n      <td>{{ archive.size_mb }} MB</td>\n      <td>{{ archive.verification }}</td>\n      <td><code>{{ archive.destination }}</code></td>\n    </tr>\n  {% else %}\n    <tr><td colspan=\"6\">No archives were returned.</td></tr>\n  {% endfor %}\n  </tbody>\n</table>\n\n<h3>Configured sources</h3>\n<p><strong>Recursive:</strong></p>\n<ul>{% for folder in result.data.recursive_folders %}<li><code>{{ folder }}</code></li>{% else %}<li>None</li>{% endfor %}</ul>\n<p><strong>Single level:</strong></p>\n<ul>{% for folder in result.data.single_folders %}<li><code>{{ folder }}</code></li>{% else %}<li>None</li>{% endfor %}</ul>\n\n{% if result.data.deleted_by_retention %}\n<h3>Deleted by retention (older than {{ result.data.retention_days }} days)</h3>\n<ul>{% for item in result.data.deleted_by_retention %}<li>{{ item }}</li>{% endfor %}</ul>\n{% endif %}\n\n{% if result.data.warnings %}\n<div style=\"border:2px solid #d48806;background:#fffbe6;padding:10px;border-radius:8px;\">\n  <strong>Warnings</strong>\n  <ul>{% for warning in result.data.warnings %}<li>{{ warning }}</li>{% endfor %}</ul>\n</div>\n{% endif %}\n{% endfor %}\n[[/WINHUB_REPORT]]\n\n",
+        "__template_policy": {
+          "hide_code": false,
+          "lock_edit": false,
+          "lock_delete": false,
+          "disable_run": false
+        }
+      }
+    },
+    {
+      "id": "f8f15dd2-994d-4a7d-8c98-e639df2f5b0e",
+      "name": "VSS WinRAR Backup to SMB",
+      "category": "Backup",
+      "action_type": "run_script",
+      "type": "action",
+      "is_approved": true,
+      "created_by": "Template Pack",
+      "payload": {
+        "__report_template_id": "c1fa1a74-18e2-4b3b-9a6b-d51e14a5823f",
+        "__agent_timeout_seconds": 86400,
+        "__variable_schema": {
+          "project_name": {
+            "type": "text",
+            "label": "Project / customer",
+            "default": "Backup",
+            "placeholder": "2Scope"
+          },
+          "task_name": {
+            "type": "text",
+            "label": "Backup task name",
+            "default": "Daily VSS backup",
+            "placeholder": "term36_101"
+          },
+          "backup_destination": {
+            "type": "text",
+            "label": "SMB destination (UNC)",
+            "default": "",
+            "placeholder": "\\\\192.168.36.201\\2Scope_backup\\term36_101"
+          },
+          "recursive_folders": {
+            "type": "textarea",
+            "label": "Recursive source folders (one per line)",
+            "default": "C:\\Bases\nC:\\ProgramData\\Medoc",
+            "placeholder": "C:\\Bases\nC:\\ProgramData\\Medoc"
+          },
+          "single_folders": {
+            "type": "textarea",
+            "label": "Single-level source folders (one per line)",
+            "default": "",
+            "placeholder": "C:\\Exports"
+          },
+          "archive_prefix": {
+            "type": "text",
+            "label": "Archive filename prefix",
+            "default": "WinHUB"
+          },
+          "winrar_path": {
+            "type": "text",
+            "label": "WinRAR executable",
+            "default": "C:\\Program Files\\WinRAR\\WinRAR.exe"
+          },
+          "temp_root": {
+            "type": "text",
+            "label": "Local temporary root",
+            "default": "C:\\ProgramData\\WinHUB\\BackupTemp"
+          },
+          "compression_level": {
+            "type": "select",
+            "label": "WinRAR compression level",
+            "default": "5",
+            "options": [
+              {
+                "value": "0",
+                "label": "0 - store only"
+              },
+              {
+                "value": "1",
+                "label": "1 - fastest"
+              },
+              {
+                "value": "2",
+                "label": "2 - fast"
+              },
+              {
+                "value": "3",
+                "label": "3 - normal"
+              },
+              {
+                "value": "4",
+                "label": "4 - good"
+              },
+              {
+                "value": "5",
+                "label": "5 - best"
+              }
+            ]
+          },
+          "verify_mode": {
+            "type": "select",
+            "label": "Verification after SMB copy",
+            "default": "Size",
+            "options": [
+              {
+                "value": "Size",
+                "label": "Compare file size"
+              },
+              {
+                "value": "SHA256",
+                "label": "Compare SHA256 (slower)"
+              },
+              {
+                "value": "None",
+                "label": "No verification"
+              }
+            ]
+          },
+          "retention_days": {
+            "type": "number",
+            "label": "Retention on SMB destination (days; 0 disables)",
+            "default": "0",
+            "placeholder": "30"
+          },
+          "fail_on_missing_source": {
+            "type": "checkbox",
+            "label": "Fail when a configured source folder is missing",
+            "checkbox_label": "Treat a missing source folder as an error",
+            "default": "true"
+          }
+        },
+        "__template_policy": {
+          "hide_code": false,
+          "lock_edit": false,
+          "lock_delete": false,
+          "disable_run": false
+        },
+        "script": "$ErrorActionPreference = 'Stop'\n\ntry {\n    [Console]::InputEncoding = [System.Text.Encoding]::UTF8\n    [Console]::OutputEncoding = [System.Text.Encoding]::UTF8\n    $OutputEncoding = [System.Text.Encoding]::UTF8\n} catch { }\n\n$StartedAt = Get-Date\n$Stage = 'initialization'\n$RunTemp = $null\n$SmbDriveName = $null\n$ShadowMappings = @()\n$ArchiveResults = @()\n$DeletedByRetention = @()\n$Warnings = New-Object System.Collections.Generic.List[string]\n$Succeeded = $false\n$ErrorMessage = $null\n$ArchivePassword = $null\n$SmbPassword = $null\n\nfunction Split-WinHubLines {\n    param([string]$Text)\n\n    if ([string]::IsNullOrWhiteSpace($Text)) { return @() }\n    return @(\n        $Text -split \"`r?`n\" |\n            ForEach-Object { $_.Trim() } |\n            Where-Object { -not [string]::IsNullOrWhiteSpace($_) } |\n            Select-Object -Unique\n    )\n}\n\nfunction ConvertFrom-WinHubBase64Secret {\n    param(\n        [string]$EncodedValue,\n        [string]$SecretName\n    )\n\n    try {\n        $bytes = [Convert]::FromBase64String($EncodedValue.Trim())\n        return [System.Text.Encoding]::UTF8.GetString($bytes)\n    } catch {\n        throw \"Template Secret '$SecretName' is not valid UTF-8 Base64.\"\n    }\n}\n\nfunction ConvertTo-WinHubBoolean {\n    param([string]$Value)\n    return @('1', 'true', 'yes', 'on', 'enabled') -contains ([string]$Value).Trim().ToLowerInvariant()\n}\n\nfunction ConvertTo-SafeFileToken {\n    param(\n        [string]$Value,\n        [string]$Fallback = 'backup'\n    )\n\n    $safe = ([string]$Value -replace '[^A-Za-z0-9._-]+', '_').Trim(' ', '.', '_')\n    if ([string]::IsNullOrWhiteSpace($safe)) { $safe = $Fallback }\n    if ($safe.Length -gt 80) { $safe = $safe.Substring(0, 80).TrimEnd('.', '_') }\n    return $safe\n}\n\nfunction Resolve-WinHubSourceFolder {\n    param([string]$Path)\n\n    $candidate = ([string]$Path).Trim()\n    if ($candidate -notmatch '^[A-Za-z]:\\\\') {\n        throw \"Source '$candidate' must be an absolute local Windows path such as C:\\\\Data. UNC sources cannot be protected with local VSS.\"\n    }\n\n    $fullPath = [System.IO.Path]::GetFullPath($candidate)\n    if ($fullPath -match '^[A-Za-z]:\\\\$') { return $fullPath }\n    return $fullPath.TrimEnd('\\\\')\n}\n\nfunction Get-WinHubSmbDestination {\n    param([string]$Path)\n\n    $normalized = ([string]$Path).Trim().TrimEnd('\\\\')\n    if ($normalized -notmatch '^\\\\\\\\([^\\\\]+)\\\\([^\\\\]+)(?:\\\\(.*))?$') {\n        throw \"Backup destination '$normalized' must be a UNC path such as \\\\\\\\nas\\\\backups\\\\server01.\"\n    }\n\n    return [pscustomobject][ordered]@{\n        server = $Matches[1]\n        share = $Matches[2]\n        share_root = \"\\\\$($Matches[1])\\$($Matches[2])\"\n        sub_path = [string]$Matches[3]\n        original = $normalized\n    }\n}\n\nfunction Remove-WinHubShadowSet {\n    param(\n        [array]$Mappings,\n        [string]$WorkingDirectory,\n        [string]$DiskShadowPath,\n        [System.Collections.Generic.List[string]]$WarningList\n    )\n\n    if (-not $Mappings -or [string]::IsNullOrWhiteSpace($WorkingDirectory) -or -not (Test-Path -LiteralPath $WorkingDirectory)) {\n        return\n    }\n\n    try {\n        $cleanupFile = Join-Path $WorkingDirectory 'diskshadow_cleanup.dsh'\n        $cleanupLines = @($Mappings | ForEach-Object { \"delete shadows exposed $($_.drive):\" })\n        if ($cleanupLines.Count -eq 0) { return }\n        [System.IO.File]::WriteAllLines($cleanupFile, $cleanupLines, [System.Text.Encoding]::ASCII)\n        $cleanupOutput = @(& $DiskShadowPath /s $cleanupFile 2>&1)\n        $cleanupExitCode = $LASTEXITCODE\n        if ($cleanupExitCode -ne 0) {\n            $WarningList.Add(\"VSS cleanup returned exit code ${cleanupExitCode}: $($cleanupOutput -join ' ')\")\n        }\n    } catch {\n        $WarningList.Add(\"VSS cleanup failed: $($_.Exception.Message)\")\n    }\n}\n\n$ProjectNameText = @'\n{{project_name}}\n'@\n$TaskNameText = @'\n{{task_name}}\n'@\n$BackupDestinationText = @'\n{{backup_destination}}\n'@\n$RecursiveFoldersText = @'\n{{recursive_folders}}\n'@\n$SingleFoldersText = @'\n{{single_folders}}\n'@\n$ArchivePrefixText = @'\n{{archive_prefix}}\n'@\n$WinRarPathText = @'\n{{winrar_path}}\n'@\n$TempRootText = @'\n{{temp_root}}\n'@\n$CompressionLevelText = @'\n{{compression_level}}\n'@\n$VerifyModeText = @'\n{{verify_mode}}\n'@\n$RetentionDaysText = @'\n{{retention_days}}\n'@\n$FailOnMissingSourceText = @'\n{{fail_on_missing_source}}\n'@\n\n$SmbUsernameBase64 = @'\n{{secret:vss_backup_smb_username_b64}}\n'@\n$SmbPasswordBase64 = @'\n{{secret:vss_backup_smb_password_b64}}\n'@\n$ArchivePasswordBase64 = @'\n{{secret:vss_backup_archive_password_b64}}\n'@\n\n$ProjectName = $ProjectNameText.Trim()\n$TaskName = $TaskNameText.Trim()\n$BackupDestination = $BackupDestinationText.Trim()\n$ArchivePrefix = $ArchivePrefixText.Trim()\n$WinRarPath = $WinRarPathText.Trim()\n$TempRoot = $TempRootText.Trim()\n$VerifyMode = $VerifyModeText.Trim()\n$FailOnMissingSource = ConvertTo-WinHubBoolean $FailOnMissingSourceText\n\ntry {\n    $Stage = 'validating configuration'\n\n    if ([string]::IsNullOrWhiteSpace($ProjectName)) { $ProjectName = 'Backup' }\n    if ([string]::IsNullOrWhiteSpace($TaskName)) { $TaskName = 'VSS WinRAR backup' }\n    if ([string]::IsNullOrWhiteSpace($ArchivePrefix)) { $ArchivePrefix = 'WinHUB' }\n    if ([string]::IsNullOrWhiteSpace($WinRarPath)) { $WinRarPath = 'C:\\Program Files\\WinRAR\\WinRAR.exe' }\n    if ([string]::IsNullOrWhiteSpace($TempRoot)) { $TempRoot = 'C:\\ProgramData\\WinHUB\\BackupTemp' }\n    if ([string]::IsNullOrWhiteSpace($VerifyMode)) { $VerifyMode = 'Size' }\n\n    $CompressionLevel = 0\n    if (-not [int]::TryParse($CompressionLevelText.Trim(), [ref]$CompressionLevel) -or $CompressionLevel -lt 0 -or $CompressionLevel -gt 5) {\n        throw 'Compression level must be an integer from 0 through 5.'\n    }\n\n    $RetentionDays = 0\n    if (-not [int]::TryParse($RetentionDaysText.Trim(), [ref]$RetentionDays) -or $RetentionDays -lt 0 -or $RetentionDays -gt 3650) {\n        throw 'Retention days must be an integer from 0 through 3650.'\n    }\n\n    if (@('None', 'Size', 'SHA256') -notcontains $VerifyMode) {\n        throw \"Verify mode must be None, Size, or SHA256. Received '$VerifyMode'.\"\n    }\n    if (-not (Test-Path -LiteralPath $WinRarPath -PathType Leaf)) {\n        throw \"WinRAR was not found at '$WinRarPath'.\"\n    }\n\n    $DiskShadowPath = Join-Path $env:SystemRoot 'System32\\diskshadow.exe'\n    if (-not (Test-Path -LiteralPath $DiskShadowPath -PathType Leaf)) {\n        throw \"DiskShadow was not found at '$DiskShadowPath'.\"\n    }\n\n    $principal = New-Object Security.Principal.WindowsPrincipal([Security.Principal.WindowsIdentity]::GetCurrent())\n    if (-not $principal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)) {\n        throw 'The backup task must run elevated. The WinHUB Agent service should run as LocalSystem or another local administrator.'\n    }\n\n    if ($TempRoot -notmatch '^[A-Za-z]:\\\\' -or $TempRoot -match '^[A-Za-z]:\\\\?$') {\n        throw \"Temp root '$TempRoot' must be a dedicated absolute local folder, not a volume root.\"\n    }\n\n    $SmbDestination = Get-WinHubSmbDestination $BackupDestination\n    $SmbUsername = ConvertFrom-WinHubBase64Secret $SmbUsernameBase64 'vss_backup_smb_username_b64'\n    $SmbPassword = ConvertFrom-WinHubBase64Secret $SmbPasswordBase64 'vss_backup_smb_password_b64'\n    $ArchivePassword = ConvertFrom-WinHubBase64Secret $ArchivePasswordBase64 'vss_backup_archive_password_b64'\n    if ([string]::IsNullOrWhiteSpace($SmbUsername)) { throw 'The decoded SMB username is empty.' }\n    if ([string]::IsNullOrEmpty($SmbPassword)) { throw 'The decoded SMB password is empty.' }\n    if ([string]::IsNullOrEmpty($ArchivePassword)) { throw 'The decoded archive password is empty.' }\n\n    $RecursiveFolders = @(\n        Split-WinHubLines $RecursiveFoldersText |\n            ForEach-Object { Resolve-WinHubSourceFolder $_ } |\n            Select-Object -Unique\n    )\n    $SingleFolders = @(\n        Split-WinHubLines $SingleFoldersText |\n            ForEach-Object { Resolve-WinHubSourceFolder $_ } |\n            Where-Object { $RecursiveFolders -notcontains $_ } |\n            Select-Object -Unique\n    )\n    if (($RecursiveFolders.Count + $SingleFolders.Count) -eq 0) {\n        throw 'No source folders were provided.'\n    }\n\n    $ExistingRecursiveFolders = New-Object System.Collections.Generic.List[string]\n    $ExistingSingleFolders = New-Object System.Collections.Generic.List[string]\n    foreach ($folder in $RecursiveFolders) {\n        if (Test-Path -LiteralPath $folder -PathType Container) {\n            $ExistingRecursiveFolders.Add($folder)\n        } elseif ($FailOnMissingSource) {\n            throw \"Recursive source folder does not exist: $folder\"\n        } else {\n            $Warnings.Add(\"Recursive source folder does not exist and was skipped: $folder\")\n        }\n    }\n    foreach ($folder in $SingleFolders) {\n        if (Test-Path -LiteralPath $folder -PathType Container) {\n            $ExistingSingleFolders.Add($folder)\n        } elseif ($FailOnMissingSource) {\n            throw \"Single-level source folder does not exist: $folder\"\n        } else {\n            $Warnings.Add(\"Single-level source folder does not exist and was skipped: $folder\")\n        }\n    }\n    if (($ExistingRecursiveFolders.Count + $ExistingSingleFolders.Count) -eq 0) {\n        throw 'None of the configured source folders exists.'\n    }\n\n    $Stage = 'preparing local workspace'\n    [System.IO.Directory]::CreateDirectory($TempRoot) | Out-Null\n    $RunTemp = Join-Path $TempRoot (\"run_{0}_{1}\" -f (Get-Date -Format 'yyyyMMdd_HHmmss'), [guid]::NewGuid().ToString('N'))\n    [System.IO.Directory]::CreateDirectory($RunTemp) | Out-Null\n\n    $AllExistingFolders = @($ExistingRecursiveFolders.ToArray()) + @($ExistingSingleFolders.ToArray())\n    $Volumes = @($AllExistingFolders | ForEach-Object { $_.Substring(0, 2).ToUpperInvariant() } | Select-Object -Unique)\n    $CandidateLetters = @('R', 'S', 'T', 'U', 'V', 'W', 'X', 'Y', 'Q', 'P', 'O', 'N')\n    $UsedLetters = @(\n        Get-PSDrive -PSProvider FileSystem -ErrorAction SilentlyContinue |\n            Where-Object { $_.Name -match '^[A-Za-z]$' } |\n            ForEach-Object { $_.Name.ToUpperInvariant() }\n    )\n    $FreeLetters = @($CandidateLetters | Where-Object { $UsedLetters -notcontains $_ -and -not (Test-Path -LiteralPath \"$_`:\\\") })\n    if ($FreeLetters.Count -lt $Volumes.Count) {\n        throw \"Not enough free drive letters for VSS. Needed $($Volumes.Count), available $($FreeLetters.Count).\"\n    }\n\n    $ScriptFile = Join-Path $RunTemp 'diskshadow_create.dsh'\n    $MetaFile = Join-Path $RunTemp 'vss_metadata.cab'\n    $DiskShadowLines = New-Object System.Collections.Generic.List[string]\n    $DiskShadowLines.Add('set context persistent')\n    $DiskShadowLines.Add('set verbose on')\n    $DiskShadowLines.Add(\"set metadata `\"$MetaFile`\"\")\n\n    for ($index = 0; $index -lt $Volumes.Count; $index++) {\n        $alias = \"WinHubVol$index\"\n        $mapping = [pscustomobject][ordered]@{\n            volume = $Volumes[$index]\n            alias = $alias\n            drive = $FreeLetters[$index]\n        }\n        $ShadowMappings += $mapping\n        $DiskShadowLines.Add(\"add volume $($mapping.volume) alias $alias\")\n    }\n    $DiskShadowLines.Add('create')\n    foreach ($mapping in $ShadowMappings) {\n        $DiskShadowLines.Add(\"expose %$($mapping.alias)% $($mapping.drive):\")\n    }\n    [System.IO.File]::WriteAllLines($ScriptFile, $DiskShadowLines, [System.Text.Encoding]::ASCII)\n\n    $Stage = 'creating VSS snapshot set'\n    $DiskShadowOutput = @(& $DiskShadowPath /s $ScriptFile 2>&1)\n    $DiskShadowExitCode = $LASTEXITCODE\n    $MissingShadowDrives = @($ShadowMappings | Where-Object { -not (Test-Path -LiteralPath \"$($_.drive):\\\") })\n    if ($DiskShadowExitCode -ne 0 -or $MissingShadowDrives.Count -gt 0) {\n        throw \"VSS snapshot set was not created or exposed correctly. DiskShadow exit code: $DiskShadowExitCode. Output: $($DiskShadowOutput -join ' ')\"\n    }\n\n    $Stage = 'creating encrypted RAR archives'\n    $SafePrefix = ConvertTo-SafeFileToken $ArchivePrefix 'WinHUB'\n    $SafeComputerName = ConvertTo-SafeFileToken $env:COMPUTERNAME 'WindowsHost'\n    $Timestamp = Get-Date -Format 'yyyyMMdd_HHmmss'\n    $RunToken = [guid]::NewGuid().ToString('N').Substring(0, 8)\n    $LocalArchives = New-Object System.Collections.Generic.List[object]\n    $ArchiveIndex = 0\n\n    $ArchiveRequests = @()\n    $ArchiveRequests += @($ExistingRecursiveFolders.ToArray() | ForEach-Object { [pscustomobject]@{ path = $_; mode = 'recursive'; switch = '-r' } })\n    $ArchiveRequests += @($ExistingSingleFolders.ToArray() | ForEach-Object { [pscustomobject]@{ path = $_; mode = 'single-level'; switch = '-r-' } })\n\n    foreach ($request in $ArchiveRequests) {\n        $ArchiveIndex++\n        $mapping = $ShadowMappings | Where-Object { $_.volume -eq $request.path.Substring(0, 2).ToUpperInvariant() } | Select-Object -First 1\n        if (-not $mapping) { throw \"No VSS mapping was found for '$($request.path)'.\" }\n\n        $relativePath = $request.path.Substring(2).TrimStart('\\\\')\n        $shadowRoot = \"$($mapping.drive):\\\"\n        $shadowSource = if ([string]::IsNullOrWhiteSpace($relativePath)) { $shadowRoot } else { Join-Path $shadowRoot $relativePath }\n        if (-not (Test-Path -LiteralPath $shadowSource -PathType Container)) {\n            throw \"Source '$($request.path)' is not visible inside the VSS snapshot at '$shadowSource'.\"\n        }\n\n        $sourceToken = ConvertTo-SafeFileToken ($request.path -replace ':', '') 'source'\n        $modeToken = if ($request.mode -eq 'recursive') { 'rec' } else { 'single' }\n        $archiveName = '{0}_{1}_{2:D2}_{3}_{4}_{5}_{6}.rar' -f $SafePrefix, $SafeComputerName, $ArchiveIndex, $sourceToken, $modeToken, $Timestamp, $RunToken\n        $localArchivePath = Join-Path $RunTemp $archiveName\n        $winRarArguments = @(\n            'a',\n            '-idq',\n            $request.switch,\n            '-ep1',\n            \"-m$CompressionLevel\",\n            \"-hp$ArchivePassword\",\n            $localArchivePath,\n            $shadowSource\n        )\n        $WinRarOutput = @(& $WinRarPath @winRarArguments 2>&1)\n        $WinRarExitCode = $LASTEXITCODE\n        if ($WinRarExitCode -ne 0 -or -not (Test-Path -LiteralPath $localArchivePath -PathType Leaf)) {\n            throw \"WinRAR failed for '$($request.path)' with exit code $WinRarExitCode. Output: $($WinRarOutput -join ' ')\"\n        }\n\n        $localItem = Get-Item -LiteralPath $localArchivePath\n        if ($localItem.Length -le 0) { throw \"WinRAR created an empty archive for '$($request.path)'.\" }\n        $LocalArchives.Add([pscustomobject][ordered]@{\n            name = $archiveName\n            local_path = $localArchivePath\n            source = $request.path\n            mode = $request.mode\n            size_bytes = [int64]$localItem.Length\n        })\n    }\n\n    if ($LocalArchives.Count -eq 0) { throw 'No archives were created.' }\n\n    $Stage = 'connecting to SMB destination'\n    $secureSmbPassword = ConvertTo-SecureString $SmbPassword -AsPlainText -Force\n    $smbCredential = New-Object System.Management.Automation.PSCredential($SmbUsername, $secureSmbPassword)\n    $SmbDriveName = 'WBK' + (Get-Random -Minimum 100000 -Maximum 999999)\n    try {\n        New-PSDrive -Name $SmbDriveName -PSProvider FileSystem -Root $SmbDestination.share_root -Credential $smbCredential -Scope Script -ErrorAction Stop | Out-Null\n    } catch {\n        throw \"Cannot connect to SMB share '$($SmbDestination.share_root)' as '$SmbUsername'. Check TCP 445, share/NTFS permissions, and conflicting SMB sessions. $($_.Exception.Message)\"\n    }\n\n    $destinationRoot = \"$SmbDriveName`:\\\"\n    $destinationPath = if ([string]::IsNullOrWhiteSpace($SmbDestination.sub_path)) {\n        $destinationRoot\n    } else {\n        Join-Path $destinationRoot $SmbDestination.sub_path\n    }\n    if (-not (Test-Path -LiteralPath $destinationPath -PathType Container)) {\n        New-Item -ItemType Directory -Path $destinationPath -Force -ErrorAction Stop | Out-Null\n    }\n\n    $Stage = 'copying and verifying archives'\n    foreach ($archive in $LocalArchives) {\n        $destinationFile = Join-Path $destinationPath $archive.name\n        if (Test-Path -LiteralPath $destinationFile) {\n            throw \"Destination archive already exists and will not be overwritten: '$destinationFile'.\"\n        }\n        Copy-Item -LiteralPath $archive.local_path -Destination $destinationFile -ErrorAction Stop\n        $destinationItem = Get-Item -LiteralPath $destinationFile -ErrorAction Stop\n\n        $verification = 'none'\n        if ($VerifyMode -eq 'Size') {\n            if ([int64]$destinationItem.Length -ne [int64]$archive.size_bytes) {\n                throw \"Size verification failed for '$($archive.name)'. Local: $($archive.size_bytes), destination: $($destinationItem.Length).\"\n            }\n            $verification = 'size-ok'\n        } elseif ($VerifyMode -eq 'SHA256') {\n            $sourceHash = (Get-FileHash -LiteralPath $archive.local_path -Algorithm SHA256).Hash\n            $destinationHash = (Get-FileHash -LiteralPath $destinationFile -Algorithm SHA256).Hash\n            if ($sourceHash -ne $destinationHash) {\n                throw \"SHA256 verification failed for '$($archive.name)'.\"\n            }\n            $verification = 'sha256-ok'\n        }\n\n        $ArchiveResults += [pscustomobject][ordered]@{\n            name = $archive.name\n            source = $archive.source\n            mode = $archive.mode\n            size_bytes = [int64]$archive.size_bytes\n            size_mb = [math]::Round($archive.size_bytes / 1MB, 2)\n            destination = Join-Path $SmbDestination.original $archive.name\n            verification = $verification\n        }\n    }\n\n    if ($RetentionDays -gt 0) {\n        $Stage = 'applying retention policy'\n        $cutoff = (Get-Date).AddDays(-$RetentionDays)\n        $retentionPattern = \"${SafePrefix}_${SafeComputerName}_*.rar\"\n        $oldArchives = @(\n            Get-ChildItem -LiteralPath $destinationPath -Filter $retentionPattern -File -ErrorAction Stop |\n                Where-Object { $_.LastWriteTime -lt $cutoff }\n        )\n        foreach ($oldArchive in $oldArchives) {\n            Remove-Item -LiteralPath $oldArchive.FullName -Force -ErrorAction Stop\n            $DeletedByRetention += $oldArchive.Name\n        }\n    }\n\n    $Succeeded = $true\n} catch {\n    $ErrorMessage = \"[$Stage] $($_.Exception.Message)\"\n} finally {\n    $Stage = 'cleanup'\n    if ($SmbDriveName) {\n        try {\n            Remove-PSDrive -Name $SmbDriveName -Scope Script -Force -ErrorAction Stop\n        } catch {\n            $Warnings.Add(\"SMB cleanup failed for PSDrive '$SmbDriveName': $($_.Exception.Message)\")\n        }\n    }\n\n    if ($ShadowMappings.Count -gt 0 -and $RunTemp) {\n        Remove-WinHubShadowSet -Mappings $ShadowMappings -WorkingDirectory $RunTemp -DiskShadowPath $DiskShadowPath -WarningList $Warnings\n    }\n\n    if ($RunTemp -and (Test-Path -LiteralPath $RunTemp)) {\n        try {\n            Remove-Item -LiteralPath $RunTemp -Recurse -Force -ErrorAction Stop\n        } catch {\n            $Warnings.Add(\"Temporary workspace cleanup failed for '$RunTemp': $($_.Exception.Message)\")\n        }\n    }\n\n    $ArchivePassword = $null\n    $SmbPassword = $null\n    $SmbUsername = $null\n    $secureSmbPassword = $null\n    $smbCredential = $null\n    [System.GC]::Collect()\n}\n\n$FinishedAt = Get-Date\n$Result = [ordered]@{\n    winhub_report_type = 'vss_winrar_backup'\n    success = $Succeeded\n    project = $ProjectName\n    task = $TaskName\n    endpoint = $env:COMPUTERNAME\n    backup_destination = $BackupDestination\n    recursive_folders = @($RecursiveFolders)\n    single_folders = @($SingleFolders)\n    archives = @($ArchiveResults)\n    retention_days = $RetentionDays\n    deleted_by_retention = @($DeletedByRetention)\n    warnings = @($Warnings)\n    started_at = $StartedAt.ToString('yyyy-MM-dd HH:mm:ss')\n    finished_at = $FinishedAt.ToString('yyyy-MM-dd HH:mm:ss')\n    duration_seconds = [int]($FinishedAt - $StartedAt).TotalSeconds\n}\nif (-not $Succeeded) { $Result['error'] = $ErrorMessage }\n\nWrite-Output ($Result | ConvertTo-Json -Depth 10 -Compress)\nif (-not $Succeeded) { exit 1 }\n"
+      }
+    }
+  ]
+}

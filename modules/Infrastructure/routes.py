@@ -1014,8 +1014,12 @@ def apply_template_variables(payload, variables):
             raise ValueError(f"Variable '{key}' is too long")
         if any(ch in value for ch in ("\x00", "\r")):
             raise ValueError(f"Variable '{key}' contains unsupported control characters")
+        variable_pattern = re.compile(r"{{\s*" + re.escape(str(key)) + r"\s*}}")
         for field_name, field_value in rendered_fields.items():
-            rendered_fields[field_name] = re.sub(r"{{\s*" + re.escape(str(key)) + r"\s*}}", value, field_value)
+            # Use a callable replacement so Windows and UNC backslashes are
+            # inserted literally. Passing `value` directly makes re.sub treat
+            # sequences such as \2, \B, or \g<2> as replacement syntax.
+            rendered_fields[field_name] = variable_pattern.sub(lambda _match, replacement=value: replacement, field_value)
 
     payload_dict.update(rendered_fields)
     return payload_dict, unresolved
