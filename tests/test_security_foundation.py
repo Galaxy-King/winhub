@@ -509,6 +509,12 @@ class SchedulerRegressionTests(unittest.TestCase):
         self.assertIn('type="hidden" id="schTimeOnce"', modals)
         self.assertIn('type="hidden" id="schTimeRec"', modals)
         self.assertNotRegex(modals, r'<input[^>]+type="time"[^>]+id="schTime(?:Once|Rec)"')
+        self.assertIn('id="scheduleTargetPickerButton"', modals)
+        self.assertIn('id="scheduleTargetSearch"', modals)
+        self.assertIn('id="scheduleTargetResults"', modals)
+        self.assertIn('function initScheduleTargetPicker()', javascript)
+        self.assertIn("results.addEventListener('click'", javascript)
+        self.assertIn('z-index: 180;', scheduler)
         expected_days = {
             "Mon": "0", "Tue": "1", "Wed": "2", "Thu": "3",
             "Fri": "4", "Sat": "5", "Sun": "6",
@@ -520,6 +526,9 @@ class SchedulerRegressionTests(unittest.TestCase):
         self.assertIn("function initScheduleTimeWheels()", javascript)
         self.assertIn("function getScheduleWheelRowHeight(column)", javascript)
         self.assertNotIn("value * 48", javascript)
+        self.assertIn("function openScheduleTargetPicker()", javascript)
+        self.assertIn("function renderScheduleTargetPicker(query = '')", javascript)
+        self.assertIn("function chooseScheduleTarget(button)", javascript)
         self.assertIn("function initScheduleModalScroll()", javascript)
         self.assertIn("body.scrollBy({top: pageStep", javascript)
         self.assertIn("function normalizeScheduleTime(value)", javascript)
@@ -558,6 +567,59 @@ class SchedulerRegressionTests(unittest.TestCase):
         self.assertEqual(status, 400)
         self.assertIn("invalid cron", response.get_json()["message"])
         commit.assert_not_called()
+
+    def test_new_schedule_is_populated_before_database_flush(self):
+        from flask import Flask, session
+        from modules.Infrastructure import routes
+
+        app = Flask(__name__)
+        app.secret_key = "scheduler-test"
+        payload = {
+            "name": "Morning maintenance",
+            "category": "Maintenance",
+            "template_id": "template-1",
+            "target_type": "group",
+            "target_id": "group-1",
+            "cron": "15 7 * * 0",
+            "timeout_minutes": 30,
+            "variables": {},
+            "is_active": True,
+        }
+        template = types.SimpleNamespace(id="template-1", type="action", payload="{}")
+        template_query = mock.Mock()
+        template_query.get.return_value = template
+        created_schedule = types.SimpleNamespace(id="schedule-1")
+        schedule_factory = mock.Mock(return_value=created_schedule)
+
+        def assert_required_fields_are_set():
+            self.assertEqual(created_schedule.name, payload["name"])
+            self.assertEqual(created_schedule.template_id, template.id)
+            self.assertEqual(created_schedule.target_type, "group")
+            self.assertEqual(created_schedule.target_id, "group-1")
+            self.assertEqual(created_schedule.cron_expr, payload["cron"])
+
+        with app.test_request_context(json=payload):
+            session.update({"user_id": 1, "username": "tester", "is_admin": True})
+            with mock.patch.object(routes, "require_permission", return_value=None), \
+                 mock.patch.object(routes.TaskTemplate, "query", template_query), \
+                 mock.patch.object(routes, "ScheduledTask", schedule_factory), \
+                 mock.patch.object(routes, "can_access_template_library_entry", return_value=True), \
+                 mock.patch.object(routes, "can_use_template", return_value=True), \
+                 mock.patch.object(routes, "validate_schedule_target", return_value=("group", "group-1")), \
+                 mock.patch.object(routes, "validate_schedule_expression", return_value=payload["cron"]), \
+                 mock.patch.object(routes, "schedule_required_variable_names", return_value=[]), \
+                 mock.patch.object(routes.db.session, "add") as add, \
+                 mock.patch.object(routes.db.session, "flush", side_effect=assert_required_fields_are_set) as flush, \
+                 mock.patch.object(routes.db.session, "commit") as commit, \
+                 mock.patch.object(routes, "write_infra_audit"), \
+                 mock.patch("core.reload_scheduler_jobs"):
+                response = routes.manage_schedule()
+
+        self.assertTrue(response.get_json()["success"])
+        schedule_factory.assert_called_once_with(created_by="tester")
+        add.assert_called_once_with(created_schedule)
+        flush.assert_called_once_with()
+        commit.assert_called_once_with()
 
     def test_run_now_revalidates_target_access(self):
         from flask import Flask, session
