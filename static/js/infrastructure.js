@@ -1743,6 +1743,7 @@ document.addEventListener('DOMContentLoaded', () => {
         initPayloadEditor();
         initScheduleTimeWheels();
         initScheduleModalScroll();
+        initScheduleTargetPicker();
         restoreWorkspaceState();
         setGuideLanguage(guideLanguage);
         const payloadEl = document.getElementById('depPayload');
@@ -4529,9 +4530,110 @@ function initScheduleModalScroll() {
 }
 
 function toggleScheduleTargetType() {
+    refreshScheduleTargetPicker();
+}
+
+function initScheduleTargetPicker() {
+    const results = document.getElementById('scheduleTargetResults');
+    if (!results || results.dataset.pickerInitialized === 'true') return;
+    results.dataset.pickerInitialized = 'true';
+    results.addEventListener('click', event => {
+        chooseScheduleTarget(event.target.closest('.schedule-target-result'));
+    });
+}
+
+function activeScheduleTargetSelect() {
     const type = document.getElementById('schTargetType')?.value || 'group';
-    document.getElementById('schTargetHost')?.classList.toggle('hidden', type !== 'host');
-    document.getElementById('schTargetGroup')?.classList.toggle('hidden', type !== 'group');
+    return document.getElementById(type === 'host' ? 'schTargetHost' : 'schTargetGroup');
+}
+
+function scheduleTargetOptionMeta(option, type) {
+    if (!option) return '';
+    if (type === 'host') {
+        return [option.dataset.hostname, option.dataset.ip, option.dataset.os].filter(Boolean).join(' · ');
+    }
+    return option.dataset.details || 'Endpoint group';
+}
+
+function refreshScheduleTargetPicker() {
+    const type = document.getElementById('schTargetType')?.value || 'group';
+    const select = activeScheduleTargetSelect();
+    const option = select?.selectedOptions?.[0];
+    const label = document.getElementById('scheduleTargetPickerLabel');
+    const meta = document.getElementById('scheduleTargetPickerMeta');
+    const button = document.getElementById('scheduleTargetPickerButton');
+    if (label) label.textContent = option?.textContent?.trim() || `No ${type === 'host' ? 'endpoints' : 'groups'} available`;
+    if (meta) meta.textContent = option ? scheduleTargetOptionMeta(option, type) : 'No allowed targets available';
+    if (button) button.disabled = !option;
+}
+
+function renderScheduleTargetPicker(query = '') {
+    const type = document.getElementById('schTargetType')?.value || 'group';
+    const select = activeScheduleTargetSelect();
+    const results = document.getElementById('scheduleTargetResults');
+    const count = document.getElementById('scheduleTargetResultCount');
+    if (!results || !select) return;
+
+    const normalizedQuery = String(query || '').trim().toLocaleLowerCase();
+    const options = Array.from(select.options).filter(option => {
+        const searchable = [
+            option.textContent,
+            option.dataset.hostname,
+            option.dataset.ip,
+            option.dataset.os,
+            option.dataset.details,
+        ].filter(Boolean).join(' ').toLocaleLowerCase();
+        return !normalizedQuery || searchable.includes(normalizedQuery);
+    });
+
+    results.innerHTML = options.map(option => {
+        const selected = option.value === select.value;
+        const meta = scheduleTargetOptionMeta(option, type);
+        return `
+            <button type="button" class="schedule-target-result ${selected ? 'is-selected' : ''} w-full p-4 border rounded-2xl flex items-center justify-between gap-4 text-left transition-all" data-value="${escapeHtml(option.value)}" aria-pressed="${selected ? 'true' : 'false'}">
+                <span class="min-w-0">
+                    <span class="block truncate text-sm font-black text-slate-100">${escapeHtml(option.textContent.trim())}</span>
+                    <span class="block truncate text-[10px] font-bold text-slate-400 mt-1">${escapeHtml(meta)}</span>
+                </span>
+                <span class="shrink-0 w-8 h-8 rounded-xl border ${selected ? 'border-teal-300/60 bg-teal-400/20 text-teal-200' : 'border-slate-700 text-slate-600'} flex items-center justify-center">
+                    ${selected ? '<svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="m5 12 4 4L19 6"></path></svg>' : ''}
+                </span>
+            </button>`;
+    }).join('') || '<div class="min-h-[12rem] flex items-center justify-center text-center text-sm font-bold text-slate-500 p-8">No targets match your search.</div>';
+    if (count) count.textContent = `${options.length} ${options.length === 1 ? 'target' : 'targets'}`;
+}
+
+function openScheduleTargetPicker() {
+    const type = document.getElementById('schTargetType')?.value || 'group';
+    const select = activeScheduleTargetSelect();
+    if (!select?.options?.length) return alert(`No allowed ${type === 'host' ? 'endpoints' : 'groups'} are available.`);
+    const title = document.getElementById('scheduleTargetPickerTitle');
+    const subtitle = document.getElementById('scheduleTargetPickerSubtitle');
+    const search = document.getElementById('scheduleTargetSearch');
+    if (title) title.textContent = type === 'host' ? 'Select endpoint' : 'Select endpoint group';
+    if (subtitle) subtitle.textContent = type === 'host' ? 'Search by name, hostname, IP or OS' : 'Search allowed endpoint groups';
+    if (search) search.value = '';
+    renderScheduleTargetPicker('');
+    openModal('scheduleTargetPickerModal');
+    setTimeout(() => search?.focus(), 0);
+}
+
+function filterScheduleTargetPicker() {
+    renderScheduleTargetPicker(document.getElementById('scheduleTargetSearch')?.value || '');
+}
+
+function chooseScheduleTarget(button) {
+    const select = activeScheduleTargetSelect();
+    if (!select || !button?.dataset?.value) return;
+    select.value = button.dataset.value;
+    select.dispatchEvent(new Event('change', {bubbles: true}));
+    refreshScheduleTargetPicker();
+    closeScheduleTargetPicker();
+}
+
+function closeScheduleTargetPicker() {
+    closeModal('scheduleTargetPickerModal');
+    document.getElementById('scheduleTargetPickerButton')?.focus();
 }
 
 function toggleSchType() {
@@ -4721,14 +4823,13 @@ function editSchedule(source, name, cat, cron, type, active) {
 
     const elHost = document.getElementById('schTargetHost');
     if(elHost) {
-        elHost.classList.toggle('hidden', type !== 'host');
         if (type === 'host' && data.targetId) elHost.value = data.targetId;
     }
     const elGroup = document.getElementById('schTargetGroup');
     if(elGroup) {
-        elGroup.classList.toggle('hidden', type !== 'group');
         if (type === 'group' && data.targetId) elGroup.value = data.targetId;
     }
+    toggleScheduleTargetType();
 
     try { currentScheduleVariables = JSON.parse(data.variables || '{}'); }
     catch(e) { currentScheduleVariables = {}; }

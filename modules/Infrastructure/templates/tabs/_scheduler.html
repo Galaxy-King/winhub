@@ -94,6 +94,32 @@
         border-color: rgba(52, 211, 153, 0.30) !important;
     }
     #scheduleModal .schedule-active-row span { color: #a7f3d0 !important; }
+    #scheduleModal .schedule-target-picker {
+        background: linear-gradient(135deg, rgba(7, 24, 39, 0.96), rgba(8, 35, 48, 0.92)) !important;
+        border-color: rgba(45, 212, 191, 0.30) !important;
+        color: #e6fffb !important;
+    }
+    #scheduleModal .schedule-target-picker:hover {
+        border-color: rgba(94, 234, 212, 0.68) !important;
+        background: linear-gradient(135deg, rgba(8, 39, 54, 0.98), rgba(9, 49, 55, 0.94)) !important;
+    }
+    #scheduleTargetPickerModal {
+        z-index: 180;
+    }
+    #scheduleTargetPickerModal .schedule-target-dialog {
+        background: linear-gradient(160deg, rgba(7, 17, 31, 0.995), rgba(3, 12, 24, 0.995)) !important;
+        border-color: rgba(45, 212, 191, 0.32) !important;
+        color: #e6fffb;
+    }
+    #scheduleTargetPickerModal .schedule-target-result {
+        background: rgba(8, 23, 38, 0.90) !important;
+        border-color: rgba(71, 85, 105, 0.55) !important;
+    }
+    #scheduleTargetPickerModal .schedule-target-result:hover,
+    #scheduleTargetPickerModal .schedule-target-result.is-selected {
+        background: linear-gradient(135deg, rgba(13, 148, 136, 0.24), rgba(8, 47, 73, 0.88)) !important;
+        border-color: rgba(94, 234, 212, 0.66) !important;
+    }
     #scheduleModal .schedule-time-picker {
         --schedule-wheel-row-height: 2.5rem;
         display: grid;

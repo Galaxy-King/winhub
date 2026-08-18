@@ -509,6 +509,12 @@ class SchedulerRegressionTests(unittest.TestCase):
         self.assertIn('type="hidden" id="schTimeOnce"', modals)
         self.assertIn('type="hidden" id="schTimeRec"', modals)
         self.assertNotRegex(modals, r'<input[^>]+type="time"[^>]+id="schTime(?:Once|Rec)"')
+        self.assertIn('id="scheduleTargetPickerButton"', modals)
+        self.assertIn('id="scheduleTargetSearch"', modals)
+        self.assertIn('id="scheduleTargetResults"', modals)
+        self.assertIn('function initScheduleTargetPicker()', javascript)
+        self.assertIn("results.addEventListener('click'", javascript)
+        self.assertIn('z-index: 180;', scheduler)
         expected_days = {
             "Mon": "0", "Tue": "1", "Wed": "2", "Thu": "3",
             "Fri": "4", "Sat": "5", "Sun": "6",
@@ -520,6 +526,9 @@ class SchedulerRegressionTests(unittest.TestCase):
         self.assertIn("function initScheduleTimeWheels()", javascript)
         self.assertIn("function getScheduleWheelRowHeight(column)", javascript)
         self.assertNotIn("value * 48", javascript)
+        self.assertIn("function openScheduleTargetPicker()", javascript)
+        self.assertIn("function renderScheduleTargetPicker(query = '')", javascript)
+        self.assertIn("function chooseScheduleTarget(button)", javascript)
         self.assertIn("function initScheduleModalScroll()", javascript)
         self.assertIn("body.scrollBy({top: pageStep", javascript)
         self.assertIn("function normalizeScheduleTime(value)", javascript)
