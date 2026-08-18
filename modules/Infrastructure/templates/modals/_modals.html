@@ -757,8 +757,8 @@
 
 <!-- SCHEDULER MODAL -->
 <div id="scheduleModal" role="dialog" aria-modal="true" aria-labelledby="schModalTitle" class="fixed inset-0 hidden flex items-center justify-center bg-slate-900/60 backdrop-blur-md p-4 animate-in fade-in">
-    <div class="bg-white w-full max-w-4xl rounded-[2.5rem] shadow-2xl border border-indigo-200 flex flex-col max-h-[94vh] overflow-hidden">
-        <div class="p-6 border-b border-indigo-200 bg-gradient-to-r from-slate-900 via-indigo-950 to-slate-900 text-white flex justify-between items-center shrink-0">
+    <div class="schedule-modal-shell w-full max-w-4xl rounded-[2.5rem] shadow-2xl border border-indigo-200 flex flex-col overflow-hidden">
+        <div class="schedule-modal-header p-6 border-b border-indigo-200 bg-gradient-to-r from-slate-900 via-indigo-950 to-slate-900 text-white flex justify-between items-center shrink-0">
             <div class="flex items-center gap-4">
                 <div class="w-11 h-11 rounded-2xl bg-indigo-500/20 border border-indigo-300/25 text-indigo-100 flex items-center justify-center">
                     <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 6v6l4 2m5-2a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>
@@ -771,7 +771,7 @@
             <button type="button" onclick="closeModal('scheduleModal')" class="text-slate-300 hover:text-white bg-white/10 hover:bg-white/20 p-3 rounded-2xl transition-colors" aria-label="Close schedule editor"><svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path></svg></button>
         </div>
 
-        <div class="overflow-y-auto custom-scrollbar flex-1 p-6 space-y-5 bg-slate-50/70">
+        <div class="schedule-modal-body custom-scrollbar flex-1 min-h-0 p-6 space-y-5" role="region" aria-label="Schedule form fields" tabindex="0">
             <input type="hidden" id="schId">
 
             <div class="schedule-modal-section schedule-section-blue rounded-3xl p-5 space-y-4">
@@ -899,13 +899,13 @@
                 </div>
             </div>
 
-            <label class="flex items-center gap-3 cursor-pointer bg-emerald-50 p-4 rounded-2xl border border-emerald-200">
+            <label class="schedule-active-row flex items-center gap-3 cursor-pointer p-4 rounded-2xl border">
                 <input type="checkbox" id="schActive" checked class="w-5 h-5 text-emerald-600 rounded border-emerald-300 focus:ring-emerald-500">
                 <span class="text-sm font-bold text-emerald-800">Enable this schedule immediately</span>
             </label>
         </div>
 
-        <div class="p-5 shrink-0 border-t border-slate-200 bg-white flex justify-end">
+        <div class="schedule-modal-footer p-5 shrink-0 border-t border-slate-200 flex justify-end">
             <button id="btnSaveSchedule" onclick="saveSchedule()" class="min-w-[15rem] bg-indigo-600 hover:bg-indigo-700 text-white rounded-2xl font-black uppercase text-sm py-4 px-8 shadow-lg transition-all">Save Schedule</button>
         </div>
     </div>
