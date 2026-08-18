@@ -46,6 +46,7 @@ MODULE_PERMISSION_CATALOG = {
         {"id": "view", "name": "View"},
         {"id": "change", "name": "Change"},
         {"id": "delete", "name": "Delete"},
+        {"id": "scheduler", "name": "Scheduler"},
     ],
     "Newsletter": [
         {"id": "view", "name": "View"},
@@ -87,6 +88,9 @@ PERMISSION_ALIASES = {
             "delete_reports",
             "cleanup_tasks",
             "manage_hosts",
+        },
+        "scheduler": {
+            "manage_scheduler",
         },
     },
     "Newsletter": {

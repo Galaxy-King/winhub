@@ -414,6 +414,45 @@ class RendererDeploymentTests(unittest.TestCase):
 
 
 class SchedulerRegressionTests(unittest.TestCase):
+    def test_scheduler_access_can_be_granted_without_system_admin(self):
+        from core.permissions import MODULE_PERMISSION_CATALOG, has_permission
+        from modules.Infrastructure import routes
+
+        user = types.SimpleNamespace(
+            is_admin=False,
+            allowed_modules=json.dumps(["Infrastructure:scheduler"]),
+        )
+        self.assertTrue(has_permission(user, "Infrastructure", "manage_scheduler"))
+        self.assertIn("scheduler", {
+            permission["id"] for permission in MODULE_PERMISSION_CATALOG["Infrastructure"]
+        })
+
+        template = types.SimpleNamespace(id="template-1")
+        host_schedule = types.SimpleNamespace(target_type="host", target_id="host-1", template=template)
+        group_schedule = types.SimpleNamespace(target_type="group", target_id="group-1", template=template)
+        foreign_schedule = types.SimpleNamespace(target_type="group", target_id="group-2", template=template)
+        scheduled_query = mock.Mock()
+        scheduled_query.order_by.return_value.all.return_value = [
+            host_schedule,
+            group_schedule,
+            foreign_schedule,
+        ]
+        scheduled_model = types.SimpleNamespace(
+            category=object(),
+            name=object(),
+            query=scheduled_query,
+        )
+        with mock.patch.object(routes, "ScheduledTask", scheduled_model), \
+             mock.patch.object(routes, "can_access_template_library_entry", return_value=True), \
+             mock.patch.object(routes, "can_use_template", return_value=True):
+            visible = routes.scheduled_tasks_visible_to_user(
+                user,
+                {"manage_scheduler": True},
+                {"host-1"},
+                {"group-1"},
+            )
+        self.assertEqual(visible, [host_schedule, group_schedule])
+
     def test_schedule_expressions_use_strict_24_hour_kyiv_format(self):
         from modules.Infrastructure.routes import validate_schedule_expression
 

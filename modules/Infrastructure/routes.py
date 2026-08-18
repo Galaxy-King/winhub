@@ -1563,6 +1563,39 @@ def require_any_permission(*permission_ids):
         return jsonify({"success": False, "message": "Permission denied"}), 403
     return None
 
+
+def schedule_target_in_scope(scheduled_task, allowed_host_ids, allowed_group_ids):
+    """Return whether a scheduled task targets a host/group visible to the user."""
+    if not scheduled_task:
+        return False
+    target_type = str(getattr(scheduled_task, "target_type", "") or "").strip().lower()
+    target_id = str(getattr(scheduled_task, "target_id", "") or "").strip()
+    if target_type == "host":
+        return target_id in set(allowed_host_ids or [])
+    if target_type == "group":
+        return target_id in set(allowed_group_ids or [])
+    return False
+
+
+def scheduled_tasks_visible_to_user(user, permissions, allowed_host_ids, allowed_group_ids):
+    if not user or (not user.is_admin and not permissions.get("manage_scheduler")):
+        return []
+
+    scheduled_tasks = ScheduledTask.query.order_by(
+        ScheduledTask.category,
+        ScheduledTask.name,
+    ).all()
+    if user.is_admin:
+        return scheduled_tasks
+
+    return [
+        scheduled_task
+        for scheduled_task in scheduled_tasks
+        if schedule_target_in_scope(scheduled_task, allowed_host_ids, allowed_group_ids)
+        and can_access_template_library_entry(scheduled_task.template)
+        and can_use_template(scheduled_task.template)
+    ]
+
 # ==========================================
 # BACKGROUND AUTO-EMAIL THREAD
 # ==========================================
@@ -2297,18 +2330,24 @@ def index():
     stats["review"] = len(pending_agents) + len(rejected_agents) + len(approved_duplicate_pairs)
 
     is_admin = session.get('is_admin')
-    permissions = user_permissions(User.query.get(user_id), "Infrastructure")
+    user = User.query.get(user_id)
+    permissions = user_permissions(user, "Infrastructure")
     if is_admin:
         templates_raw = TaskTemplate.query.order_by(TaskTemplate.category, TaskTemplate.name).all()
-        scheduled_raw = ScheduledTask.query.order_by(ScheduledTask.category, ScheduledTask.name).all()
         triggers_raw = TriggerRule.query.order_by(TriggerRule.name).all()
     else:
         templates_raw = TaskTemplate.query.filter(
             (TaskTemplate.is_approved == True) | (TaskTemplate.created_by == session.get("username"))
         ).order_by(TaskTemplate.category, TaskTemplate.name).all()
         templates_raw = [t for t in templates_raw if can_use_template(t)]
-        scheduled_raw = []
         triggers_raw = []
+
+    scheduled_raw = scheduled_tasks_visible_to_user(
+        user,
+        permissions,
+        {agent.id for agent in agents},
+        {group.id for group in groups},
+    )
 
     templates_raw = [
         t for t in templates_raw
