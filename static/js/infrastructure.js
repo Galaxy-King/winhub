@@ -34,6 +34,9 @@ let infraLivePollInFlight = false;
 let infraLiveState = null;
 let infraLiveRefreshTimers = {};
 let payloadEditor = null;
+let templateCodeEditorTarget = null;
+let templateCodeEditorInitialValue = '';
+let currentPayloadEditorMode = 'powershell';
 const infraStateKeys = {
     view: 'infra_vfinal_view',
     nodeTab: 'infra_nodes_active_tab',
@@ -242,31 +245,59 @@ function startInfraLiveRefresh() {
 }
 
 function getPayloadValue() {
-    if (payloadEditor) return payloadEditor.getValue();
     return document.getElementById('depPayload')?.value || '';
 }
 
 function setPayloadValue(value) {
     const nextValue = value || '';
-    if (payloadEditor) {
-        payloadEditor.setValue(nextValue);
-    }
     const textarea = document.getElementById('depPayload');
     if (textarea) textarea.value = nextValue;
+    if (payloadEditor && templateCodeEditorTarget === 'payload') {
+        payloadEditor.setValue(nextValue);
+    }
+    updateTemplateEditorSummaries();
 }
 
-function syncPayloadTextarea() {
-    const textarea = document.getElementById('depPayload');
-    if (textarea && payloadEditor) textarea.value = payloadEditor.getValue();
+function editorContentStats(value) {
+    const text = String(value || '');
+    return {
+        characters: text.length,
+        lines: text ? text.split(/\r?\n/).length : 0,
+    };
+}
+
+function updateTemplateEditorSummaries() {
+    const payloadSummary = document.getElementById('payloadEditorSummary');
+    if (payloadSummary) {
+        const stats = editorContentStats(document.getElementById('depPayload')?.value || '');
+        payloadSummary.textContent = stats.characters ? `${stats.lines} lines · ${stats.characters} characters` : 'No code yet';
+    }
+
+    const schemaSummary = document.getElementById('variableSchemaEditorSummary');
+    if (schemaSummary) {
+        const schemaText = document.getElementById('depVariableSchema')?.value?.trim() || '';
+        if (!schemaText) {
+            schemaSummary.textContent = 'No schema configured';
+        } else {
+            try {
+                const schema = JSON.parse(schemaText);
+                const fields = schema && typeof schema === 'object' && !Array.isArray(schema) ? Object.keys(schema).length : 0;
+                schemaSummary.textContent = `${fields} variable field${fields === 1 ? '' : 's'} configured`;
+            } catch(e) {
+                schemaSummary.textContent = 'Schema needs JSON correction';
+            }
+        }
+    }
 }
 
 function setEditorMode(mode) {
-    if (!payloadEditor) return;
-    payloadEditor.setOption('mode', mode || 'powershell');
+    currentPayloadEditorMode = mode || 'powershell';
+    if (payloadEditor && templateCodeEditorTarget === 'payload') payloadEditor.setOption('mode', currentPayloadEditorMode);
 }
 
 function refreshPayloadEditor() {
-    if (payloadEditor) {
+    const modal = document.getElementById('templateCodeEditorModal');
+    if (payloadEditor && modal && !modal.classList.contains('hidden')) {
         setTimeout(() => {
             payloadEditor.refresh();
             payloadEditor.setOption('lineNumbers', true);
@@ -274,30 +305,127 @@ function refreshPayloadEditor() {
     }
 }
 
-function setPayloadEditorExpanded(expanded) {
-    const area = document.getElementById('payloadArea');
-    if (!area) return;
-    area.classList.toggle('payload-editor-expanded', !!expanded);
-    document.body.classList.toggle('overflow-hidden', !!expanded);
-    refreshPayloadEditor();
-    if (payloadEditor && expanded) {
-        setTimeout(() => payloadEditor.focus(), 80);
+function templateCodeEditorConfig(target) {
+    if (target === 'schema') {
+        return {
+            sourceId: 'depVariableSchema',
+            title: 'Variable Field Schema',
+            description: 'Define optional generated fields using valid JSON.',
+            language: 'JSON',
+            mode: {name: 'javascript', json: true},
+        };
     }
+
+    const templateType = document.querySelector('input[name="depTemplateType"]:checked')?.value || 'action';
+    if (templateType === 'report') {
+        return {
+            sourceId: 'depPayload',
+            title: 'Jinja2 Email / Report Format',
+            description: 'Edit the HTML or text template used to build the report.',
+            language: 'Jinja2 / HTML',
+            mode: 'htmlmixed',
+        };
+    }
+    return {
+        sourceId: 'depPayload',
+        title: 'Execution Script / Code Content',
+        description: templateType === 'metric'
+            ? 'Edit the metric script. It must return JSON data.'
+            : 'Edit the PowerShell, Bash, or shell script executed by the agent.',
+        language: templateType === 'metric' ? 'Metric Script' : 'PowerShell / Shell',
+        mode: currentPayloadEditorMode,
+    };
 }
 
-function togglePayloadEditorExpanded(force) {
-    const area = document.getElementById('payloadArea');
-    if (!area) return;
-    const next = typeof force === 'boolean' ? force : !area.classList.contains('payload-editor-expanded');
-    setPayloadEditorExpanded(next);
+function setTemplateCodeEditorError(message = '') {
+    const error = document.getElementById('templateCodeEditorError');
+    if (!error) return;
+    error.textContent = message;
+    error.classList.toggle('hidden', !message);
+}
+
+function updateTemplateCodeEditorStats() {
+    const statsLabel = document.getElementById('templateCodeEditorStats');
+    if (!statsLabel) return;
+    const stats = editorContentStats(payloadEditor?.getValue() || '');
+    statsLabel.textContent = `${stats.lines} lines · ${stats.characters} characters`;
+}
+
+function openTemplateCodeEditor(target) {
+    if (!['payload', 'schema'].includes(target)) return;
+    initPayloadEditor();
+    if (!payloadEditor) return alert('Code editor is unavailable. Refresh the page and try again.');
+
+    const config = templateCodeEditorConfig(target);
+    const source = document.getElementById(config.sourceId);
+    if (!source) return;
+
+    templateCodeEditorTarget = target;
+    templateCodeEditorInitialValue = source.value || '';
+    payloadEditor.setOption('mode', config.mode);
+    payloadEditor.setValue(templateCodeEditorInitialValue);
+
+    const title = document.getElementById('templateCodeEditorTitle');
+    const description = document.getElementById('templateCodeEditorDescription');
+    const language = document.getElementById('templateCodeEditorLanguage');
+    if (title) title.textContent = config.title;
+    if (description) description.textContent = config.description;
+    if (language) language.textContent = config.language;
+    setTemplateCodeEditorError();
+    updateTemplateCodeEditorStats();
+    openModal('templateCodeEditorModal');
+    document.body.classList.add('overflow-hidden');
+    setTimeout(() => {
+        payloadEditor.refresh();
+        payloadEditor.focus();
+        payloadEditor.setCursor(0, 0);
+    }, 80);
+}
+
+function closeTemplateCodeEditor(force = false) {
+    const modal = document.getElementById('templateCodeEditorModal');
+    if (!modal || modal.classList.contains('hidden')) return;
+    if (!force && payloadEditor && payloadEditor.getValue() !== templateCodeEditorInitialValue &&
+        !confirm('Discard the unapplied editor changes?')) return;
+
+    closeModal('templateCodeEditorModal');
+    document.body.classList.remove('overflow-hidden');
+    templateCodeEditorTarget = null;
+    templateCodeEditorInitialValue = '';
+    setTemplateCodeEditorError();
+}
+
+function applyTemplateCodeEditor() {
+    if (!payloadEditor || !templateCodeEditorTarget) return;
+    const config = templateCodeEditorConfig(templateCodeEditorTarget);
+    const source = document.getElementById(config.sourceId);
+    if (!source) return;
+    const value = payloadEditor.getValue();
+
+    if (templateCodeEditorTarget === 'schema' && value.trim()) {
+        try {
+            const parsed = JSON.parse(value);
+            if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) throw new Error('Schema must be a JSON object.');
+        } catch(e) {
+            setTemplateCodeEditorError(e.message || 'Variable schema must contain valid JSON.');
+            return;
+        }
+    }
+
+    source.value = value;
+    if (templateCodeEditorTarget === 'schema') {
+        currentTemplateVariableSchema = normalizeVariableSchema(value);
+    }
+    updateVariablesUI();
+    updateTemplateEditorSummaries();
+    templateCodeEditorInitialValue = value;
+    closeTemplateCodeEditor(true);
 }
 
 document.addEventListener('keydown', (event) => {
     if (event.key === 'Escape') {
-        const area = document.getElementById('payloadArea');
-        if (area?.classList.contains('payload-editor-expanded')) {
-            setPayloadEditorExpanded(false);
-        }
+        const modal = document.getElementById('templateCodeEditorModal');
+        if (modal && !modal.classList.contains('hidden')) closeTemplateCodeEditor();
     }
 });
 
@@ -318,12 +446,12 @@ document.addEventListener('click', (event) => {
 });
 
 function initPayloadEditor() {
-    const textarea = document.getElementById('depPayload');
+    const textarea = document.getElementById('templateCodeEditorTextarea');
     if (!textarea || payloadEditor || typeof CodeMirror === 'undefined') return;
 
     payloadEditor = CodeMirror.fromTextArea(textarea, {
         mode: 'powershell',
-        theme: 'winhub-neon',
+        theme: 'winhub-studio',
         lineNumbers: true,
         lineWrapping: true,
         indentUnit: 4,
@@ -339,10 +467,7 @@ function initPayloadEditor() {
         }
     });
 
-    payloadEditor.on('change', () => {
-        syncPayloadTextarea();
-        updateVariablesUI();
-    });
+    payloadEditor.on('change', updateTemplateCodeEditorStats);
 }
 
 function switchWorkspaceTab(tab) {
@@ -2185,7 +2310,6 @@ function restoreWorkspaceState() {
 function toggleCodeEditorMode() {
     const checkedRadio = document.querySelector('input[name="depTemplateType"]:checked');
     if(!checkedRadio) return;
-    syncPayloadTextarea();
 
     const type = checkedRadio.value;
     const lblTitle = document.getElementById('lblDepTitle');
@@ -2205,8 +2329,6 @@ function toggleCodeEditorMode() {
         if(hint) hint.innerText = "HTML / Text Template";
 
         if(payload) {
-            payload.classList.remove('text-emerald-400', 'bg-[#0f172a]', 'border-slate-800');
-            payload.classList.add('text-sky-700', 'bg-sky-50', 'border-sky-200');
             if(!payload.value || payload.value.includes('Write-Output')) {
                 payload.value = "Звіт виконання задачі: {{" + " job_title " + "}}\n=================================\n\n{%" + " for res in results " + "%}\nHost: {{" + " res.host " + "}}\nStatus: {{" + " res.status " + "}}\nData: {{" + " res.data " + "}}\n\n{%" + " endfor " + "%}";
             }
@@ -2223,8 +2345,6 @@ function toggleCodeEditorMode() {
         if(hint) hint.innerText = "Must output JSON data";
 
         if(payload) {
-            payload.classList.remove('text-sky-700', 'bg-sky-50', 'border-sky-200');
-            payload.classList.add('text-emerald-400', 'bg-[#0f172a]', 'border-slate-800');
             if(payload.value.includes('{%' + ' for res in results ' + '%}')) payload.value = "";
         }
         if(payload) setPayloadValue(payload.value);
@@ -2239,8 +2359,6 @@ function toggleCodeEditorMode() {
         if(hint) hint.innerText = "Terminal (PS/Bash/SH)";
 
         if(payload) {
-            payload.classList.remove('text-sky-700', 'bg-sky-50', 'border-sky-200');
-            payload.classList.add('text-emerald-400', 'bg-[#0f172a]', 'border-slate-800');
             if(payload.value.includes('{%' + ' for res in results ' + '%}')) payload.value = "";
         }
         if(payload) setPayloadValue(payload.value);
