@@ -881,6 +881,43 @@
 </div>
 
 {% if permissions.manage_templates %}
+<!-- REUSABLE SCRIPT / REPORT / VARIABLE SCHEMA EDITOR -->
+<div id="templateCodeEditorModal" role="dialog" aria-modal="true" aria-labelledby="templateCodeEditorTitle" class="fixed inset-0 z-[140] hidden flex items-center justify-center bg-slate-900/60 backdrop-blur-md p-4 animate-in fade-in">
+    <div class="bg-white w-full max-w-6xl rounded-[2.5rem] shadow-2xl overflow-hidden border border-indigo-200 flex flex-col max-h-[94vh]">
+        <div class="p-5 border-b border-slate-200 bg-slate-50 flex items-start justify-between gap-6 shrink-0">
+            <div class="flex items-center gap-4 min-w-0">
+                <div class="w-11 h-11 shrink-0 rounded-2xl bg-indigo-600 text-white flex items-center justify-center shadow-lg">
+                    <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 9l-3 3 3 3m8-6l3 3-3 3m-3-9l-2 12"></path></svg>
+                </div>
+                <div class="min-w-0">
+                    <div class="flex flex-wrap items-center gap-2">
+                        <h2 id="templateCodeEditorTitle" class="text-lg font-black text-slate-900 uppercase tracking-tight">Code Editor</h2>
+                        <span id="templateCodeEditorLanguage" class="px-2.5 py-1 rounded-lg bg-indigo-100 text-indigo-700 text-[9px] font-black uppercase">PowerShell</span>
+                        <span class="px-2.5 py-1 rounded-lg bg-emerald-100 text-emerald-700 text-[9px] font-black uppercase">UTF-8</span>
+                    </div>
+                    <p id="templateCodeEditorDescription" class="text-xs font-bold text-slate-500 mt-1">Edit template content and apply it when ready.</p>
+                </div>
+            </div>
+            <button type="button" onclick="closeTemplateCodeEditor()" class="p-3 bg-white border border-slate-200 hover:bg-slate-100 rounded-2xl text-slate-500 transition-colors shadow-sm" aria-label="Close code editor">
+                <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true"><path d="M6 18L18 6M6 6l12 12" stroke-width="2.5"></path></svg>
+            </button>
+        </div>
+
+        <div class="p-5 bg-slate-100 flex-1 min-h-0 overflow-hidden">
+            <textarea id="templateCodeEditorTextarea" spellcheck="false"></textarea>
+            <div class="mt-3 flex items-center justify-between gap-4">
+                <p id="templateCodeEditorError" class="hidden text-xs font-bold text-rose-700" role="alert"></p>
+                <p id="templateCodeEditorStats" class="ml-auto text-[10px] font-black text-slate-500 uppercase tracking-widest">0 lines · 0 characters</p>
+            </div>
+        </div>
+
+        <div class="p-5 border-t border-slate-200 bg-white flex justify-end gap-3 shrink-0">
+            <button type="button" onclick="closeTemplateCodeEditor()" class="px-5 py-3 bg-white text-slate-600 border border-slate-200 rounded-2xl text-[10px] font-black uppercase hover:bg-slate-100 transition-all">Cancel</button>
+            <button type="button" id="btnApplyTemplateCodeEditor" onclick="applyTemplateCodeEditor()" class="px-6 py-3 bg-indigo-600 text-white rounded-2xl text-[10px] font-black uppercase shadow-lg hover:bg-indigo-700 transition-all">Apply changes</button>
+        </div>
+    </div>
+</div>
+
 <!-- TEMPLATE DELETE CONFIRMATION MODAL -->
 <div id="templateDeleteModal" role="dialog" aria-modal="true" aria-labelledby="templateDeleteTitle" class="fixed inset-0 z-[130] hidden flex items-center justify-center bg-slate-900/60 backdrop-blur-md p-4 animate-in fade-in">
     <div class="bg-white w-full max-w-lg rounded-[3rem] shadow-2xl overflow-hidden border border-rose-200">
