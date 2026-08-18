@@ -4409,6 +4409,10 @@ function updateScheduleWheelInput(wheel) {
     if (input && hour !== undefined && minute !== undefined) input.value = `${hour}:${minute}`;
 }
 
+function getScheduleWheelRowHeight(column) {
+    return column?.querySelector('.schedule-wheel-option')?.getBoundingClientRect().height || 40;
+}
+
 function selectScheduleWheelOption(column, rawValue, {scroll = true, updateInput = true} = {}) {
     if (!column) return;
     const max = column.dataset.unit === 'hour' ? 23 : 59;
@@ -4423,7 +4427,7 @@ function selectScheduleWheelOption(column, rawValue, {scroll = true, updateInput
         option.setAttribute('aria-selected', active ? 'true' : 'false');
     });
     column.dataset.selectedValue = formatted;
-    if (scroll) column.scrollTo({top: value * 48, behavior: 'auto'});
+    if (scroll) column.scrollTo({top: value * getScheduleWheelRowHeight(column), behavior: 'auto'});
     if (updateInput) updateScheduleWheelInput(column.closest('.schedule-time-picker'));
 }
 
@@ -4464,7 +4468,7 @@ function populateScheduleWheel(column) {
     column.addEventListener('scroll', () => {
         clearTimeout(scheduleWheelScrollTimers.get(column));
         scheduleWheelScrollTimers.set(column, setTimeout(() => {
-            const value = Math.round(column.scrollTop / 48);
+            const value = Math.round(column.scrollTop / getScheduleWheelRowHeight(column));
             selectScheduleWheelOption(column, value, {scroll: true, updateInput: true});
         }, 90));
     }, {passive: true});

@@ -67,20 +67,20 @@
         background: rgba(5, 12, 24, 0.98) !important;
         border-color: rgba(34, 211, 238, 0.20) !important;
     }
-    #scheduleModal .schedule-modal-section {
+    html body #scheduleModal .schedule-modal-body > .schedule-modal-section {
         border: 1px solid rgba(148, 163, 184, 0.20);
         background: linear-gradient(145deg, rgba(14, 25, 43, 0.96), rgba(5, 12, 24, 0.94)) !important;
         box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.04), 0 12px 28px rgba(0, 0, 0, 0.16);
     }
-    #scheduleModal .schedule-section-blue {
+    html body #scheduleModal .schedule-modal-body > .schedule-modal-section.schedule-section-blue {
         border-color: rgba(56, 189, 248, 0.28) !important;
         background: linear-gradient(145deg, rgba(14, 116, 144, 0.13), rgba(5, 12, 24, 0.96)) !important;
     }
-    #scheduleModal .schedule-section-teal {
+    html body #scheduleModal .schedule-modal-body > .schedule-modal-section.schedule-section-teal {
         border-color: rgba(45, 212, 191, 0.27) !important;
         background: linear-gradient(145deg, rgba(13, 148, 136, 0.12), rgba(5, 12, 24, 0.96)) !important;
     }
-    #scheduleModal .schedule-section-violet {
+    html body #scheduleModal .schedule-modal-body > .schedule-modal-section.schedule-section-violet {
         border-color: rgba(167, 139, 250, 0.28) !important;
         background: linear-gradient(145deg, rgba(109, 40, 217, 0.13), rgba(5, 12, 24, 0.96)) !important;
     }
@@ -95,16 +95,17 @@
     }
     #scheduleModal .schedule-active-row span { color: #a7f3d0 !important; }
     #scheduleModal .schedule-time-picker {
+        --schedule-wheel-row-height: 2.5rem;
         display: grid;
-        grid-template-columns: minmax(5.5rem, 1fr) auto minmax(5.5rem, 1fr);
+        grid-template-columns: minmax(5rem, 1fr) auto minmax(5rem, 1fr);
         align-items: center;
         gap: 0.75rem;
-        max-width: 19rem;
+        max-width: 17rem;
         margin: 0 auto;
     }
     #scheduleModal .schedule-wheel-wrap { min-width: 0; }
-    #scheduleModal .schedule-wheel {
-        height: 9rem;
+    html body #scheduleModal .schedule-modal-body .schedule-wheel {
+        height: calc(var(--schedule-wheel-row-height) * 3);
         overflow-y: auto;
         scroll-snap-type: y mandatory;
         scrollbar-width: none;
@@ -112,13 +113,13 @@
         border: 1px solid rgba(125, 211, 252, 0.22);
         border-radius: 1.25rem;
         background:
-            linear-gradient(to bottom, rgba(3,10,23,0.94) 0, rgba(6,18,35,0.86) 3rem, rgba(37,99,235,0.24) 3rem, rgba(37,99,235,0.24) 6rem, rgba(6,18,35,0.86) 6rem, rgba(3,10,23,0.94) 9rem);
+            linear-gradient(to bottom, rgba(3,10,23,0.96) 0, rgba(6,18,35,0.88) var(--schedule-wheel-row-height), rgba(37,99,235,0.24) var(--schedule-wheel-row-height), rgba(37,99,235,0.24) calc(var(--schedule-wheel-row-height) * 2), rgba(6,18,35,0.88) calc(var(--schedule-wheel-row-height) * 2), rgba(3,10,23,0.96) calc(var(--schedule-wheel-row-height) * 3)) !important;
         box-shadow: inset 0 10px 18px rgba(0, 0, 0, 0.20), inset 0 -10px 18px rgba(0, 0, 0, 0.20);
     }
     #scheduleModal .schedule-wheel::-webkit-scrollbar { display: none; }
-    #scheduleModal .schedule-wheel-spacer { height: 3rem; pointer-events: none; }
+    #scheduleModal .schedule-wheel-spacer { height: var(--schedule-wheel-row-height); pointer-events: none; }
     #scheduleModal .schedule-wheel-option {
-        height: 3rem;
+        height: var(--schedule-wheel-row-height);
         width: 100%;
         display: flex;
         align-items: center;
@@ -138,6 +139,15 @@
     #scheduleModal .schedule-wheel:focus-visible {
         outline: 3px solid rgba(99, 102, 241, 0.24);
         outline-offset: 2px;
+    }
+    html body #scheduleModal .schedule-day-chip {
+        width: 3rem !important;
+        min-width: 3rem !important;
+        height: 3rem !important;
+        padding: 0 !important;
+        border-radius: 0.9rem !important;
+        font-size: 0.75rem !important;
+        line-height: 1 !important;
     }
     #scheduleModal .sch-day[value="0"]:checked + .schedule-day-chip {
         background: linear-gradient(135deg, rgba(14, 165, 233, 0.88), rgba(16, 185, 129, 0.70)) !important;
