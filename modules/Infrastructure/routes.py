@@ -3161,7 +3161,6 @@ def manage_schedule():
     else:
         st = ScheduledTask(created_by=session.get('username'))
         db.session.add(st)
-        db.session.flush()
 
     st.name = name
     st.category = category
@@ -3172,6 +3171,7 @@ def manage_schedule():
     st.is_active = is_active
     st.variables = variables_raw
     st.timeout_minutes = timeout_minutes
+    db.session.flush()
     write_infra_audit(
         "Scheduled Task Saved",
         "scheduled_task",
