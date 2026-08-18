@@ -1742,6 +1742,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
         initPayloadEditor();
         initScheduleTimeWheels();
+        initScheduleModalScroll();
         restoreWorkspaceState();
         setGuideLanguage(guideLanguage);
         const payloadEl = document.getElementById('depPayload');
@@ -4508,6 +4509,21 @@ function initScheduleTimeWheels() {
     syncScheduleTimeWheels();
 }
 
+function initScheduleModalScroll() {
+    const body = document.querySelector('#scheduleModal .schedule-modal-body');
+    if (!body || body.dataset.scrollInitialized === 'true') return;
+    body.dataset.scrollInitialized = 'true';
+    body.addEventListener('keydown', event => {
+        const pageStep = Math.max(180, Math.round(body.clientHeight * 0.72));
+        if (event.key === 'PageDown') body.scrollBy({top: pageStep, behavior: 'smooth'});
+        else if (event.key === 'PageUp') body.scrollBy({top: -pageStep, behavior: 'smooth'});
+        else if (event.key === 'Home' && event.ctrlKey) body.scrollTo({top: 0, behavior: 'smooth'});
+        else if (event.key === 'End' && event.ctrlKey) body.scrollTo({top: body.scrollHeight, behavior: 'smooth'});
+        else return;
+        event.preventDefault();
+    });
+}
+
 function toggleScheduleTargetType() {
     const type = document.getElementById('schTargetType')?.value || 'group';
     document.getElementById('schTargetHost')?.classList.toggle('hidden', type !== 'host');
@@ -4670,6 +4686,8 @@ function openScheduleModal() {
 
     const title = document.getElementById('schModalTitle'); if(title) title.innerText = 'New Schedule';
     openModal('scheduleModal');
+    const modalBody = document.querySelector('#scheduleModal .schedule-modal-body');
+    if (modalBody) modalBody.scrollTop = 0;
     setTimeout(syncScheduleTimeWheels, 40);
 }
 
@@ -4716,6 +4734,8 @@ function editSchedule(source, name, cat, cron, type, active) {
 
     const title = document.getElementById('schModalTitle'); if(title) title.innerText = 'Edit Schedule';
     openModal('scheduleModal');
+    const modalBody = document.querySelector('#scheduleModal .schedule-modal-body');
+    if (modalBody) modalBody.scrollTop = 0;
     setTimeout(syncScheduleTimeWheels, 40);
 }
 
