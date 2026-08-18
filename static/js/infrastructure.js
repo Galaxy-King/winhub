@@ -37,6 +37,7 @@ let payloadEditor = null;
 let templateCodeEditorTarget = null;
 let templateCodeEditorInitialValue = '';
 let currentPayloadEditorMode = 'powershell';
+const scheduleWheelScrollTimers = new WeakMap();
 const infraStateKeys = {
     view: 'infra_vfinal_view',
     nodeTab: 'infra_nodes_active_tab',
@@ -1740,6 +1741,7 @@ document.addEventListener('DOMContentLoaded', () => {
         if(hostSearchEl) hostSearchEl.addEventListener('input', applyHostFilters);
 
         initPayloadEditor();
+        initScheduleTimeWheels();
         restoreWorkspaceState();
         setGuideLanguage(guideLanguage);
         const payloadEl = document.getElementById('depPayload');
@@ -4376,6 +4378,142 @@ async function deleteTrigger(id) {
 }
 
 // --- SCHEDULER LOGIC (VISUAL CRON) ---
+function kyivDateTimeParts(offsetMinutes = 0) {
+    const parts = new Intl.DateTimeFormat('en-CA', {
+        timeZone: 'Europe/Kyiv',
+        year: 'numeric', month: '2-digit', day: '2-digit',
+        hour: '2-digit', minute: '2-digit', hourCycle: 'h23',
+    }).formatToParts(new Date(Date.now() + offsetMinutes * 60000));
+    const values = Object.fromEntries(parts.map(part => [part.type, part.value]));
+    return {
+        date: `${values.year}-${values.month}-${values.day}`,
+        time: `${values.hour}:${values.minute}`,
+    };
+}
+
+function normalizeScheduleTime(value) {
+    const match = /^(\d{1,2}):(\d{2})$/.exec(String(value || '').trim());
+    if (!match) return null;
+    const hour = Number(match[1]);
+    const minute = Number(match[2]);
+    if (!Number.isInteger(hour) || hour < 0 || hour > 23 || !Number.isInteger(minute) || minute < 0 || minute > 59) return null;
+    return `${String(hour).padStart(2, '0')}:${String(minute).padStart(2, '0')}`;
+}
+
+function updateScheduleWheelInput(wheel) {
+    if (!wheel) return;
+    const hour = wheel.querySelector('.schedule-wheel[data-unit="hour"] .schedule-wheel-option.is-selected')?.dataset.value;
+    const minute = wheel.querySelector('.schedule-wheel[data-unit="minute"] .schedule-wheel-option.is-selected')?.dataset.value;
+    const input = document.getElementById(wheel.dataset.timeTarget || '');
+    if (input && hour !== undefined && minute !== undefined) input.value = `${hour}:${minute}`;
+}
+
+function selectScheduleWheelOption(column, rawValue, {scroll = true, updateInput = true} = {}) {
+    if (!column) return;
+    const max = column.dataset.unit === 'hour' ? 23 : 59;
+    const value = Math.max(0, Math.min(max, Number(rawValue) || 0));
+    const formatted = String(value).padStart(2, '0');
+    const selected = column.querySelector(`.schedule-wheel-option[data-value="${formatted}"]`);
+    if (!selected) return;
+
+    column.querySelectorAll('.schedule-wheel-option').forEach(option => {
+        const active = option === selected;
+        option.classList.toggle('is-selected', active);
+        option.setAttribute('aria-selected', active ? 'true' : 'false');
+    });
+    column.dataset.selectedValue = formatted;
+    if (scroll) column.scrollTo({top: value * 48, behavior: 'auto'});
+    if (updateInput) updateScheduleWheelInput(column.closest('.schedule-time-picker'));
+}
+
+function populateScheduleWheel(column) {
+    if (!column || column.dataset.initialized === 'true') return;
+    column.dataset.initialized = 'true';
+    const unit = column.dataset.unit;
+    const max = unit === 'hour' ? 23 : 59;
+    const fragment = document.createDocumentFragment();
+    const startSpacer = document.createElement('div');
+    startSpacer.className = 'schedule-wheel-spacer';
+    startSpacer.setAttribute('aria-hidden', 'true');
+    fragment.appendChild(startSpacer);
+
+    for (let value = 0; value <= max; value += 1) {
+        const formatted = String(value).padStart(2, '0');
+        const button = document.createElement('button');
+        button.type = 'button';
+        button.className = 'schedule-wheel-option';
+        button.dataset.value = formatted;
+        button.setAttribute('role', 'option');
+        button.setAttribute('aria-label', `${unit === 'hour' ? 'Hour' : 'Minute'} ${formatted}`);
+        button.setAttribute('aria-selected', 'false');
+        button.textContent = formatted;
+        button.addEventListener('click', () => {
+            selectScheduleWheelOption(column, value);
+            column.focus();
+        });
+        fragment.appendChild(button);
+    }
+
+    const endSpacer = document.createElement('div');
+    endSpacer.className = 'schedule-wheel-spacer';
+    endSpacer.setAttribute('aria-hidden', 'true');
+    fragment.appendChild(endSpacer);
+    column.appendChild(fragment);
+
+    column.addEventListener('scroll', () => {
+        clearTimeout(scheduleWheelScrollTimers.get(column));
+        scheduleWheelScrollTimers.set(column, setTimeout(() => {
+            const value = Math.round(column.scrollTop / 48);
+            selectScheduleWheelOption(column, value, {scroll: true, updateInput: true});
+        }, 90));
+    }, {passive: true});
+
+    column.addEventListener('keydown', event => {
+        const current = Number(column.dataset.selectedValue || 0);
+        const maxValue = column.dataset.unit === 'hour' ? 23 : 59;
+        let next = current;
+        if (event.key === 'ArrowDown') next = Math.min(maxValue, current + 1);
+        else if (event.key === 'ArrowUp') next = Math.max(0, current - 1);
+        else if (event.key === 'PageDown') next = Math.min(maxValue, current + 5);
+        else if (event.key === 'PageUp') next = Math.max(0, current - 5);
+        else if (event.key === 'Home') next = 0;
+        else if (event.key === 'End') next = maxValue;
+        else return;
+        event.preventDefault();
+        selectScheduleWheelOption(column, next);
+    });
+}
+
+function setScheduleWheelTime(inputId, value) {
+    const normalized = normalizeScheduleTime(value) || '00:00';
+    const input = document.getElementById(inputId);
+    if (input) input.value = normalized;
+    const wheel = document.querySelector(`.schedule-time-picker[data-time-target="${inputId}"]`);
+    if (!wheel) return;
+    const [hour, minute] = normalized.split(':');
+    selectScheduleWheelOption(wheel.querySelector('.schedule-wheel[data-unit="hour"]'), hour, {scroll: true, updateInput: false});
+    selectScheduleWheelOption(wheel.querySelector('.schedule-wheel[data-unit="minute"]'), minute, {scroll: true, updateInput: false});
+    updateScheduleWheelInput(wheel);
+}
+
+function syncScheduleTimeWheels() {
+    document.querySelectorAll('.schedule-time-picker').forEach(wheel => {
+        const input = document.getElementById(wheel.dataset.timeTarget || '');
+        setScheduleWheelTime(wheel.dataset.timeTarget, input?.value || '00:00');
+    });
+}
+
+function initScheduleTimeWheels() {
+    document.querySelectorAll('.schedule-wheel').forEach(populateScheduleWheel);
+    syncScheduleTimeWheels();
+}
+
+function toggleScheduleTargetType() {
+    const type = document.getElementById('schTargetType')?.value || 'group';
+    document.getElementById('schTargetHost')?.classList.toggle('hidden', type !== 'host');
+    document.getElementById('schTargetGroup')?.classList.toggle('hidden', type !== 'group');
+}
+
 function toggleSchType() {
     const checked = document.querySelector('input[name="schType"]:checked');
     if(!checked) return;
@@ -4386,6 +4524,7 @@ function toggleSchType() {
 
     if(uiOnce) uiOnce.classList.toggle('hidden', type !== 'once');
     if(uiRec) uiRec.classList.toggle('hidden', type !== 'recurring');
+    setTimeout(syncScheduleTimeWheels, 0);
 }
 
 function toggleScheduleDay(inputOrValue, forceState = null) {
@@ -4411,23 +4550,24 @@ function buildCronString() {
 
     if (type === 'once') {
         const d = document.getElementById('schDate')?.value;
-        const t = document.getElementById('schTimeOnce')?.value;
+        const t = normalizeScheduleTime(document.getElementById('schTimeOnce')?.value);
         if(!d || !t) return null;
         return "DATE:" + d + " " + t;
     } else {
-        const t = document.getElementById('schTimeRec')?.value;
+        const t = normalizeScheduleTime(document.getElementById('schTimeRec')?.value);
         if(!t) return null;
         const [hr, min] = t.split(':');
-        const days = Array.from(document.querySelectorAll('.sch-day:checked')).map(cb => cb.value);
+        const days = Array.from(document.querySelectorAll('.sch-day:checked')).map(cb => Number(cb.value)).sort((a, b) => a - b);
         if(days.length === 0) return null;
-        return `${parseInt(min)} ${parseInt(hr)} * * ${days.join(',')}`;
+        return `${Number(min)} ${Number(hr)} * * ${days.join(',')}`;
     }
 }
 
 function parseCronToUI(cronStr) {
+    cronStr = String(cronStr || '').trim();
     const elDate = document.getElementById('schDate'); if(elDate) elDate.value = '';
-    const elTimeOnce = document.getElementById('schTimeOnce'); if(elTimeOnce) elTimeOnce.value = '';
-    const elTimeRec = document.getElementById('schTimeRec'); if(elTimeRec) elTimeRec.value = '';
+    setScheduleWheelTime('schTimeOnce', '00:00');
+    setScheduleWheelTime('schTimeRec', '00:00');
     document.querySelectorAll('.sch-day').forEach(cb => cb.checked = false);
 
     if (cronStr.startsWith("DATE:")) {
@@ -4435,7 +4575,7 @@ function parseCronToUI(cronStr) {
         if(rOnce) rOnce.checked = true;
         const [d, t] = cronStr.replace("DATE:", "").trim().split(" ");
         if(elDate) elDate.value = d;
-        if(elTimeOnce) elTimeOnce.value = t;
+        setScheduleWheelTime('schTimeOnce', t);
     } else {
         const rRec = document.querySelector('input[name="schType"][value="recurring"]');
         if(rRec) rRec.checked = true;
@@ -4443,7 +4583,7 @@ function parseCronToUI(cronStr) {
         if(parts.length >= 5) {
             const min = parts[0].padStart(2, '0');
             const hr = parts[1].padStart(2, '0');
-            if(elTimeRec) elTimeRec.value = `${hr}:${min}`;
+            setScheduleWheelTime('schTimeRec', `${hr}:${min}`);
             if(parts[4] !== '*') {
                 const days = parts[4].split(',');
                 days.forEach(d => {
@@ -4492,7 +4632,7 @@ function updateScheduleVariablesUI(values = currentScheduleVariables) {
         const field = renderVariableField(v, spec, currentScheduleVariables[v], 'sch-var-input');
         return `
             <div>
-                <label class="text-[10px] font-black text-cyan-200 uppercase tracking-widest block mb-2 ml-2">${escapeHtml(spec.label || v)}</label>
+                <label class="text-[10px] font-black text-blue-700 uppercase tracking-widest block mb-2">${escapeHtml(spec.label || v)}</label>
                 ${field}
             </div>
         `;
@@ -4509,21 +4649,28 @@ function openScheduleModal() {
     const elCat = document.getElementById('schCategory'); if(elCat) elCat.value = 'Scheduled';
     const elAct = document.getElementById('schActive'); if(elAct) elAct.checked = true;
     const elTimeout = document.getElementById('schTimeoutMinutes'); if(elTimeout) elTimeout.value = '';
+    const elTemplate = document.getElementById('schTemplate'); if(elTemplate) elTemplate.selectedIndex = 0;
+    const elTargetType = document.getElementById('schTargetType'); if(elTargetType) elTargetType.value = 'group';
+    const elTargetGroup = document.getElementById('schTargetGroup'); if(elTargetGroup) elTargetGroup.selectedIndex = 0;
+    const elTargetHost = document.getElementById('schTargetHost'); if(elTargetHost) elTargetHost.selectedIndex = 0;
     currentScheduleVariables = {};
+    document.querySelectorAll('.sch-day').forEach(cb => cb.checked = false);
 
     const rOnce = document.querySelector('input[name="schType"][value="once"]');
     if(rOnce) rOnce.checked = true;
 
+    const defaultRun = kyivDateTimeParts(60);
     const elDate = document.getElementById('schDate');
-    if(elDate) {
-        const now = new Date();
-        elDate.value = now.toISOString().split('T')[0];
-    }
+    if(elDate) elDate.value = defaultRun.date;
+    setScheduleWheelTime('schTimeOnce', defaultRun.time);
+    setScheduleWheelTime('schTimeRec', defaultRun.time);
+    toggleScheduleTargetType();
     toggleSchType();
     updateScheduleVariablesUI({});
 
     const title = document.getElementById('schModalTitle'); if(title) title.innerText = 'New Schedule';
     openModal('scheduleModal');
+    setTimeout(syncScheduleTimeWheels, 40);
 }
 
 function editSchedule(source, name, cat, cron, type, active) {
@@ -4546,7 +4693,7 @@ function editSchedule(source, name, cat, cron, type, active) {
     const elName = document.getElementById('schName'); if(elName) elName.value = name;
     const elCat = document.getElementById('schCategory'); if(elCat) elCat.value = cat;
     const elType = document.getElementById('schTargetType'); if(elType) elType.value = type;
-    const elAct = document.getElementById('schActive'); if(elAct) elAct.checked = (active === 'True');
+    const elAct = document.getElementById('schActive'); if(elAct) elAct.checked = String(active).toLowerCase() === 'true';
     const elTemplate = document.getElementById('schTemplate'); if(elTemplate && data.templateId) elTemplate.value = data.templateId;
     const elTimeout = document.getElementById('schTimeoutMinutes'); if(elTimeout) elTimeout.value = data.timeoutMinutes || '';
 
@@ -4569,26 +4716,45 @@ function editSchedule(source, name, cat, cron, type, active) {
 
     const title = document.getElementById('schModalTitle'); if(title) title.innerText = 'Edit Schedule';
     openModal('scheduleModal');
+    setTimeout(syncScheduleTimeWheels, 40);
 }
 
 async function saveSchedule() {
     const cronExpr = buildCronString();
     if (!cronExpr) return alert("Please specify the execution time and date/days completely.");
 
+    const name = document.getElementById('schName')?.value?.trim() || '';
+    const category = document.getElementById('schCategory')?.value?.trim() || 'Scheduled';
+    const templateId = document.getElementById('schTemplate')?.value || '';
+    const targetType = document.getElementById('schTargetType')?.value || '';
+    const targetId = targetType === 'host' ? document.getElementById('schTargetHost')?.value : document.getElementById('schTargetGroup')?.value;
+    const timeoutMinutes = Number(document.getElementById('schTimeoutMinutes')?.value || 0);
+    if (!name) return alert("Job Name is required");
+    if (name.length > 150) return alert("Job Name cannot exceed 150 characters");
+    if (category.length > 100) return alert("Category cannot exceed 100 characters");
+    if (!templateId) return alert("Select a runnable template");
+    if (!['host', 'group'].includes(targetType) || !targetId) return alert("Select a valid target");
+    if (!Number.isInteger(timeoutMinutes) || timeoutMinutes < 0 || timeoutMinutes > 10080) return alert("Execution time limit must be between 0 and 10080 minutes");
+
     const data = {
         id: document.getElementById('schId')?.value || null,
-        name: document.getElementById('schName')?.value,
-        category: document.getElementById('schCategory')?.value || 'Scheduled',
-        template_id: document.getElementById('schTemplate')?.value,
-        target_type: document.getElementById('schTargetType')?.value,
-        target_id: document.getElementById('schTargetType')?.value === 'host' ? document.getElementById('schTargetHost')?.value : document.getElementById('schTargetGroup')?.value,
+        name,
+        category,
+        template_id: templateId,
+        target_type: targetType,
+        target_id: targetId,
         cron: cronExpr,
-        timeout_minutes: parseInt(document.getElementById('schTimeoutMinutes')?.value || '0', 10) || 0,
+        timeout_minutes: timeoutMinutes,
         variables: collectScheduleVariables(),
         is_active: document.getElementById('schActive')?.checked
     };
-    if(!data.name) return alert("Job Name is required");
 
+    const saveButton = document.getElementById('btnSaveSchedule');
+    if (saveButton?.disabled) return;
+    if (saveButton) {
+        saveButton.disabled = true;
+        saveButton.classList.add('opacity-60', 'cursor-not-allowed');
+    }
     try {
         const res = await fetch('/api/infrastructure/schedule', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(data) });
         if(res.ok) window.location.reload();
@@ -4600,7 +4766,14 @@ async function saveSchedule() {
             } catch(e) {}
             alert(message);
         }
-    } catch(e) { alert("Server error."); }
+    } catch(e) {
+        alert("Server error.");
+    } finally {
+        if (saveButton) {
+            saveButton.disabled = false;
+            saveButton.classList.remove('opacity-60', 'cursor-not-allowed');
+        }
+    }
 }
 
 async function deleteSchedule(id) {

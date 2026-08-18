@@ -6,8 +6,10 @@ import socket
 import sys
 import types
 import unittest
+from datetime import datetime
 from pathlib import Path
 from unittest import mock
+from zoneinfo import ZoneInfo
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -409,6 +411,120 @@ class RendererDeploymentTests(unittest.TestCase):
         self.assertIn("SystemCallFilter=~@network-io", service)
         self.assertIn("--require-limits", service)
         self.assertIn("SocketMode=0660", socket_unit)
+
+
+class SchedulerRegressionTests(unittest.TestCase):
+    def test_schedule_expressions_use_strict_24_hour_kyiv_format(self):
+        from modules.Infrastructure.routes import validate_schedule_expression
+
+        now = datetime(2026, 8, 18, 10, 0, tzinfo=ZoneInfo("Europe/Kyiv"))
+        self.assertEqual(
+            validate_schedule_expression("DATE:2026-08-18 23:45", now=now),
+            "DATE:2026-08-18 23:45",
+        )
+        self.assertEqual(validate_schedule_expression("15  7 * * 0,2"), "15 7 * * 0,2")
+        with self.assertRaisesRegex(ValueError, "24-hour"):
+            validate_schedule_expression("DATE:2026-08-18 11:45 PM", now=now)
+        with self.assertRaisesRegex(ValueError, "future"):
+            validate_schedule_expression("DATE:2026-08-18 09:59", now=now)
+        with self.assertRaisesRegex(ValueError, "invalid cron"):
+            validate_schedule_expression("0 24 * * 0")
+
+    def test_schedule_required_variables_ignore_schema_only_fields(self):
+        from modules.Infrastructure.routes import schedule_required_variable_names
+
+        template = types.SimpleNamespace(payload=json.dumps({
+            "script": "backup {{source}} to {{destination}}",
+            "__variable_schema": {
+                "source": {"type": "text"},
+                "destination": {"type": "text"},
+                "optional_note": {"type": "text"},
+            },
+        }))
+        self.assertEqual(schedule_required_variable_names(template), ["destination", "source"])
+
+    def test_scheduler_ui_has_muted_categories_and_24_hour_wheels(self):
+        scheduler = (ROOT / "modules/Infrastructure/templates/tabs/_scheduler.html").read_text(encoding="utf-8")
+        modals = (ROOT / "modules/Infrastructure/templates/modals/_modals.html").read_text(encoding="utf-8")
+        javascript = (ROOT / "static/js/infrastructure.js").read_text(encoding="utf-8")
+
+        self.assertIn("scheduler-tone-{{ loop.index0 % 5 }}", scheduler)
+        self.assertIn("rgba(var(--scheduler-tone-rgb), 0.035)", scheduler)
+        self.assertIn('max-w-4xl', modals)
+        self.assertIn('data-time-target="schTimeOnce"', modals)
+        self.assertIn('data-time-target="schTimeRec"', modals)
+        self.assertIn('type="hidden" id="schTimeOnce"', modals)
+        self.assertIn('type="hidden" id="schTimeRec"', modals)
+        self.assertNotRegex(modals, r'<input[^>]+type="time"[^>]+id="schTime(?:Once|Rec)"')
+        expected_days = {
+            "Mon": "0", "Tue": "1", "Wed": "2", "Thu": "3",
+            "Fri": "4", "Sat": "5", "Sun": "6",
+        }
+        for label, value in expected_days.items():
+            with self.subTest(day=label):
+                self.assertRegex(modals, rf'class="sch-day peer hidden" value="{value}"[^>]*>.*?{label}')
+        self.assertIn("hourCycle: 'h23'", javascript)
+        self.assertIn("function initScheduleTimeWheels()", javascript)
+        self.assertIn("function normalizeScheduleTime(value)", javascript)
+        self.assertIn("Array.from(document.querySelectorAll('.sch-day:checked'))", javascript)
+
+    def test_schedule_api_rejects_invalid_cron_before_persistence(self):
+        from flask import Flask, session
+        from modules.Infrastructure import routes
+
+        app = Flask(__name__)
+        app.secret_key = "scheduler-test"
+        payload = {
+            "name": "Invalid schedule",
+            "category": "Test",
+            "template_id": "template-1",
+            "target_type": "group",
+            "target_id": "group-1",
+            "cron": "0 24 * * 0",
+            "timeout_minutes": 0,
+            "variables": {},
+            "is_active": True,
+        }
+        template = types.SimpleNamespace(id="template-1", type="action")
+        template_query = mock.Mock()
+        template_query.get.return_value = template
+        with app.test_request_context(json=payload):
+            session.update({"user_id": 1, "username": "tester", "is_admin": True})
+            with mock.patch.object(routes, "require_permission", return_value=None), \
+                 mock.patch.object(routes.TaskTemplate, "query", template_query), \
+                 mock.patch.object(routes, "can_access_template_library_entry", return_value=True), \
+                 mock.patch.object(routes, "can_use_template", return_value=True), \
+                 mock.patch.object(routes, "validate_schedule_target", return_value=("group", "group-1")), \
+                 mock.patch.object(routes.db.session, "commit") as commit:
+                response, status = routes.manage_schedule()
+
+        self.assertEqual(status, 400)
+        self.assertIn("invalid cron", response.get_json()["message"])
+        commit.assert_not_called()
+
+    def test_run_now_revalidates_target_access(self):
+        from flask import Flask, session
+        from modules.Infrastructure import routes
+
+        app = Flask(__name__)
+        app.secret_key = "scheduler-test"
+        template = types.SimpleNamespace(id="template-1", type="action")
+        scheduled = types.SimpleNamespace(
+            id="schedule-1", template=template, target_type="host", target_id="host-1"
+        )
+        schedule_query = mock.Mock()
+        schedule_query.get.return_value = scheduled
+        with app.test_request_context():
+            session.update({"user_id": 1, "username": "tester", "is_admin": False})
+            with mock.patch.object(routes, "require_permission", return_value=None), \
+                 mock.patch.object(routes.ScheduledTask, "query", schedule_query), \
+                 mock.patch.object(routes, "can_access_template_library_entry", return_value=True), \
+                 mock.patch.object(routes, "can_use_template", return_value=True), \
+                 mock.patch.object(routes, "validate_schedule_target", side_effect=PermissionError("denied")):
+                response, status = routes.run_schedule_now("schedule-1")
+
+        self.assertEqual(status, 403)
+        self.assertEqual(response.get_json()["message"], "denied")
 
 
 
