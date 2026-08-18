@@ -880,6 +880,67 @@
     </div>
 </div>
 
+{% if permissions.manage_templates %}
+<!-- TEMPLATE DELETE CONFIRMATION MODAL -->
+<div id="templateDeleteModal" role="dialog" aria-modal="true" aria-labelledby="templateDeleteTitle" class="fixed inset-0 z-[130] hidden flex items-center justify-center bg-slate-900/60 backdrop-blur-md p-4 animate-in fade-in">
+    <div class="bg-white w-full max-w-lg rounded-[3rem] shadow-2xl overflow-hidden border border-rose-200">
+        <div class="p-6 border-b border-rose-100 bg-rose-50 flex items-start justify-between gap-6">
+            <div class="flex items-center gap-4 min-w-0">
+                <div class="w-12 h-12 shrink-0 rounded-2xl bg-rose-600 text-white flex items-center justify-center shadow-lg">
+                    <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v4m0 4h.01M10.3 3.7L2.6 17a2 2 0 001.7 3h15.4a2 2 0 001.7-3L13.7 3.7a2 2 0 00-3.4 0z"></path></svg>
+                </div>
+                <div class="min-w-0">
+                    <h2 id="templateDeleteTitle" class="text-xl font-black text-rose-700 uppercase tracking-tight">Delete Template</h2>
+                    <p class="text-xs font-bold text-rose-700 mt-1">This action cannot be undone.</p>
+                </div>
+            </div>
+            <button type="button" onclick="closeTemplateDeleteModal()" class="p-3 bg-white border border-rose-200 hover:bg-rose-100 rounded-2xl text-rose-500 transition-colors shadow-sm" aria-label="Close delete template dialog">
+                <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true"><path d="M6 18L18 6M6 6l12 12" stroke-width="2.5"></path></svg>
+            </button>
+        </div>
+
+        <div class="p-6 space-y-5">
+            <div class="rounded-2xl border border-slate-200 bg-slate-50 p-4">
+                <p class="text-[10px] font-black text-slate-400 uppercase tracking-widest">Selected template</p>
+                <p id="templateDeleteName" class="mt-2 text-sm font-black text-slate-900 break-words"></p>
+            </div>
+
+            <div id="templateDeleteImpactLoading" class="rounded-2xl border border-sky-200 bg-sky-50 p-4 text-sm font-bold text-sky-700" aria-live="polite">
+                Checking Scheduler and Trigger Rules dependencies...
+            </div>
+            <div id="templateDeleteImpactError" class="hidden rounded-2xl border border-rose-200 bg-rose-50 p-4 text-sm font-bold text-rose-700" role="alert"></div>
+
+            <div id="templateDeleteImpact" class="hidden grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div class="rounded-2xl border border-amber-200 bg-amber-50 p-4">
+                    <p class="text-[10px] font-black text-amber-700 uppercase tracking-widest">Scheduler jobs</p>
+                    <p class="mt-2 text-2xl font-black text-amber-700" id="templateDeleteSchedulesCount">0</p>
+                    <p class="mt-1 text-xs font-bold text-amber-800">These jobs will be permanently removed.</p>
+                    <p id="templateDeleteSchedulesNames" class="mt-2 text-[10px] font-bold text-amber-700 break-words"></p>
+                </div>
+                <div class="rounded-2xl border border-violet-200 bg-violet-50 p-4">
+                    <p class="text-[10px] font-black text-violet-700 uppercase tracking-widest">Trigger rules</p>
+                    <p class="mt-2 text-2xl font-black text-violet-700" id="templateDeleteTriggersCount">0</p>
+                    <p class="mt-1 text-xs font-bold text-violet-700">Rules remain, but their action template will be cleared.</p>
+                    <p id="templateDeleteTriggersNames" class="mt-2 text-[10px] font-bold text-violet-700 break-words"></p>
+                </div>
+            </div>
+
+            <div>
+                <label for="templateDeleteConfirmation" class="text-[10px] font-black text-slate-500 uppercase tracking-widest block mb-2">
+                    Type the exact template name to confirm
+                </label>
+                <input id="templateDeleteConfirmation" type="text" autocomplete="off" oninput="updateTemplateDeleteConfirmation()" class="w-full p-4 bg-white border border-slate-300 rounded-2xl text-sm font-bold outline-none focus:ring-2 focus:ring-rose-500 transition-all" placeholder="Template name">
+            </div>
+        </div>
+
+        <div class="p-6 border-t border-slate-100 bg-slate-50 flex justify-end gap-3">
+            <button type="button" onclick="closeTemplateDeleteModal()" class="px-5 py-3 bg-white text-slate-600 border border-slate-200 rounded-2xl text-[10px] font-black uppercase hover:bg-slate-100 transition-all">Cancel</button>
+            <button type="button" id="btnConfirmTemplateDelete" onclick="confirmTemplateDelete()" class="px-6 py-3 bg-rose-600 text-white rounded-2xl text-[10px] font-black uppercase shadow-lg hover:bg-rose-700 transition-all disabled:opacity-50" disabled>Delete permanently</button>
+        </div>
+    </div>
+</div>
+{% endif %}
+
 <!-- TEMPLATE IMPORT MODAL -->
 <div id="templateImportModal" class="workspace-import-modal fixed inset-0 z-[130] hidden flex items-center justify-center bg-slate-950/80 backdrop-blur-md p-4 animate-in fade-in">
     <div class="bg-slate-950 w-full max-w-3xl rounded-[3rem] shadow-2xl overflow-hidden border border-cyan-400/30 flex flex-col max-h-[88vh]">

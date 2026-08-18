@@ -817,6 +817,31 @@ def clone_template_payload(template):
     return payload
 
 
+def template_deletion_impact(template_id, sample_limit=5):
+    scheduled_query = ScheduledTask.query.filter_by(template_id=template_id)
+    trigger_query = TriggerRule.query.filter_by(action_template_id=template_id)
+    scheduled_count = scheduled_query.count()
+    trigger_count = trigger_query.count()
+    scheduled_names = [
+        row.name for row in scheduled_query.order_by(ScheduledTask.name).limit(sample_limit).all()
+    ]
+    trigger_names = [
+        row.name for row in trigger_query.order_by(TriggerRule.name).limit(sample_limit).all()
+    ]
+    return {
+        "scheduled_tasks": {
+            "count": scheduled_count,
+            "names": scheduled_names,
+            "truncated": scheduled_count > len(scheduled_names),
+        },
+        "trigger_rules": {
+            "count": trigger_count,
+            "names": trigger_names,
+            "truncated": trigger_count > len(trigger_names),
+        },
+    }
+
+
 def approved_report_template(template_id):
     template = TaskTemplate.query.get(str(template_id or "")) if template_id else None
     if not template or getattr(template, "type", "action") != "report" or not template_approval_valid(template):
@@ -2331,7 +2356,7 @@ def index():
 
     trigger_rules = []
     for tr in triggers_raw:
-        action_tpl = TaskTemplate.query.get(tr.action_template_id)
+        action_tpl = TaskTemplate.query.get(tr.action_template_id) if tr.action_template_id else None
         trigger_rules.append({
             "id": tr.id, "name": tr.name, "metric_name": tr.metric_name,
             "operator": tr.operator, "threshold_value": tr.threshold_value,
@@ -4467,25 +4492,70 @@ def clone_template(tid):
     }), 201
 
 
+@infrastructure_bp.route('/api/infrastructure/templates/<tid>/deletion-impact', methods=['GET'])
+def template_deletion_impact_api(tid):
+    denied = require_permission("manage_templates")
+    if denied:
+        return denied
+
+    template = TaskTemplate.query.get(tid)
+    if not template or not can_access_template_library_entry(template):
+        return jsonify({"success": False, "message": "Template not found"}), 404
+    if not can_delete_template(template):
+        return jsonify({"success": False, "message": "Template deletion is locked by superadmin policy"}), 403
+
+    return jsonify({
+        "success": True,
+        "template": {
+            "id": template.id,
+            "name": template.name,
+            "type": getattr(template, "type", "action") or "action",
+        },
+        "impact": template_deletion_impact(template.id),
+    })
+
+
 @infrastructure_bp.route('/api/infrastructure/templates/<tid>', methods=['DELETE'])
 def delete_template(tid):
     denied = require_permission("manage_templates")
-    if denied: return denied
-    t = TaskTemplate.query.get(tid)
-    if not t:
+    if denied:
+        return denied
+
+    template = TaskTemplate.query.get(tid)
+    if not template or not can_access_template_library_entry(template):
         return jsonify({"success": False, "message": "Template not found"}), 404
-    if not can_delete_template(t):
+    if not can_delete_template(template):
         return jsonify({"success": False, "message": "Template deletion is locked by superadmin policy"}), 403
 
+    data = request.get_json(silent=True) or {}
+    confirmation = data.get("confirm_name")
+    if not isinstance(confirmation, str) or confirmation != template.name:
+        return jsonify({
+            "success": False,
+            "message": "Type the exact template name to confirm deletion",
+        }), 400
+
     try:
+        impact = template_deletion_impact(template.id)
         ScheduledTask.query.filter_by(template_id=tid).delete(synchronize_session=False)
         TriggerRule.query.filter_by(action_template_id=tid).update(
             {"action_template_id": None},
             synchronize_session=False
         )
-        db.session.delete(t)
+        write_infra_audit(
+            "template_deleted",
+            "task_template",
+            template.id,
+            {
+                "template_name": template.name,
+                "template_type": getattr(template, "type", "action") or "action",
+                "scheduled_tasks_deleted": impact["scheduled_tasks"]["count"],
+                "trigger_rules_detached": impact["trigger_rules"]["count"],
+            },
+        )
+        db.session.delete(template)
         db.session.commit()
-        return jsonify({"success": True})
+        return jsonify({"success": True, "impact": impact})
     except Exception:
         db.session.rollback()
         logging.getLogger("winhub").exception("Template delete failed")

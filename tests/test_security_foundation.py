@@ -127,18 +127,88 @@ class TemplateCloneTests(unittest.TestCase):
 
     def test_template_actions_are_in_the_builder_toolbar(self):
         template = (ROOT / "modules/Infrastructure/templates/tabs/_deploy.html").read_text(encoding="utf-8")
+        modals = (ROOT / "modules/Infrastructure/templates/modals/_modals.html").read_text(encoding="utf-8")
+        javascript = (ROOT / "static/js/infrastructure.js").read_text(encoding="utf-8")
 
+        self.assertIn('id="btnNewTemplate"', template)
         self.assertIn('id="btnSaveTemplate"', template)
         self.assertIn('id="btnExportTemplate"', template)
         self.assertIn('id="btnCloneTemplate"', template)
+        self.assertIn('id="btnDeleteTemplate"', template)
+        self.assertIn('onclick="startNewTemplate()"', template)
         self.assertIn('onclick="exportSelectedTemplate()"', template)
         self.assertIn('onclick="cloneSelectedTemplate()"', template)
+        self.assertIn('onclick="openTemplateDeleteModal()"', template)
         self.assertNotIn('class="sr-only"', template)
+        self.assertIn('aria-label="New template"', template)
         self.assertIn('aria-label="Save template"', template)
         self.assertIn('aria-label="Download selected template"', template)
         self.assertIn('aria-label="Clone selected template"', template)
+        self.assertIn('aria-label="Delete selected template"', template)
         self.assertEqual(template.count("cloneTemplate('{{ t.id }}')"), 0)
         self.assertEqual(template.count("exportTemplate('{{ t.id }}')"), 0)
+        self.assertNotIn("deleteTemplate('{{ t.id }}')", template)
+        self.assertNotIn('id="btnNewScript"', template)
+        self.assertIn('id="templateDeleteModal"', modals)
+        self.assertIn('id="templateDeleteConfirmation"', modals)
+        self.assertIn("'/deletion-impact'", javascript)
+        self.assertIn("JSON.stringify({confirm_name: confirmation.value})", javascript)
+
+    def test_template_deletion_impact_summarizes_dependencies(self):
+        from modules.Infrastructure import routes
+
+        scheduled_query = mock.Mock()
+        scheduled_query.count.return_value = 7
+        scheduled_query.order_by.return_value.limit.return_value.all.return_value = [
+            types.SimpleNamespace(name="Nightly"),
+            types.SimpleNamespace(name="Weekly"),
+        ]
+        trigger_query = mock.Mock()
+        trigger_query.count.return_value = 1
+        trigger_query.order_by.return_value.limit.return_value.all.return_value = [
+            types.SimpleNamespace(name="Disk alert"),
+        ]
+        scheduled_model = types.SimpleNamespace(
+            name=object(),
+            query=types.SimpleNamespace(filter_by=mock.Mock(return_value=scheduled_query)),
+        )
+        trigger_model = types.SimpleNamespace(
+            name=object(),
+            query=types.SimpleNamespace(filter_by=mock.Mock(return_value=trigger_query)),
+        )
+
+        with mock.patch.object(routes, "ScheduledTask", scheduled_model), mock.patch.object(routes, "TriggerRule", trigger_model):
+            impact = routes.template_deletion_impact("template-id", sample_limit=2)
+
+        self.assertEqual(impact["scheduled_tasks"]["count"], 7)
+        self.assertEqual(impact["scheduled_tasks"]["names"], ["Nightly", "Weekly"])
+        self.assertTrue(impact["scheduled_tasks"]["truncated"])
+        self.assertEqual(impact["trigger_rules"]["count"], 1)
+        self.assertFalse(impact["trigger_rules"]["truncated"])
+
+    def test_template_delete_requires_exact_name_confirmation(self):
+        from flask import Flask
+        from modules.Infrastructure import routes
+
+        app = Flask(__name__)
+        app.secret_key = "template-delete-test"
+        template = types.SimpleNamespace(id="template-id", name="Critical Backup", type="action")
+        query = types.SimpleNamespace(get=mock.Mock(return_value=template))
+        template_model = types.SimpleNamespace(query=query)
+        with app.test_request_context(
+            "/api/infrastructure/templates/template-id",
+            method="DELETE",
+            json={"confirm_name": "wrong name"},
+        ), mock.patch.object(routes, "require_permission", return_value=None), mock.patch.object(
+            routes, "TaskTemplate", template_model
+        ), mock.patch.object(routes, "can_access_template_library_entry", return_value=True), mock.patch.object(
+            routes, "can_delete_template", return_value=True
+        ):
+            response, status = routes.delete_template("template-id")
+
+        self.assertEqual(status, 400)
+        self.assertFalse(response.get_json()["success"])
+        self.assertIn("exact template name", response.get_json()["message"])
 
     def test_template_library_access_does_not_expose_another_users_private_draft(self):
         from flask import Flask, session
