@@ -17,6 +17,7 @@ let currentReportId = null;
 
 let selectedTemplateId = null;
 let editingTemplateId = null;
+let pendingTemplateDeletion = null;
 let currentTemplateVariables = [];
 let currentTemplateVariableSchema = {};
 let currentScheduleVariables = {};
@@ -1927,6 +1928,25 @@ function setTemplateToolbarButtonState(id, enabled, enabledTitle, disabledTitle)
     if (!button) return;
     button.disabled = !enabled;
     button.title = enabled ? enabledTitle : disabledTitle;
+    button.setAttribute('aria-disabled', enabled ? 'false' : 'true');
+    button.classList.toggle('opacity-40', !enabled);
+    button.classList.toggle('cursor-not-allowed', !enabled);
+}
+
+function startNewTemplate() {
+    const hasContent = !!(
+        selectedTemplateId ||
+        editingTemplateId ||
+        document.getElementById('depTitle')?.value?.trim() ||
+        document.getElementById('depCategory')?.value?.trim() ||
+        document.getElementById('depVariableSchema')?.value?.trim() ||
+        getPayloadValue().trim()
+    );
+    if (hasContent && !confirm('Start a new template? The current builder contents will be cleared.')) return;
+
+    resetWorkspace(true);
+    switchWorkspaceTab('builder');
+    document.getElementById('depTitle')?.focus();
 }
 
 function resetWorkspace(clearPersistedState = true) {
@@ -1949,6 +1969,7 @@ function resetWorkspace(clearPersistedState = true) {
     }
     setTemplateToolbarButtonState('btnExportTemplate', false, 'Download selected template', 'Select a saved template to download');
     setTemplateToolbarButtonState('btnCloneTemplate', false, 'Clone selected template', 'Select an editable template to clone');
+    setTemplateToolbarButtonState('btnDeleteTemplate', false, 'Delete selected template', 'Select a deletable template');
 
     const isAdmin = checkIsAdmin();
     const actionEl = document.getElementById('depAction');
@@ -2034,8 +2055,10 @@ function loadTemplate(el) {
     if(actEl) actEl.value = el.dataset.action || 'run_script';
 
     const canEditTemplate = el.dataset.canEdit !== 'false' && canViewCode;
+    const canDeleteTemplate = el.dataset.canDelete !== 'false';
     setTemplateToolbarButtonState('btnExportTemplate', canViewCode, 'Download selected template', 'Template code export is blocked by policy');
     setTemplateToolbarButtonState('btnCloneTemplate', canEditTemplate, 'Clone selected template', 'Template cloning is blocked by policy');
+    setTemplateToolbarButtonState('btnDeleteTemplate', canDeleteTemplate, 'Delete selected template', 'Template deletion is blocked by policy');
     if (isAdmin && canEditTemplate) {
         editingTemplateId = el.dataset.id;
         const saveTemplateBtn = document.getElementById('btnSaveTemplate');
@@ -2136,14 +2159,14 @@ function loadTemplate(el) {
 function restoreWorkspaceState() {
     const templateId = localStorage.getItem(infraStateKeys.template);
     if (!templateId) {
-        if (document.getElementById('btnNewScript')) resetWorkspace(false);
+        if (document.getElementById('btnNewTemplate')) resetWorkspace(false);
         return;
     }
 
     const card = Array.from(document.querySelectorAll('.template-card')).find(item => item.dataset.id === templateId);
     if (!card) {
         localStorage.removeItem(infraStateKeys.template);
-        if (document.getElementById('btnNewScript')) resetWorkspace(false);
+        if (document.getElementById('btnNewTemplate')) resetWorkspace(false);
         return;
     }
 
@@ -2456,26 +2479,133 @@ async function confirmTemplateImport() {
     }
 }
 
-async function deleteTemplate(id) {
-    if (!id) return;
-    if (!confirm("Delete this template? Scheduled jobs using it will be removed.")) return;
+function selectedTemplateCard() {
+    if (!selectedTemplateId) return null;
+    return Array.from(document.querySelectorAll('.template-card'))
+        .find(card => card.dataset.id === selectedTemplateId) || null;
+}
+
+function templateImpactLabel(group) {
+    const names = Array.isArray(group?.names) ? group.names.filter(Boolean) : [];
+    if (!names.length) return 'None';
+    return names.join(', ') + (group?.truncated ? ', ...' : '');
+}
+
+function setTemplateDeleteError(message = '') {
+    const error = document.getElementById('templateDeleteImpactError');
+    if (!error) return;
+    error.textContent = message;
+    error.classList.toggle('hidden', !message);
+}
+
+function updateTemplateDeleteConfirmation() {
+    const input = document.getElementById('templateDeleteConfirmation');
+    const button = document.getElementById('btnConfirmTemplateDelete');
+    if (!button) return;
+    const matches = !!pendingTemplateDeletion && input?.value === pendingTemplateDeletion.name;
+    const enabled = matches && !!pendingTemplateDeletion.impactLoaded && !pendingTemplateDeletion.deleting;
+    button.disabled = !enabled;
+    button.classList.toggle('opacity-50', !enabled);
+    button.classList.toggle('cursor-not-allowed', !enabled);
+}
+
+function closeTemplateDeleteModal() {
+    pendingTemplateDeletion = null;
+    const confirmation = document.getElementById('templateDeleteConfirmation');
+    if (confirmation) confirmation.value = '';
+    closeModal('templateDeleteModal');
+}
+
+async function openTemplateDeleteModal() {
+    const card = selectedTemplateCard();
+    if (!card || !selectedTemplateId) return alert('Select a saved template to delete.');
+    if (card.dataset.canDelete === 'false') return alert('Template deletion is blocked by policy.');
+
+    const requestTemplateId = selectedTemplateId;
+    pendingTemplateDeletion = {
+        id: requestTemplateId,
+        name: card.dataset.name || 'Template',
+        impactLoaded: false,
+        deleting: false,
+    };
+
+    const name = document.getElementById('templateDeleteName');
+    const confirmation = document.getElementById('templateDeleteConfirmation');
+    const loading = document.getElementById('templateDeleteImpactLoading');
+    const impactPanel = document.getElementById('templateDeleteImpact');
+    if (name) name.textContent = pendingTemplateDeletion.name;
+    if (confirmation) confirmation.value = '';
+    if (loading) loading.classList.remove('hidden');
+    if (impactPanel) impactPanel.classList.add('hidden');
+    setTemplateDeleteError();
+    updateTemplateDeleteConfirmation();
+    openModal('templateDeleteModal');
 
     try {
-        const res = await fetch('/api/infrastructure/templates/' + encodeURIComponent(id), {
-            method: 'DELETE'
+        const res = await fetch('/api/infrastructure/templates/' + encodeURIComponent(requestTemplateId) + '/deletion-impact');
+        const data = await res.json().catch(() => ({}));
+        if (!pendingTemplateDeletion || pendingTemplateDeletion.id !== requestTemplateId) return;
+        if (!res.ok || !data.success) throw new Error(data.message || 'Failed to check template dependencies.');
+
+        const authoritativeName = String(data.template?.name || pendingTemplateDeletion.name);
+        if (authoritativeName !== pendingTemplateDeletion.name && confirmation) confirmation.value = '';
+        pendingTemplateDeletion.name = authoritativeName;
+        pendingTemplateDeletion.impactLoaded = true;
+        if (name) name.textContent = authoritativeName;
+
+        const scheduled = data.impact?.scheduled_tasks || {};
+        const triggers = data.impact?.trigger_rules || {};
+        const scheduledCount = document.getElementById('templateDeleteSchedulesCount');
+        const triggerCount = document.getElementById('templateDeleteTriggersCount');
+        const scheduledNames = document.getElementById('templateDeleteSchedulesNames');
+        const triggerNames = document.getElementById('templateDeleteTriggersNames');
+        if (scheduledCount) scheduledCount.textContent = String(scheduled.count || 0);
+        if (triggerCount) triggerCount.textContent = String(triggers.count || 0);
+        if (scheduledNames) scheduledNames.textContent = templateImpactLabel(scheduled);
+        if (triggerNames) triggerNames.textContent = templateImpactLabel(triggers);
+        if (impactPanel) impactPanel.classList.remove('hidden');
+    } catch(e) {
+        setTemplateDeleteError(e.message || 'Failed to check template dependencies.');
+    } finally {
+        if (pendingTemplateDeletion?.id === requestTemplateId) {
+            if (loading) loading.classList.add('hidden');
+            updateTemplateDeleteConfirmation();
+            confirmation?.focus();
+        }
+    }
+}
+
+async function confirmTemplateDelete() {
+    const pending = pendingTemplateDeletion;
+    const confirmation = document.getElementById('templateDeleteConfirmation');
+    if (!pending || !pending.impactLoaded || confirmation?.value !== pending.name) return;
+
+    pending.deleting = true;
+    setTemplateDeleteError();
+    updateTemplateDeleteConfirmation();
+    const button = document.getElementById('btnConfirmTemplateDelete');
+    const originalText = button?.textContent || 'Delete permanently';
+    if (button) button.textContent = 'Deleting...';
+
+    try {
+        const res = await fetch('/api/infrastructure/templates/' + encodeURIComponent(pending.id), {
+            method: 'DELETE',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({confirm_name: confirmation.value}),
         });
         const data = await res.json().catch(() => ({}));
-        if (!res.ok || data.success === false) {
-            return alert(data.message || 'Failed to delete template.');
-        }
+        if (!res.ok || !data.success) throw new Error(data.message || 'Failed to delete template.');
 
-        if (selectedTemplateId === id || editingTemplateId === id) {
-            selectedTemplateId = null;
-            editingTemplateId = null;
-        }
+        localStorage.removeItem(infraStateKeys.template);
+        pendingTemplateDeletion = null;
+        closeModal('templateDeleteModal');
         window.location.reload();
     } catch(e) {
-        alert("Error deleting template.");
+        if (pendingTemplateDeletion?.id === pending.id) pendingTemplateDeletion.deleting = false;
+        setTemplateDeleteError(e.message || 'Failed to delete template.');
+        updateTemplateDeleteConfirmation();
+    } finally {
+        if (button) button.textContent = originalText;
     }
 }
 
