@@ -25,6 +25,7 @@ from sqlalchemy import and_, func, or_
 from sqlalchemy.orm import load_only, selectinload
 from werkzeug.exceptions import HTTPException
 from werkzeug.utils import secure_filename
+from apscheduler.triggers.cron import CronTrigger
 
 from core.database import db, User, Endpoint, EndpointGroup, EndpointDuplicateException, AgentTask, TaskTemplate, TelemetryHistory, ConnectionIpHistory, ScheduledTask, EndpointMetric, AgentUpdateRollout, TriggerRule, AggregatedJob, ApiKey, RegistrationHistory, AuditLog, endpoint_group_m2m
 from core.sdk import WinHubCore
@@ -2943,6 +2944,77 @@ def delete_report(report_id):
 # ==========================================
 # API: TRIGGERS & SCHEDULER
 # ==========================================
+def validate_schedule_expression(value, *, active=True, now=None):
+    expression = str(value or "").strip()
+    if not expression or len(expression) > 100:
+        raise ValueError("Schedule expression is required and cannot exceed 100 characters")
+
+    if expression.startswith("DATE:"):
+        raw_date = expression[5:].strip()
+        try:
+            run_date = datetime.strptime(raw_date, "%Y-%m-%d %H:%M").replace(tzinfo=kyiv_tz)
+        except ValueError as exc:
+            raise ValueError("One-time schedule must use DATE:YYYY-MM-DD HH:MM in 24-hour Kyiv time") from exc
+        if active and run_date <= (now or datetime.now(kyiv_tz)):
+            raise ValueError("Active one-time schedule must be set in the future")
+        return f"DATE:{run_date.strftime('%Y-%m-%d %H:%M')}"
+
+    fields = expression.split()
+    if len(fields) != 5:
+        raise ValueError("Recurring schedule must contain exactly five cron fields")
+    normalized = " ".join(fields)
+    try:
+        CronTrigger.from_crontab(normalized, timezone=kyiv_tz)
+    except (TypeError, ValueError) as exc:
+        raise ValueError("Recurring schedule contains an invalid cron expression") from exc
+    return normalized
+
+
+def schedule_required_variable_names(template):
+    payload = load_template_payload(template)
+    required = set()
+    if isinstance(payload, dict):
+        for key, value in payload.items():
+            if isinstance(value, str) and not str(key).startswith("__"):
+                required.update(VARIABLE_PATTERN.findall(value))
+    return sorted(required)
+
+
+def validate_schedule_target(target_type, target_id):
+    target_type = str(target_type or "").strip().lower()
+    target_id = str(target_id or "").strip()
+    if target_type not in ("host", "group") or not target_id:
+        raise ValueError("Select a valid schedule target")
+
+    user = current_user()
+    if not user:
+        raise PermissionError("Invalid user")
+
+    if target_type == "host":
+        endpoint = Endpoint.query.get(target_id)
+        if not endpoint:
+            raise ValueError("Selected endpoint does not exist")
+        if getattr(endpoint, "approval_status", "Approved") not in (None, "Approved"):
+            raise ValueError("Selected endpoint is not approved")
+        if target_id not in set(infra_allowed_host_ids(user.id)):
+            raise PermissionError("You are not allowed to schedule tasks for this endpoint")
+        return target_type, target_id
+
+    group = EndpointGroup.query.get(target_id)
+    if not group:
+        raise ValueError("Selected endpoint group does not exist")
+    api_group_ids = request_api_group_scope()
+    if api_group_ids is not None:
+        allowed = target_id in set(api_group_ids)
+    elif user.is_admin:
+        allowed = True
+    else:
+        allowed = user.allowed_host_groups.filter(EndpointGroup.id == target_id).first() is not None
+    if not allowed:
+        raise PermissionError("You are not allowed to schedule tasks for this endpoint group")
+    return target_type, target_id
+
+
 @infrastructure_bp.route('/api/infrastructure/triggers', methods=['POST'])
 def manage_trigger():
     denied = require_permission("manage_triggers")
@@ -2971,8 +3043,38 @@ def delete_trigger(tid):
 def manage_schedule():
     denied = require_permission("manage_scheduler")
     if denied: return denied
-    data = request.json
-    tid = data.get('id')
+    data = request.get_json(silent=True)
+    if not isinstance(data, dict):
+        return jsonify({"success": False, "message": "A JSON schedule object is required"}), 400
+
+    tid = str(data.get('id') or '').strip() or None
+    name = str(data.get('name') or '').strip()
+    category = str(data.get('category') or 'Scheduled').strip() or 'Scheduled'
+    template_id = str(data.get('template_id') or '').strip()
+    is_active = data.get('is_active', True)
+    if not name:
+        return jsonify({"success": False, "message": "Job name is required"}), 400
+    if len(name) > 150:
+        return jsonify({"success": False, "message": "Job name cannot exceed 150 characters"}), 400
+    if len(category) > 100:
+        return jsonify({"success": False, "message": "Category cannot exceed 100 characters"}), 400
+    if not isinstance(is_active, bool):
+        return jsonify({"success": False, "message": "Schedule active state must be true or false"}), 400
+
+    template = TaskTemplate.query.get(template_id) if template_id else None
+    if not template or getattr(template, "type", "action") == "report":
+        return jsonify({"success": False, "message": "Runnable template was not found"}), 404
+    if not can_access_template_library_entry(template) or not can_use_template(template):
+        return jsonify({"success": False, "message": "Template is not available for scheduled execution"}), 403
+
+    try:
+        target_type, target_id = validate_schedule_target(data.get('target_type'), data.get('target_id'))
+        cron_expression = validate_schedule_expression(data.get('cron'), active=is_active)
+    except PermissionError as exc:
+        return jsonify({"success": False, "message": str(exc)}), 403
+    except ValueError as exc:
+        return jsonify({"success": False, "message": str(exc)}), 400
+
     try:
         timeout_minutes = int(data.get("timeout_minutes") or 0)
     except (TypeError, ValueError):
@@ -2996,16 +3098,47 @@ def manage_schedule():
         if any(ch in value for ch in ("\x00", "\r")):
             return jsonify({"success": False, "message": f"Variable '{key}' contains unsupported control characters"}), 400
         clean_variables[str(key)] = value
+
+    missing_variables = sorted(set(schedule_required_variable_names(template)) - set(clean_variables))
+    if missing_variables:
+        return jsonify({
+            "success": False,
+            "message": "Missing template variables",
+            "missing_variables": missing_variables,
+        }), 400
+
     variables_raw = json.dumps(clean_variables, ensure_ascii=False)
     if tid:
         st = ScheduledTask.query.get(tid)
-        if st:
-            st.name = data.get('name'); st.category = data.get('category', 'Scheduled'); st.template_id = data.get('template_id')
-            st.target_type = data.get('target_type'); st.target_id = data.get('target_id'); st.cron_expr = data.get('cron'); st.is_active = data.get('is_active', True)
-            st.variables = variables_raw
-            st.timeout_minutes = timeout_minutes
+        if not st:
+            return jsonify({"success": False, "message": "Scheduled task was not found"}), 404
+        if not current_user().is_admin:
+            try:
+                validate_schedule_target(st.target_type, st.target_id)
+            except PermissionError as exc:
+                return jsonify({"success": False, "message": str(exc)}), 403
+            except ValueError as exc:
+                return jsonify({"success": False, "message": str(exc)}), 400
     else:
-        db.session.add(ScheduledTask(name=data.get('name'), category=data.get('category', 'Scheduled'), template_id=data.get('template_id'), target_type=data.get('target_type'), target_id=data.get('target_id'), cron_expr=data.get('cron'), is_active=data.get('is_active', True), variables=variables_raw, timeout_minutes=timeout_minutes, created_by=session.get('username')))
+        st = ScheduledTask(created_by=session.get('username'))
+        db.session.add(st)
+        db.session.flush()
+
+    st.name = name
+    st.category = category
+    st.template_id = template.id
+    st.target_type = target_type
+    st.target_id = target_id
+    st.cron_expr = cron_expression
+    st.is_active = is_active
+    st.variables = variables_raw
+    st.timeout_minutes = timeout_minutes
+    write_infra_audit(
+        "Scheduled Task Saved",
+        "scheduled_task",
+        st.id,
+        {"name": name, "category": category, "target_type": target_type, "active": is_active},
+    )
     db.session.commit()
     from core import reload_scheduler_jobs
     reload_scheduler_jobs(current_app)
@@ -3016,16 +3149,39 @@ def delete_schedule(tid):
     denied = require_permission("manage_scheduler")
     if denied: return denied
     st = ScheduledTask.query.get(tid)
-    if st:
-        db.session.delete(st); db.session.commit()
-        from core import reload_scheduler_jobs
-        reload_scheduler_jobs(current_app)
+    if not st:
+        return jsonify({"success": False, "message": "Scheduled task was not found"}), 404
+    if not current_user().is_admin:
+        try:
+            validate_schedule_target(st.target_type, st.target_id)
+        except PermissionError as exc:
+            return jsonify({"success": False, "message": str(exc)}), 403
+        except ValueError as exc:
+            return jsonify({"success": False, "message": str(exc)}), 400
+    write_infra_audit("Scheduled Task Deleted", "scheduled_task", st.id, {"name": st.name})
+    db.session.delete(st)
+    db.session.commit()
+    from core import reload_scheduler_jobs
+    reload_scheduler_jobs(current_app)
     return jsonify({"success": True})
 
 @infrastructure_bp.route('/api/infrastructure/schedule/<tid>/run-now', methods=['POST'])
 def run_schedule_now(tid):
     denied = require_permission("manage_scheduler")
     if denied: return denied
+    st = ScheduledTask.query.get(tid)
+    if not st:
+        return jsonify({"success": False, "message": "Scheduled task was not found"}), 404
+    if not st.template or getattr(st.template, "type", "action") == "report":
+        return jsonify({"success": False, "message": "Runnable template was not found"}), 404
+    if not can_access_template_library_entry(st.template) or not can_use_template(st.template):
+        return jsonify({"success": False, "message": "Template is not available for scheduled execution"}), 403
+    try:
+        validate_schedule_target(st.target_type, st.target_id)
+    except PermissionError as exc:
+        return jsonify({"success": False, "message": str(exc)}), 403
+    except ValueError as exc:
+        return jsonify({"success": False, "message": str(exc)}), 400
     from core import run_scheduled_job
     result = run_scheduled_job(tid, manual_run=True) or {"success": False, "message": "Schedule did not run"}
     status = 200 if result.get("success") else 400

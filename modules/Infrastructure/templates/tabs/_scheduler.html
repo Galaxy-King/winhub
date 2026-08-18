@@ -1,4 +1,100 @@
 <!-- VIEW: TASK SCHEDULER -->
+<style nonce="{{ csp_nonce }}">
+    #view-scheduler .scheduler-category {
+        --scheduler-tone: #3b82f6;
+        --scheduler-tone-rgb: 59, 130, 246;
+        border-left: 4px solid var(--scheduler-tone) !important;
+        box-shadow: 0 14px 34px rgba(15, 23, 42, 0.08), 0 0 0 1px rgba(var(--scheduler-tone-rgb), 0.08) !important;
+    }
+    #view-scheduler .scheduler-tone-1 { --scheduler-tone: #0f9f8f; --scheduler-tone-rgb: 15, 159, 143; }
+    #view-scheduler .scheduler-tone-2 { --scheduler-tone: #7c5ce0; --scheduler-tone-rgb: 124, 92, 224; }
+    #view-scheduler .scheduler-tone-3 { --scheduler-tone: #b7791f; --scheduler-tone-rgb: 183, 121, 31; }
+    #view-scheduler .scheduler-tone-4 { --scheduler-tone: #64748b; --scheduler-tone-rgb: 100, 116, 139; }
+    #view-scheduler .scheduler-category-header {
+        background: linear-gradient(90deg, rgba(var(--scheduler-tone-rgb), 0.12), rgba(var(--scheduler-tone-rgb), 0.035) 55%, rgba(255, 255, 255, 0.02)) !important;
+        border-bottom: 1px solid rgba(var(--scheduler-tone-rgb), 0.12);
+    }
+    #view-scheduler .scheduler-category-header:hover {
+        background: linear-gradient(90deg, rgba(var(--scheduler-tone-rgb), 0.18), rgba(var(--scheduler-tone-rgb), 0.06) 60%, rgba(255, 255, 255, 0.03)) !important;
+    }
+    #view-scheduler .scheduler-category-icon {
+        color: var(--scheduler-tone) !important;
+        background: rgba(var(--scheduler-tone-rgb), 0.12);
+        border: 1px solid rgba(var(--scheduler-tone-rgb), 0.22);
+    }
+    #view-scheduler .scheduler-category-count {
+        color: var(--scheduler-tone) !important;
+        background: rgba(var(--scheduler-tone-rgb), 0.10) !important;
+        border-color: rgba(var(--scheduler-tone-rgb), 0.22) !important;
+    }
+    #view-scheduler .scheduler-category-table-head {
+        background: rgba(var(--scheduler-tone-rgb), 0.045) !important;
+        border-color: rgba(var(--scheduler-tone-rgb), 0.10) !important;
+    }
+    #scheduleModal { z-index: 130; }
+    #scheduleModal .schedule-modal-section {
+        border: 1px solid #dbe3ef;
+        background: linear-gradient(145deg, rgba(248, 250, 252, 0.98), rgba(241, 245, 249, 0.86));
+        box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.9);
+    }
+    #scheduleModal .schedule-section-blue { border-color: rgba(59, 130, 246, 0.22); background: rgba(239, 246, 255, 0.72); }
+    #scheduleModal .schedule-section-teal { border-color: rgba(20, 184, 166, 0.22); background: rgba(240, 253, 250, 0.72); }
+    #scheduleModal .schedule-section-violet { border-color: rgba(139, 92, 246, 0.22); background: rgba(245, 243, 255, 0.72); }
+    #scheduleModal .schedule-time-picker {
+        display: grid;
+        grid-template-columns: minmax(5.5rem, 1fr) auto minmax(5.5rem, 1fr);
+        align-items: center;
+        gap: 0.75rem;
+        max-width: 19rem;
+        margin: 0 auto;
+    }
+    #scheduleModal .schedule-wheel-wrap { min-width: 0; }
+    #scheduleModal .schedule-wheel {
+        height: 9rem;
+        overflow-y: auto;
+        scroll-snap-type: y mandatory;
+        scrollbar-width: none;
+        overscroll-behavior: contain;
+        border: 1px solid rgba(99, 102, 241, 0.20);
+        border-radius: 1.25rem;
+        background:
+            linear-gradient(to bottom, rgba(255,255,255,0.82) 0, rgba(255,255,255,0.32) 3rem, rgba(99,102,241,0.13) 3rem, rgba(99,102,241,0.13) 6rem, rgba(255,255,255,0.32) 6rem, rgba(255,255,255,0.82) 9rem);
+        box-shadow: inset 0 10px 18px rgba(148, 163, 184, 0.12), inset 0 -10px 18px rgba(148, 163, 184, 0.12);
+    }
+    #scheduleModal .schedule-wheel::-webkit-scrollbar { display: none; }
+    #scheduleModal .schedule-wheel-spacer { height: 3rem; pointer-events: none; }
+    #scheduleModal .schedule-wheel-option {
+        height: 3rem;
+        width: 100%;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        scroll-snap-align: center;
+        color: #94a3b8;
+        font: 800 1rem/1 "Cascadia Code", Consolas, monospace;
+        transition: color 120ms ease, transform 120ms ease, opacity 120ms ease;
+        opacity: 0.55;
+    }
+    #scheduleModal .schedule-wheel-option:hover { color: #4f46e5; opacity: 0.85; }
+    #scheduleModal .schedule-wheel-option.is-selected {
+        color: #312e81;
+        transform: scale(1.15);
+        opacity: 1;
+    }
+    #scheduleModal .schedule-wheel:focus-visible {
+        outline: 3px solid rgba(99, 102, 241, 0.24);
+        outline-offset: 2px;
+    }
+    #scheduleModal .sch-day[value="0"]:checked + .schedule-day-chip {
+        background: linear-gradient(135deg, rgba(14, 165, 233, 0.88), rgba(16, 185, 129, 0.70)) !important;
+        border-color: rgba(125, 211, 252, 0.90) !important;
+    }
+    #scheduleModal .sch-day[value="5"]:checked + .schedule-day-chip,
+    #scheduleModal .sch-day[value="6"]:checked + .schedule-day-chip {
+        background: linear-gradient(135deg, rgba(180, 83, 9, 0.88), rgba(217, 119, 6, 0.72)) !important;
+        border-color: rgba(252, 211, 77, 0.82) !important;
+    }
+</style>
 <section id="view-scheduler" class="hidden animate-in fade-in duration-300 space-y-6">
     <div class="flex justify-between items-center bg-white p-5 rounded-[2.5rem] border border-slate-200 shadow-sm">
         <div class="px-4">
@@ -13,19 +109,21 @@
 
     <div class="flex flex-col gap-4">
         {% for cat, stasks in scheduled_tasks|groupby('category') %}
-        <div class="bg-white rounded-[2rem] border border-slate-200 shadow-sm overflow-hidden group/acc">
-            <button onclick="toggleCategory('sch_cat_{{ loop.index }}', this)" class="w-full flex items-center justify-between p-5 bg-slate-50/50 hover:bg-slate-50 transition-colors outline-none">
+        <div class="scheduler-category scheduler-tone-{{ loop.index0 % 5 }} bg-white rounded-[2rem] border border-slate-200 shadow-sm overflow-hidden group/acc">
+            <button onclick="toggleCategory('sch_cat_{{ loop.index }}', this)" class="scheduler-category-header w-full flex items-center justify-between p-5 transition-colors outline-none">
                 <h4 class="font-black text-slate-700 uppercase tracking-widest text-sm flex items-center gap-3">
-                    <svg class="w-5 h-5 text-indigo-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z"></path></svg>
+                    <span class="scheduler-category-icon w-9 h-9 rounded-xl flex items-center justify-center shrink-0">
+                        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z"></path></svg>
+                    </span>
                     {{ cat }}
-                    <span class="bg-white border border-slate-200 text-slate-500 px-2 py-0.5 rounded-lg text-xs">{{ stasks|length }} Jobs</span>
+                    <span class="scheduler-category-count border px-2.5 py-1 rounded-lg text-[10px]">{{ stasks|length }} Jobs</span>
                 </h4>
                 <svg class="w-5 h-5 text-slate-400 transition-transform duration-300 cat-chevron" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M19 9l-7 7-7-7"></path></svg>
             </button>
             <div id="sch_cat_{{ loop.index }}" class="hidden transition-all duration-300">
                 <div class="overflow-x-auto">
                     <table class="w-full text-left min-w-[1080px]">
-                        <thead class="bg-slate-50 border-y border-slate-100 text-[10px] font-black text-slate-400 uppercase tracking-widest">
+                        <thead class="scheduler-category-table-head border-y text-[10px] font-black text-slate-400 uppercase tracking-widest">
                             <tr>
                                 <th class="px-8 py-4">Job Name</th>
                                 <th class="px-8 py-4">Script</th>
