@@ -4547,10 +4547,20 @@ function activeScheduleTargetSelect() {
     return document.getElementById(type === 'host' ? 'schTargetHost' : 'schTargetGroup');
 }
 
+function scheduleTargetHostData(option) {
+    if (!option) return null;
+    return getMultiHostById(option.value) || null;
+}
+
 function scheduleTargetOptionMeta(option, type) {
     if (!option) return '';
     if (type === 'host') {
-        return [option.dataset.hostname, option.dataset.ip, option.dataset.os].filter(Boolean).join(' · ');
+        const host = scheduleTargetHostData(option);
+        return [
+            host?.hostname || option.dataset.hostname,
+            host?.ip || option.dataset.ip,
+            host?.os_type || option.dataset.os,
+        ].filter(Boolean).join(' · ');
     }
     return option.dataset.details || 'Endpoint group';
 }
@@ -4576,12 +4586,20 @@ function renderScheduleTargetPicker(query = '') {
 
     const normalizedQuery = String(query || '').trim().toLocaleLowerCase();
     const options = Array.from(select.options).filter(option => {
+        const host = type === 'host' ? scheduleTargetHostData(option) : null;
         const searchable = [
             option.textContent,
             option.dataset.hostname,
             option.dataset.ip,
             option.dataset.os,
             option.dataset.details,
+            host?.name,
+            host?.display_name,
+            host?.hostname,
+            host?.ip,
+            host?.os_type,
+            host?.agent_version,
+            host?.last_seen,
         ].filter(Boolean).join(' ').toLocaleLowerCase();
         return !normalizedQuery || searchable.includes(normalizedQuery);
     });
@@ -4589,11 +4607,29 @@ function renderScheduleTargetPicker(query = '') {
     results.innerHTML = options.map(option => {
         const selected = option.value === select.value;
         const meta = scheduleTargetOptionMeta(option, type);
+        const host = type === 'host' ? scheduleTargetHostData(option) : null;
+        const visibleName = option.textContent.trim();
+        const hostname = host?.hostname || option.dataset.hostname || '';
+        const hostnameLine = type === 'host' && hostname && hostname !== visibleName
+            ? `<span class="block truncate text-[10px] font-mono font-bold text-cyan-200/55 mt-1">HOSTNAME: ${escapeHtml(hostname)}</span>`
+            : '';
+        const hostStatus = type === 'host' && host ? multiHostStatusBadge(host) : '';
+        const hostDetails = type === 'host'
+            ? [
+                host?.ip || option.dataset.ip || 'No IP',
+                host?.os_type || option.dataset.os || 'Unknown OS',
+                host?.agent_version ? `Agent ${host.agent_version}` : null,
+                host?.last_seen ? `Last seen ${host.last_seen}` : null,
+            ].filter(Boolean).join(' / ')
+            : meta;
         return `
             <button type="button" class="schedule-target-result ${selected ? 'is-selected' : ''} w-full p-4 border rounded-2xl flex items-center justify-between gap-4 text-left transition-all" data-value="${escapeHtml(option.value)}" aria-pressed="${selected ? 'true' : 'false'}">
-                <span class="min-w-0">
-                    <span class="block truncate text-sm font-black text-slate-100">${escapeHtml(option.textContent.trim())}</span>
-                    <span class="block truncate text-[10px] font-bold text-slate-400 mt-1">${escapeHtml(meta)}</span>
+                <span class="min-w-0 flex-1">
+                    <span class="flex flex-wrap items-center gap-2 text-sm font-black text-slate-100">
+                        <span class="truncate">${escapeHtml(visibleName)}</span>${hostStatus}
+                    </span>
+                    ${hostnameLine}
+                    <span class="block truncate text-[10px] font-bold text-slate-400 mt-1">${escapeHtml(hostDetails)}</span>
                 </span>
                 <span class="shrink-0 w-8 h-8 rounded-xl border ${selected ? 'border-teal-300/60 bg-teal-400/20 text-teal-200' : 'border-slate-700 text-slate-600'} flex items-center justify-center">
                     ${selected ? '<svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="m5 12 4 4L19 6"></path></svg>' : ''}

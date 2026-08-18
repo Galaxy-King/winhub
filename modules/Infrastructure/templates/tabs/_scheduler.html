@@ -105,13 +105,36 @@
     }
     #scheduleTargetPickerModal {
         z-index: 180;
+        overflow: hidden;
+        padding: clamp(0.5rem, 2vh, 1rem);
     }
     #scheduleTargetPickerModal .schedule-target-dialog {
+        width: min(72rem, 100%);
+        height: min(50rem, calc(100dvh - 1rem));
+        max-height: calc(100vh - 1rem);
+        min-height: 0;
+        display: flex;
+        flex-direction: column;
+        overflow: hidden;
         background: linear-gradient(160deg, rgba(7, 17, 31, 0.995), rgba(3, 12, 24, 0.995)) !important;
         border-color: rgba(45, 212, 191, 0.32) !important;
         color: #e6fffb;
     }
+    #scheduleTargetPickerModal .schedule-target-header,
+    #scheduleTargetPickerModal .schedule-target-search-panel,
+    #scheduleTargetPickerModal .schedule-target-footer {
+        flex: 0 0 auto;
+    }
+    #scheduleTargetPickerModal .schedule-target-results {
+        flex: 1 1 auto;
+        min-height: 0;
+        overflow-y: auto;
+        overscroll-behavior: contain;
+        -webkit-overflow-scrolling: touch;
+        scrollbar-gutter: stable;
+    }
     #scheduleTargetPickerModal .schedule-target-result {
+        min-height: 5rem;
         background: rgba(8, 23, 38, 0.90) !important;
         border-color: rgba(71, 85, 105, 0.55) !important;
     }
@@ -191,6 +214,17 @@
         #scheduleModal .schedule-modal-body { padding: 0.75rem !important; }
         #scheduleModal .schedule-modal-footer { padding: 0.75rem 1rem !important; }
         #scheduleModal .schedule-modal-section { padding: 0.875rem !important; }
+        #scheduleTargetPickerModal { padding: 0.35rem; }
+        #scheduleTargetPickerModal .schedule-target-dialog {
+            height: calc(100dvh - 0.7rem);
+            max-height: calc(100vh - 0.7rem);
+            border-radius: 1.25rem !important;
+        }
+        #scheduleTargetPickerModal .schedule-target-header,
+        #scheduleTargetPickerModal .schedule-target-search-panel,
+        #scheduleTargetPickerModal .schedule-target-footer { padding: 0.75rem 1rem !important; }
+        #scheduleTargetPickerModal .schedule-target-results { padding: 0.75rem 1rem !important; }
+        #scheduleTargetPickerModal .schedule-target-result { min-height: 4.25rem; padding: 0.75rem !important; }
     }
 </style>
 <section id="view-scheduler" class="hidden animate-in fade-in duration-300 space-y-6">

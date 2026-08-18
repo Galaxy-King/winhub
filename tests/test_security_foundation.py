@@ -515,6 +515,11 @@ class SchedulerRegressionTests(unittest.TestCase):
         self.assertIn('function initScheduleTargetPicker()', javascript)
         self.assertIn("results.addEventListener('click'", javascript)
         self.assertIn('z-index: 180;', scheduler)
+        self.assertIn('height: min(50rem, calc(100dvh - 1rem));', scheduler)
+        self.assertIn('#scheduleTargetPickerModal .schedule-target-results', scheduler)
+        self.assertIn('scrollbar-gutter: stable;', scheduler)
+        self.assertIn('class="schedule-target-search-panel ', modals)
+        self.assertIn('class="schedule-target-results ', modals)
         expected_days = {
             "Mon": "0", "Tue": "1", "Wed": "2", "Thu": "3",
             "Fri": "4", "Sat": "5", "Sun": "6",
@@ -528,6 +533,7 @@ class SchedulerRegressionTests(unittest.TestCase):
         self.assertNotIn("value * 48", javascript)
         self.assertIn("function openScheduleTargetPicker()", javascript)
         self.assertIn("function renderScheduleTargetPicker(query = '')", javascript)
+        self.assertIn('function scheduleTargetHostData(option)', javascript)
         self.assertIn("function chooseScheduleTarget(button)", javascript)
         self.assertIn("function initScheduleModalScroll()", javascript)
         self.assertIn("body.scrollBy({top: pageStep", javascript)
