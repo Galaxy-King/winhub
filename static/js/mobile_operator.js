@@ -21,6 +21,7 @@
         taskHasMore: false,
         reportLoading: false,
         currentReport: null,
+        reportEmailSending: false,
         liveSource: null,
         liveConnected: false,
         pollTimer: null,
@@ -31,6 +32,7 @@
         tab: 'winhub_mobile_tab',
         favorites: 'winhub_mobile_favorite_templates',
         recent: 'winhub_mobile_recent_templates',
+        reportSender: 'winhub_mobile_report_sender',
     };
 
     const byId = id => document.getElementById(id);
@@ -485,9 +487,122 @@
         }
     }
 
+    function setReportEmailError(message) {
+        const alert = byId('moReportEmailError');
+        if (!alert) return;
+        alert.textContent = message || '';
+        alert.hidden = !message;
+    }
+
+    function updateReportEmailSendState() {
+        const button = byId('moReportEmailSend');
+        const sender = byId('moReportEmailSender');
+        if (!button) return;
+        button.disabled = state.reportEmailSending || !sender?.value;
+        button.textContent = state.reportEmailSending ? 'Sending…' : 'Send securely';
+    }
+
+    function renderSmtpProfiles(profiles) {
+        const select = byId('moReportEmailSender');
+        if (!select) return;
+        const safeProfiles = Array.isArray(profiles) ? profiles.filter(profile => profile?.email) : [];
+        select.replaceChildren();
+        if (!safeProfiles.length) {
+            const option = document.createElement('option');
+            option.value = '';
+            option.textContent = 'No SMTP profiles configured';
+            select.append(option);
+            select.disabled = true;
+            setReportEmailError('No SMTP sender profile is configured. Ask an administrator to configure one in the full version.');
+            updateReportEmailSendState();
+            return;
+        }
+        select.disabled = false;
+        safeProfiles.forEach(profile => {
+            const option = document.createElement('option');
+            option.value = String(profile.email);
+            option.textContent = profile.email;
+            select.append(option);
+        });
+        const savedSender = localStorage.getItem(storageKeys.reportSender);
+        if (savedSender && safeProfiles.some(profile => String(profile.email) === savedSender)) select.value = savedSender;
+        updateReportEmailSendState();
+    }
+
+    async function loadReportEmailProfiles() {
+        const select = byId('moReportEmailSender');
+        if (!select) return;
+        select.disabled = true;
+        select.innerHTML = '<option value="">Loading SMTP profiles…</option>';
+        updateReportEmailSendState();
+        try {
+            const result = await apiJson('/api/infrastructure/smtp');
+            renderSmtpProfiles(result.profiles);
+        } catch (error) {
+            renderSmtpProfiles([]);
+            setReportEmailError(error.message || 'Unable to load SMTP profiles.');
+        }
+    }
+
+    function openReportEmail() {
+        if (!permissions.send_reports || !state.currentReport || state.reportEmailSending) return;
+        const report = state.currentReport;
+        byId('moReportEmailSubject').value = report.title || 'WinHUB Report';
+        byId('moReportEmailRecipients').value = '';
+        byId('moReportEmailMessage').value = '';
+        byId('moReportEmailGpg').checked = true;
+        setReportEmailError('');
+        openOverlay('moReportEmailModal');
+        loadReportEmailProfiles();
+    }
+
+    async function sendCurrentReportEmail(event) {
+        event?.preventDefault();
+        const report = state.currentReport;
+        const form = byId('moReportEmailForm');
+        if (!permissions.send_reports || !report || state.reportEmailSending || !form?.reportValidity()) return;
+        const sender = String(byId('moReportEmailSender').value || '').trim();
+        const recipients = String(byId('moReportEmailRecipients').value || '').trim();
+        if (!sender || !recipients) return setReportEmailError('Select a sender and enter at least one recipient.');
+
+        state.reportEmailSending = true;
+        setReportEmailError('');
+        updateReportEmailSendState();
+        try {
+            const result = await apiJson(`/api/infrastructure/reports/${encodeURIComponent(report.id)}/action`, {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({
+                    action: 'send',
+                    sender,
+                    email: recipients,
+                    subject: String(byId('moReportEmailSubject').value || '').trim(),
+                    custom_message: String(byId('moReportEmailMessage').value || '').trim(),
+                    use_gpg: byId('moReportEmailGpg').checked,
+                }),
+            });
+            localStorage.setItem(storageKeys.reportSender, sender);
+            closeOverlay('moReportEmailModal');
+            showToast(result.message || `Report sent to ${Number(result.sent || 0)} recipient(s).`);
+            await loadReports(true);
+            const refreshed = state.reports.find(item => String(item.id) === String(report.id));
+            if (refreshed) {
+                report.status = refreshed.status;
+                byId('moReportMeta').textContent = `${report.created_at || refreshed.created_at || ''} · ${refreshed.status || ''}`;
+            }
+        } catch (error) {
+            setReportEmailError(error.message || 'Unable to send this report.');
+            loadReports(true);
+        } finally {
+            state.reportEmailSending = false;
+            updateReportEmailSendState();
+        }
+    }
+
     async function openReport(reportId) {
         const summary = state.reports.find(item => String(item.id) === String(reportId));
         state.currentReport = null;
+        if (byId('moReportEmail')) byId('moReportEmail').disabled = true;
         byId('moReportTitle').textContent = summary?.title || 'Report';
         byId('moReportMeta').textContent = summary ? `${summary.created_at || ''} · ${summary.status || ''}` : '';
         byId('moReportBody').textContent = 'Loading…';
@@ -501,6 +616,7 @@
             const report = result.data || {};
             report.id = report.id || reportId;
             state.currentReport = report;
+            if (byId('moReportEmail')) byId('moReportEmail').disabled = false;
             const readableBody = readableReportBody(report.report_data || 'This report is empty.');
             byId('moReportTitle').textContent = report.title || summary?.title || 'Report';
             byId('moReportMeta').textContent = `${report.created_at || summary?.created_at || ''} · ${report.status || summary?.status || ''}`;
@@ -894,6 +1010,9 @@
         byId('moRefreshReports')?.addEventListener('click', () => loadReports(true));
         byId('moReportSearch')?.addEventListener('input', renderReports);
         byId('moReportShare')?.addEventListener('click', shareCurrentReport);
+        byId('moReportEmail')?.addEventListener('click', openReportEmail);
+        byId('moReportEmailForm')?.addEventListener('submit', sendCurrentReportEmail);
+        byId('moReportEmailSender')?.addEventListener('change', updateReportEmailSendState);
         byId('moReportRawToggle')?.addEventListener('click', event => {
             setReportRawMode(event.currentTarget.getAttribute('aria-pressed') !== 'true');
         });

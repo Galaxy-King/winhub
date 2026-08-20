@@ -243,6 +243,9 @@ svg { width: 1.35rem; height: 1.35rem; stroke-width: 2; stroke-linecap: round; s
 }
 .mo-field textarea, .mo-variable-field textarea { min-height: 7rem; resize: vertical; }
 .mo-field input:focus, .mo-field select:focus, .mo-variable-field input:focus, .mo-variable-field select:focus, .mo-variable-field textarea:focus { border-color: var(--mo-line-strong); box-shadow: 0 0 0 4px rgba(34, 211, 238, 0.09); }
+.mo-field > small { color: #7891ad; font-size: 0.62rem; font-weight: 700; line-height: 1.4; }
+.mo-field > span b { color: #617994; font-size: 0.55rem; }
+.mo-field select:disabled { cursor: not-allowed; opacity: 0.64; }
 .mo-review-card { padding: 1rem; border: 1px solid var(--mo-line-strong); border-radius: 1rem; background: linear-gradient(145deg, rgba(8, 145, 178, 0.16), rgba(15, 23, 42, 0.76)); }
 .mo-review-card strong, .mo-review-card span { display: block; }
 .mo-review-card strong { color: #f7fdff; font-size: 0.92rem; font-weight: 900; }
@@ -287,6 +290,7 @@ svg { width: 1.35rem; height: 1.35rem; stroke-width: 2; stroke-linecap: round; s
 .mo-overlay { position: fixed; z-index: 100; inset: 0; display: flex; align-items: flex-end; justify-content: center; background: rgba(2, 6, 23, 0.78); backdrop-filter: blur(8px); }
 .mo-sheet { width: 100%; max-height: 91dvh; display: flex; flex-direction: column; overflow: hidden; border: 1px solid var(--mo-line-strong); border-width: 1px 0 0; border-radius: 1.4rem 1.4rem 0 0; background: radial-gradient(circle at 0 0, rgba(34, 211, 238, 0.12), transparent 20rem), linear-gradient(160deg, #0a1a30, #050b14); box-shadow: 0 -22px 70px rgba(0, 0, 0, 0.52); }
 .mo-sheet-tall { height: 91dvh; }
+.mo-sheet-email { height: min(47rem, 91dvh); }
 .mo-sheet > header { padding: 1rem 1rem 0.85rem; display: flex; align-items: flex-start; justify-content: space-between; gap: 0.8rem; border-bottom: 1px solid var(--mo-line); }
 .mo-sheet h2 { max-width: calc(100vw - 5rem); margin: 0.15rem 0 0; overflow: hidden; color: #f7fdff; font-size: 1.15rem; font-weight: 950; letter-spacing: -0.025em; text-overflow: ellipsis; white-space: nowrap; }
 .mo-sheet header p:not(.mo-eyebrow) { margin: 0.32rem 0 0; color: var(--mo-muted); font-size: 0.65rem; font-weight: 750; }
@@ -305,11 +309,21 @@ svg { width: 1.35rem; height: 1.35rem; stroke-width: 2; stroke-linecap: round; s
 .mo-report-actions { padding: 0.75rem 1rem; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 0.55rem; border-bottom: 1px solid var(--mo-line); }
 .mo-report-action { min-height: 2.75rem; padding: 0.6rem 0.5rem; display: inline-flex; align-items: center; justify-content: center; border: 1px solid var(--mo-line); border-radius: 0.8rem; background: rgba(8, 145, 178, 0.12); color: #b9f5ff; font-size: 0.62rem; font-weight: 900; text-align: center; text-decoration: none; text-transform: uppercase; }
 .mo-report-action[aria-pressed="true"] { border-color: var(--mo-line-strong); background: rgba(8, 145, 178, 0.28); color: white; }
+.mo-report-action-email { grid-column: 1 / -1; border-color: rgba(103, 232, 249, 0.48); background: linear-gradient(135deg, rgba(8, 145, 178, 0.32), rgba(37, 99, 235, 0.3)); color: #ecfeff; }
+.mo-report-action:disabled { cursor: wait; opacity: 0.45; }
 .mo-report-structured { padding: 0.85rem 1rem max(1rem, env(safe-area-inset-bottom)); display: grid; align-content: start; gap: 0.7rem; }
 .mo-report-section { padding: 0.9rem; border: 1px solid var(--mo-line); border-radius: 1rem; background: rgba(7, 17, 31, 0.76); }
 .mo-report-section h3 { margin: 0 0 0.55rem; color: #8ff4ff; font-size: 0.68rem; font-weight: 950; letter-spacing: 0.08em; text-transform: uppercase; }
 .mo-report-section p { margin: 0; color: #d9efff; font-size: 0.74rem; font-weight: 650; line-height: 1.58; overflow-wrap: anywhere; white-space: pre-wrap; }
 .mo-report-section:first-child { border-color: rgba(34, 211, 238, 0.38); background: linear-gradient(145deg, rgba(8, 145, 178, 0.16), rgba(7, 17, 31, 0.8)); }
+.mo-email-form { min-height: 0; padding: 1rem max(1rem, env(safe-area-inset-right)) max(1rem, env(safe-area-inset-bottom)) max(1rem, env(safe-area-inset-left)); display: grid; align-content: start; gap: 0.9rem; overflow-y: auto; overscroll-behavior: contain; }
+.mo-email-form .mo-alert { margin: 0; }
+.mo-secure-option { min-height: 4.7rem; padding: 0.9rem; display: flex; align-items: flex-start; gap: 0.8rem; border: 1px solid rgba(52, 211, 153, 0.36); border-radius: 1rem; background: rgba(6, 78, 59, 0.2); }
+.mo-secure-option input { width: 1.3rem; height: 1.3rem; flex: 0 0 auto; accent-color: #10b981; }
+.mo-secure-option strong, .mo-secure-option small { display: block; }
+.mo-secure-option strong { color: #a7f3d0; font-size: 0.78rem; font-weight: 900; }
+.mo-secure-option small { margin-top: 0.3rem; color: #6ee7b7; font-size: 0.62rem; font-weight: 700; line-height: 1.4; }
+.mo-email-actions { position: sticky; bottom: -1rem; margin: 0 -0.2rem -1rem; padding: 0.8rem 0.2rem max(1rem, env(safe-area-inset-bottom)); display: flex; gap: 0.65rem; background: linear-gradient(180deg, transparent, #050b14 28%); }
 .mo-toast { position: fixed; z-index: 140; right: 1rem; bottom: calc(6rem + env(safe-area-inset-bottom)); left: 1rem; max-width: 38rem; margin: 0 auto; padding: 0.9rem 1rem; border: 1px solid rgba(52, 211, 153, 0.48); border-radius: 1rem; background: linear-gradient(145deg, #064e3b, #07152e); color: #ecfdf5; font-size: 0.77rem; font-weight: 850; text-align: center; box-shadow: 0 18px 48px rgba(0, 0, 0, 0.45); }
 .mo-page.mo-modal-open { overflow: hidden; }
 

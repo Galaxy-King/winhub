@@ -217,6 +217,9 @@
             <a id="moReportDownload" class="mo-report-action" href="#" download>Download</a>
             <button id="moReportShare" class="mo-report-action" type="button">Share</button>
             <button id="moReportRawToggle" class="mo-report-action" type="button" aria-pressed="false">Raw text</button>
+            {% if mobile_permissions.send_reports %}
+            <button id="moReportEmail" class="mo-report-action mo-report-action-email" type="button">Send by email</button>
+            {% endif %}
         </div>
         <div id="moReportStructured" class="mo-sheet-body mo-report-structured" aria-live="polite">
             <div class="mo-loading-card"><span class="mo-spinner"></span> Loading report…</div>
@@ -224,6 +227,47 @@
         <pre id="moReportBody" class="mo-report-body" hidden></pre>
     </section>
 </div>
+
+{% if mobile_permissions.send_reports %}
+<div id="moReportEmailModal" class="mo-overlay" role="dialog" aria-modal="true" aria-labelledby="moReportEmailTitle" hidden>
+    <section class="mo-sheet mo-sheet-email">
+        <header>
+            <div><p class="mo-eyebrow">Secure delivery</p><h2 id="moReportEmailTitle">Send report by email</h2><p>Uses the same SMTP and GPG configuration as the full version.</p></div>
+            <button type="button" class="mo-sheet-close" data-close-overlay="moReportEmailModal" aria-label="Close">×</button>
+        </header>
+        <form id="moReportEmailForm" class="mo-email-form">
+            <div id="moReportEmailError" class="mo-alert mo-alert-error" role="alert" hidden></div>
+            <label class="mo-field">
+                <span>Sender profile</span>
+                <select id="moReportEmailSender" required>
+                    <option value="">Loading SMTP profiles…</option>
+                </select>
+            </label>
+            <label class="mo-field">
+                <span>Email subject</span>
+                <input id="moReportEmailSubject" type="text" maxlength="255" required autocomplete="off">
+            </label>
+            <label class="mo-field">
+                <span>Recipients</span>
+                <input id="moReportEmailRecipients" type="email" multiple maxlength="4000" required autocomplete="email" inputmode="email" placeholder="manager@company.com, admin@company.com">
+                <small>Separate multiple addresses with commas.</small>
+            </label>
+            <label class="mo-field">
+                <span>Custom note <b>Optional</b></span>
+                <textarea id="moReportEmailMessage" maxlength="5000" placeholder="Add a message that will appear above the report."></textarea>
+            </label>
+            <label class="mo-secure-option">
+                <input id="moReportEmailGpg" type="checkbox" checked>
+                <span><strong>Encrypt with PGP/GPG</strong><small>A usable public key is required for every recipient.</small></span>
+            </label>
+            <div class="mo-email-actions">
+                <button type="button" class="mo-secondary-button" data-close-overlay="moReportEmailModal">Cancel</button>
+                <button id="moReportEmailSend" type="submit" class="mo-primary-button">Send securely</button>
+            </div>
+        </form>
+    </section>
+</div>
+{% endif %}
 
 <div id="moToast" class="mo-toast" role="status" hidden></div>
 {% endblock %}

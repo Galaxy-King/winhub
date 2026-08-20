@@ -131,10 +131,12 @@ class MobileOperatorContractTests(unittest.TestCase):
 
     def test_mobile_interface_contains_no_ukrainian_ui_copy(self):
         template = (ROOT / "modules/Infrastructure/templates/mobile_operator.html").read_text(encoding="utf-8")
+        base = (ROOT / "templates/mobile_base.html").read_text(encoding="utf-8")
         javascript = (ROOT / "static/js/mobile_operator.js").read_text(encoding="utf-8")
 
         self.assertIsNone(re.search(r"[А-Яа-яІіЇїЄєҐґ]", template))
         self.assertIsNone(re.search(r"[А-Яа-яІіЇїЄєҐґ]", javascript))
+        self.assertIn('<html lang="en">', base)
 
     def test_task_history_pagination_is_bounded(self):
         from flask import Flask, session
@@ -205,9 +207,90 @@ class MobileOperatorContractTests(unittest.TestCase):
         self.assertIn("attachment", response.headers["Content-Disposition"])
         self.assertEqual(response.get_data(as_text=True), "Summary\nPassed")
 
+    def test_report_email_uses_visible_masked_body_and_existing_delivery_service(self):
+        from flask import Flask
+        from modules.Infrastructure import routes
+
+        app = Flask(__name__)
+        report = types.SimpleNamespace(
+            id="report-1",
+            title="Endpoint Compliance",
+            report_data="token=unmasked-secret",
+            status="Ready",
+        )
+        report_model = types.SimpleNamespace(query=types.SimpleNamespace(get=mock.Mock(return_value=report)))
+        fake_session = mock.Mock()
+        with app.test_request_context(
+            "/api/infrastructure/reports/report-1/action",
+            method="POST",
+            json={
+                "action": "send",
+                "sender": "reports@example.com",
+                "email": "first@example.com, second@example.com",
+                "subject": "Endpoint Compliance",
+                "custom_message": "Please review.",
+                "use_gpg": True,
+            },
+        ), mock.patch.object(routes, "AggregatedJob", report_model), mock.patch.object(
+            routes, "can_access_report", return_value=True
+        ), mock.patch.object(routes, "require_permission", return_value=None), mock.patch.object(
+            routes, "report_body_for_current_user", return_value="token=***"
+        ) as visible_body, mock.patch.object(
+            routes, "send_report_email", return_value=(True, "Report sent to 2 recipient(s).", 2)
+        ) as send_email, mock.patch.object(
+            routes, "write_infra_audit"
+        ) as audit, mock.patch.object(
+            routes, "update_report_send_status"
+        ) as update_status, mock.patch.object(
+            routes, "db", types.SimpleNamespace(session=fake_session)
+        ):
+            response = routes.action_report("report-1")
+
+        self.assertTrue(response.get_json()["success"])
+        visible_body.assert_called_once_with("token=unmasked-secret")
+        send_email.assert_called_once_with(
+            title="Endpoint Compliance",
+            report_body="token=***",
+            sender_email="reports@example.com",
+            recipient_list=["first@example.com", "second@example.com"],
+            custom_message="Please review.",
+            use_gpg=True,
+        )
+        audit.assert_called_once()
+        update_status.assert_called_once_with("report-1", True, 2)
+
+    def test_report_email_rejects_header_injection_before_smtp_delivery(self):
+        from flask import Flask
+        from modules.Infrastructure import routes
+
+        app = Flask(__name__)
+        report = types.SimpleNamespace(id="report-1", title="Report", report_data="Body", status="Ready")
+        report_model = types.SimpleNamespace(query=types.SimpleNamespace(get=mock.Mock(return_value=report)))
+        with app.test_request_context(
+            "/api/infrastructure/reports/report-1/action",
+            method="POST",
+            json={
+                "action": "send",
+                "sender": "reports@example.com",
+                "email": "user@example.com",
+                "subject": "Report\nBcc: attacker@example.com",
+            },
+        ), mock.patch.object(routes, "AggregatedJob", report_model), mock.patch.object(
+            routes, "can_access_report", return_value=True
+        ), mock.patch.object(routes, "require_permission", return_value=None), mock.patch.object(
+            routes, "send_report_email"
+        ) as send_email:
+            response, status = routes.action_report("report-1")
+
+        self.assertEqual(status, 400)
+        self.assertIn("one line", response.get_json()["message"])
+        send_email.assert_not_called()
+
     def test_mobile_javascript_uses_live_updates_pagination_and_safe_structured_reports(self):
         javascript = (ROOT / "static/js/mobile_operator.js").read_text(encoding="utf-8")
         routes = (ROOT / "modules/Infrastructure/routes.py").read_text(encoding="utf-8")
+        template = (ROOT / "modules/Infrastructure/templates/mobile_operator.html").read_text(encoding="utf-8")
+        nginx = (ROOT / "deploy/debian/nginx-winhub.conf").read_text(encoding="utf-8")
 
         self.assertIn("/api/infrastructure/task-launch/options", javascript)
         self.assertIn("/api/infrastructure/tasks/all?page=", javascript)
@@ -219,6 +302,13 @@ class MobileOperatorContractTests(unittest.TestCase):
         self.assertNotIn("moReportBody').innerHTML", javascript)
         self.assertIn("/api/infrastructure/reports/<report_id>/download", routes)
         self.assertIn('"pagination": {', routes)
+        self.assertIn("/api/infrastructure/smtp", javascript)
+        self.assertIn("sendCurrentReportEmail", javascript)
+        self.assertIn('data.get(\'use_gpg\') is True', routes)
+        self.assertIn("mobile_permissions.send_reports", template)
+        self.assertIn("moReportEmailForm", template)
+        self.assertIn("(?:live|mobile)/events", nginx)
+        self.assertIn("proxy_buffering off", nginx)
 
 
 if __name__ == "__main__":
