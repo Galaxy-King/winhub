@@ -2488,6 +2488,13 @@ def infrastructure_live_events():
     if denied:
         return denied
 
+    return infrastructure_live_event_response(("nodes", "review", "queue", "reports"))
+
+
+def infrastructure_live_event_response(section_names):
+    """Stream small revision snapshots for the sections a user may view."""
+    section_names = tuple(dict.fromkeys(section_names))
+
     def event_payload(event_name, payload):
         return f"event: {event_name}\ndata: {json.dumps(payload, separators=(',', ':'))}\n\n"
 
@@ -2498,14 +2505,18 @@ def infrastructure_live_events():
         yield event_payload("connected", {"ok": True, "ts": datetime.utcnow().isoformat() + "Z"})
         while True:
             try:
-                state = infra_live_state_cached()
+                full_state = infra_live_state_cached()
+                state = {
+                    section: full_state.get(section, {"revision": "0", "count": 0, "latest": None})
+                    for section in section_names
+                }
                 if previous_state is None:
                     previous_state = state
                     yield event_payload("state", {"state": state})
                 else:
                     changes = {
                         section: state.get(section)
-                        for section in ("nodes", "review", "queue", "reports")
+                        for section in section_names
                         if (state.get(section) or {}).get("revision") != (previous_state.get(section) or {}).get("revision")
                     }
                     if changes:
@@ -2534,6 +2545,18 @@ def infrastructure_live_events():
             "X-Accel-Buffering": "no",
         },
     )
+
+
+@infrastructure_bp.route('/api/infrastructure/mobile/events', methods=['GET'])
+def mobile_live_events():
+    sections = []
+    if can("view_queue"):
+        sections.append("queue")
+    if can("view_reports"):
+        sections.append("reports")
+    if not sections:
+        return jsonify({"success": False, "message": "Live updates are not available for this role."}), 403
+    return infrastructure_live_event_response(sections)
 
 
 @infrastructure_bp.route('/api/infrastructure/hosts', methods=['GET'])
@@ -2906,6 +2929,43 @@ def get_report(report_id):
             "report_data": report_body_for_current_user(r.report_data),
         }
     })
+
+
+def report_text_download_body(value):
+    """Convert a visible report body to readable, inert plain text."""
+    source = str(value or "")
+    if not re.search(r"<[a-z][\s\S]*>", source, re.IGNORECASE):
+        return source.strip()
+    source = re.sub(r"<(script|style|noscript)\b[^>]*>[\s\S]*?</\1>", "", source, flags=re.IGNORECASE)
+    source = re.sub(r"<br\s*/?>", "\n", source, flags=re.IGNORECASE)
+    source = re.sub(r"</(?:p|div|li|tr|h[1-6]|section|article)\s*>", "\n", source, flags=re.IGNORECASE)
+    source = re.sub(r"<[^>]+>", "", source)
+    source = html.unescape(source)
+    source = re.sub(r"\n[ \t]+", "\n", source)
+    return re.sub(r"\n{3,}", "\n\n", source).strip()
+
+
+@infrastructure_bp.route('/api/infrastructure/reports/<report_id>/download', methods=['GET'])
+def download_report_text(report_id):
+    denied = require_permission("view_reports")
+    if denied:
+        return denied
+    report = AggregatedJob.query.get(report_id)
+    if not report:
+        return jsonify({"success": False, "message": "Report not found"}), 404
+    if not can_access_report(report_id):
+        return jsonify({"success": False, "message": "Access denied"}), 403
+
+    visible_body = report_body_for_current_user(report.report_data)
+    filename_base = secure_filename(report.title or "")[:80] or f"winhub-report-{report.id}"
+    return Response(
+        report_text_download_body(visible_body),
+        content_type="text/plain; charset=utf-8",
+        headers={
+            "Cache-Control": "no-store",
+            "Content-Disposition": f'attachment; filename="{filename_base}.txt"',
+        },
+    )
 
 @infrastructure_bp.route('/api/infrastructure/reports/<report_id>/action', methods=['POST'])
 def action_report(report_id):
@@ -5176,13 +5236,26 @@ def run_template_api(template_id):
 def get_tasks():
     denied = require_permission("view_queue")
     if denied: return denied
+    try:
+        page = max(1, int(request.args.get("page", 1)))
+    except (TypeError, ValueError):
+        page = 1
+    try:
+        page_size = max(5, min(50, int(request.args.get("page_size", 20))))
+    except (TypeError, ValueError):
+        page_size = 20
     user_id = session.get('user_id')
     allowed_hosts = infra_allowed_host_ids(user_id)
-    if not allowed_hosts: return jsonify({"success": True, "jobs": []})
+    if not allowed_hosts:
+        return jsonify({
+            "success": True,
+            "jobs": [],
+            "pagination": {"page": page, "page_size": page_size, "total": 0, "has_more": False},
+        })
     planned_jobs = planned_agent_update_rollout_jobs(allowed_hosts)
 
     last_created_at = func.max(AgentTask.created_at).label("last_created_at")
-    recent_jobs = db.session.query(
+    recent_jobs_query = db.session.query(
         AgentTask.job_id,
         last_created_at
     ).filter(
@@ -5190,13 +5263,25 @@ def get_tasks():
         AgentTask.job_id.isnot(None)
     ).group_by(
         AgentTask.job_id
-    ).order_by(last_created_at.desc()).limit(25).all()
+    ).order_by(last_created_at.desc())
+    total_persisted_jobs = recent_jobs_query.count()
+    recent_jobs = recent_jobs_query.offset((page - 1) * page_size).limit(page_size).all()
 
     job_ids = [job_id for job_id, _ in recent_jobs if job_id]
     if not job_ids:
-        for job in planned_jobs:
+        page_planned_jobs = planned_jobs if page == 1 else []
+        for job in page_planned_jobs:
             job.pop("_sort_at", None)
-        return jsonify({"success": True, "jobs": planned_jobs})
+        return jsonify({
+            "success": True,
+            "jobs": page_planned_jobs,
+            "pagination": {
+                "page": page,
+                "page_size": page_size,
+                "total": total_persisted_jobs + len(planned_jobs),
+                "has_more": page * page_size < total_persisted_jobs,
+            },
+        })
 
     tasks = db.session.query(AgentTask, Endpoint.hostname, Endpoint.display_name).join(Endpoint).filter(
         AgentTask.endpoint_id.in_(allowed_hosts),
@@ -5239,12 +5324,22 @@ def get_tasks():
         else: data["status"] = "Success"
         result.append(data)
 
-    result.extend(planned_jobs)
+    if page == 1:
+        result.extend(planned_jobs)
     result.sort(key=lambda item: item.get("_sort_at") or datetime.min, reverse=True)
     for item in result:
         item.pop("_sort_at", None)
 
-    return jsonify({"success": True, "jobs": result})
+    return jsonify({
+        "success": True,
+        "jobs": result,
+        "pagination": {
+            "page": page,
+            "page_size": page_size,
+            "total": total_persisted_jobs + len(planned_jobs),
+            "has_more": page * page_size < total_persisted_jobs,
+        },
+    })
 
 @infrastructure_bp.route('/api/infrastructure/task/<task_id>', methods=['GET'])
 def get_single_task(task_id):

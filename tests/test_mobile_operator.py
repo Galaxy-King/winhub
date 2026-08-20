@@ -1,4 +1,5 @@
 import json
+import re
 import types
 import unittest
 from datetime import datetime
@@ -128,15 +129,96 @@ class MobileOperatorContractTests(unittest.TestCase):
         self.assertIn('name="csrf-token"', base)
         self.assertIn("window.fetch", base)
 
-    def test_mobile_javascript_reuses_server_contracts_and_renders_report_as_text(self):
+    def test_mobile_interface_contains_no_ukrainian_ui_copy(self):
+        template = (ROOT / "modules/Infrastructure/templates/mobile_operator.html").read_text(encoding="utf-8")
         javascript = (ROOT / "static/js/mobile_operator.js").read_text(encoding="utf-8")
 
+        self.assertIsNone(re.search(r"[А-Яа-яІіЇїЄєҐґ]", template))
+        self.assertIsNone(re.search(r"[А-Яа-яІіЇїЄєҐґ]", javascript))
+
+    def test_task_history_pagination_is_bounded(self):
+        from flask import Flask, session
+        from modules.Infrastructure import routes
+
+        app = Flask(__name__)
+        app.secret_key = "mobile-pagination-test"
+        with app.test_request_context("/api/infrastructure/tasks/all?page=2&page_size=500"):
+            session["user_id"] = "user-1"
+            with mock.patch.object(routes, "require_permission", return_value=None), mock.patch.object(
+                routes, "infra_allowed_host_ids", return_value=[]
+            ):
+                data = routes.get_tasks().get_json()
+
+        self.assertEqual(data["jobs"], [])
+        self.assertEqual(data["pagination"], {"page": 2, "page_size": 50, "total": 0, "has_more": False})
+
+    def test_mobile_live_stream_only_subscribes_to_permitted_sections(self):
+        from flask import Flask
+        from modules.Infrastructure import routes
+
+        app = Flask(__name__)
+        with app.test_request_context("/api/infrastructure/mobile/events"), mock.patch.object(
+            routes, "can", side_effect=lambda permission: permission == "view_queue"
+        ), mock.patch.object(
+            routes, "infrastructure_live_event_response", return_value="queue-stream"
+        ) as stream:
+            response = routes.mobile_live_events()
+
+        self.assertEqual(response, "queue-stream")
+        stream.assert_called_once_with(["queue"])
+
+    def test_report_download_is_inert_plain_text(self):
+        from modules.Infrastructure.routes import report_text_download_body
+
+        rendered = report_text_download_body(
+            "<h1>Summary</h1><p>One endpoint passed.</p><script>alert('x')</script><br>Done"
+        )
+
+        self.assertIn("Summary", rendered)
+        self.assertIn("One endpoint passed.", rendered)
+        self.assertIn("Done", rendered)
+        self.assertNotIn("script", rendered.lower())
+        self.assertNotIn("alert", rendered.lower())
+
+    def test_report_download_route_enforces_plain_text_attachment(self):
+        from flask import Flask
+        from modules.Infrastructure import routes
+
+        app = Flask(__name__)
+        report = types.SimpleNamespace(
+            id="report-1",
+            title="Endpoint Compliance",
+            report_data="<h1>Summary</h1><p>Passed</p>",
+        )
+        report_model = types.SimpleNamespace(query=types.SimpleNamespace(get=mock.Mock(return_value=report)))
+        with app.test_request_context("/api/infrastructure/reports/report-1/download"), mock.patch.object(
+            routes, "require_permission", return_value=None
+        ), mock.patch.object(routes, "AggregatedJob", report_model), mock.patch.object(
+            routes, "can_access_report", return_value=True
+        ), mock.patch.object(
+            routes, "report_body_for_current_user", side_effect=lambda value: value
+        ):
+            response = routes.download_report_text("report-1")
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.mimetype, "text/plain")
+        self.assertIn("attachment", response.headers["Content-Disposition"])
+        self.assertEqual(response.get_data(as_text=True), "Summary\nPassed")
+
+    def test_mobile_javascript_uses_live_updates_pagination_and_safe_structured_reports(self):
+        javascript = (ROOT / "static/js/mobile_operator.js").read_text(encoding="utf-8")
+        routes = (ROOT / "modules/Infrastructure/routes.py").read_text(encoding="utf-8")
+
         self.assertIn("/api/infrastructure/task-launch/options", javascript)
-        self.assertIn("/api/infrastructure/tasks/all", javascript)
+        self.assertIn("/api/infrastructure/tasks/all?page=", javascript)
         self.assertIn("/api/infrastructure/templates/${encodeURIComponent(template.id)}/run", javascript)
         self.assertIn("state.launching", javascript)
-        self.assertIn("moReportBody').textContent = readableReportBody", javascript)
+        self.assertIn("new EventSource('/api/infrastructure/mobile/events')", javascript)
+        self.assertIn("renderStructuredReport(readableBody)", javascript)
+        self.assertIn("document.createElement('article')", javascript)
         self.assertNotIn("moReportBody').innerHTML", javascript)
+        self.assertIn("/api/infrastructure/reports/<report_id>/download", routes)
+        self.assertIn('"pagination": {', routes)
 
 
 if __name__ == "__main__":

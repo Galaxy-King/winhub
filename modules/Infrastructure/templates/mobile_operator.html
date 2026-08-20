@@ -16,7 +16,7 @@
         </a>
         <div class="mo-top-actions">
             <span class="mo-user" title="{{ username }}">{{ username[0]|upper if username else 'U' }}</span>
-            <button id="moMoreButton" class="mo-icon-button" type="button" aria-label="Відкрити меню" aria-expanded="false">
+            <button id="moMoreButton" class="mo-icon-button" type="button" aria-label="Open menu" aria-expanded="false">
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><circle cx="5" cy="12" r="1"/><circle cx="12" cy="12" r="1"/><circle cx="19" cy="12" r="1"/></svg>
             </button>
         </div>
@@ -25,8 +25,8 @@
                 <strong>{{ username }}</strong>
                 <span>{{ 'Administrator' if is_admin else 'Operator' }}</span>
             </div>
-            <a id="moDesktopLink" href="/module/infrastructure?desktop=1">Повна версія</a>
-            <a href="/logout">Вийти</a>
+            <a id="moDesktopLink" href="/module/infrastructure?desktop=1">Full version</a>
+            <a href="/logout">Sign out</a>
         </div>
     </header>
 
@@ -35,34 +35,35 @@
         <section id="moViewTasks" class="mo-view" data-mobile-view="tasks">
             <div class="mo-section-heading">
                 <div>
-                    <p class="mo-eyebrow">Операції</p>
-                    <h1>Задачі</h1>
-                    <p>Статус запусків і результати по хостах.</p>
+                    <div class="mo-eyebrow-line"><p class="mo-eyebrow">Operations</p><span id="moLiveStatus" class="mo-live-status" data-state="connecting">Connecting</span></div>
+                    <h1>Tasks</h1>
+                    <p>Launch status and results across your endpoints.</p>
                 </div>
-                <button id="moRefreshTasks" class="mo-icon-button mo-icon-button-raised" type="button" aria-label="Оновити задачі">
+                <button id="moRefreshTasks" class="mo-icon-button mo-icon-button-raised" type="button" aria-label="Refresh tasks">
                     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M20 11a8.1 8.1 0 0 0-15.5-2M4 4v5h5M4 13a8.1 8.1 0 0 0 15.5 2M20 20v-5h-5"/></svg>
                 </button>
             </div>
 
-            <div class="mo-summary-grid" aria-label="Статистика задач">
-                <article><span>Усього</span><strong id="moTaskTotal">—</strong></article>
-                <article><span>Активні</span><strong id="moTaskActive">—</strong></article>
-                <article><span>Помилки</span><strong id="moTaskErrors">—</strong></article>
+            <div class="mo-summary-grid" aria-label="Task summary">
+                <article><span>Total</span><strong id="moTaskTotal">—</strong></article>
+                <article><span>Active</span><strong id="moTaskActive">—</strong></article>
+                <article><span>Errors</span><strong id="moTaskErrors">—</strong></article>
             </div>
 
             <label class="mo-search">
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><circle cx="11" cy="11" r="7"/><path d="m20 20-4-4"/></svg>
-                <input id="moTaskSearch" type="search" placeholder="Пошук задачі або хоста…" autocomplete="off">
+                <input id="moTaskSearch" type="search" placeholder="Search task or endpoint…" autocomplete="off">
             </label>
-            <div id="moTaskFilters" class="mo-chips" aria-label="Фільтр задач">
-                <button type="button" data-job-filter="all" class="is-active">Усі</button>
-                <button type="button" data-job-filter="active">Активні</button>
-                <button type="button" data-job-filter="error">Помилки</button>
-                <button type="button" data-job-filter="success">Завершені</button>
+            <div id="moTaskFilters" class="mo-chips" aria-label="Task filter">
+                <button type="button" data-job-filter="all" class="is-active">All</button>
+                <button type="button" data-job-filter="active">Active</button>
+                <button type="button" data-job-filter="error">Errors</button>
+                <button type="button" data-job-filter="success">Completed</button>
             </div>
             <div id="moTasksList" class="mo-card-list" aria-live="polite">
-                <div class="mo-loading-card"><span class="mo-spinner"></span> Завантаження задач…</div>
+                <div class="mo-loading-card"><span class="mo-spinner"></span> Loading tasks…</div>
             </div>
+            <button id="moLoadMoreTasks" class="mo-load-more" type="button" hidden>Load more</button>
         </section>
         {% endif %}
 
@@ -70,19 +71,19 @@
         <section id="moViewLaunch" class="mo-view" data-mobile-view="launch" hidden>
             <div class="mo-section-heading">
                 <div>
-                    <p class="mo-eyebrow">Швидкий запуск</p>
-                    <h1>Нова задача</h1>
-                    <p>Тільки погоджені шаблони та дозволені цілі.</p>
+                    <p class="mo-eyebrow">Quick launch</p>
+                    <h1>New task</h1>
+                    <p>Approved templates and authorized targets only.</p>
                 </div>
-                <button id="moResetLaunch" class="mo-text-button" type="button">Скинути</button>
+                <button id="moResetLaunch" class="mo-text-button" type="button">Reset</button>
             </div>
 
-            <div class="mo-stepper" aria-label="Прогрес створення задачі">
-                <span data-launch-progress="1" class="is-active"><b>1</b><small>Шаблон</small></span>
+            <div class="mo-stepper" aria-label="Task creation progress">
+                <span data-launch-progress="1" class="is-active"><b>1</b><small>Template</small></span>
                 <i></i>
-                <span data-launch-progress="2"><b>2</b><small>Цілі</small></span>
+                <span data-launch-progress="2"><b>2</b><small>Targets</small></span>
                 <i></i>
-                <span data-launch-progress="3"><b>3</b><small>Запуск</small></span>
+                <span data-launch-progress="3"><b>3</b><small>Launch</small></span>
             </div>
 
             <div id="moLaunchError" class="mo-alert mo-alert-error" role="alert" hidden></div>
@@ -90,30 +91,30 @@
             <div data-launch-step="1" class="mo-launch-step">
                 <label class="mo-search">
                     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><circle cx="11" cy="11" r="7"/><path d="m20 20-4-4"/></svg>
-                    <input id="moTemplateSearch" type="search" placeholder="Знайти шаблон…" autocomplete="off">
+                    <input id="moTemplateSearch" type="search" placeholder="Find a template…" autocomplete="off">
                 </label>
                 <div id="moTemplateList" class="mo-select-list">
-                    <div class="mo-loading-card"><span class="mo-spinner"></span> Завантаження шаблонів…</div>
+                    <div class="mo-loading-card"><span class="mo-spinner"></span> Loading templates…</div>
                 </div>
             </div>
 
             <div data-launch-step="2" class="mo-launch-step" hidden>
-                <div class="mo-segmented" role="group" aria-label="Тип цілі">
-                    <button id="moTargetHosts" type="button" class="is-active">Хости</button>
-                    <button id="moTargetGroup" type="button">Група</button>
+                <div class="mo-segmented" role="group" aria-label="Target type">
+                    <button id="moTargetHosts" type="button" class="is-active">Endpoints</button>
+                    <button id="moTargetGroup" type="button">Group</button>
                 </div>
                 <div id="moHostsPanel">
-                    <div class="mo-list-label"><span>Дозволені хости</span><strong><span id="moSelectedHostCount">0</span> вибрано</strong></div>
+                    <div class="mo-list-label"><span>Authorized endpoints</span><strong><span id="moSelectedHostCount">0</span> selected</strong></div>
                     <label class="mo-search">
                         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><circle cx="11" cy="11" r="7"/><path d="m20 20-4-4"/></svg>
-                        <input id="moHostSearch" type="search" placeholder="Назва, IP або ОС…" autocomplete="off">
+                        <input id="moHostSearch" type="search" placeholder="Name, IP, or OS…" autocomplete="off">
                     </label>
                     <div id="moHostList" class="mo-select-list"></div>
                 </div>
                 <div id="moGroupPanel" hidden>
                     <label class="mo-field">
-                        <span>Група хостів</span>
-                        <select id="moGroupSelect"><option value="">Оберіть групу…</option></select>
+                        <span>Endpoint group</span>
+                        <select id="moGroupSelect"><option value="">Select a group…</option></select>
                     </label>
                 </div>
             </div>
@@ -121,20 +122,20 @@
             <div data-launch-step="3" class="mo-launch-step" hidden>
                 <div id="moLaunchSummary" class="mo-review-card"></div>
                 <label class="mo-field">
-                    <span>Назва задачі</span>
+                    <span>Task title</span>
                     <input id="moTaskTitle" type="text" maxlength="150" autocomplete="off">
                 </label>
                 <div id="moVariables" class="mo-variable-list"></div>
                 <label id="moRiskConfirmation" class="mo-confirmation" hidden>
                     <input id="moRiskCheckbox" type="checkbox">
-                    <span><strong>Підтверджую запуск</strong><small id="moRiskText"></small></span>
+                    <span><strong>Confirm launch</strong><small id="moRiskText"></small></span>
                 </label>
             </div>
 
             <div class="mo-launch-actions">
-                <button id="moLaunchBack" class="mo-secondary-button" type="button" hidden>Назад</button>
-                <button id="moLaunchNext" class="mo-primary-button" type="button">Далі</button>
-                <button id="moLaunchRun" class="mo-primary-button" type="button" hidden>Запустити</button>
+                <button id="moLaunchBack" class="mo-secondary-button" type="button" hidden>Back</button>
+                <button id="moLaunchNext" class="mo-primary-button" type="button">Next</button>
+                <button id="moLaunchRun" class="mo-primary-button" type="button" hidden>Launch</button>
             </div>
         </section>
         {% endif %}
@@ -143,42 +144,42 @@
         <section id="moViewReports" class="mo-view" data-mobile-view="reports" hidden>
             <div class="mo-section-heading">
                 <div>
-                    <p class="mo-eyebrow">Результати</p>
-                    <h1>Звіти</h1>
-                    <p>Агреговані результати виконаних операцій.</p>
+                    <p class="mo-eyebrow">Results</p>
+                    <h1>Reports</h1>
+                    <p>Aggregated results from completed operations.</p>
                 </div>
-                <button id="moRefreshReports" class="mo-icon-button mo-icon-button-raised" type="button" aria-label="Оновити звіти">
+                <button id="moRefreshReports" class="mo-icon-button mo-icon-button-raised" type="button" aria-label="Refresh reports">
                     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M20 11a8.1 8.1 0 0 0-15.5-2M4 4v5h5M4 13a8.1 8.1 0 0 0 15.5 2M20 20v-5h-5"/></svg>
                 </button>
             </div>
             <label class="mo-search">
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><circle cx="11" cy="11" r="7"/><path d="m20 20-4-4"/></svg>
-                <input id="moReportSearch" type="search" placeholder="Пошук звіту…" autocomplete="off">
+                <input id="moReportSearch" type="search" placeholder="Search reports…" autocomplete="off">
             </label>
             <div id="moReportsList" class="mo-card-list" aria-live="polite">
-                <div class="mo-loading-card"><span class="mo-spinner"></span> Завантаження звітів…</div>
+                <div class="mo-loading-card"><span class="mo-spinner"></span> Loading reports…</div>
             </div>
         </section>
         {% endif %}
     </main>
 
-    <nav class="mo-bottom-nav" aria-label="Основна навігація">
+    <nav class="mo-bottom-nav" aria-label="Primary navigation">
         {% if mobile_permissions.view_queue %}
         <button type="button" data-mobile-tab="tasks" class="is-active">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M9 5h10M9 12h10M9 19h10M4 5h.01M4 12h.01M4 19h.01"/></svg>
-            <span>Задачі</span>
+            <span>Tasks</span>
         </button>
         {% endif %}
         {% if mobile_permissions.run_tasks %}
         <button type="button" data-mobile-tab="launch" class="mo-nav-launch">
             <span class="mo-nav-plus"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M12 5v14M5 12h14"/></svg></span>
-            <span>Нова</span>
+            <span>New</span>
         </button>
         {% endif %}
         {% if mobile_permissions.view_reports %}
         <button type="button" data-mobile-tab="reports">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M4 19V9M10 19V5M16 19v-7M22 19H2"/></svg>
-            <span>Звіти</span>
+            <span>Reports</span>
         </button>
         {% endif %}
     </nav>
@@ -187,8 +188,8 @@
 <div id="moJobModal" class="mo-overlay" role="dialog" aria-modal="true" aria-labelledby="moJobTitle" hidden>
     <section class="mo-sheet">
         <header>
-            <div><p class="mo-eyebrow">Деталі задачі</p><h2 id="moJobTitle">Задача</h2><p id="moJobMeta"></p></div>
-            <button type="button" class="mo-sheet-close" data-close-overlay="moJobModal" aria-label="Закрити">×</button>
+            <div><p class="mo-eyebrow">Task details</p><h2 id="moJobTitle">Task</h2><p id="moJobMeta"></p></div>
+            <button type="button" class="mo-sheet-close" data-close-overlay="moJobModal" aria-label="Close">×</button>
         </header>
         <div id="moJobStats" class="mo-summary-grid mo-summary-grid-sheet"></div>
         <div id="moJobHosts" class="mo-sheet-body mo-host-results"></div>
@@ -198,20 +199,29 @@
 <div id="moLogModal" class="mo-overlay" role="dialog" aria-modal="true" aria-labelledby="moLogTitle" hidden>
     <section class="mo-sheet mo-sheet-tall">
         <header>
-            <div><p class="mo-eyebrow">Результат хоста</p><h2 id="moLogTitle">Лог задачі</h2><p id="moLogMeta"></p></div>
-            <button type="button" class="mo-sheet-close" data-close-overlay="moLogModal" aria-label="Закрити">×</button>
+            <div><p class="mo-eyebrow">Endpoint result</p><h2 id="moLogTitle">Task log</h2><p id="moLogMeta"></p></div>
+            <button type="button" class="mo-sheet-close" data-close-overlay="moLogModal" aria-label="Close">×</button>
         </header>
-        <pre id="moLogBody" class="mo-terminal">Завантаження…</pre>
+        <pre id="moLogBody" class="mo-terminal">Loading…</pre>
     </section>
 </div>
 
 <div id="moReportModal" class="mo-overlay" role="dialog" aria-modal="true" aria-labelledby="moReportTitle" hidden>
     <section class="mo-sheet mo-sheet-tall">
         <header>
-            <div><p class="mo-eyebrow">Звіт</p><h2 id="moReportTitle">Звіт</h2><p id="moReportMeta"></p></div>
-            <button type="button" class="mo-sheet-close" data-close-overlay="moReportModal" aria-label="Закрити">×</button>
+            <div><p class="mo-eyebrow">Report</p><h2 id="moReportTitle">Report</h2><p id="moReportMeta"></p></div>
+            <button type="button" class="mo-sheet-close" data-close-overlay="moReportModal" aria-label="Close">×</button>
         </header>
-        <pre id="moReportBody" class="mo-report-body">Завантаження…</pre>
+        <div id="moReportStats" class="mo-summary-grid mo-summary-grid-sheet"></div>
+        <div class="mo-report-actions">
+            <a id="moReportDownload" class="mo-report-action" href="#" download>Download</a>
+            <button id="moReportShare" class="mo-report-action" type="button">Share</button>
+            <button id="moReportRawToggle" class="mo-report-action" type="button" aria-pressed="false">Raw text</button>
+        </div>
+        <div id="moReportStructured" class="mo-sheet-body mo-report-structured" aria-live="polite">
+            <div class="mo-loading-card"><span class="mo-spinner"></span> Loading report…</div>
+        </div>
+        <pre id="moReportBody" class="mo-report-body" hidden></pre>
     </section>
 </div>
 

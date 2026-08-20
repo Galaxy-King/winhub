@@ -15,7 +15,14 @@
         selectedGroupId: '',
         launching: false,
         taskLoading: false,
+        taskPage: 1,
+        taskPageSize: 15,
+        taskTotal: 0,
+        taskHasMore: false,
         reportLoading: false,
+        currentReport: null,
+        liveSource: null,
+        liveConnected: false,
         pollTimer: null,
         toastTimer: null,
     };
@@ -102,7 +109,39 @@
         state.pollTimer = setTimeout(async () => {
             await loadTasks(true);
             schedulePolling();
-        }, 15000);
+        }, state.liveConnected ? 60000 : 15000);
+    }
+
+    function setLiveStatus(connectionState) {
+        state.liveConnected = connectionState === 'live';
+        const indicator = byId('moLiveStatus');
+        if (!indicator) return;
+        indicator.dataset.state = connectionState;
+        indicator.textContent = ({live: 'Live', offline: 'Polling', connecting: 'Connecting'})[connectionState] || 'Polling';
+        schedulePolling();
+    }
+
+    function startLiveUpdates() {
+        if ((!permissions.view_queue && !permissions.view_reports) || typeof EventSource === 'undefined') {
+            setLiveStatus('offline');
+            return;
+        }
+        if (state.liveSource) state.liveSource.close();
+        setLiveStatus('connecting');
+        const source = new EventSource('/api/infrastructure/mobile/events');
+        state.liveSource = source;
+        source.addEventListener('connected', () => setLiveStatus('live'));
+        source.addEventListener('state', () => setLiveStatus('live'));
+        source.addEventListener('heartbeat', () => setLiveStatus('live'));
+        source.addEventListener('changed', event => {
+            setLiveStatus('live');
+            try {
+                const changes = JSON.parse(event.data || '{}').changes || {};
+                if (changes.queue && permissions.view_queue) loadTasks(true);
+                if (changes.reports && permissions.view_reports) loadReports(true);
+            } catch (_) {}
+        });
+        source.onerror = () => setLiveStatus('offline');
     }
 
     function normalizeStatus(status) {
@@ -118,8 +157,8 @@
     function statusLabel(status) {
         const normalized = normalizeStatus(status);
         return ({
-            success: 'Виконано', error: 'Помилка', cancelled: 'Скасовано',
-            scheduled: 'Заплановано', running: 'Виконується', pending: 'Очікує',
+            success: 'Completed', error: 'Error', cancelled: 'Cancelled',
+            scheduled: 'Scheduled', running: 'Running', pending: 'Pending',
         })[normalized];
     }
 
@@ -143,7 +182,7 @@
         const jobs = state.jobs || [];
         const active = jobs.filter(job => ['pending', 'running', 'scheduled'].includes(normalizeStatus(job.status))).length;
         const errors = jobs.filter(job => normalizeStatus(job.status) === 'error' || Number(job.error || 0) > 0).length;
-        if (byId('moTaskTotal')) byId('moTaskTotal').textContent = String(jobs.length);
+        if (byId('moTaskTotal')) byId('moTaskTotal').textContent = String(state.taskTotal || jobs.length);
         if (byId('moTaskActive')) byId('moTaskActive').textContent = String(active);
         if (byId('moTaskErrors')) byId('moTaskErrors').textContent = String(errors);
     }
@@ -158,7 +197,8 @@
             return jobMatchesFilter(job) && haystack.includes(query);
         });
         if (!jobs.length) {
-            container.innerHTML = '<div class="mo-empty">Немає задач, що відповідають фільтру.</div>';
+            container.innerHTML = '<div class="mo-empty">No tasks match this filter.</div>';
+            updateTaskPagination();
             return;
         }
         container.innerHTML = jobs.map(job => {
@@ -171,38 +211,64 @@
                 <button type="button" class="mo-job-card" data-job-id="${escapeHtml(job.job_id)}">
                     <span class="mo-card-top">
                         <span class="mo-card-title">
-                            <strong>${escapeHtml(job.title || 'Без назви')}</strong>
-                            <small>${escapeHtml(job.target_summary || 'Ціль не вказана')}</small>
+                            <strong>${escapeHtml(job.title || 'Untitled task')}</strong>
+                            <small>${escapeHtml(job.target_summary || 'Target unavailable')}</small>
                         </span>
                         <span class="mo-status mo-status-${css}">${escapeHtml(label)}</span>
                     </span>
-                    <progress class="mo-progress" max="100" value="${progress}" aria-label="Виконано ${progress}%"></progress>
+                    <progress class="mo-progress" max="100" value="${progress}" aria-label="${progress}% completed"></progress>
                     <span class="mo-card-footer">
                         <span>${escapeHtml(job.created_at || '')}</span>
-                        <strong>${completed}/${total || 0} · помилок ${Number(job.error || 0)}</strong>
+                        <strong>${completed}/${total || 0} · ${Number(job.error || 0)} errors</strong>
                     </span>
                 </button>`;
         }).join('');
         container.querySelectorAll('[data-job-id]').forEach(button => {
             button.addEventListener('click', () => openJob(button.dataset.jobId));
         });
+        updateTaskPagination();
     }
 
-    async function loadTasks(silent = false) {
+    function updateTaskPagination() {
+        const button = byId('moLoadMoreTasks');
+        if (!button) return;
+        button.hidden = !state.taskHasMore;
+        button.disabled = state.taskLoading;
+        button.textContent = state.taskLoading ? 'Loading…' : `Load more · ${state.jobs.length}/${state.taskTotal}`;
+    }
+
+    function uniqueJobs(items) {
+        const seen = new Set();
+        return items.filter(job => {
+            const id = String(job?.job_id || '');
+            if (!id || seen.has(id)) return false;
+            seen.add(id);
+            return true;
+        });
+    }
+
+    async function loadTasks(silent = false, append = false) {
         if (!permissions.view_queue || state.taskLoading) return;
         const container = byId('moTasksList');
+        const requestedPage = append ? state.taskPage + 1 : 1;
         state.taskLoading = true;
+        updateTaskPagination();
         if (!silent && container && !state.jobs.length) {
-            container.innerHTML = '<div class="mo-loading-card"><span class="mo-spinner"></span> Завантаження задач…</div>';
+            container.innerHTML = '<div class="mo-loading-card"><span class="mo-spinner"></span> Loading tasks…</div>';
         }
         try {
-            const data = await apiJson('/api/infrastructure/tasks/all');
-            state.jobs = Array.isArray(data.jobs) ? data.jobs : [];
+            const data = await apiJson(`/api/infrastructure/tasks/all?page=${requestedPage}&page_size=${state.taskPageSize}`);
+            const incoming = Array.isArray(data.jobs) ? data.jobs : [];
+            state.jobs = append ? uniqueJobs([...state.jobs, ...incoming]) : incoming;
+            state.taskPage = requestedPage;
+            state.taskTotal = Number(data.pagination?.total ?? state.jobs.length);
+            state.taskHasMore = Boolean(data.pagination?.has_more);
             renderTasks();
         } catch (error) {
-            if (container && !silent) container.innerHTML = `<div class="mo-error-card">${escapeHtml(error.message || 'Не вдалося завантажити задачі.')}</div>`;
+            if (container && !silent) container.innerHTML = `<div class="mo-error-card">${escapeHtml(error.message || 'Unable to load tasks.')}</div>`;
         } finally {
             state.taskLoading = false;
+            updateTaskPagination();
             schedulePolling();
         }
     }
@@ -224,29 +290,29 @@
     function openJob(jobId) {
         const job = state.jobs.find(item => String(item.job_id) === String(jobId));
         if (!job) return;
-        byId('moJobTitle').textContent = job.title || 'Задача';
+        byId('moJobTitle').textContent = job.title || 'Task';
         byId('moJobMeta').textContent = `${job.action || 'operation'} · ${job.created_at || ''}`;
         const stats = byId('moJobStats');
         if (stats) {
             stats.innerHTML = `
-                <div><span>Усього</span><strong>${Number(job.total || 0)}</strong></div>
-                <div><span>Успішно</span><strong>${Number(job.success || 0)}</strong></div>
-                <div><span>Помилки</span><strong>${Number(job.error || 0)}</strong></div>`;
+                <div><span>Total</span><strong>${Number(job.total || 0)}</strong></div>
+                <div><span>Successful</span><strong>${Number(job.success || 0)}</strong></div>
+                <div><span>Errors</span><strong>${Number(job.error || 0)}</strong></div>`;
         }
         const hosts = byId('moJobHosts');
         const tasks = Array.isArray(job.tasks) ? job.tasks : [];
         if (!tasks.length) {
-            hosts.innerHTML = '<div class="mo-empty">Деталі цілей ще недоступні.</div>';
+            hosts.innerHTML = '<div class="mo-empty">Target details are not available yet.</div>';
         } else {
             hosts.innerHTML = tasks.map(task => {
                 const taskId = task.task_id ? String(task.task_id) : '';
                 return `
                     <article class="mo-result-row">
                         <span class="mo-result-host">
-                            <strong>${escapeHtml(task.name || task.display_name || task.hostname || 'Невідомий хост')}</strong>
+                            <strong>${escapeHtml(task.name || task.display_name || task.hostname || 'Unknown endpoint')}</strong>
                             <small>${escapeHtml(statusLabel(task.status))}</small>
                         </span>
-                        ${taskId ? `<button type="button" class="mo-result-action" data-task-id="${escapeHtml(taskId)}">Лог</button>` : '<span class="mo-status mo-status-neutral">План</span>'}
+                        ${taskId ? `<button type="button" class="mo-result-action" data-task-id="${escapeHtml(taskId)}">Log</button>` : '<span class="mo-status mo-status-neutral">Planned</span>'}
                     </article>`;
             }).join('');
             hosts.querySelectorAll('[data-task-id]').forEach(button => {
@@ -257,18 +323,18 @@
     }
 
     async function openTaskLog(taskId) {
-        byId('moLogTitle').textContent = 'Лог задачі';
+        byId('moLogTitle').textContent = 'Task log';
         byId('moLogMeta').textContent = `Task ID: ${taskId}`;
-        byId('moLogBody').textContent = 'Завантаження…';
+        byId('moLogBody').textContent = 'Loading…';
         openOverlay('moLogModal');
         try {
             const result = await apiJson(`/api/infrastructure/task/${encodeURIComponent(taskId)}`);
             const task = result.data || {};
-            byId('moLogTitle').textContent = task.title || 'Лог задачі';
-            byId('moLogMeta').textContent = `${task.name || task.hostname || 'Хост'} · ${statusLabel(task.status)}`;
-            byId('moLogBody').textContent = task.log || 'Задача очікує відповіді агента.';
+            byId('moLogTitle').textContent = task.title || 'Task log';
+            byId('moLogMeta').textContent = `${task.name || task.hostname || 'Endpoint'} · ${statusLabel(task.status)}`;
+            byId('moLogBody').textContent = task.log || 'The task is waiting for the agent response.';
         } catch (error) {
-            byId('moLogBody').textContent = error.message || 'Не вдалося завантажити лог.';
+            byId('moLogBody').textContent = error.message || 'Unable to load the task log.';
         }
     }
 
@@ -278,7 +344,7 @@
         const query = String(byId('moReportSearch')?.value || '').trim().toLowerCase();
         const reports = (state.reports || []).filter(report => `${report.title || ''} ${report.status || ''}`.toLowerCase().includes(query));
         if (!reports.length) {
-            container.innerHTML = '<div class="mo-empty">Звітів за цим запитом немає.</div>';
+            container.innerHTML = '<div class="mo-empty">No reports match this search.</div>';
             return;
         }
         container.innerHTML = reports.map(report => {
@@ -286,13 +352,13 @@
             return `
                 <button type="button" class="mo-report-card" data-report-id="${escapeHtml(report.id)}">
                     <span class="mo-card-top">
-                        <span class="mo-card-title"><strong>${escapeHtml(report.title || 'Звіт')}</strong><small>${escapeHtml(report.created_at || '')}</small></span>
-                        <span class="mo-status mo-status-${css}">${escapeHtml(report.status || 'Готово')}</span>
+                        <span class="mo-card-title"><strong>${escapeHtml(report.title || 'Report')}</strong><small>${escapeHtml(report.created_at || '')}</small></span>
+                        <span class="mo-status mo-status-${css}">${escapeHtml(report.status || 'Ready')}</span>
                     </span>
                     <span class="mo-report-counts">
-                        <span>Усього ${Number(report.total || 0)}</span>
-                        <span class="is-success">Успішно ${Number(report.success || 0)}</span>
-                        <span class="is-error">Помилки ${Number(report.error || 0)}</span>
+                        <span>Total ${Number(report.total || 0)}</span>
+                        <span class="is-success">Successful ${Number(report.success || 0)}</span>
+                        <span class="is-error">Errors ${Number(report.error || 0)}</span>
                     </span>
                 </button>`;
         }).join('');
@@ -309,13 +375,13 @@
         }
         const container = byId('moReportsList');
         state.reportLoading = true;
-        if (container) container.innerHTML = '<div class="mo-loading-card"><span class="mo-spinner"></span> Завантаження звітів…</div>';
+        if (container) container.innerHTML = '<div class="mo-loading-card"><span class="mo-spinner"></span> Loading reports…</div>';
         try {
             const data = await apiJson('/api/infrastructure/reports/all');
             state.reports = Array.isArray(data.data) ? data.data : [];
             renderReports();
         } catch (error) {
-            if (container) container.innerHTML = `<div class="mo-error-card">${escapeHtml(error.message || 'Не вдалося завантажити звіти.')}</div>`;
+            if (container) container.innerHTML = `<div class="mo-error-card">${escapeHtml(error.message || 'Unable to load reports.')}</div>`;
         } finally {
             state.reportLoading = false;
         }
@@ -335,20 +401,116 @@
         }
     }
 
+    function reportSections(value) {
+        const lines = String(value || '').replace(/\r\n?/g, '\n').split('\n');
+        const sections = [];
+        let current = {title: 'Overview', lines: []};
+        const flush = () => {
+            const body = current.lines.join('\n').trim();
+            if (body || !sections.length) sections.push({title: current.title, body: body || 'No report content.'});
+        };
+        lines.forEach(line => {
+            const trimmed = line.trim();
+            const letters = trimmed.replace(/[^A-Za-z]/g, '');
+            const uppercaseHeading = letters.length >= 3 && trimmed === trimmed.toUpperCase();
+            const titledHeading = /^[A-Z][A-Za-z0-9 /&()_-]{2,70}:$/.test(trimmed);
+            if (trimmed.length <= 80 && (uppercaseHeading || titledHeading)) {
+                if (current.lines.some(item => item.trim())) flush();
+                current = {title: trimmed.replace(/:$/, ''), lines: []};
+            } else {
+                current.lines.push(line);
+            }
+        });
+        flush();
+        return sections.slice(0, 60);
+    }
+
+    function renderStructuredReport(text) {
+        const container = byId('moReportStructured');
+        if (!container) return;
+        const fragment = document.createDocumentFragment();
+        reportSections(text).forEach(section => {
+            const article = document.createElement('article');
+            article.className = 'mo-report-section';
+            const heading = document.createElement('h3');
+            heading.textContent = section.title;
+            const body = document.createElement('p');
+            body.textContent = section.body;
+            article.append(heading, body);
+            fragment.append(article);
+        });
+        container.replaceChildren(fragment);
+    }
+
+    function renderReportStats(report) {
+        const stats = byId('moReportStats');
+        if (!stats) return;
+        stats.innerHTML = `
+            <div><span>Total</span><strong>${Number(report.total || 0)}</strong></div>
+            <div><span>Successful</span><strong>${Number(report.success || 0)}</strong></div>
+            <div><span>Errors</span><strong>${Number(report.error || 0)}</strong></div>`;
+    }
+
+    function setReportRawMode(rawMode) {
+        const structured = byId('moReportStructured');
+        const raw = byId('moReportBody');
+        const toggle = byId('moReportRawToggle');
+        if (structured) structured.hidden = rawMode;
+        if (raw) raw.hidden = !rawMode;
+        if (toggle) {
+            toggle.setAttribute('aria-pressed', rawMode ? 'true' : 'false');
+            toggle.textContent = rawMode ? 'Structured' : 'Raw text';
+        }
+    }
+
+    async function shareCurrentReport() {
+        const report = state.currentReport;
+        if (!report) return;
+        const shareUrl = new URL('/mobile', window.location.origin);
+        shareUrl.searchParams.set('report', report.id);
+        const shareData = {
+            title: report.title || 'WinHUB report',
+            text: `${report.title || 'WinHUB report'} · ${report.status || ''}`.trim(),
+            url: shareUrl.toString(),
+        };
+        try {
+            if (navigator.share) {
+                await navigator.share(shareData);
+                return;
+            }
+            await navigator.clipboard.writeText(shareData.url);
+            showToast('Report link copied. Recipients must sign in to WinHUB.');
+        } catch (error) {
+            if (error?.name !== 'AbortError') showToast('Unable to share this report.', 'error');
+        }
+    }
+
     async function openReport(reportId) {
         const summary = state.reports.find(item => String(item.id) === String(reportId));
-        byId('moReportTitle').textContent = summary?.title || 'Звіт';
+        state.currentReport = null;
+        byId('moReportTitle').textContent = summary?.title || 'Report';
         byId('moReportMeta').textContent = summary ? `${summary.created_at || ''} · ${summary.status || ''}` : '';
-        byId('moReportBody').textContent = 'Завантаження…';
+        byId('moReportBody').textContent = 'Loading…';
+        byId('moReportStructured').innerHTML = '<div class="mo-loading-card"><span class="mo-spinner"></span> Loading report…</div>';
+        byId('moReportStats').replaceChildren();
+        byId('moReportDownload').href = `/api/infrastructure/reports/${encodeURIComponent(reportId)}/download`;
+        setReportRawMode(false);
         openOverlay('moReportModal');
         try {
             const result = await apiJson(`/api/infrastructure/reports/${encodeURIComponent(reportId)}`);
             const report = result.data || {};
-            byId('moReportTitle').textContent = report.title || summary?.title || 'Звіт';
+            report.id = report.id || reportId;
+            state.currentReport = report;
+            const readableBody = readableReportBody(report.report_data || 'This report is empty.');
+            byId('moReportTitle').textContent = report.title || summary?.title || 'Report';
             byId('moReportMeta').textContent = `${report.created_at || summary?.created_at || ''} · ${report.status || summary?.status || ''}`;
-            byId('moReportBody').textContent = readableReportBody(report.report_data || 'Звіт порожній.');
+            byId('moReportBody').textContent = readableBody;
+            renderReportStats(report);
+            renderStructuredReport(readableBody);
         } catch (error) {
-            byId('moReportBody').textContent = error.message || 'Не вдалося завантажити звіт.';
+            const message = error.message || 'Unable to load this report.';
+            byId('moReportBody').textContent = message;
+            renderStructuredReport(message);
         }
     }
 
@@ -396,21 +558,21 @@
             return String(left.name || '').localeCompare(String(right.name || ''));
         });
         if (!templates.length) {
-            container.innerHTML = '<div class="mo-empty">Доступних шаблонів не знайдено.</div>';
+            container.innerHTML = '<div class="mo-empty">No runnable templates are available.</div>';
             return;
         }
         container.innerHTML = templates.map(template => {
             const id = String(template.id);
             const selected = id === String(state.selectedTemplateId);
             const favorite = favorites.has(id);
-            const risk = template.risk_level === 'high' ? ' · підвищений ризик' : '';
+            const risk = template.risk_level === 'high' ? ' · high risk' : '';
             return `
                 <div class="mo-template-row${selected ? ' is-selected' : ''}">
                     <button type="button" class="mo-template-select" data-template-id="${escapeHtml(id)}">
-                        <strong>${escapeHtml(template.name || 'Шаблон')}</strong>
+                        <strong>${escapeHtml(template.name || 'Template')}</strong>
                         <span>${escapeHtml(template.category || 'General')} · ${escapeHtml(template.type || 'action')}${escapeHtml(risk)}</span>
                     </button>
-                    <button type="button" class="mo-favorite${favorite ? ' is-active' : ''}" data-favorite-id="${escapeHtml(id)}" aria-label="${favorite ? 'Прибрати з обраних' : 'Додати в обрані'}">★</button>
+                    <button type="button" class="mo-favorite${favorite ? ' is-active' : ''}" data-favorite-id="${escapeHtml(id)}" aria-label="${favorite ? 'Remove from favorites' : 'Add to favorites'}">★</button>
                 </div>`;
         }).join('');
         container.querySelectorAll('[data-template-id]').forEach(button => {
@@ -436,7 +598,7 @@
             `${host.name || ''} ${host.hostname || ''} ${host.ip || ''} ${host.os_type || ''}`.toLowerCase().includes(query)
         )).sort((left, right) => Number(!!right.is_online) - Number(!!left.is_online) || String(left.name || '').localeCompare(String(right.name || '')));
         if (!hosts.length) {
-            container.innerHTML = '<div class="mo-empty">Дозволених хостів не знайдено.</div>';
+            container.innerHTML = '<div class="mo-empty">No authorized endpoints are available.</div>';
             return;
         }
         container.innerHTML = hosts.map(host => {
@@ -468,8 +630,8 @@
         const select = byId('moGroupSelect');
         if (!select || !state.launchOptions) return;
         const current = state.selectedGroupId;
-        select.innerHTML = '<option value="">Оберіть групу…</option>' + (state.launchOptions.groups || []).map(group => (
-            `<option value="${escapeHtml(group.id)}">${escapeHtml(group.name || 'Група')} (${Number(group.hosts_count || 0)})</option>`
+        select.innerHTML = '<option value="">Select a group…</option>' + (state.launchOptions.groups || []).map(group => (
+            `<option value="${escapeHtml(group.id)}">${escapeHtml(group.name || 'Group')} (${Number(group.hosts_count || 0)})</option>`
         )).join('');
         select.value = current;
     }
@@ -494,7 +656,7 @@
             renderGroups();
         } catch (error) {
             const container = byId('moTemplateList');
-            if (container) container.innerHTML = `<div class="mo-error-card">${escapeHtml(error.message || 'Не вдалося завантажити дані запуску.')}</div>`;
+            if (container) container.innerHTML = `<div class="mo-error-card">${escapeHtml(error.message || 'Unable to load launch options.')}</div>`;
         }
     }
 
@@ -517,15 +679,15 @@
     function targetSummary() {
         if (state.targetType === 'group') {
             const group = state.launchOptions?.groups?.find(item => String(item.id) === String(state.selectedGroupId));
-            return group ? `${group.name} · ${Number(group.hosts_count || 0)} хостів` : 'Групу не обрано';
+            return group ? `${group.name} · ${Number(group.hosts_count || 0)} endpoints` : 'No group selected';
         }
         const count = state.selectedHostIds.size;
         if (count === 1) {
             const id = Array.from(state.selectedHostIds)[0];
             const host = state.launchOptions?.hosts?.find(item => String(item.id) === id);
-            return host?.name || '1 хост';
+            return host?.name || '1 endpoint';
         }
-        return `${count} хостів`;
+        return `${count} endpoints`;
     }
 
     function variableSpec(template, name) {
@@ -593,9 +755,9 @@
         const template = selectedTemplate();
         if (!template) return;
         byId('moLaunchSummary').innerHTML = `
-            <strong>${escapeHtml(template.name || 'Шаблон')}</strong>
-            <span>Ціль: ${escapeHtml(targetSummary())}</span>
-            <span>Тип: ${escapeHtml(template.action_type || template.type || 'operation')}</span>`;
+            <strong>${escapeHtml(template.name || 'Template')}</strong>
+            <span>Target: ${escapeHtml(targetSummary())}</span>
+            <span>Type: ${escapeHtml(template.action_type || template.type || 'operation')}</span>`;
         if (!byId('moTaskTitle').value.trim()) byId('moTaskTitle').value = template.name || '';
         renderVariables();
         const count = targetCount();
@@ -603,8 +765,8 @@
         byId('moRiskConfirmation').hidden = !risky;
         byId('moRiskCheckbox').checked = false;
         byId('moRiskText').textContent = template.risk_level === 'high'
-            ? `Ця операція має підвищений ризик і буде запущена на ${count} хостах.`
-            : `Операція буде запущена одразу на ${count} хостах.`;
+            ? `This is a high-risk operation and will run on ${count} endpoints.`
+            : `This operation will run immediately on ${count} endpoints.`;
     }
 
     function setLaunchStep(step) {
@@ -642,7 +804,7 @@
         if (state.launchStep === 3) {
             const confirmationRequired = !byId('moRiskConfirmation').hidden;
             run.disabled = state.launching || (confirmationRequired && !byId('moRiskCheckbox').checked);
-            run.textContent = state.launching ? 'Запуск…' : `Запустити · ${targetCount()}`;
+            run.textContent = state.launching ? 'Launching…' : `Launch · ${targetCount()}`;
         }
     }
 
@@ -665,12 +827,12 @@
 
     function launchNext() {
         if (state.launchStep === 1) {
-            if (!selectedTemplate()) return setLaunchError('Оберіть шаблон.');
+            if (!selectedTemplate()) return setLaunchError('Select a template.');
             setLaunchStep(2);
             return;
         }
         if (state.launchStep === 2) {
-            if (!launchTargetsValid()) return setLaunchError(state.targetType === 'group' ? 'Оберіть групу.' : 'Оберіть хоча б один хост.');
+            if (!launchTargetsValid()) return setLaunchError(state.targetType === 'group' ? 'Select a group.' : 'Select at least one endpoint.');
             setLaunchStep(3);
         }
     }
@@ -679,9 +841,9 @@
         const template = selectedTemplate();
         if (!template || !launchTargetsValid() || state.launching) return;
         const title = String(byId('moTaskTitle').value || '').trim() || template.name || 'Mobile task';
-        if (title.length > 150) return setLaunchError('Назва задачі не може бути довшою за 150 символів.');
+        if (title.length > 150) return setLaunchError('The task title cannot exceed 150 characters.');
         const confirmationRequired = !byId('moRiskConfirmation').hidden;
-        if (confirmationRequired && !byId('moRiskCheckbox').checked) return setLaunchError('Підтвердьте запуск операції.');
+        if (confirmationRequired && !byId('moRiskCheckbox').checked) return setLaunchError('Confirm this operation before launch.');
         const payload = {
             title,
             target_type: state.targetType,
@@ -701,7 +863,7 @@
             const created = Number(result.created_tasks || targetCount());
             const jobId = result.job_id;
             resetLaunch();
-            showToast(`Задачу створено для ${created} хостів.`);
+            showToast(`Task created for ${created} endpoints.`);
             if (permissions.view_queue) {
                 switchTab('tasks');
                 while (state.taskLoading) {
@@ -712,7 +874,7 @@
             }
         } catch (error) {
             const missing = Array.isArray(error.data?.missing_variables) ? `: ${error.data.missing_variables.join(', ')}` : '';
-            setLaunchError(`${error.message || 'Не вдалося запустити задачу'}${missing}`);
+            setLaunchError(`${error.message || 'Unable to launch the task'}${missing}`);
         } finally {
             state.launching = false;
             updateLaunchActions();
@@ -722,6 +884,7 @@
     function bindEvents() {
         all('[data-mobile-tab]').forEach(button => button.addEventListener('click', () => switchTab(button.dataset.mobileTab)));
         byId('moRefreshTasks')?.addEventListener('click', () => loadTasks());
+        byId('moLoadMoreTasks')?.addEventListener('click', () => loadTasks(false, true));
         byId('moTaskSearch')?.addEventListener('input', renderTasks);
         all('[data-job-filter]').forEach(button => button.addEventListener('click', () => {
             state.jobFilter = button.dataset.jobFilter || 'all';
@@ -730,6 +893,10 @@
         }));
         byId('moRefreshReports')?.addEventListener('click', () => loadReports(true));
         byId('moReportSearch')?.addEventListener('input', renderReports);
+        byId('moReportShare')?.addEventListener('click', shareCurrentReport);
+        byId('moReportRawToggle')?.addEventListener('click', event => {
+            setReportRawMode(event.currentTarget.getAttribute('aria-pressed') !== 'true');
+        });
         byId('moTemplateSearch')?.addEventListener('input', renderTemplates);
         byId('moHostSearch')?.addEventListener('input', renderHosts);
         byId('moTargetHosts')?.addEventListener('click', () => setTargetType('hosts'));
@@ -757,6 +924,7 @@
             if (!document.hidden && state.activeTab === 'tasks') loadTasks(true);
             schedulePolling();
         });
+        window.addEventListener('beforeunload', () => state.liveSource?.close());
     }
 
     function closeMenu() {
@@ -780,13 +948,25 @@
         byId('moDesktopLink')?.addEventListener('click', () => localStorage.setItem(storageKeys.mode, 'desktop'));
     }
 
+    async function openRequestedReport(reportId) {
+        while (state.reportLoading) await new Promise(resolve => setTimeout(resolve, 50));
+        if (!state.reports.length) await loadReports();
+        await openReport(reportId);
+    }
+
     function init() {
         localStorage.setItem(storageKeys.mode, 'mobile');
         bindEvents();
         bindMenu();
         if (permissions.run_tasks) resetLaunch();
         const savedTab = localStorage.getItem(storageKeys.tab);
-        switchTab(availableTabs().includes(savedTab) ? savedTab : defaultTab());
+        const requestedReportId = new URLSearchParams(window.location.search).get('report');
+        const initialTab = requestedReportId && permissions.view_reports
+            ? 'reports'
+            : (availableTabs().includes(savedTab) ? savedTab : defaultTab());
+        switchTab(initialTab);
+        startLiveUpdates();
+        if (requestedReportId && permissions.view_reports) openRequestedReport(requestedReportId);
     }
 
     if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', init, {once: true});
