@@ -1794,6 +1794,22 @@
         }
 
         document.addEventListener('DOMContentLoaded', () => {
+            const path = window.location.pathname;
+            const url = new URL(window.location.href);
+            const mobileEntryPaths = new Set(['/dashboard', '/module/infrastructure']);
+            if (url.searchParams.get('desktop') === '1') {
+                localStorage.setItem('winhub_ui_mode', 'desktop');
+            }
+            const preferredUiMode = localStorage.getItem('winhub_ui_mode');
+            if (
+                window.matchMedia('(max-width: 767px)').matches
+                && preferredUiMode !== 'desktop'
+                && mobileEntryPaths.has(path)
+            ) {
+                window.location.replace('/mobile');
+                return;
+            }
+
             const sidebar = document.getElementById('mainSidebar');
             if (sidebar) {
                 const savedState = localStorage.getItem('winhub_sidebar_state');

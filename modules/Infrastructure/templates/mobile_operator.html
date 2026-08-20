@@ -1,0 +1,226 @@
+{% extends "mobile_base.html" %}
+
+{% block title %}WinHUB — Mobile Operations{% endblock %}
+
+{% block content %}
+<div class="mo-app">
+    <header class="mo-topbar">
+        <a class="mo-brand" href="/mobile" aria-label="WinHUB mobile">
+            <span class="mo-brand-mark" aria-hidden="true">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4Z"/><path d="m3.3 7 8.7 5 8.7-5M12 22V12"/></svg>
+            </span>
+            <span>
+                <strong>Win<span>HUB</span></strong>
+                <small>Mobile operations</small>
+            </span>
+        </a>
+        <div class="mo-top-actions">
+            <span class="mo-user" title="{{ username }}">{{ username[0]|upper if username else 'U' }}</span>
+            <button id="moMoreButton" class="mo-icon-button" type="button" aria-label="Відкрити меню" aria-expanded="false">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><circle cx="5" cy="12" r="1"/><circle cx="12" cy="12" r="1"/><circle cx="19" cy="12" r="1"/></svg>
+            </button>
+        </div>
+        <div id="moMoreMenu" class="mo-menu" hidden>
+            <div class="mo-menu-user">
+                <strong>{{ username }}</strong>
+                <span>{{ 'Administrator' if is_admin else 'Operator' }}</span>
+            </div>
+            <a id="moDesktopLink" href="/module/infrastructure?desktop=1">Повна версія</a>
+            <a href="/logout">Вийти</a>
+        </div>
+    </header>
+
+    <main class="mo-main">
+        {% if mobile_permissions.view_queue %}
+        <section id="moViewTasks" class="mo-view" data-mobile-view="tasks">
+            <div class="mo-section-heading">
+                <div>
+                    <p class="mo-eyebrow">Операції</p>
+                    <h1>Задачі</h1>
+                    <p>Статус запусків і результати по хостах.</p>
+                </div>
+                <button id="moRefreshTasks" class="mo-icon-button mo-icon-button-raised" type="button" aria-label="Оновити задачі">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M20 11a8.1 8.1 0 0 0-15.5-2M4 4v5h5M4 13a8.1 8.1 0 0 0 15.5 2M20 20v-5h-5"/></svg>
+                </button>
+            </div>
+
+            <div class="mo-summary-grid" aria-label="Статистика задач">
+                <article><span>Усього</span><strong id="moTaskTotal">—</strong></article>
+                <article><span>Активні</span><strong id="moTaskActive">—</strong></article>
+                <article><span>Помилки</span><strong id="moTaskErrors">—</strong></article>
+            </div>
+
+            <label class="mo-search">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><circle cx="11" cy="11" r="7"/><path d="m20 20-4-4"/></svg>
+                <input id="moTaskSearch" type="search" placeholder="Пошук задачі або хоста…" autocomplete="off">
+            </label>
+            <div id="moTaskFilters" class="mo-chips" aria-label="Фільтр задач">
+                <button type="button" data-job-filter="all" class="is-active">Усі</button>
+                <button type="button" data-job-filter="active">Активні</button>
+                <button type="button" data-job-filter="error">Помилки</button>
+                <button type="button" data-job-filter="success">Завершені</button>
+            </div>
+            <div id="moTasksList" class="mo-card-list" aria-live="polite">
+                <div class="mo-loading-card"><span class="mo-spinner"></span> Завантаження задач…</div>
+            </div>
+        </section>
+        {% endif %}
+
+        {% if mobile_permissions.run_tasks %}
+        <section id="moViewLaunch" class="mo-view" data-mobile-view="launch" hidden>
+            <div class="mo-section-heading">
+                <div>
+                    <p class="mo-eyebrow">Швидкий запуск</p>
+                    <h1>Нова задача</h1>
+                    <p>Тільки погоджені шаблони та дозволені цілі.</p>
+                </div>
+                <button id="moResetLaunch" class="mo-text-button" type="button">Скинути</button>
+            </div>
+
+            <div class="mo-stepper" aria-label="Прогрес створення задачі">
+                <span data-launch-progress="1" class="is-active"><b>1</b><small>Шаблон</small></span>
+                <i></i>
+                <span data-launch-progress="2"><b>2</b><small>Цілі</small></span>
+                <i></i>
+                <span data-launch-progress="3"><b>3</b><small>Запуск</small></span>
+            </div>
+
+            <div id="moLaunchError" class="mo-alert mo-alert-error" role="alert" hidden></div>
+
+            <div data-launch-step="1" class="mo-launch-step">
+                <label class="mo-search">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><circle cx="11" cy="11" r="7"/><path d="m20 20-4-4"/></svg>
+                    <input id="moTemplateSearch" type="search" placeholder="Знайти шаблон…" autocomplete="off">
+                </label>
+                <div id="moTemplateList" class="mo-select-list">
+                    <div class="mo-loading-card"><span class="mo-spinner"></span> Завантаження шаблонів…</div>
+                </div>
+            </div>
+
+            <div data-launch-step="2" class="mo-launch-step" hidden>
+                <div class="mo-segmented" role="group" aria-label="Тип цілі">
+                    <button id="moTargetHosts" type="button" class="is-active">Хости</button>
+                    <button id="moTargetGroup" type="button">Група</button>
+                </div>
+                <div id="moHostsPanel">
+                    <div class="mo-list-label"><span>Дозволені хости</span><strong><span id="moSelectedHostCount">0</span> вибрано</strong></div>
+                    <label class="mo-search">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><circle cx="11" cy="11" r="7"/><path d="m20 20-4-4"/></svg>
+                        <input id="moHostSearch" type="search" placeholder="Назва, IP або ОС…" autocomplete="off">
+                    </label>
+                    <div id="moHostList" class="mo-select-list"></div>
+                </div>
+                <div id="moGroupPanel" hidden>
+                    <label class="mo-field">
+                        <span>Група хостів</span>
+                        <select id="moGroupSelect"><option value="">Оберіть групу…</option></select>
+                    </label>
+                </div>
+            </div>
+
+            <div data-launch-step="3" class="mo-launch-step" hidden>
+                <div id="moLaunchSummary" class="mo-review-card"></div>
+                <label class="mo-field">
+                    <span>Назва задачі</span>
+                    <input id="moTaskTitle" type="text" maxlength="150" autocomplete="off">
+                </label>
+                <div id="moVariables" class="mo-variable-list"></div>
+                <label id="moRiskConfirmation" class="mo-confirmation" hidden>
+                    <input id="moRiskCheckbox" type="checkbox">
+                    <span><strong>Підтверджую запуск</strong><small id="moRiskText"></small></span>
+                </label>
+            </div>
+
+            <div class="mo-launch-actions">
+                <button id="moLaunchBack" class="mo-secondary-button" type="button" hidden>Назад</button>
+                <button id="moLaunchNext" class="mo-primary-button" type="button">Далі</button>
+                <button id="moLaunchRun" class="mo-primary-button" type="button" hidden>Запустити</button>
+            </div>
+        </section>
+        {% endif %}
+
+        {% if mobile_permissions.view_reports %}
+        <section id="moViewReports" class="mo-view" data-mobile-view="reports" hidden>
+            <div class="mo-section-heading">
+                <div>
+                    <p class="mo-eyebrow">Результати</p>
+                    <h1>Звіти</h1>
+                    <p>Агреговані результати виконаних операцій.</p>
+                </div>
+                <button id="moRefreshReports" class="mo-icon-button mo-icon-button-raised" type="button" aria-label="Оновити звіти">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M20 11a8.1 8.1 0 0 0-15.5-2M4 4v5h5M4 13a8.1 8.1 0 0 0 15.5 2M20 20v-5h-5"/></svg>
+                </button>
+            </div>
+            <label class="mo-search">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><circle cx="11" cy="11" r="7"/><path d="m20 20-4-4"/></svg>
+                <input id="moReportSearch" type="search" placeholder="Пошук звіту…" autocomplete="off">
+            </label>
+            <div id="moReportsList" class="mo-card-list" aria-live="polite">
+                <div class="mo-loading-card"><span class="mo-spinner"></span> Завантаження звітів…</div>
+            </div>
+        </section>
+        {% endif %}
+    </main>
+
+    <nav class="mo-bottom-nav" aria-label="Основна навігація">
+        {% if mobile_permissions.view_queue %}
+        <button type="button" data-mobile-tab="tasks" class="is-active">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M9 5h10M9 12h10M9 19h10M4 5h.01M4 12h.01M4 19h.01"/></svg>
+            <span>Задачі</span>
+        </button>
+        {% endif %}
+        {% if mobile_permissions.run_tasks %}
+        <button type="button" data-mobile-tab="launch" class="mo-nav-launch">
+            <span class="mo-nav-plus"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M12 5v14M5 12h14"/></svg></span>
+            <span>Нова</span>
+        </button>
+        {% endif %}
+        {% if mobile_permissions.view_reports %}
+        <button type="button" data-mobile-tab="reports">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M4 19V9M10 19V5M16 19v-7M22 19H2"/></svg>
+            <span>Звіти</span>
+        </button>
+        {% endif %}
+    </nav>
+</div>
+
+<div id="moJobModal" class="mo-overlay" role="dialog" aria-modal="true" aria-labelledby="moJobTitle" hidden>
+    <section class="mo-sheet">
+        <header>
+            <div><p class="mo-eyebrow">Деталі задачі</p><h2 id="moJobTitle">Задача</h2><p id="moJobMeta"></p></div>
+            <button type="button" class="mo-sheet-close" data-close-overlay="moJobModal" aria-label="Закрити">×</button>
+        </header>
+        <div id="moJobStats" class="mo-summary-grid mo-summary-grid-sheet"></div>
+        <div id="moJobHosts" class="mo-sheet-body mo-host-results"></div>
+    </section>
+</div>
+
+<div id="moLogModal" class="mo-overlay" role="dialog" aria-modal="true" aria-labelledby="moLogTitle" hidden>
+    <section class="mo-sheet mo-sheet-tall">
+        <header>
+            <div><p class="mo-eyebrow">Результат хоста</p><h2 id="moLogTitle">Лог задачі</h2><p id="moLogMeta"></p></div>
+            <button type="button" class="mo-sheet-close" data-close-overlay="moLogModal" aria-label="Закрити">×</button>
+        </header>
+        <pre id="moLogBody" class="mo-terminal">Завантаження…</pre>
+    </section>
+</div>
+
+<div id="moReportModal" class="mo-overlay" role="dialog" aria-modal="true" aria-labelledby="moReportTitle" hidden>
+    <section class="mo-sheet mo-sheet-tall">
+        <header>
+            <div><p class="mo-eyebrow">Звіт</p><h2 id="moReportTitle">Звіт</h2><p id="moReportMeta"></p></div>
+            <button type="button" class="mo-sheet-close" data-close-overlay="moReportModal" aria-label="Закрити">×</button>
+        </header>
+        <pre id="moReportBody" class="mo-report-body">Завантаження…</pre>
+    </section>
+</div>
+
+<div id="moToast" class="mo-toast" role="status" hidden></div>
+{% endblock %}
+
+{% block scripts %}
+<script nonce="{{ csp_nonce }}">
+    window.WinhubMobilePermissions = {{ mobile_permissions | tojson }};
+</script>
+<script nonce="{{ csp_nonce }}" src="{{ url_for('static', filename='js/mobile_operator.js', v=app_version) }}"></script>
+{% endblock %}

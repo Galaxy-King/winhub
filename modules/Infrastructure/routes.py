@@ -887,6 +887,37 @@ def template_variable_names(template):
     return sorted(names)
 
 
+def mobile_template_risk(template):
+    """Return a presentation hint for extra confirmation on small screens.
+
+    This is deliberately not an authorization decision. The regular template
+    permissions and target checks remain the security boundary.
+    """
+    action_type = str(getattr(template, "action_type", "") or "").strip().lower()
+    name = str(getattr(template, "name", "") or "").strip().lower()
+    high_risk_terms = ("reboot", "restart", "shutdown", "poweroff", "agent update", "agent_update")
+    if action_type in {"reboot", "agent_update"} or any(term in name for term in high_risk_terms):
+        return "high"
+    if action_type not in {"run_script", "metric", "inventory", "audit"}:
+        return "elevated"
+    return "standard"
+
+
+def mobile_variable_schema(template):
+    """Expose variable UI metadata without leaking sensitive defaults."""
+    source = template_variable_schema(template)
+    try:
+        schema = json.loads(json.dumps(source, ensure_ascii=False))
+    except (TypeError, ValueError):
+        schema = {}
+    if not isinstance(schema, dict):
+        return {}
+    for name, spec in schema.items():
+        if is_sensitive_name(name) and isinstance(spec, dict):
+            spec.pop("default", None)
+    return schema
+
+
 def can_view_template_code(template):
     if session.get("is_admin"):
         return True
@@ -1149,6 +1180,8 @@ def dispatch_infrastructure_task(user_id, action_type, target_ids, payload, titl
             raise ValueError(f"Unknown endpoint: {host_id}")
         if getattr(host, "approval_status", "Approved") != "Approved":
             raise PermissionError(f"Endpoint is not approved: {host.hostname or host.id}")
+        if bool(getattr(host, "is_blocked", False)):
+            continue
         if not WinHubCore.can_manage_host(user_id, host_id):
             continue
         task_id = str(uuid.uuid4())
@@ -2418,6 +2451,29 @@ def index():
                            username=session.get('username'), is_admin=is_admin, permissions=permissions)
 
 
+@infrastructure_bp.route('/mobile')
+@infrastructure_bp.route('/module/infrastructure/mobile')
+def mobile_operator():
+    user = User.query.get(session.get('user_id'))
+    if not user or not has_module_access(user, 'Infrastructure'):
+        return "Access Denied", 403
+    permissions = user_permissions(user, "Infrastructure")
+    mobile_permissions = {
+        "run_tasks": bool(permissions.get("run_tasks")),
+        "view_queue": bool(permissions.get("view_queue")),
+        "view_reports": bool(permissions.get("view_reports")),
+    }
+    if not any(mobile_permissions.values()):
+        return "Access Denied", 403
+    return render_template(
+        'mobile_operator.html',
+        username=session.get('username'),
+        is_admin=bool(session.get('is_admin')),
+        permissions=permissions,
+        mobile_permissions=mobile_permissions,
+    )
+
+
 @infrastructure_bp.route('/api/infrastructure/live/state', methods=['GET'])
 def infrastructure_live_state_api():
     denied = require_permission("view_hosts")
@@ -3229,6 +3285,70 @@ def run_schedule_now(tid):
 # ==========================================
 # API: TEMPLATES & TASKS
 # ==========================================
+@infrastructure_bp.route('/api/infrastructure/task-launch/options', methods=['GET'])
+def task_launch_options():
+    denied = require_permission("run_tasks")
+    if denied:
+        return denied
+
+    templates = TaskTemplate.query.order_by(TaskTemplate.category, TaskTemplate.name).all()
+    runnable_templates = []
+    for template in templates:
+        own_runnable = bool(
+            getattr(template, "created_by", None) == session.get("username")
+            and can("manage_templates")
+        )
+        if getattr(template, "type", "action") == "report":
+            continue
+        if not bool(getattr(template, "is_approved", False)) and not own_runnable:
+            continue
+        if not can_use_template(template):
+            continue
+        runnable_templates.append({
+            "id": template.id,
+            "name": template.name,
+            "category": template.category or "General",
+            "action_type": template.action_type or "run_script",
+            "type": getattr(template, "type", "action") or "action",
+            "variables": template_variable_names(template),
+            "variable_schema": mobile_variable_schema(template),
+            "risk_level": mobile_template_risk(template),
+        })
+
+    now = datetime.utcnow()
+    online_threshold = now - timedelta(minutes=5)
+    hosts = [
+        host for host in get_allowed_hosts_light(session.get("user_id"), approved_only=True)
+        if not bool(getattr(host, "is_blocked", False))
+        and (getattr(host, "approval_status", "Approved") or "Approved") == "Approved"
+    ]
+    allowed_host_ids = {str(host.id) for host in hosts}
+    groups = []
+    for group in WinHubCore.get_allowed_groups(session.get("user_id")):
+        eligible_count = sum(1 for host in group.endpoints if str(host.id) in allowed_host_ids)
+        if eligible_count:
+            groups.append({
+                "id": group.id,
+                "name": group.name,
+                "hosts_count": eligible_count,
+            })
+
+    return jsonify({
+        "success": True,
+        "templates": runnable_templates,
+        "hosts": [{
+            "id": host.id,
+            "name": endpoint_display_name(host),
+            "hostname": host.hostname or host.id,
+            "display_name": getattr(host, "display_name", None) or "",
+            "ip": getattr(host, "connection_ip", None) or "",
+            "os_type": getattr(host, "os_type", "Windows") or "Windows",
+            "is_online": bool(host.last_seen and host.last_seen >= online_threshold),
+        } for host in hosts],
+        "groups": groups,
+    })
+
+
 @infrastructure_bp.route('/api/infrastructure/templates', methods=['GET'])
 def list_templates():
     denied = require_permission("run_tasks")
