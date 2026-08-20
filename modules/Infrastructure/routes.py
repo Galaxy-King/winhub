@@ -2462,8 +2462,9 @@ def mobile_operator():
         "run_tasks": bool(permissions.get("run_tasks")),
         "view_queue": bool(permissions.get("view_queue")),
         "view_reports": bool(permissions.get("view_reports")),
+        "send_reports": bool(permissions.get("send_reports")),
     }
-    if not any(mobile_permissions.values()):
+    if not any(mobile_permissions.get(permission) for permission in ("run_tasks", "view_queue", "view_reports")):
         return "Access Denied", 403
     return render_template(
         'mobile_operator.html',
@@ -2974,7 +2975,8 @@ def action_report(report_id):
     if not can_access_report(report_id):
         return jsonify({"success": False, "message": "Access denied"}), 403
 
-    action = request.json.get('action')
+    data = request.get_json(silent=True) or {}
+    action = data.get('action')
 
     if action == 'save':
         denied = require_permission("edit_reports")
@@ -2984,7 +2986,7 @@ def action_report(report_id):
                 "success": False,
                 "message": "This report contains masked sensitive data. Users without sensitive report access cannot save report text."
             }), 403
-        r.report_data = request.json.get('report_data', '')
+        r.report_data = data.get('report_data', '')
         db.session.commit()
         return jsonify({"success": True})
 
@@ -2998,12 +3000,30 @@ def action_report(report_id):
     elif action == 'send':
         denied = require_permission("send_reports")
         if denied: return denied
-        sender = request.json.get('sender')
-        emails = request.json.get('email')
-        subject = request.json.get('subject') or f"Report: {r.title}"
-        custom_message = request.json.get('custom_message', '').strip()
-        use_gpg = request.json.get('use_gpg', False)
-        report_body = r.report_data
+        sender = str(data.get('sender') or '').strip()
+        emails = data.get('email')
+        subject = str(data.get('subject') or f"Report: {r.title}").strip()
+        custom_message = str(data.get('custom_message') or '').strip()
+        use_gpg = data.get('use_gpg') is True
+        recipients = parse_recipients(emails)
+
+        if not sender:
+            return jsonify({"success": False, "message": "Sender SMTP profile is required."}), 400
+        if not recipients:
+            return jsonify({"success": False, "message": "At least one valid recipient email is required."}), 400
+        if len(recipients) > 50:
+            return jsonify({"success": False, "message": "A report can be sent to at most 50 recipients."}), 400
+        if not subject:
+            return jsonify({"success": False, "message": "Email subject is required."}), 400
+        if len(subject) > 255 or "\r" in subject or "\n" in subject:
+            return jsonify({"success": False, "message": "Email subject must be one line and at most 255 characters."}), 400
+        if len(custom_message) > 5000:
+            return jsonify({"success": False, "message": "Custom note cannot exceed 5000 characters."}), 400
+
+        # Apply the same sensitive-data policy used by report viewing and downloads.
+        # This prevents a user with send access, but without sensitive-report access,
+        # from using email delivery to bypass masking.
+        report_body = report_body_for_current_user(r.report_data)
 
         r.status = 'Sending...'
         db.session.commit()
@@ -3012,11 +3032,18 @@ def action_report(report_id):
             title=subject,
             report_body=report_body,
             sender_email=sender,
-            recipient_list=emails,
+            recipient_list=recipients,
             custom_message=custom_message,
             use_gpg=use_gpg
         )
 
+        write_infra_audit(
+            "Report Email",
+            "report",
+            report_id,
+            {"success": success, "recipient_count": sent_count if success else len(recipients), "gpg": use_gpg},
+            status="Success" if success else "Error",
+        )
         update_report_send_status(report_id, success, sent_count)
         if success:
             return jsonify({"success": True, "message": message, "sent": sent_count})
