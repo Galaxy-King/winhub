@@ -102,6 +102,27 @@
         color: #fecdd3 !important;
         border-color: rgba(251, 113, 133, 0.50) !important;
     }
+    @media (max-width: 520px) {
+        body .login-shell {
+            align-items: flex-start;
+            min-height: 100dvh;
+            padding: max(1rem, env(safe-area-inset-top)) 0.75rem max(1rem, env(safe-area-inset-bottom));
+            overflow-y: auto;
+        }
+        body .login-card {
+            margin: auto 0;
+            padding: 1.4rem !important;
+            border-radius: 1.35rem !important;
+        }
+        body .login-card .space-y-6 > :not([hidden]) ~ :not([hidden]) {
+            margin-top: 1rem;
+        }
+        body .login-modal-card {
+            margin: 0.75rem;
+            padding: 1.35rem !important;
+            border-radius: 1.35rem !important;
+        }
+    }
 </style>
 {% endblock %}
 
@@ -205,7 +226,10 @@
             });
             const result = await response.json();
             if (result.success) {
-                window.location.href = result.redirect;
+                const preferredUiMode = localStorage.getItem('winhub_ui_mode');
+                const useMobile = preferredUiMode === 'mobile'
+                    || (preferredUiMode !== 'desktop' && window.matchMedia('(max-width: 767px)').matches);
+                window.location.href = useMobile ? '/mobile' : result.redirect;
             } else {
                 errorMsg.innerText = result.message;
                 errorMsg.classList.remove('hidden');

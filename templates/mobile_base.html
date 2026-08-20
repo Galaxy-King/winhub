@@ -1,0 +1,71 @@
+<!DOCTYPE html>
+<html lang="uk">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+    <meta name="theme-color" content="#07111f">
+    {% if csrf_token %}<meta name="csrf-token" content="{{ csrf_token }}">{% endif %}
+    <title>{% block title %}WinHUB Mobile{% endblock %}</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/tailwind.local.css', v=app_version) }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/mobile_operator.css', v=app_version) }}">
+    {% block extra_head %}{% endblock %}
+</head>
+<body class="mo-page">
+    {% block content %}{% endblock %}
+
+    <script nonce="{{ csp_nonce }}">
+        (() => {
+            const originalFetch = window.fetch.bind(window);
+            const safeMethods = new Set(['GET', 'HEAD', 'OPTIONS', 'TRACE']);
+            const idleTimeoutMs = {{ (session_idle_timeout_seconds or 0) * 1000 }};
+            let idleTimer = null;
+            let lastClientActivity = Date.now();
+            let lastPingAt = 0;
+
+            window.fetch = async (input, init = {}) => {
+                const requestUrl = typeof input === 'string' ? input : input.url;
+                const url = new URL(requestUrl, window.location.origin);
+                const method = (init.method || (typeof input !== 'string' ? input.method : 'GET') || 'GET').toUpperCase();
+                const headers = new Headers(init.headers || (typeof input !== 'string' ? input.headers : undefined));
+                const token = document.querySelector('meta[name="csrf-token"]')?.content;
+                if (url.origin === window.location.origin && token && !safeMethods.has(method) && !headers.has('X-CSRF-Token')) {
+                    headers.set('X-CSRF-Token', token);
+                }
+                if (url.origin === window.location.origin && !headers.has('X-Requested-With')) {
+                    headers.set('X-Requested-With', 'XMLHttpRequest');
+                }
+                const response = await originalFetch(input, {...init, headers});
+                if (response.status === 401 || response.status === 440) {
+                    window.location.href = '/login?reason=session';
+                }
+                return response;
+            };
+
+            const pingIfActive = async () => {
+                if (!idleTimeoutMs || document.hidden) return;
+                const now = Date.now();
+                if (now - lastClientActivity > 65000 || now - lastPingAt < 60000) return;
+                lastPingAt = now;
+                try { await window.fetch('/api/session/ping', {method: 'POST'}); } catch (_) {}
+            };
+            const resetIdle = () => {
+                if (!idleTimeoutMs) return;
+                lastClientActivity = Date.now();
+                clearTimeout(idleTimer);
+                idleTimer = setTimeout(() => {
+                    window.location.href = '/logout?reason=idle';
+                }, idleTimeoutMs + 1000);
+                pingIfActive();
+            };
+            ['click', 'keydown', 'scroll', 'touchstart'].forEach(name => {
+                window.addEventListener(name, resetIdle, {passive: true});
+            });
+            if (idleTimeoutMs) {
+                setInterval(pingIfActive, 30000);
+                resetIdle();
+            }
+        })();
+    </script>
+    {% block scripts %}{% endblock %}
+</body>
+</html>
