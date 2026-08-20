@@ -22,6 +22,19 @@ def load_file(name, relative_path):
     return module
 
 
+class BrandingAssetTests(unittest.TestCase):
+    def test_all_base_layouts_include_the_local_svg_favicon(self):
+        base = (ROOT / "templates/base.html").read_text(encoding="utf-8")
+        mobile = (ROOT / "templates/mobile_base.html").read_text(encoding="utf-8")
+        favicon = (ROOT / "static/favicon.svg").read_text(encoding="utf-8")
+
+        favicon_link = "filename='favicon.svg'"
+        self.assertIn(favicon_link, base)
+        self.assertIn(favicon_link, mobile)
+        self.assertIn('viewBox="0 0 64 64"', favicon)
+        self.assertNotIn("<script", favicon.lower())
+
+
 class ReportRendererTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
