@@ -5,10 +5,12 @@
 import logging
 import os
 import json
-from flask import Blueprint, jsonify, session, current_app, render_template, request
+from flask import Blueprint, jsonify, session, current_app, render_template, request, g
 from core.database import db, User, AgentTask, AuditLog, Task, RegistrationHistory
 from core.security import sec_manager
 from core.permissions import has_module_access, has_permission
+from core.sensitive_data import mask_sensitive_text
+from core.group_access import allowed_host_ids_for_action
 from datetime import datetime, timedelta, timezone
 from zoneinfo import ZoneInfo
 
@@ -107,16 +109,40 @@ def check_access():
     user = User.query.get(session.get('user_id'))
     if not user:
         return jsonify({"success": False, "message": "Unauthorized"}), 401
+    g.history_current_user = user
     if not has_module_access(user, "HistoryAudit"):
         return jsonify({"success": False, "message": "Access Denied"}), 403
 
 
 def _current_user():
-    return User.query.get(session.get('user_id'))
+    cached = getattr(g, "history_current_user", None)
+    if cached is not None:
+        return cached
+    user = User.query.get(session.get('user_id'))
+    g.history_current_user = user
+    return user
 
 
 def _is_interactive_admin(user):
     return bool(user and user.is_admin and not session.get("api_key_auth"))
+
+
+def _can_view_sensitive_output(user, endpoint_id=None):
+    if _is_interactive_admin(user):
+        return True
+    if not endpoint_id or not has_permission(user, "Infrastructure", "view_sensitive_reports"):
+        return False
+    return str(endpoint_id) in _allowed_host_ids(user, "view_sensitive_reports")
+
+
+def _allowed_host_ids(user, action_id="view_queue"):
+    if not user or not has_permission(user, "Infrastructure", action_id):
+        return set()
+    return allowed_host_ids_for_action(
+        user,
+        action_id,
+        approved_only=not _is_interactive_admin(user),
+    )
 
 
 def _require_history_permission(permission_id):
@@ -127,11 +153,19 @@ def _require_history_permission(permission_id):
 @history_bp.route("/module/history")
 def index():
     retention = current_app.config.get('LOG_RETENTION_DAYS', 30)
+    user = _current_user()
     permissions = {
-        "view_history": has_permission(_current_user(), "HistoryAudit", "view_history"),
-        "manage_history": has_permission(_current_user(), "HistoryAudit", "manage_history"),
+        "view_history": has_permission(user, "HistoryAudit", "view_history"),
+        "manage_history": has_permission(user, "HistoryAudit", "manage_history"),
+        "delete_tasks": has_permission(user, "Infrastructure", "delete_tasks"),
     }
-    return render_template('history_index.html', retention=retention, permissions=permissions)
+    return render_template(
+        'history_index.html',
+        retention=retention,
+        permissions=permissions,
+        username=getattr(user, "username", ""),
+        is_admin=_is_interactive_admin(user),
+    )
 
 @history_bp.route("/api/history/tasks", methods=["GET"])
 def get_unified_history():
@@ -177,7 +211,7 @@ def get_unified_history():
     # 3. Завдання нових агентів (Infrastructure Tasks)
     q = AgentTask.query
     if not is_full_admin:
-        q = q.filter_by(created_by=user.username)
+        q = q.filter(AgentTask.endpoint_id.in_(_allowed_host_ids(user)))
 
     agent_tasks = q.order_by(AgentTask.created_at.desc()).limit(200).all()
     for t in agent_tasks:
@@ -238,9 +272,12 @@ def get_log_details(task_id):
 
     if task_id.startswith("agent_"):
         entry = AgentTask.query.get(task_id.replace("agent_", ""))
-        if entry and not is_full_admin and entry.created_by != user.username:
+        if entry and not is_full_admin and entry.endpoint_id not in _allowed_host_ids(user):
             return jsonify({"success": False, "message": "Access Denied"}), 403
-        return jsonify({"success": True, "log": entry.result_log if entry else "No execution log returned."})
+        log_body = entry.result_log if entry else "No execution log returned."
+        if not _can_view_sensitive_output(user, entry.endpoint_id if entry else None):
+            log_body = mask_sensitive_text(log_body)
+        return jsonify({"success": True, "log": log_body})
 
     if task_id.startswith("task_"):
         entry = Task.query.get(task_id.replace("task_", ""))
@@ -255,7 +292,10 @@ def get_log_details(task_id):
                 log_file = public_log_file
         if log_file and os.path.exists(log_file):
             with open(log_file, "r", encoding="utf-8", errors="replace") as f:
-                return jsonify({"success": True, "log": f.read()})
+                log_body = f.read()
+                if not _can_view_sensitive_output(user):
+                    log_body = mask_sensitive_text(log_body)
+                return jsonify({"success": True, "log": log_body})
         return jsonify({"success": True, "log": f"{entry.module_name}: {entry.action}\nTargets: {entry.targets}\nStatus: {entry.status}"})
 
     if task_id.startswith("reg_"):
@@ -271,6 +311,8 @@ def run_cleanup():
     denied = _require_history_permission("manage_history")
     if denied:
         return denied
+    if not _is_interactive_admin(_current_user()):
+        return jsonify({"success": False, "message": "Global history cleanup requires superadmin"}), 403
     """Видаляє старі записи згідно з налаштуваннями ретенції"""
     retention_days = current_app.config.get('LOG_RETENTION_DAYS', 30)
     cutoff_date = datetime.utcnow() - timedelta(days=retention_days)
@@ -297,6 +339,39 @@ def delete_selected_logs():
     data = request.json or {}
     ids = data.get("task_ids", [])
     if not ids: return jsonify({"success": False, "message": "No records selected."}), 400
+
+    user = _current_user()
+    is_full_admin = _is_interactive_admin(user)
+    if not is_full_admin:
+        if not has_permission(user, "Infrastructure", "delete_tasks"):
+            return jsonify({"success": False, "message": "Task deletion permission required"}), 403
+        if any(not str(item_id).startswith("agent_") for item_id in ids):
+            return jsonify({"success": False, "message": "Only scoped agent tasks may be deleted"}), 403
+        agent_ids = {str(item_id).replace("agent_", "", 1) for item_id in ids}
+        rows = db.session.query(
+            AgentTask.id,
+            AgentTask.endpoint_id,
+        ).filter(AgentTask.id.in_(agent_ids)).all()
+        allowed_hosts = _allowed_host_ids(user, "delete_tasks")
+        if len(rows) != len(agent_ids) or any(
+            endpoint_id not in allowed_hosts
+            for _, endpoint_id in rows
+        ):
+            return jsonify({"success": False, "message": "One or more tasks are outside your scope"}), 403
+        AgentTask.query.filter(AgentTask.id.in_(agent_ids)).delete(synchronize_session=False)
+        db.session.add(AuditLog(
+            user=user.username,
+            actor_type="api_key" if session.get("api_key_auth") else "user",
+            actor_name=user.username,
+            module="HistoryAudit",
+            action="Delete Scoped Task History",
+            target_type="agent_task",
+            target_id="bulk",
+            details=json.dumps({"deleted_count": len(agent_ids)}, ensure_ascii=False),
+            status="Success",
+        ))
+        db.session.commit()
+        return jsonify({"success": True, "message": f"Deleted {len(agent_ids)} scoped task record(s)."})
 
     for item_id in ids:
         if item_id.startswith("aud_"):

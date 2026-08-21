@@ -20,7 +20,19 @@ from core.database import db, User, Endpoint, EndpointGroup, ApiKey, AuditLog
 from core.security import sec_manager
 from core.config import Config
 from core.module_registry import get_module_registry
-from core.permissions import MODULE_PERMISSION_CATALOG, all_permission_tokens_for_module, has_permission, parse_allowed_modules
+from core.permissions import (
+    MODULE_PERMISSION_CATALOG,
+    all_permission_tokens_for_module,
+    granular_permission_catalog,
+    has_permission,
+    parse_allowed_modules,
+)
+from core.group_access import (
+    GROUP_ACTION_CATALOG,
+    GROUP_ACTION_IDS,
+    group_permissions_for_users,
+    replace_user_group_permissions,
+)
 from core.sdk import WinHubCore
 from core.gpg import gpg_env, import_public_key, fetch_public_key, list_public_keys, delete_public_key, validate_gpg
 from core.outbound_security import pinned_outbound_host
@@ -437,7 +449,7 @@ def get_modules():
                 "required": bool(item.get("required")),
                 "optional": bool(item.get("optional")),
                 "error_message": item.get("error_message"),
-                "permissions": MODULE_PERMISSION_CATALOG.get(item.get("id"), []),
+                "permissions": granular_permission_catalog(item.get("id")),
             })
     elif os.path.exists(Config.MODULES_DIR):
         for item in os.listdir(Config.MODULES_DIR):
@@ -450,7 +462,7 @@ def get_modules():
                         "required": False,
                         "optional": True,
                         "error_message": None,
-                        "permissions": MODULE_PERMISSION_CATALOG.get(item, []),
+                        "permissions": granular_permission_catalog(item),
                     })
     if not any(item.get("id") == "Administration" for item in modules):
         modules.append({
@@ -460,14 +472,20 @@ def get_modules():
             "required": True,
             "optional": False,
             "error_message": None,
-            "permissions": MODULE_PERMISSION_CATALOG.get("Administration", []),
+            "permissions": granular_permission_catalog("Administration"),
         })
-    return jsonify({"success": True, "modules": modules})
+    return jsonify({
+        "success": True,
+        "modules": modules,
+        "group_permissions": GROUP_ACTION_CATALOG,
+    })
 
 @admin_bp.route('/api/admin/groups', methods=['GET'])
 def get_host_groups():
     page = request.args.get('page', 1, type=int)
-    per_page = request.args.get('per_page', 50, type=int)
+    # Keep each response bounded; the access editor walks the pages and only
+    # requests lightweight id/name records instead of loading group members.
+    per_page = max(1, min(request.args.get('per_page', 250, type=int), 500))
     pagination = EndpointGroup.query.order_by(EndpointGroup.name).paginate(page=page, per_page=per_page, error_out=False)
 
     return jsonify({
@@ -484,13 +502,15 @@ def get_users():
     per_page = request.args.get('per_page', 20, type=int)
     pagination = User.query.order_by(User.id).paginate(page=page, per_page=per_page, error_out=False)
 
+    group_access_by_user = group_permissions_for_users([user.id for user in pagination.items])
     return jsonify({
         "success": True,
         "users": [{
             "id": u.id, "username": u.username, "email": u.email,
             "is_admin": u.is_admin, "is_active": u.is_active,
             "allowed_modules": parse_allowed_modules(u.allowed_modules),
-            "allowed_groups": [g.id for g in u.allowed_host_groups]
+            "allowed_groups": list(group_access_by_user.get(u.id, {})),
+            "group_access": group_access_by_user.get(u.id, {}),
         } for u in pagination.items],
         "total": pagination.total,
         "pages": pagination.pages,
@@ -570,9 +590,16 @@ def manage_user(user_id):
     if 'is_admin' in data: user.is_admin = bool(data['is_admin'])
     if 'allowed_modules' in data: user.allowed_modules = json.dumps(sanitize_allowed_modules(data['allowed_modules']))
 
-    if 'allowed_groups' in data:
-        group_ids = data['allowed_groups']
-        user.allowed_host_groups = EndpointGroup.query.filter(EndpointGroup.id.in_(group_ids)).all()
+    updated_group_ids = None
+    if 'group_access' in data:
+        updated_group_ids = replace_user_group_permissions(user.id, data.get('group_access'))
+    elif 'allowed_groups' in data:
+        # Compatibility with older clients: a selected group inherits all
+        # group-level actions, while global permissions remain the first gate.
+        updated_group_ids = replace_user_group_permissions(user.id, [
+            {"group_id": group_id, "permissions": list(GROUP_ACTION_IDS)}
+            for group_id in (data.get('allowed_groups') or [])
+        ])
 
     db.session.commit()
     WinHubCore.audit(
@@ -585,7 +612,7 @@ def manage_user(user_id):
             "username": user.username,
             "changed_fields": sorted([key for key in data.keys() if key != "password"]),
             "password_changed": bool(data.get("password")),
-            "allowed_groups_count": len(data.get("allowed_groups", [])) if "allowed_groups" in data else None,
+            "allowed_groups_count": len(updated_group_ids) if updated_group_ids is not None else None,
             "allowed_modules_count": len(data.get("allowed_modules", [])) if "allowed_modules" in data else None,
         },
         status="Success"

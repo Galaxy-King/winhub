@@ -96,6 +96,11 @@ class MobileOperatorContractTests(unittest.TestCase):
         template_query.order_by.return_value.all.return_value = [runnable, report]
         template_model = types.SimpleNamespace(category=object(), name=object(), query=template_query)
         core = types.SimpleNamespace(get_allowed_groups=mock.Mock(return_value=[group]))
+        group_count_query = mock.Mock()
+        group_count_query.filter.return_value.group_by.return_value.all.return_value = [("group-1", 1)]
+        database = types.SimpleNamespace(
+            session=types.SimpleNamespace(query=mock.Mock(return_value=group_count_query))
+        )
 
         with app.test_request_context("/api/infrastructure/task-launch/options"):
             session["user_id"] = "user-1"
@@ -106,7 +111,7 @@ class MobileOperatorContractTests(unittest.TestCase):
                 routes, "can_use_template", return_value=True
             ), mock.patch.object(
                 routes, "get_allowed_hosts_light", return_value=[allowed, blocked]
-            ), mock.patch.object(routes, "WinHubCore", core):
+            ), mock.patch.object(routes, "WinHubCore", core), mock.patch.object(routes, "db", database):
                 response = routes.task_launch_options()
                 data = response.get_json()
 
@@ -198,7 +203,7 @@ class MobileOperatorContractTests(unittest.TestCase):
         ), mock.patch.object(routes, "AggregatedJob", report_model), mock.patch.object(
             routes, "can_access_report", return_value=True
         ), mock.patch.object(
-            routes, "report_body_for_current_user", side_effect=lambda value: value
+            routes, "report_body_for_current_user", side_effect=lambda value, **_context: value
         ):
             response = routes.download_report_text("report-1")
 
@@ -207,7 +212,7 @@ class MobileOperatorContractTests(unittest.TestCase):
         self.assertIn("attachment", response.headers["Content-Disposition"])
         self.assertEqual(response.get_data(as_text=True), "Summary\nPassed")
 
-    def test_report_email_uses_visible_masked_body_and_existing_delivery_service(self):
+    def test_report_email_blind_sends_original_body_without_exposing_it_in_response(self):
         from flask import Flask
         from modules.Infrastructure import routes
 
@@ -234,8 +239,6 @@ class MobileOperatorContractTests(unittest.TestCase):
         ), mock.patch.object(routes, "AggregatedJob", report_model), mock.patch.object(
             routes, "can_access_report", return_value=True
         ), mock.patch.object(routes, "require_permission", return_value=None), mock.patch.object(
-            routes, "report_body_for_current_user", return_value="token=***"
-        ) as visible_body, mock.patch.object(
             routes, "send_report_email", return_value=(True, "Report sent to 2 recipient(s).", 2)
         ) as send_email, mock.patch.object(
             routes, "write_infra_audit"
@@ -246,11 +249,12 @@ class MobileOperatorContractTests(unittest.TestCase):
         ):
             response = routes.action_report("report-1")
 
-        self.assertTrue(response.get_json()["success"])
-        visible_body.assert_called_once_with("token=unmasked-secret")
+        response_body = response.get_json()
+        self.assertTrue(response_body["success"])
+        self.assertNotIn("unmasked-secret", json.dumps(response_body))
         send_email.assert_called_once_with(
             title="Endpoint Compliance",
-            report_body="token=***",
+            report_body="token=unmasked-secret",
             sender_email="reports@example.com",
             recipient_list=["first@example.com", "second@example.com"],
             custom_message="Please review.",

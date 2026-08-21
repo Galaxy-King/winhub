@@ -34,11 +34,13 @@
                 </div>
 
                 <div class="shrink-0 flex gap-3 w-full lg:w-auto">
-                    {% if permissions.manage_history %}
+                    {% if permissions.manage_history and is_admin %}
                     <button onclick="runCleanup()" id="cleanupBtn" class="flex-1 lg:flex-none px-6 py-3 bg-white border border-slate-200 text-rose-500 rounded-2xl text-xs font-black uppercase hover:bg-rose-50 shadow-sm transition-all flex justify-center items-center gap-2">
                         <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"></path></svg>
                         Clean {{ retention }}d
                     </button>
+                    {% endif %}
+                    {% if permissions.manage_history and (is_admin or permissions.delete_tasks) %}
                     <button onclick="deleteSelected()" id="delSelBtn" class="flex-1 lg:flex-none px-6 py-3 bg-slate-800 border border-slate-700 text-white rounded-2xl text-xs font-black uppercase hover:bg-slate-900 shadow-sm transition-all hidden justify-center items-center gap-2">
                         Delete Selected
                     </button>
@@ -67,7 +69,7 @@
                 <table class="w-full text-left min-w-[900px]">
                     <thead class="bg-slate-50/50 border-b border-slate-100 text-[10px] font-black text-slate-400 uppercase tracking-widest sticky top-0">
                         <tr>
-                            {% if permissions.manage_history %}<th class="px-6 py-6 w-12 text-center"><input type="checkbox" id="selectAll" class="w-4 h-4 text-indigo-600 rounded border-slate-300 focus:ring-indigo-500 cursor-pointer"></th>{% endif %}
+                            {% if permissions.manage_history and (is_admin or permissions.delete_tasks) %}<th class="px-6 py-6 w-12 text-center"><input type="checkbox" id="selectAll" class="w-4 h-4 text-indigo-600 rounded border-slate-300 focus:ring-indigo-500 cursor-pointer"></th>{% endif %}
                             <th class="px-6 py-6 w-48">Timestamp</th>
                             <th class="px-6 py-6 w-48">User / Initiator</th>
                             <th class="px-6 py-6 w-32">Type</th>
@@ -108,7 +110,8 @@
 <script nonce="{{ csp_nonce }}">
     let allData = []; let filteredData = [];
     let currentPage = 1; const perPage = 100;
-    const canManageHistory = {{ 'true' if permissions.manage_history else 'false' }};
+    const canManageHistory = {{ 'true' if permissions.manage_history and (is_admin or permissions.delete_tasks) else 'false' }};
+    const isHistorySuperadmin = {{ 'true' if is_admin else 'false' }};
 
     async function loadHistory() {
         const tbody = document.getElementById('historyBody');
@@ -168,7 +171,8 @@
             else if(i.type === 'module') tCls = 'audit-type-badge audit-type-module';
 
             const safeId = escapeInlineJs(i.id);
-            const checkbox = canManageHistory ? `<td class="px-6 py-4 text-center" onclick="event.stopPropagation()"><input type="checkbox" value="${escapeHtml(i.id)}" class="row-cb w-4 h-4 text-indigo-600 rounded border-slate-300 focus:ring-indigo-500 cursor-pointer" onchange="toggleDelBtn()"></td>` : '';
+            const mayDeleteRow = canManageHistory && (isHistorySuperadmin || String(i.id || '').startsWith('agent_'));
+            const checkbox = canManageHistory ? `<td class="px-6 py-4 text-center" onclick="event.stopPropagation()">${mayDeleteRow ? `<input type="checkbox" value="${escapeHtml(i.id)}" class="row-cb w-4 h-4 text-indigo-600 rounded border-slate-300 focus:ring-indigo-500 cursor-pointer" onchange="toggleDelBtn()">` : ''}</td>` : '';
 
             const actionClick = `onclick="viewLog('${safeId}')" class="hover:bg-slate-50/80 cursor-pointer transition-colors"`;
 

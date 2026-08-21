@@ -20,8 +20,8 @@ from urllib.error import HTTPError, URLError
 from urllib.parse import quote, urlsplit
 from urllib.request import HTTPRedirectHandler, ProxyHandler, Request, build_opener
 from zoneinfo import ZoneInfo
-from flask import Blueprint, request, jsonify, render_template, session, redirect, url_for, current_app, Response, send_from_directory, stream_with_context
-from sqlalchemy import and_, func, or_
+from flask import Blueprint, request, jsonify, render_template, session, redirect, url_for, current_app, Response, send_from_directory, stream_with_context, g, has_request_context
+from sqlalchemy import and_, case, func, or_
 from sqlalchemy.orm import load_only, selectinload
 from werkzeug.exceptions import HTTPException
 from werkzeug.utils import secure_filename
@@ -38,6 +38,12 @@ from core.gpg import fetch_public_key, gpg_env
 from core.report_renderer import validate_report_template
 from core.template_security import current_template_hash, template_approval_valid
 from core.outbound_security import normalized_origin, pinned_outbound_host, pinned_outbound_url
+from core.sensitive_data import is_sensitive_name, mask_sensitive_text, masked_variables
+from core.group_access import (
+    allowed_group_ids_for_action,
+    allowed_host_ids_for_action,
+    group_action_allowed,
+)
 
 infrastructure_bp = Blueprint('infrastructure', __name__, template_folder='templates')
 kyiv_tz = ZoneInfo("Europe/Kyiv")
@@ -263,9 +269,9 @@ def attach_endpoint_list_flags(endpoints):
     return endpoints
 
 
-def get_allowed_hosts_light(user_id, approved_only=False):
-    user = User.query.get(user_id)
-    if not user:
+def get_allowed_hosts_light(user_id, approved_only=False, action_id="view_hosts"):
+    user = current_user() if user_id == session.get("user_id") else User.query.get(user_id)
+    if not user or not has_permission(user, "Infrastructure", action_id):
         return []
 
     query = Endpoint.query.options(
@@ -275,19 +281,10 @@ def get_allowed_hosts_light(user_id, approved_only=False):
     if approved_only:
         query = query.filter(db.or_(Endpoint.approval_status == "Approved", Endpoint.approval_status.is_(None)))
 
-    api_group_ids = request_api_group_scope()
-    if api_group_ids is not None:
-        if not api_group_ids:
-            return []
-        query = query.filter(Endpoint.groups.any(EndpointGroup.id.in_(api_group_ids)))
-        if not approved_only:
-            query = query.filter(Endpoint.approval_status == "Approved")
+    if user.is_admin and request_api_group_scope() is None:
         return attach_endpoint_list_flags(query.all())
 
-    if user.is_admin:
-        return attach_endpoint_list_flags(query.all())
-
-    group_ids = [group.id for group in user.allowed_host_groups]
+    group_ids = allowed_group_ids_for_action(user, action_id)
     if not group_ids:
         return []
     query = query.filter(Endpoint.groups.any(EndpointGroup.id.in_(group_ids)))
@@ -296,9 +293,9 @@ def get_allowed_hosts_light(user_id, approved_only=False):
     return attach_endpoint_list_flags(query.all())
 
 
-def allowed_endpoint_query(user_id, approved_only=False):
-    user = User.query.get(user_id)
-    if not user:
+def allowed_endpoint_query(user_id, approved_only=False, action_id="view_hosts"):
+    user = current_user() if user_id == session.get("user_id") else User.query.get(user_id)
+    if not user or not has_permission(user, "Infrastructure", action_id):
         return Endpoint.query.filter(False)
 
     query = Endpoint.query.options(
@@ -308,19 +305,10 @@ def allowed_endpoint_query(user_id, approved_only=False):
     if approved_only:
         query = query.filter(db.or_(Endpoint.approval_status == "Approved", Endpoint.approval_status.is_(None)))
 
-    api_group_ids = request_api_group_scope()
-    if api_group_ids is not None:
-        if not api_group_ids:
-            return query.filter(False)
-        query = query.filter(Endpoint.groups.any(EndpointGroup.id.in_(api_group_ids)))
-        if not approved_only:
-            query = query.filter(Endpoint.approval_status == "Approved")
+    if user.is_admin and request_api_group_scope() is None:
         return query
 
-    if user.is_admin:
-        return query
-
-    group_ids = [group.id for group in user.allowed_host_groups]
+    group_ids = allowed_group_ids_for_action(user, action_id)
     if not group_ids:
         return query.filter(False)
     query = query.filter(Endpoint.groups.any(EndpointGroup.id.in_(group_ids)))
@@ -756,36 +744,58 @@ def report_source_job_id(report_id):
     return report_id
 
 
-def accessible_report_id_set(report_ids, user_id=None):
+def accessible_report_id_set(report_ids, user_id=None, action_id="view_reports"):
     report_ids = [str(report_id) for report_id in (report_ids or []) if report_id]
     if not report_ids:
         return set()
     if session.get('is_admin'):
         return set(report_ids)
 
-    allowed_hosts = infra_allowed_host_ids(user_id or session.get('user_id'))
+    allowed_hosts = infra_allowed_host_ids(user_id or session.get('user_id'), action_id)
     if not allowed_hosts:
         return set()
+    allowed_host_set = set(allowed_hosts)
 
     source_by_report = {report_id: report_source_job_id(report_id) for report_id in report_ids}
     source_job_ids = set(source_by_report.values())
-    rows = db.session.query(AgentTask.job_id, AgentTask.id).filter(
-        AgentTask.endpoint_id.in_(allowed_hosts),
-        or_(AgentTask.job_id.in_(source_job_ids), AgentTask.id.in_(report_ids))
-    ).all()
-    allowed_job_ids = {row[0] for row in rows if row[0]}
-    allowed_task_ids = {row[1] for row in rows if row[1]}
+    allowed_endpoint = case(
+        (AgentTask.endpoint_id.in_(allowed_hosts), AgentTask.endpoint_id),
+        else_=None,
+    )
+    job_scope_rows = db.session.query(
+        AgentTask.job_id,
+        func.count(func.distinct(AgentTask.endpoint_id)),
+        func.count(func.distinct(allowed_endpoint)),
+    ).filter(
+        AgentTask.job_id.in_(source_job_ids)
+    ).group_by(AgentTask.job_id).all()
+    allowed_source_ids = {
+        str(job_id)
+        for job_id, total_targets, allowed_targets in job_scope_rows
+        if job_id and total_targets > 0 and total_targets == allowed_targets
+    }
+
+    unresolved_source_ids = source_job_ids - allowed_source_ids
+    if unresolved_source_ids:
+        direct_rows = db.session.query(AgentTask.id, AgentTask.endpoint_id).filter(
+            AgentTask.id.in_(unresolved_source_ids)
+        ).all()
+        allowed_source_ids.update(
+            str(task_id)
+            for task_id, endpoint_id in direct_rows
+            if endpoint_id in allowed_host_set
+        )
     return {
         report_id
         for report_id, source_job_id in source_by_report.items()
-        if source_job_id in allowed_job_ids or report_id in allowed_task_ids
+        if str(source_job_id) in allowed_source_ids
     }
 
 
-def can_access_report(report_id):
+def can_access_report(report_id, action_id="view_reports"):
     if session.get('is_admin'):
         return True
-    return str(report_id) in accessible_report_id_set([report_id])
+    return str(report_id) in accessible_report_id_set([report_id], action_id=action_id)
 
 def load_template_payload(template):
     try:
@@ -1006,46 +1016,30 @@ def valid_secret_name(name):
 
 VARIABLE_PATTERN = re.compile(r"{{\s*([A-Za-z_][A-Za-z0-9_]*)\s*}}")
 SECRET_PATTERN = re.compile(r"{{\s*secret:([^}]+)}}", re.IGNORECASE)
-SENSITIVE_NAME_PARTS = ("password", "passwd", "secret", "token", "key", "credential", "pass")
-SENSITIVE_TEXT_PATTERNS = [
-    re.compile(r'("?(?:temporary_)?password"?\s*[:=]\s*)("[^"]*"|[^\s,;}\]]+)', re.IGNORECASE),
-    re.compile(r'("?(?:secret|token|api_key|apikey|credential)"?\s*[:=]\s*)("[^"]*"|[^\s,;}\]]+)', re.IGNORECASE),
-    re.compile(r'(\bPass\s*:\s*)([^\s|]+)', re.IGNORECASE),
-    re.compile(r'(\bPASSWORD\s*[-:]\s*)([^\r\n]+)', re.IGNORECASE),
-]
+def can_view_sensitive_reports(report_id=None, host_id=None, group_id=None):
+    if not can("view_sensitive_reports"):
+        return False
+    if session.get("is_admin"):
+        return True
+    if report_id is not None:
+        return can_access_report(report_id, "view_sensitive_reports")
+    if host_id is not None:
+        return str(host_id) in set(infra_allowed_host_ids(session.get("user_id"), "view_sensitive_reports"))
+    if group_id is not None:
+        return group_action_allowed(current_user(), group_id, "view_sensitive_reports")
+    return False
 
 
-def is_sensitive_name(name):
-    lowered = str(name or "").lower()
-    return any(part in lowered for part in SENSITIVE_NAME_PARTS)
+def can_view_sensitive_target(target_type, target_id):
+    if str(target_type or "").lower() == "host":
+        return can_view_sensitive_reports(host_id=target_id)
+    if str(target_type or "").lower() == "group":
+        return can_view_sensitive_reports(group_id=target_id)
+    return False
 
 
-def mask_sensitive_value(name, value):
-    if is_sensitive_name(name):
-        return "***"
-    return value
-
-
-def masked_variables(variables):
-    return {
-        key: mask_sensitive_value(key, value)
-        for key, value in (variables or {}).items()
-    }
-
-
-def mask_sensitive_text(text):
-    masked = str(text or "")
-    for pattern in SENSITIVE_TEXT_PATTERNS:
-        masked = pattern.sub(r"\1***", masked)
-    return masked
-
-
-def can_view_sensitive_reports():
-    return can("view_sensitive_reports")
-
-
-def report_body_for_current_user(report_body):
-    if can_view_sensitive_reports():
+def report_body_for_current_user(report_body, report_id=None, host_id=None, group_id=None):
+    if can_view_sensitive_reports(report_id=report_id, host_id=host_id, group_id=group_id):
         return report_body
     return mask_sensitive_text(report_body)
 
@@ -1162,7 +1156,7 @@ def write_infra_audit(action, target_type="", target_id="", details=None, status
 
 
 def dispatch_infrastructure_task(user_id, action_type, target_ids, payload, title, created_by=None):
-    user = User.query.get(user_id)
+    user = current_user() if user_id == session.get("user_id") else User.query.get(user_id)
     if not user:
         raise PermissionError("Invalid user")
 
@@ -1172,20 +1166,26 @@ def dispatch_infrastructure_task(user_id, action_type, target_ids, payload, titl
 
     payload_json = json.dumps(payload, ensure_ascii=False)
     job_id = str(uuid.uuid4())
-    task_ids = []
+    requested_ids = list(dict.fromkeys(str(host_id) for host_id in target_ids if host_id))
+    hosts_by_id = {
+        host.id: host
+        for host in Endpoint.query.filter(Endpoint.id.in_(requested_ids)).all()
+    }
+    allowed_host_ids = WinHubCore.authorized_target_ids(user_id, requested_ids)
+    tasks = []
 
-    for host_id in target_ids:
-        host = Endpoint.query.get(host_id)
+    for host_id in requested_ids:
+        host = hosts_by_id.get(host_id)
         if not host:
             raise ValueError(f"Unknown endpoint: {host_id}")
         if getattr(host, "approval_status", "Approved") != "Approved":
             raise PermissionError(f"Endpoint is not approved: {host.hostname or host.id}")
         if bool(getattr(host, "is_blocked", False)):
             continue
-        if not WinHubCore.can_manage_host(user_id, host_id):
+        if host_id not in allowed_host_ids:
             continue
         task_id = str(uuid.uuid4())
-        task = AgentTask(
+        tasks.append(AgentTask(
             id=task_id,
             job_id=job_id,
             endpoint_id=host_id,
@@ -1194,51 +1194,45 @@ def dispatch_infrastructure_task(user_id, action_type, target_ids, payload, titl
             action_type=action_type,
             payload=payload_json,
             created_by=created_by or user.username
-        )
-        db.session.add(task)
-        task_ids.append(task_id)
+        ))
 
-    if not task_ids:
+    if not tasks:
         raise PermissionError("No authorized targets selected")
 
+    db.session.add_all(tasks)
     db.session.commit()
-    return job_id, task_ids
+    return job_id, [task.id for task in tasks]
 
 def current_user():
-    return User.query.get(session.get('user_id'))
+    user_id = session.get('user_id')
+    if not user_id:
+        return None
+    if has_request_context():
+        cached_user = getattr(g, "infrastructure_current_user", None)
+        if cached_user is not None and getattr(cached_user, "id", None) == user_id:
+            return cached_user
+    user = User.query.get(user_id)
+    if has_request_context():
+        g.infrastructure_current_user = user
+    return user
 
 def can(permission_id):
     return has_permission(current_user(), "Infrastructure", permission_id)
 
-def infra_allowed_host_ids(user_id):
-    user = User.query.get(user_id)
-    if not user:
+def infra_allowed_host_ids(user_id, action_id="view_hosts"):
+    user = current_user() if user_id == session.get("user_id") else User.query.get(user_id)
+    if not user or not has_permission(user, "Infrastructure", action_id):
         return []
-    api_group_ids = request_api_group_scope()
-    if api_group_ids is not None:
-        if not api_group_ids:
-            return []
-        return [
-            row[0]
-            for row in db.session.query(Endpoint.id)
-            .join(Endpoint.groups)
-            .filter(EndpointGroup.id.in_(api_group_ids), Endpoint.approval_status == "Approved")
-            .distinct()
-            .all()
-        ]
-    if user.is_admin:
-        return [row[0] for row in db.session.query(Endpoint.id).all()]
-    group_ids = [group.id for group in user.allowed_host_groups]
-    if not group_ids:
+    approved_only = not (user.is_admin and request_api_group_scope() is None)
+    return list(allowed_host_ids_for_action(user, action_id, approved_only=approved_only))
+
+
+def infra_allowed_group_ids(user_id, action_id="view_groups"):
+    """Return action-specific group scope from the request cache."""
+    user = current_user() if user_id == session.get("user_id") else User.query.get(user_id)
+    if not user or not has_permission(user, "Infrastructure", action_id):
         return []
-    return [
-        row[0]
-        for row in db.session.query(Endpoint.id)
-        .join(Endpoint.groups)
-        .filter(EndpointGroup.id.in_(group_ids), Endpoint.approval_status == "Approved")
-        .distinct()
-        .all()
-    ]
+    return list(allowed_group_ids_for_action(user, action_id))
 
 def infra_live_state():
     """Small, non-sensitive revision snapshot for browser live refresh."""
@@ -1299,6 +1293,7 @@ def infra_live_state():
             review_count += 1
             review_parts.append(endpoint_parts[-1])
 
+    queue_host_ids = infra_allowed_host_ids(user_id, "view_queue")
     task_rows = db.session.query(
         AgentTask.id,
         AgentTask.job_id,
@@ -1306,7 +1301,7 @@ def infra_live_state():
         AgentTask.status,
         AgentTask.created_at,
         AgentTask.finished_at,
-    ).filter(AgentTask.endpoint_id.in_(allowed_host_ids)).order_by(AgentTask.created_at.desc()).limit(250).all()
+    ).filter(AgentTask.endpoint_id.in_(queue_host_ids)).order_by(AgentTask.created_at.desc()).limit(250).all() if queue_host_ids else []
     task_parts = [
         row_revision(
             task.id,
@@ -1327,9 +1322,9 @@ def infra_live_state():
         AggregatedJob.success_count,
         AggregatedJob.error_count,
         AggregatedJob.created_at,
-    ).order_by(AggregatedJob.created_at.desc()).limit(100).all()
-    if not session.get("is_admin"):
-        accessible_reports = accessible_report_id_set([report.id for report in reports], user_id)
+    ).order_by(AggregatedJob.created_at.desc()).limit(100).all() if can("view_reports") else []
+    if reports and not session.get("is_admin"):
+        accessible_reports = accessible_report_id_set([report.id for report in reports], user_id, "view_reports")
         reports = [report for report in reports if str(report.id) in accessible_reports]
     report_parts = [
         row_revision(
@@ -1614,7 +1609,10 @@ def scheduled_tasks_visible_to_user(user, permissions, allowed_host_ids, allowed
     if not user or (not user.is_admin and not permissions.get("manage_scheduler")):
         return []
 
-    scheduled_tasks = ScheduledTask.query.order_by(
+    scheduled_query = ScheduledTask.query
+    if getattr(ScheduledTask, "template", None) is not None:
+        scheduled_query = scheduled_query.options(selectinload(ScheduledTask.template))
+    scheduled_tasks = scheduled_query.order_by(
         ScheduledTask.category,
         ScheduledTask.name,
     ).all()
@@ -2261,6 +2259,7 @@ def check_access_and_start_thread():
         if is_api_request:
             return jsonify({"success": False, "message": "Session expired. Please sign in again."}), 401
         return redirect(url_for('auth.login_page'))
+    g.infrastructure_current_user = user
 
     if not has_module_access(user, 'Infrastructure'):
         if is_api_request:
@@ -2278,6 +2277,17 @@ def index():
 
     agents = get_allowed_hosts_light(user_id)
     groups = WinHubCore.get_allowed_groups(user_id)
+    group_ids = [group.id for group in groups]
+    group_member_counts = dict(
+        db.session.query(
+            endpoint_group_m2m.c.group_id,
+            func.count(endpoint_group_m2m.c.endpoint_id),
+        ).filter(
+            endpoint_group_m2m.c.group_id.in_(group_ids)
+        ).group_by(endpoint_group_m2m.c.group_id).all()
+    ) if group_ids else {}
+    for group in groups:
+        group.endpoint_count = int(group_member_counts.get(group.id, 0))
     latest_versions = latest_agent_package_versions_by_platform()
 
     def is_agent_current(agent):
@@ -2363,7 +2373,7 @@ def index():
     stats["review"] = len(pending_agents) + len(rejected_agents) + len(approved_duplicate_pairs)
 
     is_admin = session.get('is_admin')
-    user = User.query.get(user_id)
+    user = current_user()
     permissions = user_permissions(user, "Infrastructure")
     if is_admin:
         templates_raw = TaskTemplate.query.order_by(TaskTemplate.category, TaskTemplate.name).all()
@@ -2378,9 +2388,10 @@ def index():
     scheduled_raw = scheduled_tasks_visible_to_user(
         user,
         permissions,
-        {agent.id for agent in agents},
-        {group.id for group in groups},
+        set(infra_allowed_host_ids(user_id, "run_tasks")),
+        set(infra_allowed_group_ids(user_id, "run_tasks")),
     )
+    template_name_by_id = {template.id: template.name for template in templates_raw}
 
     templates_raw = [
         t for t in templates_raw
@@ -2409,14 +2420,34 @@ def index():
     def scheduled_task_variables(st):
         try:
             value = json.loads(st.variables) if st.variables else {}
-            return value if isinstance(value, dict) else {}
+            if not isinstance(value, dict):
+                return {}
+            return value if can_view_sensitive_target(st.target_type, st.target_id) else masked_variables(value)
         except Exception:
             return {}
+
+    schedule_host_ids = {
+        str(st.target_id) for st in scheduled_raw if str(st.target_type or "").lower() == "host"
+    }
+    schedule_group_ids = {
+        str(st.target_id) for st in scheduled_raw if str(st.target_type or "").lower() == "group"
+    }
+    schedule_host_names = dict(
+        db.session.query(Endpoint.id, Endpoint.hostname).filter(Endpoint.id.in_(schedule_host_ids)).all()
+    ) if schedule_host_ids else {}
+    schedule_group_names = dict(
+        db.session.query(EndpointGroup.id, EndpointGroup.name).filter(EndpointGroup.id.in_(schedule_group_ids)).all()
+    ) if schedule_group_ids else {}
+
+    def scheduled_target_name(st):
+        if str(st.target_type or "").lower() == "host":
+            return schedule_host_names.get(str(st.target_id)) or "Unknown Target"
+        return schedule_group_names.get(str(st.target_id)) or "Unknown Target"
 
     scheduled_tasks = [{
         "id": st.id, "name": st.name, "category": st.category, "cron": st.cron_expr, "is_active": st.is_active,
         "target_type": st.target_type,
-        "target_name": Endpoint.query.get(st.target_id).hostname if st.target_type == 'host' and Endpoint.query.get(st.target_id) else (EndpointGroup.query.get(st.target_id).name if EndpointGroup.query.get(st.target_id) else "Unknown Target"),
+        "target_name": scheduled_target_name(st),
         "template_name": st.template.name if st.template else "Deleted Template",
         "template_id": st.template_id,
         "target_id": st.target_id,
@@ -2429,12 +2460,11 @@ def index():
 
     trigger_rules = []
     for tr in triggers_raw:
-        action_tpl = TaskTemplate.query.get(tr.action_template_id) if tr.action_template_id else None
         trigger_rules.append({
             "id": tr.id, "name": tr.name, "metric_name": tr.metric_name,
             "operator": tr.operator, "threshold_value": tr.threshold_value,
             "action_template_id": tr.action_template_id,
-            "action_name": action_tpl.name if action_tpl else "Deleted Template",
+            "action_name": template_name_by_id.get(tr.action_template_id, "Deleted Template"),
             "is_active": tr.is_active
         })
 
@@ -2615,13 +2645,22 @@ def list_groups():
         return denied
 
     groups = WinHubCore.get_allowed_groups(session.get("user_id"))
+    group_ids = [group.id for group in groups]
+    member_counts = dict(
+        db.session.query(
+            endpoint_group_m2m.c.group_id,
+            func.count(endpoint_group_m2m.c.endpoint_id),
+        ).filter(endpoint_group_m2m.c.group_id.in_(group_ids))
+        .group_by(endpoint_group_m2m.c.group_id)
+        .all()
+    ) if group_ids else {}
     return jsonify({
         "success": True,
         "groups": [{
             "id": group.id,
             "name": group.name,
             "description": group.description,
-            "hosts_count": len(group.endpoints),
+            "hosts_count": int(member_counts.get(group.id, 0)),
         } for group in groups]
     })
 
@@ -2927,7 +2966,7 @@ def get_report(report_id):
             "success": r.success_count,
             "error": r.error_count,
             "created_at": to_kyiv_time(r.created_at),
-            "report_data": report_body_for_current_user(r.report_data),
+            "report_data": report_body_for_current_user(r.report_data, report_id=report_id),
         }
     })
 
@@ -2957,7 +2996,7 @@ def download_report_text(report_id):
     if not can_access_report(report_id):
         return jsonify({"success": False, "message": "Access denied"}), 403
 
-    visible_body = report_body_for_current_user(report.report_data)
+    visible_body = report_body_for_current_user(report.report_data, report_id=report_id)
     filename_base = secure_filename(report.title or "")[:80] or f"winhub-report-{report.id}"
     return Response(
         report_text_download_body(visible_body),
@@ -2972,16 +3011,21 @@ def download_report_text(report_id):
 def action_report(report_id):
     r = AggregatedJob.query.get(report_id)
     if not r: return jsonify({"success": False}), 404
-    if not can_access_report(report_id):
-        return jsonify({"success": False, "message": "Access denied"}), 403
-
     data = request.get_json(silent=True) or {}
     action = data.get('action')
+    action_permission = {
+        "save": "edit_reports",
+        "dismiss": "dismiss_reports",
+        "send": "send_reports",
+    }.get(action, "view_reports")
+    denied = require_permission(action_permission)
+    if denied:
+        return denied
+    if not can_access_report(report_id, action_permission):
+        return jsonify({"success": False, "message": "Access denied for this report group scope"}), 403
 
     if action == 'save':
-        denied = require_permission("edit_reports")
-        if denied: return denied
-        if not can_view_sensitive_reports():
+        if not can_view_sensitive_reports(report_id=report_id):
             return jsonify({
                 "success": False,
                 "message": "This report contains masked sensitive data. Users without sensitive report access cannot save report text."
@@ -2991,15 +3035,11 @@ def action_report(report_id):
         return jsonify({"success": True})
 
     elif action == 'dismiss':
-        denied = require_permission("dismiss_reports")
-        if denied: return denied
         r.status = 'Dismissed'
         db.session.commit()
         return jsonify({"success": True})
 
     elif action == 'send':
-        denied = require_permission("send_reports")
-        if denied: return denied
         sender = str(data.get('sender') or '').strip()
         emails = data.get('email')
         subject = str(data.get('subject') or f"Report: {r.title}").strip()
@@ -3020,10 +3060,10 @@ def action_report(report_id):
         if len(custom_message) > 5000:
             return jsonify({"success": False, "message": "Custom note cannot exceed 5000 characters."}), 400
 
-        # Apply the same sensitive-data policy used by report viewing and downloads.
-        # This prevents a user with send access, but without sensitive-report access,
-        # from using email delivery to bypass masking.
-        report_body = report_body_for_current_user(r.report_data)
+        # Sending is a blind delivery operation: the operator may be allowed to send
+        # the original report without being allowed to reveal its sensitive values in
+        # the UI, downloads, or task logs.  Never return this body in the API response.
+        report_body = r.report_data or ""
 
         r.status = 'Sending...'
         db.session.commit()
@@ -3041,7 +3081,12 @@ def action_report(report_id):
             "Report Email",
             "report",
             report_id,
-            {"success": success, "recipient_count": sent_count if success else len(recipients), "gpg": use_gpg},
+            {
+                "success": success,
+                "recipient_count": sent_count if success else len(recipients),
+                "gpg": use_gpg,
+                "delivery_mode": "original_report",
+            },
             status="Success" if success else "Error",
         )
         update_report_send_status(report_id, success, sent_count)
@@ -3061,7 +3106,7 @@ def publish_report_confluence(report_id):
     report = AggregatedJob.query.get(report_id)
     if not report:
         return jsonify({"success": False, "message": "Report not found"}), 404
-    if not can_access_report(report_id):
+    if not can_access_report(report_id, "send_reports"):
         return jsonify({"success": False, "message": "Access denied"}), 403
 
     profiles = load_confluence_profiles()
@@ -3077,9 +3122,13 @@ def publish_report_confluence(report_id):
     custom_note = str(data.get("custom_note") or "").strip()
     if body_format not in ("escaped_pre", "storage_html"):
         return jsonify({"success": False, "message": "Invalid Confluence body format."}), 400
-    if body_format == "storage_html" and not can_view_sensitive_reports():
+    if body_format == "storage_html" and not can_view_sensitive_reports(report_id=report_id):
         return jsonify({"success": False, "message": "Raw Confluence HTML publishing requires sensitive report access."}), 403
-    visible_report_body = report.report_data if can_view_sensitive_reports() else report_body_for_current_user(report.report_data)
+    visible_report_body = (
+        report.report_data
+        if can_view_sensitive_reports(report_id=report_id)
+        else report_body_for_current_user(report.report_data, report_id=report_id)
+    )
 
     success, message, web_url = publish_report_to_confluence(
         profile=profile,
@@ -3117,11 +3166,15 @@ def publish_report_confluence(report_id):
 def delete_report(report_id):
     denied = require_permission("delete_reports")
     if denied: return denied
+    if not can_access_report(report_id, "delete_reports"):
+        return jsonify({"success": False, "message": "Report is outside your assigned host scope"}), 403
     r = AggregatedJob.query.get(report_id)
     if r:
+        write_infra_audit("Delete Report", "report", report_id, {"title": r.title})
         db.session.delete(r)
         db.session.commit()
-    return jsonify({"success": True})
+        return jsonify({"success": True})
+    return jsonify({"success": False, "message": "Report not found"}), 404
 
 # ==========================================
 # API: TRIGGERS & SCHEDULER
@@ -3178,20 +3231,14 @@ def validate_schedule_target(target_type, target_id):
             raise ValueError("Selected endpoint does not exist")
         if getattr(endpoint, "approval_status", "Approved") not in (None, "Approved"):
             raise ValueError("Selected endpoint is not approved")
-        if target_id not in set(infra_allowed_host_ids(user.id)):
+        if target_id not in set(infra_allowed_host_ids(user.id, "run_tasks")):
             raise PermissionError("You are not allowed to schedule tasks for this endpoint")
         return target_type, target_id
 
     group = EndpointGroup.query.get(target_id)
     if not group:
         raise ValueError("Selected endpoint group does not exist")
-    api_group_ids = request_api_group_scope()
-    if api_group_ids is not None:
-        allowed = target_id in set(api_group_ids)
-    elif user.is_admin:
-        allowed = True
-    else:
-        allowed = user.allowed_host_groups.filter(EndpointGroup.id == target_id).first() is not None
+    allowed = group_action_allowed(user, target_id, "run_tasks")
     if not allowed:
         raise PermissionError("You are not allowed to schedule tasks for this endpoint group")
     return target_type, target_id
@@ -3289,7 +3336,6 @@ def manage_schedule():
             "missing_variables": missing_variables,
         }), 400
 
-    variables_raw = json.dumps(clean_variables, ensure_ascii=False)
     if tid:
         st = ScheduledTask.query.get(tid)
         if not st:
@@ -3301,10 +3347,20 @@ def manage_schedule():
                 return jsonify({"success": False, "message": str(exc)}), 403
             except ValueError as exc:
                 return jsonify({"success": False, "message": str(exc)}), 400
+        if not can_view_sensitive_target(target_type, target_id):
+            try:
+                existing_variables = json.loads(st.variables) if st.variables else {}
+            except (TypeError, ValueError):
+                existing_variables = {}
+            if isinstance(existing_variables, dict):
+                for key, value in list(clean_variables.items()):
+                    if is_sensitive_name(key) and value == "***" and key in existing_variables:
+                        clean_variables[key] = existing_variables[key]
     else:
         st = ScheduledTask(created_by=session.get('username'))
         db.session.add(st)
 
+    variables_raw = json.dumps(clean_variables, ensure_ascii=False)
     st.name = name
     st.category = category
     st.template_id = template.id
@@ -3405,14 +3461,25 @@ def task_launch_options():
     now = datetime.utcnow()
     online_threshold = now - timedelta(minutes=5)
     hosts = [
-        host for host in get_allowed_hosts_light(session.get("user_id"), approved_only=True)
+        host for host in get_allowed_hosts_light(session.get("user_id"), approved_only=True, action_id="run_tasks")
         if not bool(getattr(host, "is_blocked", False))
         and (getattr(host, "approval_status", "Approved") or "Approved") == "Approved"
     ]
     allowed_host_ids = {str(host.id) for host in hosts}
+    allowed_groups = WinHubCore.get_allowed_groups(session.get("user_id"), "run_tasks")
+    group_ids = [group.id for group in allowed_groups]
+    group_host_counts = dict(
+        db.session.query(
+            endpoint_group_m2m.c.group_id,
+            func.count(endpoint_group_m2m.c.endpoint_id),
+        ).filter(
+            endpoint_group_m2m.c.group_id.in_(group_ids),
+            endpoint_group_m2m.c.endpoint_id.in_(allowed_host_ids),
+        ).group_by(endpoint_group_m2m.c.group_id).all()
+    ) if group_ids and allowed_host_ids else {}
     groups = []
-    for group in WinHubCore.get_allowed_groups(session.get("user_id")):
-        eligible_count = sum(1 for host in group.endpoints if str(host.id) in allowed_host_ids)
+    for group in allowed_groups:
+        eligible_count = int(group_host_counts.get(group.id, 0))
         if eligible_count:
             groups.append({
                 "id": group.id,
@@ -4477,11 +4544,13 @@ def run_software_install():
     if not package:
         return jsonify({"success": False, "message": "Software package not found"}), 404
 
-    allowed = [h for h in WinHubCore.get_allowed_hosts(session.get("user_id")) if getattr(h, "approval_status", "Approved") == "Approved"]
-    allowed_by_id = {h.id: h for h in allowed if WinHubCore.can_manage_host(session.get("user_id"), h.id)}
+    allowed = [h for h in WinHubCore.get_allowed_hosts(session.get("user_id"), "run_tasks") if getattr(h, "approval_status", "Approved") == "Approved"]
+    allowed_by_id = {h.id: h for h in allowed}
     target_mode = str(data.get("target_mode") or "selected")
     if target_mode == "group":
         group = EndpointGroup.query.get(data.get("group_id"))
+        if group and not group_action_allowed(current_user(), group.id, "run_tasks"):
+            return jsonify({"success": False, "message": "Task execution is denied for this group"}), 403
         group_ids = {h.id for h in group.endpoints} if group else set()
         target_ids = [host_id for host_id in allowed_by_id if host_id in group_ids]
     else:
@@ -4697,8 +4766,8 @@ def run_fleet_update():
     package["update_url"] = resolved_agent_package_update_url(package["id"])
 
     target_mode = str(data.get("target_mode") or "outdated")
-    allowed = [h for h in WinHubCore.get_allowed_hosts(session.get("user_id")) if getattr(h, "approval_status", "Approved") == "Approved"]
-    allowed_by_id = {h.id: h for h in allowed if WinHubCore.can_manage_host(session.get("user_id"), h.id)}
+    allowed = [h for h in WinHubCore.get_allowed_hosts(session.get("user_id"), "run_tasks") if getattr(h, "approval_status", "Approved") == "Approved"]
+    allowed_by_id = {h.id: h for h in allowed}
     latest_version = package.get("version")
     selected_platform = str(package.get("platform") or "").lower()
 
@@ -4706,6 +4775,8 @@ def run_fleet_update():
         target_ids = [str(item) for item in (data.get("target_ids") or []) if str(item) in allowed_by_id]
     elif target_mode == "group":
         group = EndpointGroup.query.get(data.get("group_id"))
+        if group and not group_action_allowed(current_user(), group.id, "run_tasks"):
+            return jsonify({"success": False, "message": "Task execution is denied for this group"}), 403
         group_ids = {h.id for h in group.endpoints} if group else set()
         target_ids = [host_id for host_id in allowed_by_id if host_id in group_ids]
     else:
@@ -5039,6 +5110,11 @@ def create_task():
     if data.get('report_template_id'):
         payload_dict['__report_template_id'] = data.get('report_template_id')
     if data.get('auto_email_toggle'):
+        denied = require_permission("send_reports")
+        if denied:
+            return denied
+        if not data.get('auto_email_sender') or not data.get('auto_email_recipients'):
+            return jsonify({"success": False, "message": "Auto-email sender and recipients are required"}), 400
         payload_dict['__auto_email_toggle'] = True
         payload_dict['__auto_email_sender'] = data.get('auto_email_sender')
         payload_dict['__auto_email_recipients'] = data.get('auto_email_recipients')
@@ -5107,10 +5183,16 @@ def create_task():
         agent_ids = data.get('target_ids', [])
     elif target_type == "group":
         group = EndpointGroup.query.get(data.get('target_id'))
+        if group and not group_action_allowed(current_user(), group.id, "run_tasks"):
+            return jsonify({"success": False, "message": "Task execution is denied for this group"}), 403
         if group: agent_ids = [a.id for a in group.endpoints]
 
     if not agent_ids:
         return jsonify({"success": False, "message": "No targets selected"}), 400
+    if data.get('auto_email_toggle') or data.get('auto_confluence_toggle'):
+        send_host_ids = set(infra_allowed_host_ids(session.get("user_id"), "send_reports"))
+        if any(str(agent_id) not in send_host_ids for agent_id in agent_ids):
+            return jsonify({"success": False, "message": "Report delivery is denied for one or more target groups"}), 403
 
     try:
         WinHubCore.dispatch_task(session.get('user_id'), "Infrastructure", action_type, agent_ids, payload_dict, data.get('title', 'Task'))
@@ -5133,6 +5215,10 @@ def run_template_api(template_id):
     if not can_use_template(template):
         return jsonify({"success": False, "message": "Template denied"}), 403
 
+    if data.get("target_type") == "group" and not group_action_allowed(
+        current_user(), data.get("target_id"), "run_tasks"
+    ):
+        return jsonify({"success": False, "message": "Task execution is denied for this group"}), 403
     target_ids, missing_targets = resolve_target_ids(data)
     if missing_targets:
         return jsonify({
@@ -5142,6 +5228,10 @@ def run_template_api(template_id):
         }), 400
     if not target_ids:
         return jsonify({"success": False, "message": "No targets selected"}), 400
+    if data.get("auto_email_toggle") or data.get("auto_confluence_toggle"):
+        send_host_ids = set(infra_allowed_host_ids(session.get("user_id"), "send_reports"))
+        if any(str(target_id) not in send_host_ids for target_id in target_ids):
+            return jsonify({"success": False, "message": "Report delivery is denied for one or more target groups"}), 403
 
     variables = data.get("variables", {}) or {}
     if not isinstance(variables, dict):
@@ -5272,7 +5362,7 @@ def get_tasks():
     except (TypeError, ValueError):
         page_size = 20
     user_id = session.get('user_id')
-    allowed_hosts = infra_allowed_host_ids(user_id)
+    allowed_hosts = infra_allowed_host_ids(user_id, "view_queue")
     if not allowed_hosts:
         return jsonify({
             "success": True,
@@ -5374,31 +5464,81 @@ def get_single_task(task_id):
     if denied: return denied
     task = AgentTask.query.get(task_id)
     if not task: return jsonify({"success": False}), 404
-    if not WinHubCore.can_manage_host(session.get('user_id'), task.endpoint_id): return jsonify({"success": False}), 403
+    if not WinHubCore.can_manage_host(session.get('user_id'), task.endpoint_id, "view_queue"): return jsonify({"success": False}), 403
     task_log = task.result_log if task.result_log else "Waiting..."
     endpoint_name = endpoint_display_name(task.endpoint) if task.endpoint else "Unknown"
-    return jsonify({"success": True, "data": {"id": task.id, "title": task.title or "Untitled", "status": task.status or "Pending", "log": report_body_for_current_user(task_log), "hostname": task.endpoint.hostname if task.endpoint else "Unknown", "display_name": getattr(task.endpoint, "display_name", None) if task.endpoint else "", "name": endpoint_name}})
+    return jsonify({"success": True, "data": {"id": task.id, "title": task.title or "Untitled", "status": task.status or "Pending", "log": report_body_for_current_user(task_log, host_id=task.endpoint_id), "hostname": task.endpoint.hostname if task.endpoint else "Unknown", "display_name": getattr(task.endpoint, "display_name", None) if task.endpoint else "", "name": endpoint_name}})
 
 @infrastructure_bp.route('/api/infrastructure/tasks/cleanup', methods=['POST'])
 def cleanup_tasks():
-    denied = require_permission("cleanup_tasks")
-    if denied: return denied
-    days = int(request.json.get('days', 30))
-    AgentTask.query.filter(AgentTask.created_at < (datetime.utcnow() - timedelta(days=days))).delete(synchronize_session=False); db.session.commit()
-    return jsonify({"success": True})
+    denied = require_permission("delete_tasks")
+    if denied:
+        return denied
+    try:
+        days = max(1, min(3650, int((request.get_json(silent=True) or {}).get('days', 30))))
+    except (TypeError, ValueError):
+        return jsonify({"success": False, "message": "Days must be a number between 1 and 3650"}), 400
+
+    cutoff = datetime.utcnow() - timedelta(days=days)
+    if session.get("is_admin"):
+        deleted = AgentTask.query.filter(AgentTask.created_at < cutoff).delete(synchronize_session=False)
+    else:
+        allowed_host_ids = infra_allowed_host_ids(session.get("user_id"), "delete_tasks")
+        if not allowed_host_ids:
+            return jsonify({"success": True, "deleted": 0})
+
+        allowed_endpoint = case(
+            (AgentTask.endpoint_id.in_(allowed_host_ids), AgentTask.endpoint_id),
+            else_=None,
+        )
+        scoped_jobs = db.session.query(AgentTask.job_id.label("job_id")).filter(
+            AgentTask.job_id.isnot(None),
+        ).group_by(AgentTask.job_id).having(
+            func.max(AgentTask.created_at) < cutoff,
+            func.count(func.distinct(AgentTask.endpoint_id))
+            == func.count(func.distinct(allowed_endpoint)),
+        ).subquery()
+        scoped_job_ids = db.session.query(scoped_jobs.c.job_id)
+        deleted = AgentTask.query.filter(
+            or_(
+                AgentTask.job_id.in_(scoped_job_ids),
+                and_(
+                    AgentTask.job_id.is_(None),
+                    AgentTask.created_at < cutoff,
+                    AgentTask.endpoint_id.in_(allowed_host_ids),
+                ),
+            )
+        ).delete(synchronize_session=False)
+
+    write_infra_audit("Cleanup Scoped Task History", "task", "bulk", {"days": days, "deleted": deleted})
+    db.session.commit()
+    return jsonify({"success": True, "deleted": deleted})
 
 @infrastructure_bp.route('/api/infrastructure/job/<job_id>', methods=['DELETE'])
 def delete_job(job_id):
-    denied = require_permission("cleanup_tasks")
-    if denied: return denied
-    AgentTask.query.filter_by(job_id=job_id).delete(synchronize_session=False); AgentTask.query.filter_by(id=job_id).delete(synchronize_session=False); db.session.commit()
-    return jsonify({"success": True})
+    denied = require_permission("delete_tasks")
+    if denied:
+        return denied
+    task_count = AgentTask.query.filter(
+        or_(AgentTask.job_id == job_id, AgentTask.id == job_id)
+    ).count()
+    if not task_count:
+        return jsonify({"success": False, "message": "Task job not found"}), 404
+    if str(job_id) not in accessible_report_id_set([job_id], action_id="delete_tasks"):
+        return jsonify({"success": False, "message": "Task job is outside your assigned host scope"}), 403
+
+    deleted = AgentTask.query.filter(
+        or_(AgentTask.job_id == job_id, AgentTask.id == job_id)
+    ).delete(synchronize_session=False)
+    write_infra_audit("Delete Task Job", "job", job_id, {"deleted_tasks": deleted})
+    db.session.commit()
+    return jsonify({"success": True, "deleted": deleted})
 
 @infrastructure_bp.route('/api/infrastructure/job/<job_id>/cancel-pending', methods=['POST'])
 def cancel_pending_job(job_id):
     denied = require_permission("run_tasks")
     if denied: return denied
-    if not can_access_report(job_id):
+    if not can_access_report(job_id, "run_tasks"):
         return jsonify({"success": False, "message": "Permission denied"}), 403
     tasks = AgentTask.query.filter_by(job_id=job_id).filter(
         or_(
@@ -5407,8 +5547,9 @@ def cancel_pending_job(job_id):
         )
     ).all()
     cancelled = 0
+    allowed_host_ids = set(infra_allowed_host_ids(session.get("user_id"), "run_tasks"))
     for task in tasks:
-        if WinHubCore.can_manage_host(session.get("user_id"), task.endpoint_id):
+        if task.endpoint_id in allowed_host_ids:
             previous_status = task.status or "Pending"
             task.status = "Cancelled"
             task.result_log = f"Cancelled by operator while task status was {previous_status}. If the agent had already started the script, the local process may still finish, but WinHUB will keep this task cancelled."
@@ -5448,7 +5589,7 @@ def cancel_agent_update_rollout(rollout_id):
             row[0]
             for row in db.session.query(Endpoint.id).filter(Endpoint.id.in_(target_ids)).all()
         }
-        allowed_host_ids = set(infra_allowed_host_ids(session.get("user_id")))
+        allowed_host_ids = set(infra_allowed_host_ids(session.get("user_id"), "run_tasks"))
         unauthorized = existing_target_ids - allowed_host_ids
         if unauthorized:
             return jsonify({"success": False, "message": "Permission denied for one or more rollout hosts"}), 403
@@ -5477,7 +5618,7 @@ def cancel_agent_update_rollout(rollout_id):
 def finalize_job_report(job_id):
     denied = require_permission("run_tasks")
     if denied: return denied
-    if not can_access_report(job_id):
+    if not can_access_report(job_id, "run_tasks"):
         return jsonify({"success": False, "message": "Permission denied"}), 403
 
     completed_count = AgentTask.query.filter_by(job_id=job_id).filter(AgentTask.status.in_(["Success", "Error"])).count()
@@ -5491,8 +5632,9 @@ def finalize_job_report(job_id):
         )
     ).all()
     cancelled = 0
+    allowed_host_ids = set(infra_allowed_host_ids(session.get("user_id"), "run_tasks"))
     for task in pending_tasks:
-        if WinHubCore.can_manage_host(session.get("user_id"), task.endpoint_id):
+        if task.endpoint_id in allowed_host_ids:
             task.status = "Cancelled"
             task.result_log = "Excluded from finalized report before completion."
             task.finished_at = datetime.utcnow()
@@ -5508,14 +5650,15 @@ def finalize_job_report(job_id):
 def retry_failed_job(job_id):
     denied = require_permission("run_tasks")
     if denied: return denied
-    if not can_access_report(job_id):
+    if not can_access_report(job_id, "run_tasks"):
         return jsonify({"success": False, "message": "Permission denied"}), 403
 
     failed_tasks = AgentTask.query.filter_by(job_id=job_id).filter(AgentTask.status.in_(["Error", "Cancelled"])).all()
     new_job_id = str(uuid.uuid4())
     created = 0
+    allowed_host_ids = set(infra_allowed_host_ids(session.get("user_id"), "run_tasks"))
     for task in failed_tasks:
-        if not WinHubCore.can_manage_host(session.get("user_id"), task.endpoint_id):
+        if task.endpoint_id not in allowed_host_ids:
             continue
         db.session.add(AgentTask(
             id=str(uuid.uuid4()),
@@ -5539,16 +5682,24 @@ def retry_failed_job(job_id):
 # ==========================================
 @infrastructure_bp.route('/api/infrastructure/host/<host_id>', methods=['GET', 'DELETE', 'PATCH'])
 def host_operations(host_id):
-    if not WinHubCore.can_manage_host(session.get('user_id'), host_id): return jsonify({"success": False}), 403
+    action_permission = {
+        "GET": "view_hosts",
+        "DELETE": "delete_hosts",
+        "PATCH": "manage_hosts",
+    }[request.method]
+    denied = require_permission(action_permission)
+    if denied:
+        return denied
+    if host_id not in set(infra_allowed_host_ids(session.get('user_id'), action_permission)):
+        return jsonify({"success": False, "message": "Host action is outside your group scope"}), 403
     agent = Endpoint.query.get(host_id)
+    if not agent:
+        return jsonify({"success": False, "message": "Host not found"}), 404
     if request.method == 'DELETE':
-        denied = require_permission("manage_hosts")
-        if denied: return denied
+        write_infra_audit("Delete Host", "endpoint", agent.id, {"hostname": agent.hostname})
         db.session.delete(agent); db.session.commit()
         return jsonify({"success": True})
     if request.method == 'PATCH':
-        denied = require_permission("manage_hosts")
-        if denied: return denied
         data = request.get_json(force=True) or {}
         display_name = str(data.get("display_name") or "").strip()
         if len(display_name) > 120:
@@ -5771,6 +5922,8 @@ def get_host_metrics(host_id):
 def toggle_block_host(host_id):
     denied = require_permission("manage_hosts")
     if denied: return denied
+    if not WinHubCore.can_manage_host(session.get('user_id'), host_id, "manage_hosts"):
+        return jsonify({"success": False, "message": "Host action is outside your group scope"}), 403
     agent = Endpoint.query.get(host_id)
     if agent:
         agent.is_blocked = not agent.is_blocked
@@ -5791,7 +5944,7 @@ def allow_host_reenroll(host_id):
     agent = Endpoint.query.get(host_id)
     if not agent:
         return jsonify({"success": False, "message": "Host not found"}), 404
-    if not WinHubCore.can_manage_host(session.get('user_id'), host_id):
+    if not WinHubCore.can_manage_host(session.get('user_id'), host_id, "manage_hosts"):
         return jsonify({"success": False, "message": "Host denied"}), 403
 
     minutes = 30
@@ -5825,6 +5978,8 @@ def update_host_approval(host_id):
     agent = Endpoint.query.get(host_id)
     if not agent:
         return jsonify({"success": False, "message": "Host not found"}), 404
+    if not WinHubCore.can_manage_host(session.get('user_id'), host_id, "manage_hosts"):
+        return jsonify({"success": False, "message": "Host action is outside your group scope"}), 403
     status = (request.json or {}).get("status")
     if status not in ("Pending", "Approved", "Rejected"):
         return jsonify({"success": False, "message": "Invalid approval status"}), 400
@@ -5872,6 +6027,9 @@ def bulk_update_host_approval():
 
     if not agents:
         return jsonify({"success": False, "message": "No matching hosts found"}), 404
+    allowed_host_ids = set(infra_allowed_host_ids(session.get("user_id"), "manage_hosts"))
+    if any(agent.id not in allowed_host_ids for agent in agents):
+        return jsonify({"success": False, "message": "One or more hosts are outside your group scope"}), 403
 
     ensure_default_groups_and_assign = None
     if status == "Approved":
@@ -5918,10 +6076,10 @@ def merge_duplicate_host():
     remove = Endpoint.query.get(remove_id)
     if not keep or not remove:
         return jsonify({"success": False, "message": "Endpoint record not found"}), 404
-    if not WinHubCore.can_manage_host(session.get("user_id"), keep_id) or not WinHubCore.can_manage_host(session.get("user_id"), remove_id):
+    if not WinHubCore.can_manage_host(session.get("user_id"), keep_id, "manage_hosts") or not WinHubCore.can_manage_host(session.get("user_id"), remove_id, "manage_hosts"):
         return jsonify({"success": False, "message": "Access denied"}), 403
 
-    allowed_hosts = WinHubCore.get_allowed_hosts(session.get("user_id"))
+    allowed_hosts = WinHubCore.get_allowed_hosts(session.get("user_id"), "manage_hosts")
     annotate_endpoint_duplicates(allowed_hosts)
     keep_matches = getattr(keep, "duplicate_matches", [])
     if not any(match.get("id") == remove_id and match.get("strong_match") for match in keep_matches):
@@ -5992,7 +6150,7 @@ def create_duplicate_exception():
     right = Endpoint.query.get(pair_key[1])
     if not left or not right:
         return jsonify({"success": False, "message": "Endpoint record not found"}), 404
-    if not WinHubCore.can_manage_host(session.get("user_id"), left.id) or not WinHubCore.can_manage_host(session.get("user_id"), right.id):
+    if not WinHubCore.can_manage_host(session.get("user_id"), left.id, "manage_hosts") or not WinHubCore.can_manage_host(session.get("user_id"), right.id, "manage_hosts"):
         return jsonify({"success": False, "message": "Access denied"}), 403
 
     existing = EndpointDuplicateException.query.filter_by(endpoint_a_id=pair_key[0], endpoint_b_id=pair_key[1]).first()
@@ -6027,8 +6185,16 @@ def create_duplicate_exception():
 def create_group():
     denied = require_permission("manage_groups")
     if denied: return denied
-    db.session.add(EndpointGroup(name=request.json.get('name', 'Untitled'), description=request.json.get('description', ''))); db.session.commit()
-    return jsonify({"success": True})
+    data = request.get_json(silent=True) or {}
+    group = EndpointGroup(name=data.get('name', 'Untitled'), description=data.get('description', ''))
+    db.session.add(group)
+    user = current_user()
+    if user and not user.is_admin and not session.get("api_key_auth"):
+        user.allowed_host_groups.append(group)
+    db.session.flush()
+    write_infra_audit("Create Group", "endpoint_group", group.id, {"name": group.name})
+    db.session.commit()
+    return jsonify({"success": True, "id": group.id})
 
 @infrastructure_bp.route('/api/infrastructure/group/<group_id>', methods=['GET', 'DELETE'])
 def manage_group(group_id):
@@ -6036,8 +6202,19 @@ def manage_group(group_id):
     if not group:
         return jsonify({"success": False}), 404
     if request.method == 'DELETE':
-        denied = require_permission("manage_groups")
+        denied = require_permission("delete_groups")
         if denied: return denied
+        if group.id not in set(infra_allowed_group_ids(session.get('user_id'), "delete_groups")):
+            return jsonify({"success": False, "message": "Group is outside your assigned scope"}), 403
+        member_count = db.session.query(func.count()).select_from(endpoint_group_m2m).filter(
+            endpoint_group_m2m.c.group_id == group.id
+        ).scalar() or 0
+        write_infra_audit(
+            "Delete Group",
+            "endpoint_group",
+            group.id,
+            {"name": group.name, "member_count": member_count},
+        )
         db.session.delete(group); db.session.commit()
         return jsonify({"success": True})
 
@@ -6049,7 +6226,7 @@ def manage_group(group_id):
         selectinload(Endpoint.groups).load_only(EndpointGroup.id, EndpointGroup.name),
     ).join(Endpoint.groups).filter(EndpointGroup.id == group.id)
     if not session.get('is_admin'):
-        allowed_group_ids = {g.id for g in WinHubCore.get_allowed_groups(session.get('user_id'))}
+        allowed_group_ids = set(infra_allowed_group_ids(session.get('user_id'), "view_groups"))
         if group.id not in allowed_group_ids:
             return jsonify({"success": False}), 403
         allowed_host_ids = set(infra_allowed_host_ids(session.get('user_id')))
@@ -6061,7 +6238,7 @@ def manage_group(group_id):
             .filter(EndpointGroup.id == group.id)
             .all()
         }
-        if include_non_members and can("manage_groups"):
+        if include_non_members and can("manage_groups") and group_action_allowed(current_user(), group.id, "manage_groups"):
             non_member_query = Endpoint.query.options(load_only(*ENDPOINT_LIST_COLUMNS)).filter(
                 Endpoint.id.in_(allowed_host_ids),
                 db.or_(Endpoint.approval_status == "Approved", Endpoint.approval_status.is_(None)),
@@ -6071,50 +6248,71 @@ def manage_group(group_id):
         else:
             non_members = []
     else:
-        group_endpoint_ids = [
+        group_endpoint_ids = {
             row[0]
             for row in db.session.query(Endpoint.id)
             .join(Endpoint.groups)
             .filter(EndpointGroup.id == group.id)
             .all()
-        ]
+        }
         members_source = attach_endpoint_list_flags(base_member_query.all())
         if include_non_members:
             non_members = [
                 {"id": a.id, "hostname": a.hostname or a.id, "display_name": getattr(a, "display_name", None) or "", "name": endpoint_display_name(a)}
                 for a in Endpoint.query.options(load_only(*ENDPOINT_LIST_COLUMNS)).filter(
-                    db.or_(Endpoint.approval_status == "Approved", Endpoint.approval_status.is_(None))
+                    db.or_(Endpoint.approval_status == "Approved", Endpoint.approval_status.is_(None)),
+                    ~Endpoint.id.in_(group_endpoint_ids),
                 ).order_by(Endpoint.hostname, Endpoint.id).all()
-                if a.id not in group_endpoint_ids
             ]
         else:
             non_members = []
 
     members = [{"id": a.id, "hostname": a.hostname or a.id, "display_name": getattr(a, "display_name", None) or "", "name": endpoint_display_name(a), "ip": getattr(a, "connection_ip", None) or "", "os_type": getattr(a, 'os_type', 'Windows')} for a in members_source]
-    return jsonify({"success": True, "data": {"id": group.id, "name": group.name, "description": group.description, "members": members, "non_members": non_members}})
+    user = current_user()
+    capabilities = {
+        action_id: bool(can(action_id) and group_action_allowed(user, group.id, action_id))
+        for action_id in ("manage_hosts", "manage_groups", "delete_groups")
+    }
+    return jsonify({
+        "success": True,
+        "data": {
+            "id": group.id,
+            "name": group.name,
+            "description": group.description,
+            "members": members,
+            "non_members": non_members,
+            "capabilities": capabilities,
+        },
+    })
 
 @infrastructure_bp.route('/api/infrastructure/group/<group_id>/members', methods=['POST'])
 def update_group_members(group_id):
     denied = require_permission("manage_groups")
     if denied: return denied
+    data = request.get_json(silent=True) or {}
+    action = data.get('action')
+    if action not in {'add', 'remove'}:
+        return jsonify({"success": False, "message": "Action must be add or remove"}), 400
     group = EndpointGroup.query.get(group_id)
-    agent = Endpoint.query.get(request.json.get('agent_id'))
+    agent = Endpoint.query.get(data.get('agent_id'))
     if not group or not agent:
         return jsonify({"success": False, "message": "Group or host not found"}), 404
     if not session.get('is_admin'):
-        allowed_group_ids = {g.id for g in WinHubCore.get_allowed_groups(session.get('user_id'))}
+        allowed_group_ids = set(infra_allowed_group_ids(session.get('user_id'), "manage_groups"))
         if group.id not in allowed_group_ids:
             return jsonify({"success": False, "message": "Group denied"}), 403
+        if agent.id not in set(infra_allowed_host_ids(session.get('user_id'))):
+            return jsonify({"success": False, "message": "Host is outside your assigned scope"}), 403
         if (getattr(agent, "approval_status", "Approved") or "Approved") != "Approved":
             return jsonify({"success": False, "message": "Only approved hosts can be added to groups"}), 403
-    if request.json.get('action') == 'add' and agent not in group.endpoints: group.endpoints.append(agent)
-    elif request.json.get('action') == 'remove' and agent in group.endpoints: group.endpoints.remove(agent)
+    if action == 'add' and agent not in group.endpoints: group.endpoints.append(agent)
+    elif action == 'remove' and agent in group.endpoints: group.endpoints.remove(agent)
     db.session.commit()
     WinHubCore.audit(
         user_id=session.get("user_id"),
         module="Infrastructure",
         action="Group Membership",
-        details={"group_id": group.id, "group": group.name, "host_id": agent.id, "hostname": agent.hostname, "action": request.json.get('action')},
+        details={"group_id": group.id, "group": group.name, "host_id": agent.id, "hostname": agent.hostname, "action": action},
         status="Success"
     )
     return jsonify({"success": True})
@@ -6124,7 +6322,25 @@ def block_group_hosts(group_id):
     denied = require_permission("manage_hosts")
     if denied: return denied
     group = EndpointGroup.query.get(group_id)
-    action = request.json.get('action')
-    for agent in group.endpoints: agent.is_blocked = (action == 'block')
+    if not group:
+        return jsonify({"success": False, "message": "Group not found"}), 404
+    if group.id not in set(infra_allowed_group_ids(session.get('user_id'), "manage_hosts")):
+        return jsonify({"success": False, "message": "Group is outside your assigned scope"}), 403
+    action = (request.get_json(silent=True) or {}).get('action')
+    if action not in {'block', 'unblock'}:
+        return jsonify({"success": False, "message": "Action must be block or unblock"}), 400
+    member_ids = db.session.query(endpoint_group_m2m.c.endpoint_id).filter(
+        endpoint_group_m2m.c.group_id == group.id
+    )
+    updated = Endpoint.query.filter(Endpoint.id.in_(member_ids)).update(
+        {"is_blocked": action == 'block'},
+        synchronize_session=False,
+    )
+    write_infra_audit(
+        "Block Group Hosts" if action == "block" else "Unblock Group Hosts",
+        "endpoint_group",
+        group.id,
+        {"updated_hosts": updated},
+    )
     db.session.commit()
-    return jsonify({"success": True})
+    return jsonify({"success": True, "updated": updated})
