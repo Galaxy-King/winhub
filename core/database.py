@@ -26,7 +26,8 @@ class EncryptedString(types.TypeDecorator):
 # --- ЗВ'ЯЗКИ ---
 user_group_m2m = db.Table('user_group_access',
     db.Column('user_id', db.Integer, db.ForeignKey('users.id', ondelete="CASCADE"), primary_key=True),
-    db.Column('group_id', db.String(36), db.ForeignKey('endpoint_groups.id', ondelete="CASCADE"), primary_key=True)
+    db.Column('group_id', db.String(36), db.ForeignKey('endpoint_groups.id', ondelete="CASCADE"), primary_key=True),
+    db.Column('permissions', db.Text, nullable=False, server_default='["*"]')
 )
 
 endpoint_group_m2m = db.Table('endpoint_group_membership',

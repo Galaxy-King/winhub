@@ -451,6 +451,18 @@ def ensure_scheduler_schema():
     if statements:
         db.session.commit()
 
+def ensure_group_access_schema():
+    inspector = inspect(db.engine)
+    if "user_group_access" not in inspector.get_table_names():
+        return
+    columns = {column["name"] for column in inspector.get_columns("user_group_access")}
+    if "permissions" not in columns:
+        db.session.execute(text(
+            "ALTER TABLE user_group_access "
+            "ADD COLUMN permissions TEXT NOT NULL DEFAULT '[\"*\"]'"
+        ))
+        db.session.commit()
+
 def backfill_endpoint_encryption_status(limit=5000):
     endpoints = Endpoint.query.filter(
         Endpoint.host_info.isnot(None),
@@ -484,7 +496,23 @@ def ensure_performance_indexes():
     statements = [
         "CREATE INDEX IF NOT EXISTS ix_agent_tasks_endpoint_status_created ON agent_tasks (endpoint_id, status, created_at)",
         "CREATE INDEX IF NOT EXISTS ix_agent_tasks_job_status ON agent_tasks (job_id, status)",
+        "CREATE INDEX IF NOT EXISTS ix_agent_tasks_job_endpoint ON agent_tasks (job_id, endpoint_id)",
     ]
+    if "endpoint_group_membership" in tables:
+        statements.append(
+            "CREATE INDEX IF NOT EXISTS ix_endpoint_group_membership_group_endpoint "
+            "ON endpoint_group_membership (group_id, endpoint_id)"
+        )
+    if "user_group_access" in tables:
+        statements.append(
+            "CREATE INDEX IF NOT EXISTS ix_user_group_access_group_user "
+            "ON user_group_access (group_id, user_id)"
+        )
+    if "scheduled_tasks" in tables:
+        statements.append(
+            "CREATE INDEX IF NOT EXISTS ix_scheduled_tasks_target "
+            "ON scheduled_tasks (target_type, target_id)"
+        )
     if "telemetry_history" in tables:
         statements.append("CREATE INDEX IF NOT EXISTS ix_telemetry_endpoint_timestamp ON telemetry_history (endpoint_id, timestamp)")
     if "connection_ip_history" in tables:
@@ -909,6 +937,7 @@ def create_app():
         ensure_endpoint_schema()
         ensure_template_approval_schema()
         ensure_scheduler_schema()
+        ensure_group_access_schema()
         backfill_endpoint_encryption_status()
         ensure_audit_schema()
         ensure_performance_indexes()

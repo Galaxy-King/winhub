@@ -4274,7 +4274,7 @@ function renderQueue() {
         if (statusStr === 'Cancelled') cls = 'bg-slate-100 text-slate-500';
         if (j.error > 0 && j.success > 0) cls = 'bg-orange-100 text-orange-700';
 
-        const hasActionColumn = infraPermissions.cleanup_tasks || infraPermissions.run_tasks;
+        const hasActionColumn = infraPermissions.delete_tasks || infraPermissions.run_tasks;
         let actionBtn = hasActionColumn ? '<td class="px-10 py-4 text-right"></td>' : '';
         if(j.planned && hasActionColumn) {
             actionBtn = `<td class="px-10 py-4 text-right">
@@ -4288,7 +4288,7 @@ function renderQueue() {
                     ${infraPermissions.run_tasks && j.error > 0 ? `<button onclick="event.stopPropagation(); retryFailedJob('${escapeInlineJs(j.job_id)}')" class="queue-action-btn p-3 border rounded-2xl transition-colors shadow-sm" title="Retry failed hosts"><svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path d="M4 4v6h6M20 20v-6h-6M5 19A9 9 0 0119 5l1 1M19 5A9 9 0 005 19l-1-1" stroke-width="2.3" stroke-linecap="round" stroke-linejoin="round"/></svg></button>` : ''}
                     ${infraPermissions.run_tasks && (j.pending + j.running) > 0 && (j.success + j.error) > 0 ? `<button onclick="event.stopPropagation(); finalizeJobReport('${escapeInlineJs(j.job_id)}')" class="queue-action-btn p-3 border rounded-2xl transition-colors shadow-sm" title="Finalize report without active hosts"><svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path d="M9 12l2 2 4-5M4 20h16M5 4h14v12H5z" stroke-width="2.3" stroke-linecap="round" stroke-linejoin="round"/></svg></button>` : ''}
                     ${infraPermissions.run_tasks && (j.pending + j.running) > 0 ? `<button onclick="event.stopPropagation(); cancelPendingJob('${escapeInlineJs(j.job_id)}')" class="queue-action-btn p-3 border rounded-2xl transition-colors shadow-sm" title="Cancel pending/running hosts"><svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path d="M10 10l4 4m0-4l-4 4M12 22a10 10 0 100-20 10 10 0 000 20z" stroke-width="2.3" stroke-linecap="round" stroke-linejoin="round"/></svg></button>` : ''}
-                    ${infraPermissions.cleanup_tasks ? `<button onclick="event.stopPropagation(); deleteJob('${escapeInlineJs(j.job_id)}')" class="queue-action-btn p-3 border rounded-2xl transition-colors shadow-sm" title="Delete job"><svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" stroke-width="2.5"/></svg></button>` : ''}
+                    ${infraPermissions.delete_tasks ? `<button onclick="event.stopPropagation(); deleteJob('${escapeInlineJs(j.job_id)}')" class="queue-action-btn p-3 border rounded-2xl transition-colors shadow-sm" title="Delete job"><svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" stroke-width="2.5"/></svg></button>` : ''}
                 </div>
             </td>`;
         }
@@ -5455,6 +5455,18 @@ async function openGroupFullView(id) {
 
     document.getElementById('gdPageName').innerText = data.data.name;
     currentGroupNonMembers = data.data.non_members || [];
+    const groupCapabilities = data.data.capabilities || {};
+    const manageGroupMembers = !!groupCapabilities.manage_groups;
+    [
+        ['gdBlockGroupBtn', !!groupCapabilities.manage_hosts],
+        ['gdUnblockGroupBtn', !!groupCapabilities.manage_hosts],
+        ['gdDeleteGroupBtn', !!groupCapabilities.delete_groups],
+        ['gdAddHostsBtn', manageGroupMembers],
+        ['gdMemberActionsHeader', manageGroupMembers],
+    ].forEach(([elementId, visible]) => {
+        const element = document.getElementById(elementId);
+        if (element) element.classList.toggle('hidden', !visible);
+    });
 
     document.getElementById('groupHostsBody').innerHTML = data.data.members.map(m => `
         <tr class="hover:bg-slate-50/80 transition-colors">
@@ -5466,7 +5478,7 @@ async function openGroupFullView(id) {
                 <div class="text-[10px] font-black uppercase tracking-widest text-slate-400 mb-1">${escapeHtml(m.os_type)}</div>
                 <div class="text-sm font-bold text-slate-600">${escapeHtml(m.ip)}</div>
             </td>
-            ${infraPermissions.manage_groups ? `<td class="px-10 py-5 text-right"><button onclick="removeHostFromGroup('${escapeInlineJs(m.id)}')" class="px-4 py-2 bg-white text-rose-500 border border-slate-200 hover:bg-rose-50 rounded-xl text-xs font-black uppercase transition-all shadow-sm">Remove</button></td>` : ''}
+            ${manageGroupMembers ? `<td class="px-10 py-5 text-right"><button onclick="removeHostFromGroup('${escapeInlineJs(m.id)}')" class="px-4 py-2 bg-white text-rose-500 border border-slate-200 hover:bg-rose-50 rounded-xl text-xs font-black uppercase transition-all shadow-sm">Remove</button></td>` : ''}
         </tr>`).join('') || '<tr><td colspan="3" class="p-16 text-center text-slate-300 font-black uppercase tracking-widest text-sm">No hosts in this group</td></tr>';
 
     switchView('group-detail');

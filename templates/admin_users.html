@@ -169,15 +169,15 @@
 
 <!-- Modals Configuration matching sleek style -->
 <div id="editModal" class="fixed inset-0 z-50 hidden bg-slate-900/60 backdrop-blur-md flex justify-center items-center p-4 animate-in fade-in">
-    <div class="bg-white rounded-[3rem] p-10 w-full max-w-5xl shadow-2xl relative max-h-[90vh] overflow-y-auto custom-scrollbar">
+    <div class="bg-white rounded-[3rem] p-6 lg:p-8 w-full max-w-[1600px] h-[94vh] shadow-2xl relative flex flex-col overflow-hidden">
         <button onclick="toggleModal('edit', false)" class="absolute top-6 right-6 text-slate-400 hover:text-slate-600 bg-slate-50 hover:bg-slate-100 p-2 rounded-xl transition-colors"><svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M6 18L18 6M6 6l12 12"></path></svg></button>
         <h3 class="text-2xl font-black text-slate-800 mb-2 uppercase tracking-tight">Edit Access</h3>
-        <p class="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-6" id="editUsernameLabel">User Name</p>
+        <p class="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-4" id="editUsernameLabel">User Name</p>
 
         <input type="hidden" id="editUserId">
-        <div class="mb-6">
-            <h4 class="text-[10px] font-black text-indigo-600 uppercase tracking-widest mb-2">User Type</h4>
-            <select id="editRolePreset" onchange="applyRolePresetToAccess(this.value)" class="w-full p-4 bg-slate-50 border border-slate-200 rounded-2xl text-sm font-bold focus:bg-white focus:ring-4 focus:ring-indigo-500/10 outline-none transition-all">
+        <div class="mb-4 flex flex-col lg:flex-row lg:items-center gap-3 shrink-0">
+            <h4 class="text-[10px] font-black text-indigo-600 uppercase tracking-widest">Global role preset</h4>
+            <select id="editRolePreset" onchange="applyRolePresetToAccess(this.value)" class="w-full lg:w-96 p-3 bg-slate-50 border border-slate-200 rounded-2xl text-sm font-bold focus:bg-white focus:ring-4 focus:ring-indigo-500/10 outline-none transition-all">
                 <option value="custom">Custom permissions</option>
                 <option value="viewer">Viewer</option>
                 <option value="operator">Operator</option>
@@ -186,19 +186,36 @@
                 <option value="software_manager">Software Manager</option>
                 <option value="infrastructure_admin">Endpoint Management Admin</option>
             </select>
+            <p class="text-xs font-bold text-slate-400">An action works only when it is enabled both globally and for the target group.</p>
         </div>
-        <div class="grid grid-cols-1 md:grid-cols-3 gap-8">
-            <div class="space-y-4">
-                <h4 class="text-[10px] font-black text-indigo-600 uppercase tracking-widest">Allowed Modules</h4>
-                <div id="modulesContainer" class="space-y-2 max-h-60 overflow-y-auto custom-scrollbar pr-2"></div>
-            </div>
-            <div class="space-y-4">
-                <h4 class="text-[10px] font-black text-indigo-600 uppercase tracking-widest">Allowed Host Groups</h4>
-                <div id="groupsContainer" class="space-y-2 max-h-60 overflow-y-auto custom-scrollbar pr-2"></div>
-            </div>
+        <div class="grid grid-cols-1 xl:grid-cols-[390px_minmax(0,1fr)] gap-5 flex-1 min-h-0">
+            <section class="bg-slate-50 border border-slate-200 rounded-[2rem] p-5 flex flex-col min-h-0">
+                <div class="mb-4">
+                    <h4 class="text-xs font-black text-indigo-600 uppercase tracking-widest">1. Global permissions</h4>
+                    <p class="text-xs text-slate-500 font-bold mt-1">Controls which features the account can use anywhere.</p>
+                </div>
+                <div id="modulesContainer" class="space-y-3 overflow-y-auto custom-scrollbar pr-2 flex-1"></div>
+            </section>
+
+            <section class="bg-white border border-slate-200 rounded-[2rem] p-5 flex flex-col min-h-0 shadow-sm">
+                <div class="flex flex-col 2xl:flex-row 2xl:items-center justify-between gap-3 mb-4 shrink-0">
+                    <div>
+                        <h4 class="text-xs font-black text-indigo-600 uppercase tracking-widest">2. Permissions by host group</h4>
+                        <p id="groupAccessSummary" class="text-xs text-slate-500 font-bold mt-1">No groups selected.</p>
+                    </div>
+                    <div class="flex flex-wrap items-center gap-2">
+                        <input id="groupAccessSearch" oninput="filterGroupAccess()" type="search" placeholder="Search groups..." class="w-full sm:w-56 px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-bold outline-none focus:ring-4 focus:ring-indigo-500/10">
+                        <button type="button" onclick="applyAllGroupPreset('read')" class="px-3 py-2.5 bg-sky-50 text-sky-700 border border-sky-100 rounded-xl text-[10px] font-black uppercase">All: Read</button>
+                        <button type="button" onclick="applyAllGroupPreset('operator')" class="px-3 py-2.5 bg-indigo-50 text-indigo-700 border border-indigo-100 rounded-xl text-[10px] font-black uppercase">All: Operator</button>
+                        <button type="button" onclick="applyAllGroupPreset('full')" class="px-3 py-2.5 bg-emerald-50 text-emerald-700 border border-emerald-100 rounded-xl text-[10px] font-black uppercase">All: Full</button>
+                        <button type="button" onclick="applyAllGroupPreset('clear')" class="px-3 py-2.5 bg-rose-50 text-rose-600 border border-rose-100 rounded-xl text-[10px] font-black uppercase">Clear</button>
+                    </div>
+                </div>
+                <div id="groupAccessContainer" class="space-y-4 overflow-y-auto custom-scrollbar pr-2 flex-1"></div>
+            </section>
         </div>
 
-        <div class="mt-8 flex justify-end gap-4">
+        <div class="mt-5 pt-4 border-t border-slate-100 flex justify-end gap-4 shrink-0">
             <button onclick="toggleModal('edit', false)" class="px-6 py-4 text-slate-500 font-black uppercase text-xs hover:bg-slate-50 rounded-2xl transition-colors">Cancel</button>
             <button onclick="saveUserAccess()" class="px-8 py-4 bg-indigo-600 hover:bg-indigo-700 text-white rounded-2xl text-xs font-black uppercase shadow-lg transition-all">Save Changes</button>
         </div>
@@ -416,6 +433,7 @@ $StaticPassword = "{{secret:local_admin_password}}"
 <script nonce="{{ csp_nonce }}">
     let sysModules = [];
     let sysGroups = [];
+    let sysGroupPermissions = [];
     let currentUsersById = new Map();
     let currentApiKeysById = new Map();
     let currentTab = 'users';
@@ -427,44 +445,65 @@ $StaticPassword = "{{secret:local_admin_password}}"
             label: 'Viewer',
             admin: false,
             modules: [
-                'Infrastructure:view',
-                'HistoryAudit:view'
+                'Infrastructure:view_hosts', 'Infrastructure:view_groups',
+                'Infrastructure:view_queue', 'Infrastructure:view_reports',
+                'HistoryAudit:view_history'
             ]
         },
         operator: {
             label: 'Operator',
             admin: false,
             modules: [
-                'Infrastructure:view', 'Infrastructure:change'
+                'Infrastructure:view_hosts', 'Infrastructure:view_groups',
+                'Infrastructure:view_queue', 'Infrastructure:view_reports',
+                'Infrastructure:run_tasks', 'Infrastructure:send_reports',
+                'HistoryAudit:view_history'
             ]
         },
         template_engineer: {
             label: 'Template Engineer',
             admin: false,
             modules: [
-                'Infrastructure:view', 'Infrastructure:change'
+                'Infrastructure:view_hosts', 'Infrastructure:view_groups',
+                'Infrastructure:view_queue', 'Infrastructure:view_reports',
+                'Infrastructure:run_tasks', 'Infrastructure:manage_templates',
+                'HistoryAudit:view_history'
             ]
         },
         group_manager: {
             label: 'Group Manager',
             admin: false,
             modules: [
-                'Infrastructure:view', 'Infrastructure:change'
+                'Infrastructure:view_hosts', 'Infrastructure:view_groups',
+                'Infrastructure:view_queue', 'Infrastructure:view_reports',
+                'Infrastructure:run_tasks', 'Infrastructure:manage_groups',
+                'HistoryAudit:view_history'
             ]
         },
         software_manager: {
             label: 'Software Manager',
             admin: false,
             modules: [
-                'Infrastructure:view', 'Infrastructure:change'
+                'Infrastructure:view_hosts', 'Infrastructure:view_groups',
+                'Infrastructure:view_queue', 'Infrastructure:view_reports',
+                'Infrastructure:run_tasks', 'Infrastructure:manage_software',
+                'HistoryAudit:view_history'
             ]
         },
         infrastructure_admin: {
             label: 'Endpoint Management Admin',
             admin: false,
             modules: [
-                'Infrastructure:view', 'Infrastructure:change', 'Infrastructure:delete',
-                'HistoryAudit:view'
+                'Infrastructure:view_hosts', 'Infrastructure:view_groups',
+                'Infrastructure:view_queue', 'Infrastructure:view_reports',
+                'Infrastructure:edit_reports', 'Infrastructure:dismiss_reports',
+                'Infrastructure:delete_reports', 'Infrastructure:delete_tasks',
+                'Infrastructure:run_tasks', 'Infrastructure:manage_software',
+                'Infrastructure:send_reports', 'Infrastructure:manage_templates',
+                'Infrastructure:manage_smtp', 'Infrastructure:manage_scheduler',
+                'Infrastructure:manage_triggers', 'Infrastructure:manage_hosts',
+                'Infrastructure:delete_hosts', 'Infrastructure:manage_groups',
+                'Infrastructure:delete_groups', 'HistoryAudit:view_history'
             ]
         },
         system_admin: {
@@ -478,7 +517,8 @@ $StaticPassword = "{{secret:local_admin_password}}"
         Infrastructure: {
             view: ['view_hosts', 'view_groups', 'view_queue', 'view_reports'],
             change: ['run_tasks', 'edit_reports', 'dismiss_reports', 'send_reports', 'manage_software', 'manage_templates', 'manage_smtp', 'manage_scheduler', 'manage_triggers', 'manage_groups'],
-            delete: ['delete_reports', 'cleanup_tasks', 'manage_hosts'],
+            delete: ['delete_reports', 'delete_tasks', 'delete_hosts', 'delete_groups'],
+            cleanup_tasks: ['delete_tasks'],
             scheduler: ['manage_scheduler']
         },
         Newsletter: {
@@ -508,35 +548,44 @@ $StaticPassword = "{{secret:local_admin_password}}"
         return JSON.stringify(sortedTokens(a)) === JSON.stringify(sortedTokens(b));
     }
 
-    function normalizeSimpleTokens(tokens) {
+    const explicitOnlyPermissions = new Set([
+        'Infrastructure:view_sensitive_reports',
+        'Infrastructure:delete_reports',
+        'Infrastructure:delete_tasks',
+        'Infrastructure:delete_hosts',
+        'Infrastructure:delete_groups'
+    ]);
+
+    function normalizePermissionTokens(tokens) {
         const selected = new Set(tokens || []);
         const normalized = new Set();
         for (const token of selected) {
             const value = String(token);
             if (!value.includes(':')) {
-                normalized.add(value);
+                const moduleInfo = sysModules.find(moduleItem => moduleItem.id === value);
+                if (moduleInfo && (moduleInfo.permissions || []).length) {
+                    moduleInfo.permissions.forEach(permission => {
+                        const permissionToken = `${value}:${permission.id}`;
+                        if (!explicitOnlyPermissions.has(permissionToken)) normalized.add(permissionToken);
+                    });
+                } else {
+                    normalized.add(value);
+                }
                 continue;
             }
             const [moduleId, permissionId] = value.split(':');
             if (simplePermissionAliases[moduleId] && Object.prototype.hasOwnProperty.call(simplePermissionAliases[moduleId], permissionId)) {
+                simplePermissionAliases[moduleId][permissionId].forEach(id => normalized.add(`${moduleId}:${id}`));
+            } else {
                 normalized.add(value);
             }
         }
-        Object.entries(simplePermissionAliases).forEach(([moduleId, aliases]) => {
-            Object.entries(aliases).forEach(([aliasId, required]) => {
-                if (selected.has(`${moduleId}:${aliasId}`)) {
-                    normalized.add(`${moduleId}:${aliasId}`);
-                } else if (required.length && required.every(permissionId => selected.has(`${moduleId}:${permissionId}`))) {
-                    normalized.add(`${moduleId}:${aliasId}`);
-                }
-            });
-        });
         return Array.from(normalized);
     }
 
     function userTypeLabel(user) {
         if (user.is_admin) return rolePresets.system_admin.label;
-        const allowed = normalizeSimpleTokens(user.allowed_modules || []);
+        const allowed = normalizePermissionTokens(user.allowed_modules || []);
         for (const key of ['infrastructure_admin', 'software_manager', 'group_manager', 'template_engineer', 'operator', 'viewer']) {
             if (tokensMatch(allowed, rolePresets[key].modules)) return rolePresets[key].label;
         }
@@ -565,7 +614,7 @@ $StaticPassword = "{{secret:local_admin_password}}"
     }
 
     function renderApiPermissionPicker(selected = [], containerId = 'apiPermissionsContainer') {
-        const selectedSet = new Set(normalizeSimpleTokens(selected));
+        const selectedSet = new Set(normalizePermissionTokens(selected));
         const container = document.getElementById(containerId);
         container.innerHTML = sysModules.map(m => `
             <div class="p-4 bg-slate-50 border border-slate-200 rounded-2xl">
@@ -882,12 +931,30 @@ $StaticPassword = "{{secret:local_admin_password}}"
         }
     }
 
+    async function fetchAllAdminGroups() {
+        const groups = [];
+        let page = 1;
+        let pages = 1;
+        do {
+            const response = await fetch(`/api/admin/groups?page=${page}&per_page=500`);
+            const data = await response.json();
+            if (!response.ok || !data.success) throw new Error(data.message || 'Failed loading groups');
+            groups.push(...(data.groups || []));
+            pages = Math.max(1, Number(data.pages) || 1);
+            page += 1;
+        } while (page <= pages);
+        return groups;
+    }
+
     async function fetchData() {
         try {
-            const [mRes, gRes] = await Promise.all([fetch('/api/admin/modules'), fetch('/api/admin/groups')]);
-            const mData = await mRes.json(); const gData = await gRes.json();
-            if(mData.success) sysModules = mData.modules;
-            if(gData.success) sysGroups = gData.groups;
+            const [mRes, groups] = await Promise.all([fetch('/api/admin/modules'), fetchAllAdminGroups()]);
+            const mData = await mRes.json();
+            if(mData.success) {
+                sysModules = mData.modules;
+                sysGroupPermissions = mData.group_permissions || [];
+            }
+            sysGroups = groups;
         } catch (e) { console.error("Failed loading sys data"); }
     }
 
@@ -1025,10 +1092,144 @@ $StaticPassword = "{{secret:local_admin_password}}"
         }
     }
 
+    const groupAccessPresets = {
+        read: ['view_hosts', 'view_groups', 'view_queue', 'view_reports'],
+        operator: ['view_hosts', 'view_groups', 'view_queue', 'view_reports', 'run_tasks', 'send_reports'],
+    };
+
+    function groupActionCheckboxes(groupId) {
+        return Array.from(document.querySelectorAll('.group-action-cb')).filter(cb => cb.dataset.groupId === String(groupId));
+    }
+
+    function groupScopeCheckbox(groupId) {
+        return Array.from(document.querySelectorAll('.group-scope-cb')).find(cb => cb.value === String(groupId));
+    }
+
+    function renderGroupAccess(user) {
+        const container = document.getElementById('groupAccessContainer');
+        const accessMap = user.group_access || Object.fromEntries(
+            (user.allowed_groups || []).map(groupId => [String(groupId), sysGroupPermissions.map(permission => permission.id)])
+        );
+        const categories = [...new Set(sysGroupPermissions.map(permission => permission.category || 'Other'))];
+        const categoryTone = {
+            Visibility: 'bg-sky-50 text-sky-700 border-sky-100',
+            Operations: 'bg-indigo-50 text-indigo-700 border-indigo-100',
+            Management: 'bg-amber-50 text-amber-700 border-amber-100',
+            Deletion: 'bg-rose-50 text-rose-700 border-rose-100'
+        };
+
+        container.innerHTML = sysGroups.map(group => {
+            const groupId = String(group.id);
+            const selected = new Set(accessMap[groupId] || []);
+            const enabled = Object.prototype.hasOwnProperty.call(accessMap, groupId);
+            return `
+                <article class="group-access-card border border-slate-200 rounded-2xl p-4 transition-all ${enabled ? 'bg-white shadow-sm' : 'bg-slate-50/70 opacity-60'}" style="content-visibility:auto; contain-intrinsic-size:0 330px" data-group-name="${escapeHtml(String(group.name || '').toLowerCase())}" data-group-id="${escapeHtml(groupId)}">
+                    <div class="flex flex-col lg:flex-row lg:items-center justify-between gap-3 mb-4">
+                        <label class="flex items-center gap-3 cursor-pointer min-w-0">
+                            <input type="checkbox" value="${escapeHtml(groupId)}" class="group-scope-cb w-5 h-5 text-indigo-600 rounded border-slate-300 focus:ring-indigo-500" ${enabled ? 'checked' : ''} onchange="toggleGroupAccess('${escapeInlineJs(groupId)}', this.checked, true)">
+                            <span class="font-black text-slate-800 truncate">${escapeHtml(group.name)}</span>
+                        </label>
+                        <div class="flex flex-wrap gap-2">
+                            <button type="button" onclick="applyGroupPreset('${escapeInlineJs(groupId)}', 'read')" class="px-3 py-1.5 rounded-lg bg-sky-50 text-sky-700 text-[9px] font-black uppercase">Read</button>
+                            <button type="button" onclick="applyGroupPreset('${escapeInlineJs(groupId)}', 'operator')" class="px-3 py-1.5 rounded-lg bg-indigo-50 text-indigo-700 text-[9px] font-black uppercase">Operator</button>
+                            <button type="button" onclick="applyGroupPreset('${escapeInlineJs(groupId)}', 'full')" class="px-3 py-1.5 rounded-lg bg-emerald-50 text-emerald-700 text-[9px] font-black uppercase">Full</button>
+                            <button type="button" onclick="applyGroupPreset('${escapeInlineJs(groupId)}', 'clear')" class="px-3 py-1.5 rounded-lg bg-rose-50 text-rose-600 text-[9px] font-black uppercase">Clear</button>
+                        </div>
+                    </div>
+                    <div class="grid grid-cols-1 md:grid-cols-2 2xl:grid-cols-4 gap-3">
+                        ${categories.map(category => `
+                            <div class="border border-slate-100 rounded-xl p-3 bg-slate-50/60">
+                                <span class="inline-flex px-2 py-1 rounded-lg border text-[9px] font-black uppercase tracking-wider mb-2 ${categoryTone[category] || 'bg-slate-100 text-slate-600 border-slate-200'}">${escapeHtml(category)}</span>
+                                <div class="space-y-2">
+                                    ${sysGroupPermissions.filter(permission => (permission.category || 'Other') === category).map(permission => `
+                                        <label class="group-action-label flex items-start gap-2 cursor-pointer text-xs font-bold text-slate-600" data-action-id="${escapeHtml(permission.id)}">
+                                            <input type="checkbox" class="group-action-cb mt-0.5 w-4 h-4 text-indigo-600 rounded border-slate-300 focus:ring-indigo-500" data-group-id="${escapeHtml(groupId)}" data-action-id="${escapeHtml(permission.id)}" ${selected.has(permission.id) ? 'checked' : ''} ${enabled ? '' : 'disabled'} onchange="updateGroupAccessSummary()">
+                                            <span>${escapeHtml(permission.name)}</span>
+                                        </label>
+                                    `).join('')}
+                                </div>
+                            </div>
+                        `).join('')}
+                    </div>
+                </article>
+            `;
+        }).join('') || '<div class="p-10 text-center text-slate-400 font-bold">No host groups available.</div>';
+        document.getElementById('groupAccessSearch').value = '';
+        refreshGroupGlobalHints();
+        updateGroupAccessSummary();
+    }
+
+    function toggleGroupAccess(groupId, enabled, seedDefaults = false) {
+        const card = Array.from(document.querySelectorAll('.group-access-card')).find(item => item.dataset.groupId === String(groupId));
+        if (card) {
+            card.classList.toggle('opacity-60', !enabled);
+            card.classList.toggle('bg-slate-50/70', !enabled);
+            card.classList.toggle('bg-white', enabled);
+        }
+        const actions = groupActionCheckboxes(groupId);
+        actions.forEach(cb => cb.disabled = !enabled);
+        if (enabled && seedDefaults && !actions.some(cb => cb.checked)) {
+            const defaults = new Set(groupAccessPresets.read);
+            actions.forEach(cb => cb.checked = defaults.has(cb.dataset.actionId));
+        }
+        updateGroupAccessSummary();
+    }
+
+    function applyGroupPreset(groupId, presetName) {
+        const scope = groupScopeCheckbox(groupId);
+        const actions = groupActionCheckboxes(groupId);
+        if (!scope) return;
+        if (presetName === 'clear') {
+            scope.checked = false;
+            actions.forEach(cb => cb.checked = false);
+            toggleGroupAccess(groupId, false);
+            return;
+        }
+        scope.checked = true;
+        const selected = presetName === 'full'
+            ? new Set(sysGroupPermissions.map(permission => permission.id))
+            : new Set(groupAccessPresets[presetName] || []);
+        actions.forEach(cb => cb.checked = selected.has(cb.dataset.actionId));
+        toggleGroupAccess(groupId, true);
+        refreshGroupGlobalHints();
+    }
+
+    function applyAllGroupPreset(presetName) {
+        sysGroups.forEach(group => applyGroupPreset(String(group.id), presetName));
+    }
+
+    function filterGroupAccess() {
+        const term = String(document.getElementById('groupAccessSearch').value || '').trim().toLowerCase();
+        document.querySelectorAll('.group-access-card').forEach(card => {
+            card.classList.toggle('hidden', !!term && !String(card.dataset.groupName || '').includes(term));
+        });
+    }
+
+    function refreshGroupGlobalHints() {
+        const globalTokens = new Set(Array.from(document.querySelectorAll('.perm-cb:checked')).map(cb => cb.value));
+        document.querySelectorAll('.group-action-label').forEach(label => {
+            const globallyEnabled = globalTokens.has(`Infrastructure:${label.dataset.actionId}`);
+            label.classList.toggle('text-slate-400', !globallyEnabled);
+            label.classList.toggle('text-slate-600', globallyEnabled);
+            label.title = globallyEnabled ? '' : 'Enable the matching global Infrastructure permission too.';
+        });
+    }
+
+    function updateGroupAccessSummary() {
+        const selectedGroups = Array.from(document.querySelectorAll('.group-scope-cb:checked'));
+        const selectedActions = selectedGroups.reduce((total, scope) => (
+            total + groupActionCheckboxes(scope.value).filter(cb => cb.checked).length
+        ), 0);
+        const summary = document.getElementById('groupAccessSummary');
+        if (summary) summary.innerText = selectedGroups.length
+            ? `${selectedGroups.length} group(s), ${selectedActions} action grant(s)`
+            : 'No groups selected.';
+    }
+
     function openEditModal(user) {
         document.getElementById('editUserId').value = user.id;
         document.getElementById('editUsernameLabel').innerText = user.username;
-        const normalizedUserModules = normalizeSimpleTokens(user.allowed_modules || []);
+        const normalizedUserModules = normalizePermissionTokens(user.allowed_modules || []);
         document.getElementById('editRolePreset').value = Object.entries(rolePresets).find(([key, preset]) => !preset.admin && tokensMatch(normalizedUserModules, preset.modules))?.[0] || 'custom';
 
         const mCont = document.getElementById('modulesContainer');
@@ -1044,7 +1245,7 @@ $StaticPassword = "{{secret:local_admin_password}}"
                             const token = `${m.id}:${p.id}`;
                             return `
                                 <label class="flex items-center gap-2 cursor-pointer">
-                                    <input type="checkbox" value="${escapeHtml(token)}" class="perm-cb perm-${escapeHtml(m.id)} w-3.5 h-3.5 text-indigo-600 rounded border-slate-300 focus:ring-indigo-500" ${normalizedUserModules.includes(token) ? 'checked' : ''}>
+                                    <input type="checkbox" value="${escapeHtml(token)}" class="perm-cb perm-${escapeHtml(m.id)} w-3.5 h-3.5 text-indigo-600 rounded border-slate-300 focus:ring-indigo-500" ${normalizedUserModules.includes(token) ? 'checked' : ''} onchange="refreshGroupGlobalHints()">
                                     <span class="text-xs font-bold text-slate-500">${escapeHtml(p.name)}</span>
                                 </label>
                             `;
@@ -1054,13 +1255,7 @@ $StaticPassword = "{{secret:local_admin_password}}"
             </div>
         `).join('');
 
-        const gCont = document.getElementById('groupsContainer');
-        gCont.innerHTML = sysGroups.map(g => `
-            <label class="flex items-center gap-3 p-3 bg-slate-50 border border-slate-200 hover:bg-slate-100 rounded-xl cursor-pointer transition-colors">
-                <input type="checkbox" value="${escapeHtml(g.id)}" class="grp-cb w-4 h-4 text-indigo-600 rounded border-slate-300 focus:ring-indigo-500" ${user.allowed_groups.includes(g.id) ? 'checked' : ''}>
-                <span class="text-sm font-bold text-slate-700">${escapeHtml(g.name)}</span>
-            </label>
-        `).join('');
+        renderGroupAccess(user);
 
         toggleModal('edit', true);
     }
@@ -1082,6 +1277,7 @@ $StaticPassword = "{{secret:local_admin_password}}"
         document.querySelectorAll('.perm-cb').forEach(cb => {
             cb.checked = selected.has(cb.value);
         });
+        refreshGroupGlobalHints();
     }
 
     function selectedHasModulePermissions(selected, moduleId) {
@@ -1092,6 +1288,7 @@ $StaticPassword = "{{secret:local_admin_password}}"
         const block = document.getElementById('permBlock_' + moduleId);
         if(block) block.classList.toggle('hidden', !enabled);
         document.querySelectorAll('.perm-' + moduleId).forEach(cb => cb.checked = enabled);
+        refreshGroupGlobalHints();
     }
 
     async function saveUserAccess() {
@@ -1104,13 +1301,18 @@ $StaticPassword = "{{secret:local_admin_password}}"
                 return !moduleInfo || !(moduleInfo.permissions || []).length;
             });
         const mods = [...moduleOnly, ...permTokens];
-        const grps = Array.from(document.querySelectorAll('.grp-cb:checked')).map(cb => cb.value);
+        const groupAccess = Array.from(document.querySelectorAll('.group-scope-cb:checked')).map(scope => ({
+            group_id: scope.value,
+            permissions: groupActionCheckboxes(scope.value).filter(cb => cb.checked).map(cb => cb.dataset.actionId)
+        }));
 
         try {
-            await fetch('/api/admin/users/' + id, {
+            const response = await fetch('/api/admin/users/' + id, {
                 method: 'PUT', headers: {'Content-Type': 'application/json'},
-                body: JSON.stringify({ allowed_modules: mods, allowed_groups: grps })
+                body: JSON.stringify({ allowed_modules: mods, group_access: groupAccess })
             });
+            const data = await response.json();
+            if (!data.success) return alert(data.message || 'Save failed');
             toggleModal('edit', false);
             fetchUsers();
         } catch(e) { alert("Save failed"); }
@@ -1197,8 +1399,8 @@ $StaticPassword = "{{secret:local_admin_password}}"
         if(currentTab === 'users') fetchUsers(); else fetchApiKeys();
     }
 
-    window.onload = () => {
-        fetchData();
+    window.onload = async () => {
+        await fetchData();
         switchTab('users');
         updateAdminTabArrows();
         document.getElementById('adminTabsScroller')?.addEventListener('scroll', updateAdminTabArrows);

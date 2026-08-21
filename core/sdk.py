@@ -6,11 +6,17 @@ from flask import g, has_request_context, request, session
 from sqlalchemy.exc import PendingRollbackError
 from core.database import db, User, Endpoint, EndpointGroup, AgentTask, TaskTemplate, AuditLog
 from core.security import sec_manager
-from core.permissions import request_api_group_scope
+from core.permissions import has_permission, request_api_group_scope
+from core.group_access import allowed_group_ids_for_action, allowed_host_ids_for_action
 from core.report_renderer_client import render_report_template
 from core.template_security import template_approval_valid
 
 class WinHubCore:
+    @staticmethod
+    def request_user(user_id):
+        cached_user = getattr(g, "infrastructure_current_user", None) if has_request_context() else None
+        return cached_user if getattr(cached_user, "id", None) == user_id else User.query.get(user_id)
+
     @staticmethod
     def audit(
         user_id=None,
@@ -27,10 +33,10 @@ class WinHubCore:
     ):
         if not username and user_id:
             try:
-                user = User.query.get(user_id)
+                user = WinHubCore.request_user(user_id)
             except PendingRollbackError:
                 db.session.rollback()
-                user = User.query.get(user_id)
+                user = WinHubCore.request_user(user_id)
             username = user.username if user else None
         if has_request_context():
             username = username or session.get("username")
@@ -73,59 +79,63 @@ class WinHubCore:
         return entry
 
     @staticmethod
-    def get_allowed_hosts(user_id: int) -> List[Endpoint]:
-        user = User.query.get(user_id)
-        if not user: return []
-        api_group_ids = request_api_group_scope()
-        if api_group_ids is not None:
-            if not api_group_ids:
-                return []
-            return Endpoint.query.join(Endpoint.groups).filter(
-                EndpointGroup.id.in_(api_group_ids),
-                Endpoint.approval_status == "Approved"
-            ).distinct().all()
-        if user.is_admin: return Endpoint.query.all()
-
-        allowed_hosts = set()
-        for group in user.allowed_host_groups:
-            for host in group.endpoints:
-                if getattr(host, "approval_status", "Approved") == "Approved":
-                    allowed_hosts.add(host)
-        return list(allowed_hosts)
+    def get_allowed_hosts(user_id: int, action_id: str = "view_hosts") -> List[Endpoint]:
+        user = WinHubCore.request_user(user_id)
+        if not user or not has_permission(user, "Infrastructure", action_id):
+            return []
+        approved_only = not (user.is_admin and request_api_group_scope() is None)
+        host_ids = allowed_host_ids_for_action(user, action_id, approved_only=approved_only)
+        if not host_ids:
+            return []
+        return Endpoint.query.filter(Endpoint.id.in_(host_ids)).all()
 
     @staticmethod
-    def get_allowed_groups(user_id: int) -> List[EndpointGroup]:
-        user = User.query.get(user_id)
-        if not user: return []
-        api_group_ids = request_api_group_scope()
-        if api_group_ids is not None:
-            if not api_group_ids:
-                return []
-            return EndpointGroup.query.filter(EndpointGroup.id.in_(api_group_ids)).order_by(EndpointGroup.name).all()
-        if user.is_admin: return EndpointGroup.query.all()
-        return list(user.allowed_host_groups)
+    def get_allowed_groups(user_id: int, action_id: str = "view_groups") -> List[EndpointGroup]:
+        user = WinHubCore.request_user(user_id)
+        if not user or not has_permission(user, "Infrastructure", action_id):
+            return []
+        group_ids = allowed_group_ids_for_action(user, action_id)
+        if not group_ids:
+            return []
+        return EndpointGroup.query.filter(EndpointGroup.id.in_(group_ids)).order_by(EndpointGroup.name).all()
 
     @staticmethod
-    def can_manage_host(user_id: int, host_id: str) -> bool:
-        user = User.query.get(user_id)
-        if not user: return False
-        host = Endpoint.query.get(host_id)
-        if not host: return False
-        api_group_ids = request_api_group_scope()
-        if api_group_ids is not None:
-            if not api_group_ids:
-                return False
-            return getattr(host, "approval_status", "Approved") == "Approved" and any(group.id in api_group_ids for group in host.groups)
-        if user.is_admin: return True
-        if getattr(host, "approval_status", "Approved") != "Approved":
-            return False
-        for group in user.allowed_host_groups:
-            if host in group.endpoints: return True
-        return False
+    def can_manage_host(user_id: int, host_id: str, action_id: str = "view_hosts") -> bool:
+        user = WinHubCore.request_user(user_id)
+        return bool(
+            user
+            and has_permission(user, "Infrastructure", action_id)
+            and str(host_id) in allowed_host_ids_for_action(
+                user,
+                action_id,
+                approved_only=not (user.is_admin and request_api_group_scope() is None),
+            )
+        )
+
+    @staticmethod
+    def authorized_target_ids(user_id: int, target_ids, action_id: str = "run_tasks") -> set:
+        """Resolve a target batch with one scoped query instead of N host checks."""
+        user = WinHubCore.request_user(user_id)
+        if not user or not has_permission(user, "Infrastructure", action_id):
+            return set()
+        requested_ids = list(dict.fromkeys(str(item) for item in (target_ids or []) if item))
+        if not requested_ids:
+            return set()
+
+        query = db.session.query(Endpoint.id).filter(
+            Endpoint.id.in_(requested_ids),
+            Endpoint.approval_status == "Approved",
+        )
+        group_ids = allowed_group_ids_for_action(user, action_id)
+        if not group_ids and not (user.is_admin and request_api_group_scope() is None):
+            return set()
+        if not (user.is_admin and request_api_group_scope() is None):
+            query = query.join(Endpoint.groups).filter(EndpointGroup.id.in_(group_ids)).distinct()
+        return {row[0] for row in query.all()}
 
     @staticmethod
     def dispatch_task(user_id: int, module_name: str, action: str, target_ids: list, payload: dict, title: str = "Automated Task") -> str:
-        user = User.query.get(user_id)
+        user = WinHubCore.request_user(user_id)
         if not user: raise PermissionError("Invalid user")
 
         report_template_id = payload.get("__report_template_id") if isinstance(payload, dict) else None
@@ -138,11 +148,7 @@ class WinHubCore:
         job_id = str(uuid.uuid4())
 
         requested_ids = list(dict.fromkeys(str(hid) for hid in target_ids if hid))
-        allowed_ids = {
-            host.id
-            for host in WinHubCore.get_allowed_hosts(user_id)
-            if getattr(host, "approval_status", "Approved") == "Approved"
-        }
+        allowed_ids = WinHubCore.authorized_target_ids(user_id, requested_ids)
 
         tasks = [
             AgentTask(

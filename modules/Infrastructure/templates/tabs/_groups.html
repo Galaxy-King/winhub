@@ -19,7 +19,7 @@
         <div class="wh-soft-panel bg-white p-8 rounded-[2.5rem] border border-slate-200 shadow-sm hover:border-indigo-300 hover:shadow-md transition-all cursor-pointer group/card flex flex-col" onclick="openGroupFullView('{{ group.id }}')">
             <div class="flex justify-between items-start mb-6">
                 <div class="w-14 h-14 bg-indigo-50 text-indigo-600 rounded-2xl flex items-center justify-center group-hover/card:scale-110 transition-transform"><svg class="w-7 h-7" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z" stroke-width="2"/></svg></div>
-                <span class="text-[10px] font-black text-indigo-600 bg-indigo-50 px-3 py-1.5 rounded-xl border border-indigo-100 uppercase tracking-widest">{{ group.endpoints|length }} Hosts</span>
+                <span class="text-[10px] font-black text-indigo-600 bg-indigo-50 px-3 py-1.5 rounded-xl border border-indigo-100 uppercase tracking-widest">{{ group.endpoint_count }} Hosts</span>
             </div>
             <h3 class="text-xl font-black text-slate-800 mb-2">{{ group.name }}</h3>
             <p class="text-sm text-slate-500 font-medium line-clamp-2">{{ group.description or 'No description' }}</p>
@@ -37,16 +37,20 @@
                 <div><h2 id="gdPageName" class="text-2xl font-black text-slate-800 uppercase tracking-tight">Group Name</h2></div>
             </div>
 
-            {% if permissions.manage_groups or permissions.manage_hosts %}
+            {% if permissions.manage_groups or permissions.manage_hosts or permissions.delete_groups %}
             <div class="flex flex-wrap gap-3 w-full sm:w-auto">
                 {% if permissions.manage_hosts %}
-                <button onclick="blockGroup('block')" class="flex-1 sm:flex-none px-6 py-3 bg-amber-50 text-amber-600 rounded-2xl text-xs font-black uppercase tracking-wider hover:bg-amber-100 transition-all border border-amber-200 shadow-sm">Block</button>
-                <button onclick="blockGroup('unblock')" class="flex-1 sm:flex-none px-6 py-3 bg-emerald-50 text-emerald-600 rounded-2xl text-xs font-black uppercase tracking-wider hover:bg-emerald-100 transition-all border border-emerald-200 shadow-sm">Unblock</button>
+                <button id="gdBlockGroupBtn" onclick="blockGroup('block')" class="flex-1 sm:flex-none px-6 py-3 bg-amber-50 text-amber-600 rounded-2xl text-xs font-black uppercase tracking-wider hover:bg-amber-100 transition-all border border-amber-200 shadow-sm">Block</button>
+                <button id="gdUnblockGroupBtn" onclick="blockGroup('unblock')" class="flex-1 sm:flex-none px-6 py-3 bg-emerald-50 text-emerald-600 rounded-2xl text-xs font-black uppercase tracking-wider hover:bg-emerald-100 transition-all border border-emerald-200 shadow-sm">Unblock</button>
+                {% endif %}
+                {% if permissions.manage_groups or permissions.delete_groups %}
+                <div class="hidden sm:block w-px bg-slate-200 mx-2"></div>
+                {% endif %}
+                {% if permissions.delete_groups %}
+                <button id="gdDeleteGroupBtn" onclick="deleteCurrentGroup()" class="flex-1 sm:flex-none px-6 py-3 bg-rose-50 text-rose-600 rounded-2xl text-xs font-black uppercase tracking-wider hover:bg-rose-100 transition-all border border-rose-200 shadow-sm">Delete Group</button>
                 {% endif %}
                 {% if permissions.manage_groups %}
-                <div class="hidden sm:block w-px bg-slate-200 mx-2"></div>
-                <button onclick="deleteCurrentGroup()" class="flex-1 sm:flex-none px-6 py-3 bg-rose-50 text-rose-600 rounded-2xl text-xs font-black uppercase tracking-wider hover:bg-rose-100 transition-all border border-rose-200 shadow-sm">Delete Group</button>
-                <button onclick="openAddHostsToGroupModal()" class="flex-1 sm:flex-none px-8 py-3 bg-indigo-600 text-white rounded-2xl text-xs font-black uppercase tracking-wider hover:bg-indigo-700 shadow-md transition-all">Add Hosts</button>
+                <button id="gdAddHostsBtn" onclick="openAddHostsToGroupModal()" class="flex-1 sm:flex-none px-8 py-3 bg-indigo-600 text-white rounded-2xl text-xs font-black uppercase tracking-wider hover:bg-indigo-700 shadow-md transition-all">Add Hosts</button>
                 {% endif %}
             </div>
             {% endif %}
@@ -59,7 +63,7 @@
                 <tr class="bg-slate-50/80 border-b border-slate-100 text-[10px] font-black text-slate-400 uppercase tracking-widest">
                     <th class="px-10 py-6">Hostname</th>
                     <th class="px-10 py-6">OS / IP Address</th>
-                    {% if permissions.manage_groups %}<th class="px-10 py-6 text-right">Actions</th>{% endif %}
+                    {% if permissions.manage_groups %}<th id="gdMemberActionsHeader" class="px-10 py-6 text-right">Actions</th>{% endif %}
                 </tr>
             </thead>
             <tbody class="divide-y divide-slate-50" id="groupHostsBody"></tbody>

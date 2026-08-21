@@ -1,6 +1,6 @@
 import json
 
-from flask import has_request_context, session
+from flask import g, has_request_context, session
 
 
 MODULE_INTERNAL_PERMISSION_CATALOG = {
@@ -12,10 +12,11 @@ MODULE_INTERNAL_PERMISSION_CATALOG = {
         {"id": "view_groups", "name": "View groups"},
         {"id": "view_queue", "name": "View task queue"},
         {"id": "view_reports", "name": "View reports"},
-        {"id": "view_sensitive_reports", "name": "View sensitive report values"},
+        {"id": "view_sensitive_reports", "name": "Reveal sensitive task/report values"},
         {"id": "edit_reports", "name": "Edit reports"},
         {"id": "dismiss_reports", "name": "Dismiss reports"},
         {"id": "delete_reports", "name": "Delete reports"},
+        {"id": "delete_tasks", "name": "Delete task history"},
         {"id": "run_tasks", "name": "Run approved templates"},
         {"id": "manage_software", "name": "Manage software packages"},
         {"id": "send_reports", "name": "Send reports by email"},
@@ -23,9 +24,10 @@ MODULE_INTERNAL_PERMISSION_CATALOG = {
         {"id": "manage_smtp", "name": "Manage SMTP profiles"},
         {"id": "manage_scheduler", "name": "Manage scheduler"},
         {"id": "manage_triggers", "name": "Manage triggers"},
-        {"id": "manage_hosts", "name": "Block/delete hosts"},
-        {"id": "manage_groups", "name": "Create/edit/delete groups"},
-        {"id": "cleanup_tasks", "name": "Cleanup task history"},
+        {"id": "manage_hosts", "name": "Edit/block hosts"},
+        {"id": "delete_hosts", "name": "Delete hosts"},
+        {"id": "manage_groups", "name": "Create/edit groups"},
+        {"id": "delete_groups", "name": "Delete groups"},
     ],
     "Newsletter": [
         {"id": "send_campaigns", "name": "Send mailings"},
@@ -86,8 +88,13 @@ PERMISSION_ALIASES = {
         },
         "delete": {
             "delete_reports",
-            "cleanup_tasks",
-            "manage_hosts",
+            "delete_tasks",
+            "delete_hosts",
+            "delete_groups",
+        },
+        # Compatibility for users that had the former exact cleanup permission.
+        "cleanup_tasks": {
+            "delete_tasks",
         },
         "scheduler": {
             "manage_scheduler",
@@ -113,6 +120,20 @@ PERMISSION_ALIASES = {
         "delete": {
             "manage_history",
         },
+    },
+}
+
+# A legacy module-wide grant (for example ``Infrastructure``) is convenient for
+# ordinary module actions, but must never silently grant secret disclosure or
+# destructive capabilities.  Those permissions require either their exact token,
+# a legacy action alias such as ``Infrastructure:delete``, or superadmin status.
+EXPLICIT_ONLY_PERMISSIONS = {
+    "Infrastructure": {
+        "view_sensitive_reports",
+        "delete_reports",
+        "delete_tasks",
+        "delete_hosts",
+        "delete_groups",
     },
 }
 
@@ -143,7 +164,26 @@ def module_tokens(allowed, module_id):
 def request_api_permissions():
     if not has_request_context() or not session.get("api_key_auth"):
         return None
-    return parse_allowed_modules(session.get("api_permissions"))
+    cached = getattr(g, "winhub_api_permissions", None)
+    if cached is not None:
+        return cached
+    parsed = parse_allowed_modules(session.get("api_permissions"))
+    g.winhub_api_permissions = parsed
+    return parsed
+
+
+def user_allowed_permissions(user):
+    raw = getattr(user, "allowed_modules", None)
+    if not has_request_context():
+        return parse_allowed_modules(raw)
+    cache = getattr(g, "winhub_user_permissions", None)
+    if not isinstance(cache, dict):
+        cache = {}
+        g.winhub_user_permissions = cache
+    cache_key = (getattr(user, "id", id(user)), str(raw or ""))
+    if cache_key not in cache:
+        cache[cache_key] = parse_allowed_modules(raw)
+    return cache[cache_key]
 
 
 def request_api_group_scope():
@@ -166,7 +206,7 @@ def has_module_access(user, module_id):
         return module_id in api_permissions or bool(module_tokens(api_permissions, module_id))
     if getattr(user, "is_admin", False):
         return True
-    allowed = parse_allowed_modules(getattr(user, "allowed_modules", None))
+    allowed = user_allowed_permissions(user)
     return module_id in allowed or bool(module_tokens(allowed, module_id))
 
 
@@ -180,15 +220,15 @@ def has_permission(user, module_id, permission_id):
     else:
         if getattr(user, "is_admin", False):
             return True
-        allowed = parse_allowed_modules(getattr(user, "allowed_modules", None))
+        allowed = user_allowed_permissions(user)
 
     token = permission_token(module_id, permission_id)
     tokens = module_tokens(allowed, module_id)
 
-    if module_id in allowed:
+    if token in allowed:
         return True
 
-    if token in allowed:
+    if module_id in allowed and permission_id not in EXPLICIT_ONLY_PERMISSIONS.get(module_id, set()):
         return True
 
     aliases = PERMISSION_ALIASES.get(module_id, {})
@@ -216,8 +256,6 @@ def user_permissions(user, module_id):
         return {}
     api_permissions = request_api_permissions()
     if api_permissions is not None:
-        if module_id in api_permissions:
-            return {permission_id: True for permission_id in all_permission_ids(module_id)}
         return {
             permission_id: has_permission(user, module_id, permission_id)
             for permission_id in all_permission_ids(module_id)
@@ -235,6 +273,14 @@ def permission_tokens_for_module(module_id):
         permission_token(module_id, permission["id"])
         for permission in MODULE_PERMISSION_CATALOG.get(module_id, [])
     ]
+
+
+def granular_permission_catalog(module_id):
+    """Permissions suitable for assignment in the UI and to API keys."""
+    return list(
+        MODULE_INTERNAL_PERMISSION_CATALOG.get(module_id)
+        or MODULE_PERMISSION_CATALOG.get(module_id, [])
+    )
 
 
 def all_permission_tokens_for_module(module_id):

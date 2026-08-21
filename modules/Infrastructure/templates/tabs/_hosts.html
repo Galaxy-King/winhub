@@ -235,7 +235,7 @@
                                 <button onclick="viewHost('{{ agent.id }}')" class="px-3 py-2 bg-white text-slate-600 border border-slate-200 rounded-xl text-[10px] font-black uppercase hover:bg-slate-50">Review</button>
                                 <button onclick="setHostApprovalQuick('{{ agent.id }}', 'Pending')" class="px-3 py-2 bg-amber-50 text-amber-700 border border-amber-100 rounded-xl text-[10px] font-black uppercase hover:bg-amber-100">To Pending</button>
                                 <button onclick="setHostApprovalQuick('{{ agent.id }}', 'Approved')" class="px-3 py-2 bg-emerald-600 text-white rounded-xl text-[10px] font-black uppercase hover:bg-emerald-700">Approve</button>
-                                <button onclick="deleteHostQuick('{{ agent.id }}')" class="px-3 py-2 bg-rose-600 text-white rounded-xl text-[10px] font-black uppercase hover:bg-rose-700">Delete</button>
+                                {% if permissions.delete_hosts %}<button onclick="deleteHostQuick('{{ agent.id }}')" class="px-3 py-2 bg-rose-600 text-white rounded-xl text-[10px] font-black uppercase hover:bg-rose-700">Delete</button>{% endif %}
                             </div>
                         </td>
                     </tr>
