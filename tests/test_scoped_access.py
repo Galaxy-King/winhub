@@ -122,7 +122,12 @@ class PerGroupPermissionTests(unittest.TestCase):
         from pathlib import Path
 
         source = Path("templates/admin_users.html").read_text(encoding="utf-8")
-        self.assertIn("max-w-[1600px] h-[94vh]", source)
+        self.assertIn('class="access-dialog ', source)
+        self.assertIn("height: calc(100dvh - 1rem)", source)
+        self.assertIn("#editModal .access-layout", source)
+        self.assertIn("overflow-y: auto", source)
+        self.assertIn("#editModal .group-access-card.is-disabled", source)
+        self.assertIn("#editModal .group-access-name", source)
         self.assertIn('id="groupAccessContainer"', source)
         self.assertIn("Permissions by host group", source)
         self.assertIn("group_access: groupAccess", source)
