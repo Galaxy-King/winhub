@@ -184,6 +184,36 @@ class TemplateCloneTests(unittest.TestCase):
         self.assertIn("'/deletion-impact'", javascript)
         self.assertIn("JSON.stringify({confirm_name: confirmation.value})", javascript)
 
+    def test_report_reader_keeps_large_responsive_body_and_reading_controls(self):
+        page = (ROOT / "modules/Infrastructure/templates/infrastructure_index.html").read_text(encoding="utf-8")
+        modals = (ROOT / "modules/Infrastructure/templates/modals/_modals.html").read_text(encoding="utf-8")
+        javascript = (ROOT / "static/js/infrastructure.js").read_text(encoding="utf-8")
+
+        self.assertIn('id="reportViewShell"', modals)
+        self.assertIn('id="reportViewerMain"', modals)
+        self.assertIn('id="reportTrailPanel"', modals)
+        self.assertIn('class="report-body-frame"', modals)
+        self.assertIn('id="reportFullscreenToggle"', modals)
+        self.assertIn('id="reportWrapToggle"', modals)
+        self.assertIn('id="reportFontSizeLabel"', modals)
+        self.assertIn('id="reportCopyButton"', modals)
+        self.assertIn('id="vrBodyStats"', modals)
+        self.assertNotIn('lg:grid-cols-[19rem_1fr]', modals)
+
+        self.assertIn('#reportViewModal .report-body-frame', page)
+        self.assertIn('min-height: 18rem;', page)
+        self.assertIn('#reportViewModal.is-fullscreen .report-viewer-shell', page)
+        self.assertIn('@media (max-width: 960px)', page)
+        self.assertIn('transform: translateX(-105%);', page)
+        self.assertIn('width: min(88vw, 22rem);', page)
+
+        self.assertIn('function toggleReportTrail()', javascript)
+        self.assertIn('function toggleReportFullscreen()', javascript)
+        self.assertIn('function toggleReportWrap()', javascript)
+        self.assertIn('function changeReportFontSize(delta)', javascript)
+        self.assertIn('function updateReportBodyStats()', javascript)
+        self.assertIn("storedFontSizeValue !== null", javascript)
+
     def test_template_deletion_impact_summarizes_dependencies(self):
         from modules.Infrastructure import routes
 
