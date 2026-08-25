@@ -1,6 +1,6 @@
 # WinHUBLinuxAgent
 
-Безпечний системний агент WinHUB для Debian 12/13, Ubuntu Server 22.04/24.04 та Proxmox VE 8/9. Він використовує той самий протокол enrollment/poll/telemetry/result, HMAC-підпис завдань і RSA-ідентичність, що й Windows Agent.
+Безпечний системний агент WinHUB для Debian 12/13, Ubuntu Server 22.04/24.04 та Proxmox VE 8/9. Він використовує актуальний протокол сервера enrollment/poll/telemetry/result, підписані RSA-запити агента та per-agent RSA-PSS v2 підпис задач.
 
 Агент працює лише через вихідні HTTPS-з'єднання до WinHUB: відкривати вхідний порт на Linux-сервері не потрібно. TLS-перевірка увімкнена, а для приватного CA можна задати SHA-256 pin сертифіката. Токени, ключ і стан мають права `0600/0700` та належать root.
 
@@ -25,24 +25,31 @@ Copy the release archive to the endpoint:
 
 ```bash
 sudo mkdir -p /tmp/winhub-linux-agent
-sudo tar -xzf WinHUBLinuxAgent-v1.3.0-linux-x64.tar.gz -C /tmp/winhub-linux-agent
+sudo tar -xzf WinHUBLinuxAgent-v1.4.0-linux-x64.tar.gz -C /tmp/winhub-linux-agent
 cd /tmp/winhub-linux-agent
 sudo ./install-linux-agent.sh
 ```
 
-## Bulk SSH rollout
+## Масове керування через SSH
 
-Put these files in one directory:
+Підготуйте пакет агента, робочі конфіги та список серверів:
+
+```bash
+cp winhub_agent.conf.example winhub_agent.conf
+cp winhub_agent.bootstrap.conf.example winhub_agent.bootstrap.conf
+cp linux_hosts.txt.example linux_hosts.txt
+# Відредагуйте три створені файли перед запуском.
+```
 
 ```text
-WinHUBLinuxAgent-v1.3.0-linux-x64.tar.gz
+WinHUBLinuxAgent-v1.4.0-linux-x64.tar.gz
 winhub_agent.conf
 winhub_agent.bootstrap.conf
 linux_hosts.txt
 deploy-linux-agents.sh
 ```
 
-Example `linux_hosts.txt`:
+Приклад `linux_hosts.txt`:
 
 ```text
 192.168.1.10
@@ -50,16 +57,37 @@ Example `linux_hosts.txt`:
 root@192.168.1.12
 ```
 
-Run:
+SSH-користувач повинен бути `root` або мати passwordless sudo (`sudo -n`). Запустіть скрипт без параметрів, щоб інтерактивно вибрати встановлення, видалення або перевстановлення:
 
 ```bash
 chmod +x deploy-linux-agents.sh
-./deploy-linux-agents.sh --hosts linux_hosts.txt --user root --identity ~/.ssh/id_ed25519
+./deploy-linux-agents.sh
 ```
 
-Скрипт приймає IP/hostname по одному на рядок, перевіряє SSH, порівнює версію, встановлює або оновлює агент і перевіряє активність systemd-сервісу. Bootstrap-конфіг копіюється в `/etc` лише якщо сервер ще не має enrollment token; тимчасові файли після успішної перевірки видаляються.
+Для неінтерактивного запуску режим і список можна задати параметрами:
 
-The script checks `/opt/winhub-linux-agent/WinHUBLinuxAgent --version` on every host. It installs or updates only when the agent is absent, older than the package version, or `--force` is used. Runtime and bootstrap configs are synchronized to `/etc/winhub-agent` and the service is restarted.
+```bash
+# Встановити відсутні агенти та оновити старіші
+./deploy-linux-agents.sh --action install --hosts linux_hosts.txt --identity ~/.ssh/id_ed25519 --yes
+
+# Видалити службу та бінарники, але зберегти конфіг, токен і стан
+./deploy-linux-agents.sh --action uninstall --hosts linux_hosts.txt --identity ~/.ssh/id_ed25519 --yes
+
+# Примусово перевстановити агент зі збереженням enrollment-ідентичності
+./deploy-linux-agents.sh --action reinstall --hosts linux_hosts.txt --identity ~/.ssh/id_ed25519 --yes
+```
+
+Скрипт перевіряє SSH, Debian/Ubuntu-сумісність і архітектуру кожного сервера, виконує операцію послідовно та наприкінці показує загальний результат і список проблемних хостів. Для встановлення він перевіряє `/opt/winhub-linux-agent/WinHUBLinuxAgent --version`, автоматично оновлює лише старіші версії та після операції вимагає стан systemd-служби `active`.
+
+Звичайні `uninstall` і `reinstall` зберігають `/etc/winhub-agent` та `/var/lib/winhub-agent`, тому агент не втрачає enrollment-токен та ідентичність. Параметр `--purge` додатково видаляє ці каталоги; використовуйте його лише коли потрібне повне очищення або нова реєстрація агента.
+
+Runtime-конфіг синхронізується на всі сервери. Bootstrap-конфіг копіюється лише якщо сервер ще не має enrollment token. Щоб залишити наявні конфіги без змін, додайте `--no-config-sync`. Для ARM64 явно задайте відповідний пакет через `--package`; один запуск працює з однією архітектурою.
+
+Повна довідка:
+
+```bash
+./deploy-linux-agents.sh --help
+```
 
 Edit the runtime config:
 
@@ -80,6 +108,20 @@ After successful migration the agent deletes `winhub_agent.bootstrap.conf`. Runt
 
 ```text
 /var/lib/winhub-agent
+```
+
+Невідправлені результати задач надійно зберігаються у `/var/lib/winhub-agent/pending-results` з правами `0600` і повторно надсилаються після відновлення мережі або перезапуску агента. `RestartAfterConsecutivePollFailures` задає кількість послідовних невдалих poll-запитів, після якої агент завершується з помилкою та дозволяє systemd перезапустити процес; `0` вимикає цю поведінку.
+
+## Підпис задач і запитів
+
+Кожен enrollment, poll, telemetry і result містить SHA-256 хеш canonical JSON body, унікальний nonce, timestamp та RSA-підпис ключем ідентичності агента. Сервер перевіряє прив'язку тіла, допустиме відхилення часу та повторне використання nonce. Якщо системний час відрізняється, агент читає timestamp лише з перевіреного HTTPS-з'єднання, коригує час для наступних підписів і не плутає `signature_expired` із недійсним enrollment token.
+
+У poll агент повідомляє capability `rsa-pss-sha256-v2`. Сервер підписує для конкретного endpoint поля `endpoint_id`, `task_id`, `action`, `payload_hash`, timeout, строк дії та монотонний sequence. Після першої успішної перевірки агент пінить per-agent public key, зберігає останній sequence у root-only `/var/lib/winhub-agent/task-signing-state.json`, видаляє перехідний HMAC secret і надалі відхиляє downgrade до HMAC. Окремий state-файл захищає pin та sequence від перезапису під час масової синхронізації runtime-конфігу. У Fleet Center endpoint підтверджує міграцію badge `Task v2` після успішного result.
+
+Локальна перевірка canonical JSON, HMAC-контракту та Python/.NET RSA-PSS сумісності:
+
+```bash
+/opt/winhub-linux-agent/WinHUBLinuxAgent --self-test
 ```
 
 ## Політика виконання
@@ -106,7 +148,7 @@ After successful migration the agent deletes `winhub_agent.bootstrap.conf`. Runt
 Supported built-in actions:
 
 - `reboot`: calls `systemctl reboot`.
-- `agent_update`: downloads a `.tar.gz` Linux agent release and launches `update-linux-agent.sh`.
+- `agent_update`: перевіряє обов'язковий SHA-256 пакета та запускає `update-linux-agent.sh` в окремому transient systemd unit, щоб updater не був завершений разом зі старим процесом агента.
 
 ## Logs
 

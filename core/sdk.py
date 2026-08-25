@@ -1,4 +1,5 @@
 import html
+import hashlib
 import json
 import uuid
 from typing import List
@@ -26,27 +27,34 @@ class WinHubCore:
         details=None,
         status="Success",
         actor_type=None,
+        source_type=None,
         target_type=None,
         target_id=None,
         ip_address=None,
         request_id=None
     ):
-        if not username and user_id:
+        actor_user = None
+        if user_id:
             try:
-                user = WinHubCore.request_user(user_id)
+                actor_user = WinHubCore.request_user(user_id)
             except PendingRollbackError:
                 db.session.rollback()
-                user = WinHubCore.request_user(user_id)
-            username = user.username if user else None
+                actor_user = WinHubCore.request_user(user_id)
+            username = username or (actor_user.username if actor_user else None)
         if has_request_context():
+            if actor_user is None and session.get("user_id"):
+                actor_user = WinHubCore.request_user(session.get("user_id"))
+                user_id = getattr(actor_user, "id", None)
             username = username or session.get("username")
             actor_type = actor_type or ("api_key" if session.get("api_key_auth") else "user")
+            source_type = source_type or ("api" if session.get("api_key_auth") else "web")
             if actor_type == "api_key" and session.get("api_key_id"):
                 username = f"{username or 'API Key'} (key:{session.get('api_key_id')})"
             ip_address = ip_address or request.headers.get("X-Forwarded-For", request.remote_addr or "").split(",")[0].strip()
             request_id = request_id or getattr(g, "request_id", None)
         else:
             actor_type = actor_type or "system"
+            source_type = source_type or "system"
 
         if isinstance(details, (dict, list)):
             details = json.dumps(details, ensure_ascii=False)
@@ -56,10 +64,23 @@ class WinHubCore:
         else:
             audit_action = action or module or "Audit Event"
 
+        audit_session_id = session.get("audit_session_id") if has_request_context() else None
+        session_id_hash = (
+            hashlib.sha256(str(audit_session_id).encode("utf-8")).hexdigest()
+            if audit_session_id else None
+        )
+        actor_role = "superadmin" if getattr(actor_user, "is_admin", False) else (
+            "api_key" if actor_type == "api_key" else "operator" if actor_user else "system"
+        )
         entry = AuditLog(
             user=username or "System",
+            actor_user_id=getattr(actor_user, "id", None),
             actor_type=actor_type or "system",
             actor_name=username or "System",
+            actor_role=actor_role,
+            source_type=source_type,
+            session_id_hash=session_id_hash,
+            user_agent=request.headers.get("User-Agent", "")[:1000] if has_request_context() else None,
             module=module,
             action=audit_action,
             target_type=target_type,
@@ -71,10 +92,14 @@ class WinHubCore:
         )
         try:
             db.session.add(entry)
+            db.session.flush()
+            from core.history_search import index_audit_log
+            index_audit_log(entry)
             db.session.commit()
         except PendingRollbackError:
             db.session.rollback()
             db.session.add(entry)
+            db.session.flush()
             db.session.commit()
         return entry
 
@@ -134,7 +159,19 @@ class WinHubCore:
         return {row[0] for row in query.all()}
 
     @staticmethod
-    def dispatch_task(user_id: int, module_name: str, action: str, target_ids: list, payload: dict, title: str = "Automated Task") -> str:
+    def dispatch_task(
+        user_id: int,
+        module_name: str,
+        action: str,
+        target_ids: list,
+        payload: dict,
+        title: str = "Automated Task",
+        *,
+        source_type=None,
+        actor_name=None,
+        actor_user_id=None,
+        system_actor=False,
+    ) -> str:
         user = WinHubCore.request_user(user_id)
         if not user: raise PermissionError("Invalid user")
 
@@ -150,15 +187,43 @@ class WinHubCore:
         requested_ids = list(dict.fromkeys(str(hid) for hid in target_ids if hid))
         allowed_ids = WinHubCore.authorized_target_ids(user_id, requested_ids)
 
+        hosts_by_id = {
+            host.id: host
+            for host in Endpoint.query.filter(Endpoint.id.in_(requested_ids)).all()
+        }
+        resolved_source = str(source_type or "").strip().lower()
+        if not resolved_source:
+            if has_request_context() and session.get("api_key_auth"):
+                resolved_source = "api"
+            elif str(module_name or "").lower() == "scheduler" or str(title or "").startswith("[Auto]"):
+                resolved_source = "scheduler"
+            elif str(title or "").startswith("[Auto-Fix]"):
+                resolved_source = "trigger"
+            else:
+                resolved_source = "manual"
+        template_id = payload.get("__template_id") or payload.get("__report_template_id") if isinstance(payload, dict) else None
+        schedule_id = payload.get("__schedule_id") if isinstance(payload, dict) else None
+
         tasks = [
             AgentTask(
                 job_id=job_id,
                 endpoint_id=hid,
+                endpoint_id_snapshot=hid,
+                endpoint_hostname_snapshot=getattr(hosts_by_id.get(hid), "hostname", None),
+                endpoint_name_snapshot=getattr(hosts_by_id.get(hid), "display_name", None),
+                endpoint_groups_snapshot=json.dumps([
+                    {"id": group.id, "name": group.name}
+                    for group in getattr(hosts_by_id.get(hid), "groups", [])
+                ], ensure_ascii=False),
                 title=title,
                 module_source=module_name,
                 action_type=action,
+                source_type=resolved_source,
+                actor_user_id=None if system_actor else (actor_user_id or user.id),
+                template_id=str(template_id) if template_id else None,
+                schedule_id=str(schedule_id) if schedule_id else None,
                 payload=payload_json,
-                created_by=user.username
+                created_by=actor_name or user.username
             )
             for hid in requested_ids
             if hid in allowed_ids
@@ -166,7 +231,29 @@ class WinHubCore:
 
         if tasks:
             db.session.add_all(tasks)
+            db.session.flush()
+            from core.history_search import index_agent_task
+            for task in tasks:
+                index_agent_task(task)
             db.session.commit()
+            WinHubCore.audit(
+                user_id=None if system_actor else (actor_user_id or user.id),
+                username=actor_name or user.username,
+                module=module_name or "Infrastructure",
+                action="Task Dispatched",
+                details={
+                    "job_id": job_id,
+                    "title": title,
+                    "action_type": action,
+                    "target_count": len(tasks),
+                    "template_id": template_id,
+                    "schedule_id": schedule_id,
+                },
+                target_type="task_job",
+                target_id=job_id,
+                source_type=resolved_source,
+                status="Success",
+            )
             return job_id
         else:
             raise PermissionError("No authorized targets selected")
@@ -235,13 +322,23 @@ class WinHubCore:
         except Exception:
             split_prefix = None
 
-        existing_split = split_prefix and AggregatedJob.query.filter(AggregatedJob.id.like(split_prefix)).first()
-        if (AggregatedJob.query.get(job_id) or existing_split) and not force:
+        existing_reports = AggregatedJob.query.filter_by(id=job_id).all()
+        if split_prefix:
+            existing_reports.extend(
+                AggregatedJob.query.filter(AggregatedJob.id.like(split_prefix)).all()
+            )
+        existing_reports = list({row.id: row for row in existing_reports}.values())
+        if existing_reports and not force:
             return
-        if force:
-            AggregatedJob.query.filter_by(id=job_id).delete(synchronize_session=False)
-            if split_prefix:
-                AggregatedJob.query.filter(AggregatedJob.id.like(split_prefix)).delete(synchronize_session=False)
+        if existing_reports:
+            from core.report_versions import ensure_report_revision
+            for existing_report in existing_reports:
+                ensure_report_revision(
+                    existing_report,
+                    actor_user_id=getattr(existing_report, "actor_user_id", None),
+                    actor_name=getattr(existing_report, "created_by", None) or "System",
+                )
+            db.session.flush()
 
         tasks = AgentTask.query.filter_by(job_id=job_id).all()
         if not tasks: return
@@ -269,7 +366,9 @@ class WinHubCore:
         successful_results_data = []
         ignored_results_data = []
         for t in tasks:
-            host = t.endpoint.hostname if t.endpoint else "Unknown"
+            host = t.endpoint.hostname if t.endpoint else (
+                t.endpoint_name_snapshot or t.endpoint_hostname_snapshot or t.endpoint_id_snapshot or "Deleted host"
+            )
             parsed_data = {}
             try:
                 parsed_data = json.loads(t.result_log)
@@ -356,27 +455,73 @@ class WinHubCore:
             if (match.group(2) or "").strip()
         ]
 
+        created_reports = []
+        report_versions = []
+
+        def upsert_generated_report(report_id, title, body):
+            report_row = AggregatedJob.query.get(report_id)
+            kind = "regenerated" if report_row else "generated"
+            if report_row is None:
+                report_row = AggregatedJob(id=report_id)
+                db.session.add(report_row)
+            report_row.title = (title or "Untitled Job")[:150]
+            report_row.total_count = total
+            report_row.success_count = success
+            report_row.error_count = errors
+            report_row.status = "Waiting Review"
+            report_row.actor_user_id = getattr(tasks[0], "actor_user_id", None)
+            report_row.created_by = tasks[0].created_by
+            report_row.source_type = getattr(tasks[0], "source_type", None)
+            report_row.template_id = getattr(tasks[0], "template_id", None)
+            created_reports.append(report_row)
+            report_versions.append((report_row, body, kind))
+            return report_row
+
         if split_reports:
             parent_hex = uuid.UUID(job_id).hex
             for index, report in enumerate(split_reports[:999], start=1):
-                db.session.add(AggregatedJob(
-                    id=f"{parent_hex}.{index:03d}",
-                    title=report["title"][:150],
-                    total_count=total,
-                    success_count=success,
-                    error_count=errors,
-                    report_data=prepend_ignored_banner(report["body"], ignored_results_data),
-                    status="Waiting Review"
-                ))
+                upsert_generated_report(
+                    f"{parent_hex}.{index:03d}",
+                    report["title"],
+                    prepend_ignored_banner(report["body"], ignored_results_data),
+                )
         else:
             final_report_text = prepend_ignored_banner(final_report_text, ignored_results_data)
-            db.session.add(AggregatedJob(
-                id=job_id,
-                title=tasks[0].title or "Untitled Job",
-                total_count=total,
-                success_count=success,
-                error_count=errors,
-                report_data=final_report_text,
-                status="Waiting Review"
-            ))
+            upsert_generated_report(job_id, tasks[0].title, final_report_text)
+
+        generated_ids = {row.id for row in created_reports}
+        for old_report in existing_reports:
+            if old_report.id not in generated_ids:
+                old_report.status = "Superseded"
+
+        db.session.flush()
+        from core.report_versions import create_report_revision
+        for report_row, report_body, revision_kind in report_versions:
+            create_report_revision(
+                report_row,
+                report_body or "",
+                kind=revision_kind,
+                actor_user_id=getattr(tasks[0], "actor_user_id", None),
+                actor_name=tasks[0].created_by,
+                reason="Generated from endpoint results" if revision_kind == "generated" else "Regenerated from updated endpoint results",
+            )
         db.session.commit()
+        for report_row in created_reports:
+            WinHubCore.audit(
+                user_id=getattr(tasks[0], "actor_user_id", None),
+                username=tasks[0].created_by,
+                module="Infrastructure",
+                action="Report Generated",
+                details={
+                    "job_id": job_id,
+                    "report_id": report_row.id,
+                    "title": report_row.title,
+                    "total": total,
+                    "success": success,
+                    "errors": errors,
+                },
+                target_type="report",
+                target_id=report_row.id,
+                source_type=getattr(tasks[0], "source_type", None) or "system",
+                status="Success",
+            )

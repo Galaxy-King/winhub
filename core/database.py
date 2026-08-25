@@ -78,8 +78,13 @@ class AuditLog(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     timestamp = db.Column(db.DateTime, default=datetime.utcnow, index=True)
     user = db.Column(db.String(100))
+    actor_user_id = db.Column(db.Integer, db.ForeignKey('users.id', ondelete="SET NULL"), nullable=True, index=True)
     actor_type = db.Column(db.String(20), default="user", index=True)
     actor_name = db.Column(db.String(150), index=True)
+    actor_role = db.Column(db.String(30), nullable=True, index=True)
+    source_type = db.Column(db.String(30), nullable=True, index=True)
+    session_id_hash = db.Column(db.String(64), nullable=True, index=True)
+    user_agent = db.Column(EncryptedText)
     module = db.Column(db.String(80), index=True)
     action = db.Column(db.String(100), index=True)
     target_type = db.Column(db.String(60), index=True)
@@ -154,7 +159,10 @@ class Endpoint(db.Model):
     is_blocked = db.Column(db.Boolean, default=False, index=True)
 
     groups = db.relationship('EndpointGroup', secondary=endpoint_group_m2m, back_populates='endpoints')
-    tasks = db.relationship('AgentTask', back_populates='endpoint', cascade="all, delete-orphan")
+    # Execution history must survive endpoint removal. Hard endpoint deletion is
+    # additionally restricted at the route layer and snapshots are stored on the
+    # task itself for long-term audit readability.
+    tasks = db.relationship('AgentTask', back_populates='endpoint', passive_deletes=True)
     telemetry = db.relationship('TelemetryHistory', back_populates='endpoint', cascade="all, delete-orphan", lazy='dynamic')
     metrics = db.relationship('EndpointMetric', back_populates='endpoint', cascade="all, delete-orphan", lazy='dynamic')
 
@@ -175,11 +183,19 @@ class AgentTask(db.Model):
     __tablename__ = 'agent_tasks'
     id = db.Column(db.String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
     job_id = db.Column(db.String(36), index=True)
-    endpoint_id = db.Column(db.String(100), db.ForeignKey('endpoints.id', ondelete="CASCADE"), index=True)
+    endpoint_id = db.Column(db.String(100), db.ForeignKey('endpoints.id', ondelete="SET NULL"), nullable=True, index=True)
+    endpoint_id_snapshot = db.Column(db.String(100), nullable=True, index=True)
+    endpoint_hostname_snapshot = db.Column(db.String(100), nullable=True, index=True)
+    endpoint_name_snapshot = db.Column(db.String(120), nullable=True, index=True)
+    endpoint_groups_snapshot = db.Column(db.Text)
 
     title = db.Column(db.String(150), default="Untitled Task")
     module_source = db.Column(db.String(50))
     action_type = db.Column(db.String(50))
+    source_type = db.Column(db.String(30), default="manual", index=True)
+    actor_user_id = db.Column(db.Integer, db.ForeignKey('users.id', ondelete="SET NULL"), nullable=True, index=True)
+    template_id = db.Column(db.String(36), nullable=True, index=True)
+    schedule_id = db.Column(db.String(36), nullable=True, index=True)
     payload = db.Column(EncryptedText)
     status = db.Column(db.String(20), default="Pending", index=True)
     result_log = db.Column(EncryptedText)
@@ -304,7 +320,72 @@ class AggregatedJob(db.Model):
     title = db.Column(db.String(150))
     status = db.Column(db.String(20), default="Waiting Review") # Waiting Review, Sent, Dismissed
     report_data = db.Column(EncryptedText) # Зведений текст
+    actor_user_id = db.Column(db.Integer, db.ForeignKey('users.id', ondelete="SET NULL"), nullable=True, index=True)
+    created_by = db.Column(db.String(150), nullable=True, index=True)
+    source_type = db.Column(db.String(30), nullable=True, index=True)
+    template_id = db.Column(db.String(36), nullable=True, index=True)
+    original_content_hash = db.Column(db.String(64), nullable=True, index=True)
+    current_revision_number = db.Column(db.Integer, default=0, nullable=False)
     success_count = db.Column(db.Integer, default=0)
     error_count = db.Column(db.Integer, default=0)
     total_count = db.Column(db.Integer, default=0)
-    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow, index=True)
+
+
+class ReportRevision(db.Model):
+    """Immutable generated/edited report body revision."""
+    __tablename__ = 'report_revisions'
+    id = db.Column(db.String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
+    report_id = db.Column(db.String(36), db.ForeignKey('aggregated_jobs.id', ondelete="CASCADE"), nullable=False, index=True)
+    revision_number = db.Column(db.Integer, nullable=False)
+    kind = db.Column(db.String(30), nullable=False, default="edited", index=True)
+    content = db.Column(EncryptedText, nullable=False)
+    content_hash = db.Column(db.String(64), nullable=False, index=True)
+    actor_user_id = db.Column(db.Integer, db.ForeignKey('users.id', ondelete="SET NULL"), nullable=True, index=True)
+    actor_name = db.Column(db.String(150), nullable=True, index=True)
+    reason = db.Column(db.String(500), nullable=True)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False, index=True)
+
+    __table_args__ = (
+        db.UniqueConstraint('report_id', 'revision_number', name='uq_report_revision_number'),
+    )
+
+
+class ReportDelivery(db.Model):
+    """Audit snapshot of the exact report revision sent to an external target."""
+    __tablename__ = 'report_deliveries'
+    id = db.Column(db.String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
+    report_id = db.Column(db.String(36), db.ForeignKey('aggregated_jobs.id', ondelete="CASCADE"), nullable=False, index=True)
+    revision_id = db.Column(db.String(36), db.ForeignKey('report_revisions.id', ondelete="RESTRICT"), nullable=False, index=True)
+    channel = db.Column(db.String(30), nullable=False, index=True)
+    destination = db.Column(EncryptedText)
+    subject = db.Column(db.String(255), nullable=True)
+    note = db.Column(EncryptedText)
+    content_snapshot = db.Column(EncryptedText, nullable=False)
+    content_hash = db.Column(db.String(64), nullable=False, index=True)
+    actor_user_id = db.Column(db.Integer, db.ForeignKey('users.id', ondelete="SET NULL"), nullable=True, index=True)
+    actor_name = db.Column(db.String(150), nullable=True, index=True)
+    status = db.Column(db.String(30), nullable=False, default="Pending", index=True)
+    result_details = db.Column(EncryptedText)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False, index=True)
+    completed_at = db.Column(db.DateTime, nullable=True, index=True)
+
+
+class HistorySearchToken(db.Model):
+    """Keyed blind-index token for encrypted history content."""
+    __tablename__ = 'history_search_tokens'
+    id = db.Column(db.Integer, primary_key=True)
+    entity_type = db.Column(db.String(30), nullable=False)
+    entity_id = db.Column(db.String(64), nullable=False)
+    field = db.Column(db.String(30), nullable=False)
+    token_hash = db.Column(db.String(64), nullable=False)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
+
+    __table_args__ = (
+        db.UniqueConstraint(
+            'entity_type', 'entity_id', 'field', 'token_hash',
+            name='uq_history_search_token'
+        ),
+        db.Index('ix_history_search_token_lookup', 'token_hash', 'entity_type', 'field', 'entity_id'),
+        db.Index('ix_history_search_token_entity', 'entity_type', 'entity_id'),
+    )

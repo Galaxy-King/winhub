@@ -18,6 +18,7 @@ public record EnrollPayload(string global_token, string hw_id, string hostname, 
 public record PollPayload(string hw_id, string auth_token, string agent_version, string agent_public_key_pem, string agent_key_fingerprint, string task_signature_capabilities, string body_hash, string signed_at, string signed_nonce, string signature);
 public record TelemetryPayload(string hw_id, string auth_token, string agent_version, double cpu, double ram, double disk_c, HostInventoryInfo? host_info, string agent_public_key_pem, string agent_key_fingerprint, string body_hash, string signed_at, string signed_nonce, string signature);
 public record ResultPayload(string hw_id, string auth_token, string agent_version, string task_id, string status, string log, string agent_public_key_pem, string agent_key_fingerprint, string task_signature_v2_key_id, long task_signature_v2_sequence, string body_hash, string signed_at, string signed_nonce, string signature);
+public record PendingResult(string task_id, string status, string log, string task_signature_v2_key_id, long task_signature_v2_sequence, string created_at);
 public record NetworkInterfaceInfo(string name, string description, string type, string status, string mac, string[] ipv4, string[] ipv6, string[] gateways, string[] dns_servers, bool dhcp_enabled, long speed_mbps);
 public record VolumeInfo(string name, string label, string format, string type, long total_gb, long free_gb, bool ready);
 public record BitLockerInventoryInfo(string status, int encrypted_percentage, string protection_status, string conversion_status, string raw_summary);
@@ -45,12 +46,20 @@ public class AgentConfig
     public string ExecutionMode { get; set; } = "allowlist";
     public string[] AllowedActions { get; set; } = ["agent_update"];
     public bool AllowCrossHostUpdateDownloads { get; set; } = false;
+    public int RestartAfterConsecutivePollFailures { get; set; } = 10;
 }
 
 public class AgentSecrets
 {
     public string GlobalApiKey { get; set; } = "";
     public string TaskHmacSecret { get; set; } = "";
+}
+
+public class TaskSigningState
+{
+    public string TaskSigningPublicKeyPem { get; set; } = "";
+    public string TaskSigningKeyId { get; set; } = "";
+    public long TaskSigningLastSequence { get; set; } = 0;
 }
 
 public static class AgentBuildInfo
@@ -66,8 +75,10 @@ public static class AgentBuildInfo
 [JsonSerializable(typeof(PollPayload))]
 [JsonSerializable(typeof(TelemetryPayload))]
 [JsonSerializable(typeof(ResultPayload))]
+[JsonSerializable(typeof(PendingResult))]
 [JsonSerializable(typeof(AgentConfig))]
 [JsonSerializable(typeof(AgentSecrets))]
+[JsonSerializable(typeof(TaskSigningState))]
 [JsonSerializable(typeof(NetworkInterfaceInfo))]
 [JsonSerializable(typeof(NetworkInterfaceInfo[]))]
 [JsonSerializable(typeof(VolumeInfo))]
@@ -112,12 +123,14 @@ public class Worker : BackgroundService
     private readonly string ConfigDirectory = OperatingSystem.IsMacOS() ? "/Library/Application Support/WinHUB/Config" : "/etc/winhub-agent";
     private readonly string DataDirectory = OperatingSystem.IsMacOS() ? "/Library/Application Support/WinHUB/Data" : "/var/lib/winhub-agent";
     private string UpdatesDirectory => Path.Combine(DataDirectory, "updates");
+    private string PendingResultsDirectory => Path.Combine(DataDirectory, "pending-results");
     private string ConfigFilePath => Path.Combine(ConfigDirectory, "winhub_agent.conf");
     private string BootstrapConfigFilePath => Path.Combine(ConfigDirectory, "winhub_agent.bootstrap.conf");
     private string TokenFilePath => Path.Combine(DataDirectory, "agent.token");
     private string SecretsFilePath => Path.Combine(DataDirectory, "agent.secrets");
     private string HardwareIdFilePath => Path.Combine(DataDirectory, "agent.hwid");
     private string AgentIdentityKeyFilePath => Path.Combine(DataDirectory, "agent_identity.key");
+    private string TaskSigningStateFilePath => Path.Combine(DataDirectory, "task-signing-state.json");
     private string HardwareId = "";
     private string AuthToken = "";
     private string FriendlyOsName = "";
@@ -128,6 +141,8 @@ public class Worker : BackgroundService
     private HostInventoryInfo? _cachedHostInventory;
     private (ulong Idle, ulong Total)? _previousCpuTimes;
     private string _lastLoggedPollStatus = "";
+    private long _serverClockOffsetSeconds;
+    private int _serverClockOffsetKnown;
 
     public Worker(ILogger<Worker> logger)
     {
@@ -146,7 +161,10 @@ public class Worker : BackgroundService
         ValidateStartupSecurity();
         Directory.CreateDirectory(DataDirectory);
         Directory.CreateDirectory(UpdatesDirectory);
+        Directory.CreateDirectory(PendingResultsDirectory);
         RestrictPath(DataDirectory, UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute);
+        RestrictPath(UpdatesDirectory, UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute);
+        RestrictPath(PendingResultsDirectory, UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute);
 
         HardwareId = GetOrCreateHardwareId();
         EnsureAgentIdentityKey();
@@ -155,8 +173,16 @@ public class Worker : BackgroundService
         _logger.LogInformation("OS Detected: {Os}", FriendlyOsName);
 
         int telemetryIntervalSeconds = 300;
+        int restartAfterPollFailures = GetRestartAfterConsecutivePollFailures();
         int startupDelaySeconds = GetStableDelaySeconds("startup-poll-spread-v1", GetStartupSpreadSeconds() + 1);
         int telemetryDelaySeconds = GetStableDelaySeconds("startup-telemetry-spread-v1", telemetryIntervalSeconds + 1);
+        int consecutivePollFailures = 0;
+        _logger.LogInformation(
+            "Polling cadence: base={Base}s, jitter=0-{Jitter}s, startup_delay={StartupDelay}s, restart_after_failures={RestartAfterFailures}",
+            GetConfiguredPollIntervalSeconds(),
+            GetPollJitterSeconds(),
+            startupDelaySeconds,
+            restartAfterPollFailures);
         bool tokenLoaded = LoadToken();
         if (tokenLoaded)
         {
@@ -174,9 +200,11 @@ public class Worker : BackgroundService
             await EnrollAgentAsync(stoppingToken);
         }
 
+        await FlushPendingResultsAsync(stoppingToken);
         DateTime lastTelemetrySent = DateTime.UtcNow - TimeSpan.FromMinutes(5) + TimeSpan.FromSeconds(telemetryDelaySeconds);
         while (!stoppingToken.IsCancellationRequested)
         {
+            await FlushPendingResultsAsync(stoppingToken);
             if ((DateTime.UtcNow - lastTelemetrySent).TotalSeconds >= telemetryIntervalSeconds)
             {
                 await SendTelemetryAsync(stoppingToken);
@@ -184,6 +212,22 @@ public class Worker : BackgroundService
             }
 
             PollTiming? timing = await PollServerAsync(stoppingToken);
+            if (timing.HasValue)
+            {
+                if (consecutivePollFailures > 0)
+                    _logger.LogInformation("Poll recovered after {FailureCount} consecutive failure(s).", consecutivePollFailures);
+                consecutivePollFailures = 0;
+            }
+            else
+            {
+                consecutivePollFailures++;
+                if (restartAfterPollFailures > 0 && consecutivePollFailures >= restartAfterPollFailures)
+                    RestartThroughServiceRecovery(consecutivePollFailures);
+                if (restartAfterPollFailures > 0)
+                    _logger.LogWarning("Poll failure streak: {FailureCount}/{RestartAfterFailures}.", consecutivePollFailures, restartAfterPollFailures);
+                else
+                    _logger.LogWarning("Poll failure streak: {FailureCount}. Automatic recovery restart is disabled.", consecutivePollFailures);
+            }
             if (timing?.TelemetryAfterSeconds is int telemetryAfter)
                 telemetryIntervalSeconds = ClampSeconds(telemetryAfter, 60, 86400);
 
@@ -252,6 +296,7 @@ public class Worker : BackgroundService
 
         MigratePlaintextSecretsFromConfig();
         MigrateSecretsFromBootstrapConfig();
+        LoadTaskSigningState();
     }
 
     private void SaveConfig()
@@ -259,6 +304,134 @@ public class Worker : BackgroundService
         Directory.CreateDirectory(ConfigDirectory);
         File.WriteAllText(ConfigFilePath, JsonSerializer.Serialize(_config, AppJsonSerializerContext.Default.AgentConfig));
         RestrictPath(ConfigFilePath, UnixFileMode.UserRead | UnixFileMode.UserWrite);
+    }
+
+    private void LoadTaskSigningState()
+    {
+        try
+        {
+            if (File.Exists(TaskSigningStateFilePath))
+            {
+                TaskSigningState? state = JsonSerializer.Deserialize(
+                    File.ReadAllText(TaskSigningStateFilePath),
+                    AppJsonSerializerContext.Default.TaskSigningState);
+                if (state == null || !ValidateTaskSigningState(state))
+                    throw new InvalidDataException("Task signing state is invalid or does not match its public key.");
+
+                bool configChanged = _config.TaskSigningPublicKeyPem != state.TaskSigningPublicKeyPem
+                    || _config.TaskSigningKeyId != state.TaskSigningKeyId
+                    || _config.TaskSigningLastSequence != state.TaskSigningLastSequence;
+                _config.TaskSigningPublicKeyPem = state.TaskSigningPublicKeyPem;
+                _config.TaskSigningKeyId = state.TaskSigningKeyId;
+                _config.TaskSigningLastSequence = state.TaskSigningLastSequence;
+                if (configChanged)
+                {
+                    SaveConfig();
+                    _logger.LogInformation("Restored pinned task signing key and sequence from protected runtime state.");
+                }
+                return;
+            }
+
+            if (!string.IsNullOrWhiteSpace(_config.TaskSigningPublicKeyPem)
+                || !string.IsNullOrWhiteSpace(_config.TaskSigningKeyId)
+                || _config.TaskSigningLastSequence > 0)
+            {
+                SaveTaskSigningState();
+                _logger.LogInformation("Migrated task signing key and sequence from runtime config to protected state.");
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError("Failed to load task signing state: {Message}", ex.Message);
+        }
+    }
+
+    private void SaveTaskSigningState()
+    {
+        var state = new TaskSigningState
+        {
+            TaskSigningPublicKeyPem = _config.TaskSigningPublicKeyPem,
+            TaskSigningKeyId = _config.TaskSigningKeyId,
+            TaskSigningLastSequence = _config.TaskSigningLastSequence
+        };
+        if (!ValidateTaskSigningState(state))
+            throw new InvalidDataException("Refusing to persist an invalid task signing key or sequence.");
+        WriteTaskSigningState(TaskSigningStateFilePath, state);
+    }
+
+    private static bool ValidateTaskSigningState(TaskSigningState state)
+    {
+        if (string.IsNullOrWhiteSpace(state.TaskSigningPublicKeyPem)
+            || string.IsNullOrWhiteSpace(state.TaskSigningKeyId)
+            || state.TaskSigningLastSequence <= 0)
+            return false;
+        try
+        {
+            using RSA rsa = RSA.Create();
+            rsa.ImportFromPem(state.TaskSigningPublicKeyPem);
+            string actualKeyId = Convert.ToHexString(SHA256.HashData(rsa.ExportSubjectPublicKeyInfo())).ToLowerInvariant();
+            return CryptographicOperations.FixedTimeEquals(
+                Encoding.ASCII.GetBytes(actualKeyId),
+                Encoding.ASCII.GetBytes(state.TaskSigningKeyId.Trim().ToLowerInvariant()));
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
+    private static void WriteTaskSigningState(string statePath, TaskSigningState state)
+    {
+        string? directory = Path.GetDirectoryName(statePath);
+        if (string.IsNullOrWhiteSpace(directory)) throw new InvalidOperationException("Task signing state path has no directory.");
+        Directory.CreateDirectory(directory);
+        string temporaryPath = statePath + $".{Guid.NewGuid():N}.tmp";
+        try
+        {
+            File.WriteAllText(temporaryPath, JsonSerializer.Serialize(state, AppJsonSerializerContext.Default.TaskSigningState), new UTF8Encoding(false));
+            RestrictPath(temporaryPath, UnixFileMode.UserRead | UnixFileMode.UserWrite);
+            File.Move(temporaryPath, statePath, true);
+            RestrictPath(statePath, UnixFileMode.UserRead | UnixFileMode.UserWrite);
+        }
+        finally
+        {
+            try { File.Delete(temporaryPath); } catch { }
+        }
+    }
+
+    public static bool MigrateTaskSigningState(string configPath, string dataDirectory)
+    {
+        if (string.IsNullOrWhiteSpace(configPath) || string.IsNullOrWhiteSpace(dataDirectory))
+            throw new ArgumentException("Config path and data directory are required.");
+        string statePath = Path.Combine(dataDirectory, "task-signing-state.json");
+        if (File.Exists(statePath))
+        {
+            try
+            {
+                TaskSigningState? existing = JsonSerializer.Deserialize(
+                    File.ReadAllText(statePath),
+                    AppJsonSerializerContext.Default.TaskSigningState);
+                if (existing != null && ValidateTaskSigningState(existing)) return true;
+            }
+            catch
+            {
+            }
+        }
+        if (!File.Exists(configPath)) return false;
+
+        AgentConfig? config = JsonSerializer.Deserialize(
+            File.ReadAllText(configPath),
+            AppJsonSerializerContext.Default.AgentConfig);
+        if (config == null) return false;
+        var state = new TaskSigningState
+        {
+            TaskSigningPublicKeyPem = config.TaskSigningPublicKeyPem,
+            TaskSigningKeyId = config.TaskSigningKeyId,
+            TaskSigningLastSequence = config.TaskSigningLastSequence
+        };
+        if (!ValidateTaskSigningState(state)) return false;
+        WriteTaskSigningState(statePath, state);
+        return true;
     }
 
     private static bool ConfigNeedsBackfill(string json)
@@ -285,7 +458,8 @@ public class Worker : BackgroundService
                 nameof(AgentConfig.TaskSigningLastSequence),
                 nameof(AgentConfig.ExecutionMode),
                 nameof(AgentConfig.AllowedActions),
-                nameof(AgentConfig.AllowCrossHostUpdateDownloads)
+                nameof(AgentConfig.AllowCrossHostUpdateDownloads),
+                nameof(AgentConfig.RestartAfterConsecutivePollFailures)
             };
             return required.Any(key => !doc.RootElement.TryGetProperty(key, out _));
         }
@@ -311,7 +485,8 @@ public class Worker : BackgroundService
 
                 var unsignedPayload = new EnrollPayload(enrollmentToken, HardwareId, Environment.MachineName, FriendlyOsName, OperatingSystem.IsMacOS() ? "macOS" : "Linux", AgentBuildInfo.Version, GetNetworkInterfaces(), GetCachedHostInventory(true), previousAuthToken, previousHwId, AgentPublicKeyPem, AgentKeyFingerprint, "", "", "", "");
                 var payload = SignPayload(unsignedPayload, "/api/agent/enroll", previousAuthToken, AppJsonSerializerContext.Default.EnrollPayload);
-                var response = await _httpClient.PostAsync($"{_config.ServerUrl}/api/agent/enroll", JsonContent(payload), stoppingToken);
+                using var response = await _httpClient.PostAsync($"{_config.ServerUrl}/api/agent/enroll", JsonContent(payload), stoppingToken);
+                UpdateServerClockOffset(response);
                 if (response.IsSuccessStatusCode)
                 {
                     using var doc = JsonDocument.Parse(await response.Content.ReadAsStringAsync(stoppingToken));
@@ -326,7 +501,8 @@ public class Worker : BackgroundService
                     _logger.LogInformation("Enrollment successful. Approval status: {Status}", approvalStatus);
                     return;
                 }
-                _logger.LogWarning("Enrollment failed. Server returned: {Status}", response.StatusCode);
+                string serverMessage = await ReadServerErrorMessageAsync(response, stoppingToken);
+                _logger.LogWarning("Enrollment failed. Server returned {Status}: {Message}", response.StatusCode, serverMessage);
             }
             catch (Exception ex)
             {
@@ -343,15 +519,23 @@ public class Worker : BackgroundService
         {
             var unsignedPayload = new PollPayload(HardwareId, AuthToken, AgentBuildInfo.Version, AgentPublicKeyPem, AgentKeyFingerprint, "rsa-pss-sha256-v2", "", "", "", "");
             var payload = SignPayload(unsignedPayload, "/api/agent/poll", AuthToken, AppJsonSerializerContext.Default.PollPayload);
-            var response = await _httpClient.PostAsync($"{_config.ServerUrl}/api/agent/poll", JsonContent(payload), stoppingToken);
+            using var response = await _httpClient.PostAsync($"{_config.ServerUrl}/api/agent/poll", JsonContent(payload), stoppingToken);
+            UpdateServerClockOffset(response);
             if (!response.IsSuccessStatusCode)
             {
-                _logger.LogWarning("Poll failed. Server returned: {Status}", response.StatusCode);
+                string serverMessage = await ReadServerErrorMessageAsync(response, stoppingToken);
+                _logger.LogWarning("Poll failed. Server returned {Status}: {Message}", response.StatusCode, serverMessage);
                 if (response.StatusCode is System.Net.HttpStatusCode.Forbidden or System.Net.HttpStatusCode.Unauthorized)
                 {
+                    if (IsClockSkewSignatureFailure(serverMessage))
+                    {
+                        _logger.LogWarning("Server rejected the request timestamp. Agent clock offset was adjusted; the next poll will use server time.");
+                        return null;
+                    }
+
                     string previousAuthToken = AuthToken;
                     string previousHwId = HardwareId;
-                    _logger.LogWarning("Server rejected poll token. Attempting secure re-enrollment with previous token proof.");
+                    _logger.LogWarning("Server rejected poll authentication. Attempting secure re-enrollment with previous token proof.");
                     await EnrollAgentAsync(stoppingToken, previousAuthToken, previousHwId);
                 }
                 return null;
@@ -420,6 +604,76 @@ public class Worker : BackgroundService
         }
     }
 
+    private void UpdateServerClockOffset(HttpResponseMessage response)
+    {
+        if (!CanBootstrapTaskSigningKey()) return;
+        if (response.Headers.Date is DateTimeOffset serverDate)
+            ApplyServerUnixTime(serverDate.ToUnixTimeSeconds(), "HTTP Date");
+    }
+
+    private void ApplyServerUnixTime(long serverUnixTime, string source)
+    {
+        if (serverUnixTime <= 0) return;
+        long offset = serverUnixTime - DateTimeOffset.UtcNow.ToUnixTimeSeconds();
+        long previous = Interlocked.Exchange(ref _serverClockOffsetSeconds, offset);
+        bool wasKnown = Interlocked.Exchange(ref _serverClockOffsetKnown, 1) == 1;
+        if (Math.Abs(offset) >= 30 && (!wasKnown || Math.Abs(previous - offset) >= 30))
+        {
+            _logger.LogWarning(
+                "System time differs from WinHUB server by {OffsetSeconds} seconds ({Source}). Signed requests will use the corrected server time.",
+                offset,
+                source);
+        }
+    }
+
+    private long GetServerAdjustedUnixTimeSeconds() =>
+        DateTimeOffset.UtcNow.ToUnixTimeSeconds() + Interlocked.Read(ref _serverClockOffsetSeconds);
+
+    private async Task<string> ReadServerErrorMessageAsync(HttpResponseMessage response, CancellationToken stoppingToken)
+    {
+        UpdateServerClockOffset(response);
+        try
+        {
+            string body = await response.Content.ReadAsStringAsync(stoppingToken);
+            if (string.IsNullOrWhiteSpace(body)) return response.StatusCode.ToString();
+            using var doc = JsonDocument.Parse(body);
+            JsonElement root = doc.RootElement;
+            if (CanBootstrapTaskSigningKey()
+                && root.TryGetProperty("server_time", out var serverTime)
+                && serverTime.TryGetInt64(out long serverTimestamp))
+                ApplyServerUnixTime(serverTimestamp, "signed-request error response");
+
+            string message = root.TryGetProperty("message", out var messageElement)
+                ? messageElement.GetString() ?? ""
+                : root.TryGetProperty("error", out var errorElement)
+                    ? errorElement.GetString() ?? ""
+                    : root.TryGetProperty("status", out var statusElement)
+                        ? statusElement.GetString() ?? ""
+                        : "";
+            if (string.IsNullOrWhiteSpace(message)) message = response.StatusCode.ToString();
+
+            if (root.TryGetProperty("skew_seconds", out var skew) && skew.TryGetInt64(out long skewSeconds))
+            {
+                message += $" (skew_seconds={skewSeconds}";
+                if (root.TryGetProperty("server_time", out var debugServerTime) && debugServerTime.TryGetInt64(out long debugServerTimestamp))
+                    message += $", server_time={debugServerTimestamp}";
+                if (root.TryGetProperty("signed_at", out var signedAt) && signedAt.TryGetInt64(out long signedTimestamp))
+                    message += $", signed_at={signedTimestamp}";
+                message += ")";
+            }
+            return message;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogDebug("Could not parse WinHUB error response: {Message}", ex.Message);
+            return response.StatusCode.ToString();
+        }
+    }
+
+    private static bool IsClockSkewSignatureFailure(string serverMessage) =>
+        serverMessage.StartsWith("signature_expired", StringComparison.OrdinalIgnoreCase)
+        || serverMessage.StartsWith("invalid_signature_timestamp", StringComparison.OrdinalIgnoreCase);
+
     private void LogPollStatus(string status)
     {
         if (string.IsNullOrWhiteSpace(status)) status = "unknown";
@@ -450,9 +704,12 @@ public class Worker : BackgroundService
         {
             var unsignedPayload = new TelemetryPayload(HardwareId, AuthToken, AgentBuildInfo.Version, Math.Round(GetCpuUsage(), 2), Math.Round(GetRamUsage(), 2), Math.Round(GetRootFreeGb(), 2), GetCachedHostInventory(false), AgentPublicKeyPem, AgentKeyFingerprint, "", "", "", "");
             var payload = SignPayload(unsignedPayload, "/api/agent/telemetry", AuthToken, AppJsonSerializerContext.Default.TelemetryPayload);
-            var response = await _httpClient.PostAsync($"{_config.ServerUrl}/api/agent/telemetry", JsonContent(payload), stoppingToken);
+            using var response = await _httpClient.PostAsync($"{_config.ServerUrl}/api/agent/telemetry", JsonContent(payload), stoppingToken);
+            UpdateServerClockOffset(response);
             if (response.IsSuccessStatusCode)
                 _logger.LogInformation("Telemetry sent. CPU: {Cpu}% | RAM: {Ram}% | /: {Disk} GB", payload.cpu, payload.ram, payload.disk_c);
+            else
+                _logger.LogWarning("Telemetry rejected with {Status}: {Message}", response.StatusCode, await ReadServerErrorMessageAsync(response, stoppingToken));
         }
         catch (Exception ex)
         {
@@ -526,6 +783,7 @@ public class Worker : BackgroundService
             const long maxUpdateBytes = 512L * 1024 * 1024;
             using (var response = await _httpClient.GetAsync(downloadUri, HttpCompletionOption.ResponseHeadersRead, stoppingToken))
             {
+                UpdateServerClockOffset(response);
                 response.EnsureSuccessStatusCode();
                 if (response.Content.Headers.ContentLength is long contentLength && contentLength > maxUpdateBytes)
                     return ("Error", $"Agent update package exceeds the {maxUpdateBytes / 1024 / 1024} MB limit.");
@@ -561,7 +819,7 @@ public class Worker : BackgroundService
                 : "/opt/winhub-linux-agent/update-linux-agent.sh";
             if (!File.Exists(updateScript)) return ("Error", $"{updateScript} was not found.");
             string launcherPath = Path.Combine(UpdatesDirectory, $"launch_update_{safeTaskId}.sh");
-            await File.WriteAllTextAsync(launcherPath, $"#!/usr/bin/env bash\nset -euo pipefail\ntrap '/bin/rm -f \"$0\"' EXIT\nsleep 3\n{ShellQuote(updateScript)} --package {ShellQuote(packagePath)}\n", new UTF8Encoding(false), stoppingToken);
+            await File.WriteAllTextAsync(launcherPath, $"#!/usr/bin/env bash\nset -euo pipefail\ntrap '/bin/rm -f \"$0\"' EXIT\nsleep 10\n{ShellQuote(updateScript)} --package {ShellQuote(packagePath)}\n", new UTF8Encoding(false), stoppingToken);
             RestrictPath(launcherPath, UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute);
             ProcessStartInfo updateLauncher;
             if (OperatingSystem.IsMacOS())
@@ -572,13 +830,38 @@ public class Worker : BackgroundService
             }
             else
             {
-                updateLauncher = new ProcessStartInfo("/bin/bash", launcherPath);
+                if (!CommandExists("systemd-run"))
+                    return ("Error", "systemd-run is required to launch the updater outside the agent service cgroup.");
+                updateLauncher = new ProcessStartInfo("systemd-run");
+                foreach (string argument in new[]
+                {
+                    $"--unit=winhub-agent-update-{safeTaskId}.service",
+                    "--collect",
+                    "--no-block",
+                    "--property=Type=oneshot",
+                    "--property=TimeoutStartSec=20min",
+                    "/bin/bash",
+                    launcherPath
+                })
+                    updateLauncher.ArgumentList.Add(argument);
             }
             updateLauncher.UseShellExecute = false;
             updateLauncher.WorkingDirectory = Path.GetDirectoryName(updateScript) ?? "/";
-            if (Process.Start(updateLauncher) == null)
-                return ("Error", "Detached agent updater could not be started.");
-            return ("Success", $"Agent update package staged at {packagePath}. Detached updater launched.");
+            updateLauncher.RedirectStandardOutput = true;
+            updateLauncher.RedirectStandardError = true;
+            using var launcher = Process.Start(updateLauncher);
+            if (launcher == null) return ("Error", "Detached agent updater could not be started.");
+            Task<string> launcherOutputTask = launcher.StandardOutput.ReadToEndAsync(stoppingToken);
+            Task<string> launcherErrorTask = launcher.StandardError.ReadToEndAsync(stoppingToken);
+            await launcher.WaitForExitAsync(stoppingToken);
+            string launcherOutput = (await launcherOutputTask).Trim();
+            string launcherError = (await launcherErrorTask).Trim();
+            if (launcher.ExitCode != 0)
+            {
+                string details = string.IsNullOrWhiteSpace(launcherError) ? launcherOutput : launcherError;
+                return ("Error", $"Detached agent updater launch failed with exit code {launcher.ExitCode}: {details}");
+            }
+            return ("Success", $"Agent update package staged at {packagePath}. Detached updater scheduled. {launcherOutput}".Trim());
         }
         catch (Exception ex)
         {
@@ -588,13 +871,151 @@ public class Worker : BackgroundService
 
     private async Task ReportResultAsync(string taskId, string status, string log, CancellationToken stoppingToken)
     {
+        var pending = new PendingResult(
+            taskId,
+            status,
+            TrimResultLog(log),
+            _config.TaskSigningKeyId,
+            _config.TaskSigningLastSequence,
+            DateTimeOffset.UtcNow.ToString("O"));
+        string pendingPath = PendingResultPath(taskId);
         try
         {
-            var unsignedPayload = new ResultPayload(HardwareId, AuthToken, AgentBuildInfo.Version, taskId, status, TrimResultLog(log), AgentPublicKeyPem, AgentKeyFingerprint, _config.TaskSigningKeyId, _config.TaskSigningLastSequence, "", "", "", "");
-            var payload = SignPayload(unsignedPayload, "/api/agent/result", AuthToken, AppJsonSerializerContext.Default.ResultPayload);
-            await _httpClient.PostAsync($"{_config.ServerUrl}/api/agent/result", JsonContent(payload), stoppingToken);
+            await SavePendingResultAsync(pending, pendingPath);
         }
-        catch { }
+        catch (Exception ex)
+        {
+            _logger.LogError("Could not persist task result {TaskId} before delivery: {Message}", taskId, ex.Message);
+        }
+        await SendPendingResultAsync(pending, pendingPath, 3, stoppingToken);
+    }
+
+    private string PendingResultPath(string taskId)
+    {
+        string safeId = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(taskId ?? ""))).ToLowerInvariant()[..32];
+        return Path.Combine(PendingResultsDirectory, $"{safeId}.json");
+    }
+
+    private async Task SavePendingResultAsync(PendingResult pending, string pendingPath)
+    {
+        Directory.CreateDirectory(PendingResultsDirectory);
+        RestrictPath(PendingResultsDirectory, UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute);
+        string temporaryPath = pendingPath + $".{Guid.NewGuid():N}.tmp";
+        try
+        {
+            string json = JsonSerializer.Serialize(pending, AppJsonSerializerContext.Default.PendingResult);
+            await File.WriteAllTextAsync(temporaryPath, json, new UTF8Encoding(false), CancellationToken.None);
+            RestrictPath(temporaryPath, UnixFileMode.UserRead | UnixFileMode.UserWrite);
+            File.Move(temporaryPath, pendingPath, true);
+            RestrictPath(pendingPath, UnixFileMode.UserRead | UnixFileMode.UserWrite);
+        }
+        finally
+        {
+            try { File.Delete(temporaryPath); } catch { }
+        }
+    }
+
+    private async Task FlushPendingResultsAsync(CancellationToken stoppingToken)
+    {
+        if (string.IsNullOrWhiteSpace(AuthToken) || !Directory.Exists(PendingResultsDirectory)) return;
+        foreach (string path in Directory.EnumerateFiles(PendingResultsDirectory, "*.json").OrderBy(File.GetLastWriteTimeUtc).Take(100))
+        {
+            if (stoppingToken.IsCancellationRequested) return;
+            try
+            {
+                string json = await File.ReadAllTextAsync(path, stoppingToken);
+                PendingResult? pending = JsonSerializer.Deserialize(json, AppJsonSerializerContext.Default.PendingResult);
+                if (pending == null || string.IsNullOrWhiteSpace(pending.task_id))
+                    throw new InvalidDataException("Pending result has no task_id.");
+                await SendPendingResultAsync(pending, path, 1, stoppingToken);
+            }
+            catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
+            {
+                return;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError("Invalid pending result file {Path}: {Message}. Removing it.", path, ex.Message);
+                try { File.Delete(path); } catch { }
+            }
+        }
+    }
+
+    private async Task<bool> SendPendingResultAsync(PendingResult pending, string pendingPath, int maxAttempts, CancellationToken stoppingToken)
+    {
+        maxAttempts = Math.Clamp(maxAttempts, 1, 5);
+        for (int attempt = 1; attempt <= maxAttempts; attempt++)
+        {
+            try
+            {
+                var unsignedPayload = new ResultPayload(
+                    HardwareId,
+                    AuthToken,
+                    AgentBuildInfo.Version,
+                    pending.task_id,
+                    pending.status,
+                    pending.log,
+                    AgentPublicKeyPem,
+                    AgentKeyFingerprint,
+                    pending.task_signature_v2_key_id,
+                    pending.task_signature_v2_sequence,
+                    "",
+                    "",
+                    "",
+                    "");
+                var payload = SignPayload(unsignedPayload, "/api/agent/result", AuthToken, AppJsonSerializerContext.Default.ResultPayload);
+                using var response = await _httpClient.PostAsync($"{_config.ServerUrl}/api/agent/result", JsonContent(payload), stoppingToken);
+                UpdateServerClockOffset(response);
+                if (response.IsSuccessStatusCode)
+                {
+                    try { File.Delete(pendingPath); } catch { }
+                    _logger.LogInformation("Task result delivered. TaskId={TaskId}, Status={Status}", pending.task_id, pending.status);
+                    return true;
+                }
+
+                string serverMessage = await ReadServerErrorMessageAsync(response, stoppingToken);
+                _logger.LogWarning(
+                    "Task result delivery failed ({Attempt}/{MaxAttempts}). TaskId={TaskId}, HTTP={HttpStatus}, Message={Message}",
+                    attempt,
+                    maxAttempts,
+                    pending.task_id,
+                    response.StatusCode,
+                    serverMessage);
+
+                if (response.StatusCode is System.Net.HttpStatusCode.BadRequest or System.Net.HttpStatusCode.NotFound)
+                {
+                    _logger.LogError("Server permanently rejected task result {TaskId}; removing the pending result.", pending.task_id);
+                    try { File.Delete(pendingPath); } catch { }
+                    return false;
+                }
+            }
+            catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
+            {
+                return false;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(
+                    "Task result delivery failed ({Attempt}/{MaxAttempts}). TaskId={TaskId}, Error={Message}",
+                    attempt,
+                    maxAttempts,
+                    pending.task_id,
+                    ex.Message);
+            }
+
+            if (attempt < maxAttempts)
+            {
+                try
+                {
+                    await Task.Delay(TimeSpan.FromSeconds(attempt), stoppingToken);
+                }
+                catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
+                {
+                    return false;
+                }
+            }
+        }
+        return false;
     }
 
     private StringContent JsonContent<T>(T payload)
@@ -671,7 +1092,7 @@ public class Worker : BackgroundService
             JsonElement payload = taskResponse.GetProperty("payload");
             int timeoutSeconds = taskResponse.GetProperty("timeout_seconds").GetInt32();
             string payloadHash = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(CanonicalJson(payload)))).ToLowerInvariant();
-            long now = DateTimeOffset.UtcNow.ToUnixTimeSeconds();
+            long now = GetServerAdjustedUnixTimeSeconds();
             long issuedAt = fields.GetProperty("issued_at").GetInt64();
             long expiresAt = fields.GetProperty("expires_at").GetInt64();
             long sequence = fields.GetProperty("sequence").GetInt64();
@@ -692,7 +1113,8 @@ public class Worker : BackgroundService
                 return false;
             }
 
-            string publicKey = string.IsNullOrWhiteSpace(_config.TaskSigningPublicKeyPem) ? providedKey : _config.TaskSigningPublicKeyPem;
+            bool firstPin = string.IsNullOrWhiteSpace(_config.TaskSigningPublicKeyPem);
+            string publicKey = firstPin ? providedKey : _config.TaskSigningPublicKeyPem;
             using RSA rsa = RSA.Create();
             rsa.ImportFromPem(publicKey);
             string actualKeyId = Convert.ToHexString(SHA256.HashData(rsa.ExportSubjectPublicKeyInfo())).ToLowerInvariant();
@@ -711,8 +1133,13 @@ public class Worker : BackgroundService
             _config.TaskSigningPublicKeyPem = publicKey;
             _config.TaskSigningKeyId = keyId;
             _config.TaskSigningLastSequence = sequence;
+            SaveTaskSigningState();
             SaveConfig();
             RemoveProtectedSecret("TaskHmacSecret");
+            if (firstPin)
+                _logger.LogInformation("Pinned per-agent RSA-PSS task signing key {KeyId} at sequence {Sequence}.", keyId, sequence);
+            else
+                _logger.LogDebug("Verified RSA-PSS task signature. KeyId={KeyId}, Sequence={Sequence}.", keyId, sequence);
             return true;
         }
         catch (Exception ex)
@@ -1119,6 +1546,60 @@ public class Worker : BackgroundService
             const string expectedV2Hash = "1e96cb746aad196aee4bfdf4399e3f0af62d52f828e2357b0ea821a9d9f89267";
             if (!CryptographicOperations.FixedTimeEquals(Encoding.ASCII.GetBytes(v2Hash), Encoding.ASCII.GetBytes(expectedV2Hash)))
                 throw new InvalidOperationException($"Task signature v2 canonicalization self-test failed. Got {v2Hash}.");
+
+            const string serverPublicKeyPem = """
+                -----BEGIN PUBLIC KEY-----
+                MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAkwm46MTc8u6aOtpdvJGq
+                x1CjIXfc8jljDdrT2YOfTfaJMmKBfYOkXkJu8hh73Ua4vTYjjW5/G24KiPYex6rh
+                8ypXql6F0xUDZGahhUn2kliTwwtORkhbvOsWGhm9IVlP6YKvpKAJa+4vmX/s99vZ
+                0bzhziAH51afndEU0FmGdxEs1prNv4fG3t7EG6T05zYEjUVewxaSuQhLk18L7vZq
+                2bOOpYNNRgOuVovhauLeTB/h/UM7xdl50Ra9G0VKyV92xKKkhEQcl8BlFeagfzSw
+                aGP3V0vuo9QjxTZifoEduvayN2CjQua7lb+97dY5a4pZbWdGubgsGSsM7ilJLifM
+                ZQIDAQAB
+                -----END PUBLIC KEY-----
+                """;
+            const string serverSignatureBase64 = "CNPHTMvpyD4PwoG1cXKGlBs6Nh8zZzJTvnk7in88tUjuJfL6YTFIv75C05R9m1deYHnZdgayM4eLVmK+YW8n2m9PTLsRA1ItqBvuIcFURt35JXSLF43clMCIYNNOHPFMvnNNGqO+UOlQGkIa8FAApnZCu3ImwUQaqjpufHwvl9inE0gEAq0qtrORXyf8NxO+yEsyk0vZKgq2xiD1h6eTynXJ1M7N6NzqIA9y8kJF5R5GQjXfWjgErbkD+7nPNH8pmFPmQx8Gusl1HU0ZDADSJ7WVrHIRVS90kAqwNQGMnjompdjlAMxXCtN7kS9HfeHQDyVKibiKZdJVHXg1Ug/2yA==";
+            using RSA serverPublicKey = RSA.Create();
+            serverPublicKey.ImportFromPem(serverPublicKeyPem);
+            if (!serverPublicKey.VerifyData(
+                Encoding.UTF8.GetBytes(canonicalV2),
+                Convert.FromBase64String(serverSignatureBase64),
+                HashAlgorithmName.SHA256,
+                RSASignaturePadding.Pss))
+            {
+                throw new InvalidOperationException("Python server RSA-PSS compatibility self-test failed.");
+            }
+
+            string migrationRoot = Path.Combine(Path.GetTempPath(), $"winhub_state_self_test_{Guid.NewGuid():N}");
+            string migrationConfigPath = Path.Combine(migrationRoot, "winhub_agent.conf");
+            string migrationDataDirectory = Path.Combine(migrationRoot, "data");
+            try
+            {
+                Directory.CreateDirectory(migrationRoot);
+                string serverKeyId = Convert.ToHexString(SHA256.HashData(serverPublicKey.ExportSubjectPublicKeyInfo())).ToLowerInvariant();
+                var migrationConfig = new AgentConfig
+                {
+                    TaskSigningPublicKeyPem = serverPublicKeyPem,
+                    TaskSigningKeyId = serverKeyId,
+                    TaskSigningLastSequence = 7
+                };
+                File.WriteAllText(
+                    migrationConfigPath,
+                    JsonSerializer.Serialize(migrationConfig, AppJsonSerializerContext.Default.AgentConfig),
+                    new UTF8Encoding(false));
+                if (!MigrateTaskSigningState(migrationConfigPath, migrationDataDirectory))
+                    throw new InvalidOperationException("Task signing state migration self-test failed.");
+                string migratedStatePath = Path.Combine(migrationDataDirectory, "task-signing-state.json");
+                TaskSigningState? migratedState = JsonSerializer.Deserialize(
+                    File.ReadAllText(migratedStatePath),
+                    AppJsonSerializerContext.Default.TaskSigningState);
+                if (migratedState?.TaskSigningKeyId != serverKeyId || migratedState.TaskSigningLastSequence != 7)
+                    throw new InvalidOperationException("Task signing state migration produced invalid state.");
+            }
+            finally
+            {
+                try { Directory.Delete(migrationRoot, true); } catch { }
+            }
         }
 
         const string taskJson = """
@@ -1172,7 +1653,7 @@ public class Worker : BackgroundService
 
     private (string SignedAt, string Nonce, string Signature) CreateAgentSignature(string path, string authToken, string agentVersion, string bodyHash)
     {
-        string signedAt = DateTimeOffset.UtcNow.ToUnixTimeSeconds().ToString();
+        string signedAt = GetServerAdjustedUnixTimeSeconds().ToString();
         string nonce = Guid.NewGuid().ToString("N");
         if (AgentIdentityKey == null) return (signedAt, nonce, "");
         string canonical = string.Join("\n", new[] { path ?? "", HardwareId ?? "", authToken ?? "", agentVersion ?? "", bodyHash ?? "", signedAt, nonce });
@@ -1599,6 +2080,15 @@ public class Worker : BackgroundService
     private int GetConfiguredPollIntervalSeconds() => ClampSeconds(_config.PollIntervalSeconds, 10, 3600);
     private int GetPollJitterSeconds() => ClampSeconds(_config.PollJitterSeconds, 0, 3600);
     private int GetStartupSpreadSeconds() => ClampSeconds(_config.StartupSpreadSeconds, 0, 3600);
+    private int GetRestartAfterConsecutivePollFailures() => Math.Clamp(_config.RestartAfterConsecutivePollFailures, 0, 1000);
+    private void RestartThroughServiceRecovery(int failureCount)
+    {
+        _logger.LogCritical(
+            "Poll failed {FailureCount} consecutive times. Exiting with code 1 so {ServiceManager} can restart the agent.",
+            failureCount,
+            OperatingSystem.IsMacOS() ? "launchd" : "systemd");
+        Environment.Exit(1);
+    }
     private static int ClampSeconds(int value, int min, int max) => Math.Max(min, Math.Min(max, value));
     private int GetStableDelaySeconds(string purpose, int maxExclusive)
     {

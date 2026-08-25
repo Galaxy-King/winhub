@@ -470,7 +470,7 @@ Infrastructure:view_groups
 Infrastructure:send_reports
 Infrastructure:edit_reports
 Infrastructure:dismiss_reports
-Infrastructure:delete_reports</code></pre>
+Infrastructure:edit_reports</code></pre>
                 </div>
             </div>
             <div>
@@ -614,7 +614,6 @@ $StaticPassword = "{{secret:local_admin_password}}"
                 'Infrastructure:view_hosts', 'Infrastructure:view_groups',
                 'Infrastructure:view_queue', 'Infrastructure:view_reports',
                 'Infrastructure:edit_reports', 'Infrastructure:dismiss_reports',
-                'Infrastructure:delete_reports', 'Infrastructure:delete_tasks',
                 'Infrastructure:run_tasks', 'Infrastructure:manage_software',
                 'Infrastructure:send_reports', 'Infrastructure:manage_templates',
                 'Infrastructure:manage_smtp', 'Infrastructure:manage_scheduler',
@@ -634,8 +633,7 @@ $StaticPassword = "{{secret:local_admin_password}}"
         Infrastructure: {
             view: ['view_hosts', 'view_groups', 'view_queue', 'view_reports'],
             change: ['run_tasks', 'edit_reports', 'dismiss_reports', 'send_reports', 'manage_software', 'manage_templates', 'manage_smtp', 'manage_scheduler', 'manage_triggers', 'manage_groups'],
-            delete: ['delete_reports', 'delete_tasks', 'delete_hosts', 'delete_groups'],
-            cleanup_tasks: ['delete_tasks'],
+            delete: ['delete_hosts', 'delete_groups'],
             scheduler: ['manage_scheduler']
         },
         Newsletter: {
@@ -645,7 +643,7 @@ $StaticPassword = "{{secret:local_admin_password}}"
         },
         HistoryAudit: {
             view: ['view_history'],
-            delete: ['manage_history']
+            delete: []
         },
         Administration: {
             gpg_keys: ['manage_gpg_keys']
@@ -667,8 +665,6 @@ $StaticPassword = "{{secret:local_admin_password}}"
 
     const explicitOnlyPermissions = new Set([
         'Infrastructure:view_sensitive_reports',
-        'Infrastructure:delete_reports',
-        'Infrastructure:delete_tasks',
         'Infrastructure:delete_hosts',
         'Infrastructure:delete_groups'
     ]);

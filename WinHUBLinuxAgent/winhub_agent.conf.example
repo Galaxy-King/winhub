@@ -15,5 +15,6 @@
   "TaskSigningLastSequence": 0,
   "ExecutionMode": "allowlist",
   "AllowedActions": ["agent_update"],
-  "AllowCrossHostUpdateDownloads": false
+  "AllowCrossHostUpdateDownloads": false,
+  "RestartAfterConsecutivePollFailures": 10
 }

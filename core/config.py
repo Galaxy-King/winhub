@@ -101,6 +101,10 @@ class Config:
     AGENT_ENROLLMENT_ALLOWLIST = clean_env_value(os.environ.get('AGENT_ENROLLMENT_ALLOWLIST')) or ''
     AGENT_ALLOW_REENROLL_EXISTING = (clean_env_value(os.environ.get('AGENT_ALLOW_REENROLL_EXISTING')) or 'false').lower() in ('1', 'true', 'yes', 'on')
     AGENT_TASK_HMAC_SECRET = clean_env_value(os.environ.get('AGENT_TASK_HMAC_SECRET')) or SECRET_KEY
+    # Dedicated key for deterministic blind search tokens. Existing installations
+    # fall back to the stable task HMAC secret; production deployments should set
+    # a separate value and reindex after rotating it.
+    HISTORY_SEARCH_KEY = clean_env_value(os.environ.get('HISTORY_SEARCH_KEY')) or AGENT_TASK_HMAC_SECRET
     AGENT_TASK_SIGNATURE_MODE = (clean_env_value(os.environ.get('AGENT_TASK_SIGNATURE_MODE')) or 'dual').lower()
     AGENT_MAX_RESULT_LOG_BYTES = int(os.environ.get('AGENT_MAX_RESULT_LOG_BYTES', 262144))
     AGENT_TASK_TIMEOUT_SECONDS = int(os.environ.get('AGENT_TASK_TIMEOUT_SECONDS', 1800))
@@ -151,9 +155,25 @@ class Config:
     # Назва сервісу для збереження Master Password у Windows Credential Manager
     SERVICE_NAME = os.environ.get('SERVICE_NAME', 'WinHUB_v2')
 
-    # Термін зберігання історії виконання скриптів та їх логів (у днях)
-    LOG_RETENTION_DAYS = int(os.environ.get('LOG_RETENTION_DAYS', 30))
-    AUDIT_RETENTION_DAYS = int(os.environ.get('AUDIT_RETENTION_DAYS', 365))
+    # Searchable security/task/report history is retained for five years by
+    # default. Telemetry remains a separate high-volume operational dataset.
+    HISTORY_RETENTION_DAYS = env_int('HISTORY_RETENTION_DAYS', 1825, 0, 36500)
+    TELEMETRY_RETENTION_DAYS = env_int(
+        'TELEMETRY_RETENTION_DAYS',
+        clean_env_value(os.environ.get('LOG_RETENTION_DAYS')) or 30,
+        0,
+        36500,
+    )
+    HISTORY_CLEANUP_BATCH_SIZE = env_int('HISTORY_CLEANUP_BATCH_SIZE', 5000, 100, 50000)
+    HISTORY_SEARCH_BACKFILL_BATCH_SIZE = env_int('HISTORY_SEARCH_BACKFILL_BATCH_SIZE', 250, 10, 2000)
+    AUDIT_SENSITIVE_READS = (
+        clean_env_value(os.environ.get('AUDIT_SENSITIVE_READS')) or 'true'
+    ).lower() in ('1', 'true', 'yes', 'on')
+
+    # Deprecated compatibility names. They no longer control task/report/audit
+    # history deletion and therefore cannot accidentally retain only 30 days.
+    LOG_RETENTION_DAYS = TELEMETRY_RETENTION_DAYS
+    AUDIT_RETENTION_DAYS = HISTORY_RETENTION_DAYS
 
     # ---------------------------------------------------------
     # НАЛАШТУВАННЯ ПОШТИ (ДЛЯ СПОВІЩЕНЬ)

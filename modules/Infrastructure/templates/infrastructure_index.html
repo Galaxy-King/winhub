@@ -327,6 +327,15 @@
                         </div>
                     </div>
 
+                    {% if permissions.run_tasks %}
+                    <button type="button" onclick="openQuickLaunch()" class="quick-launch-header-button" aria-label="Quickly launch a task from a template">
+                        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M12 5v14m-7-7h14"/>
+                        </svg>
+                        <span>New Task</span>
+                    </button>
+                    {% endif %}
+
                     <div id="infraNavScroller" class="flex flex-wrap items-center gap-3 bg-slate-50 p-2 rounded-2xl border border-slate-200/60 shadow-inner">
                         {% if permissions.view_hosts or permissions.view_groups %}
                         <div class="relative infra-nav-menu">
@@ -442,6 +451,9 @@
 
     <!-- ПІДКЛЮЧЕННЯ ВСІХ МОДАЛОК З ОДНОГО ФАЙЛУ -->
     {% include "modals/_modals.html" %}
+    {% if permissions.run_tasks %}
+        {% include "modals/_quick_launch.html" %}
+    {% endif %}
 
 <style nonce="{{ csp_nonce }}">
     /* Кастомні скролбари */
@@ -1025,4 +1037,7 @@
     window.WinhubCanManageSoftware = {{ 'true' if permissions.manage_software else 'false' }};
 </script>
 <script nonce="{{ csp_nonce }}" src="{{ url_for('static', filename='js/infrastructure.js', v=app_version) }}"></script>
+{% if permissions.run_tasks %}
+<script nonce="{{ csp_nonce }}" src="{{ url_for('static', filename='js/infrastructure_quick_launch.js', v=app_version) }}"></script>
+{% endif %}
 {% endblock %}

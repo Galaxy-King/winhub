@@ -10,8 +10,26 @@
         </button>
     </div>
 
-    <!-- Переведено у вертикальний список (flex-col) -->
+    <div class="wh-soft-panel bg-white rounded-[2rem] border border-slate-200 shadow-sm p-4 space-y-3">
+        <div class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-6 gap-3">
+            <input id="reportSearch" placeholder="Title, actor or report ID..." class="xl:col-span-2 px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl text-sm outline-none focus:ring-4 focus:ring-indigo-500/10">
+            {% if permissions.view_sensitive_reports %}<input id="reportContentSearch" placeholder="Word(s) in report body..." class="xl:col-span-2 px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl text-sm outline-none focus:ring-4 focus:ring-indigo-500/10">{% endif %}
+            <select id="reportStatusFilter" class="px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl text-xs font-bold outline-none"><option value="">All statuses</option><option>Waiting Review</option><option>Sent</option><option>Dismissed</option></select>
+            {% if permissions.view_sensitive_reports %}<select id="reportContentField" class="px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl text-xs font-bold outline-none"><option value="current,original,revisions,deliveries">All versions + sent</option><option value="current">Current only</option><option value="original">Original only</option><option value="revisions">Any revision</option><option value="deliveries">Sent snapshots</option></select>{% endif %}
+            <input id="reportActorFilter" placeholder="Actor..." class="px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl text-sm outline-none">
+            <select id="reportSourceFilter" class="px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl text-xs font-bold outline-none"><option value="">Any source</option><option value="manual">Manual</option><option value="scheduler">Scheduler</option><option value="trigger">Trigger</option><option value="api">API</option></select>
+            <input id="reportDateFrom" type="date" title="Created from (Kyiv time)" class="px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl text-sm outline-none">
+            <input id="reportDateTo" type="date" title="Created to (Kyiv time)" class="px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl text-sm outline-none">
+            <label class="flex items-center gap-2 px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl text-xs font-bold text-slate-600"><input id="reportHasErrors" type="checkbox"> Has errors</label>
+            <button onclick="loadReports(1)" class="px-5 py-3 bg-indigo-600 text-white rounded-xl text-xs font-black uppercase">Apply filters</button>
+        </div>
+    </div>
+
     <div class="wh-soft-panel bg-white rounded-[3rem] border border-slate-200 shadow-sm p-3 flex flex-col gap-3" id="reportsList">
         <!-- Заповнюється через JS рядками -->
+    </div>
+    <div class="flex justify-between items-center px-5 py-2">
+        <span id="reportPageInfo" class="text-[10px] font-black uppercase tracking-widest text-slate-400">Page 1</span>
+        <div class="flex gap-2"><button id="reportPrev" onclick="changeReportPage(-1)" class="px-5 py-2.5 rounded-xl border border-slate-200 text-xs font-black disabled:opacity-40">Previous</button><button id="reportNext" onclick="changeReportPage(1)" class="px-5 py-2.5 rounded-xl border border-slate-200 text-xs font-black disabled:opacity-40">Next</button></div>
     </div>
 </section>

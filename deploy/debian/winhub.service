@@ -17,7 +17,7 @@ TimeoutStopSec=30
 NoNewPrivileges=true
 PrivateTmp=true
 ProtectSystem=full
-ReadWritePaths=/var/lib/winhub /var/log/winhub /etc/winhub/certs
+ReadWritePaths=/var/lib/winhub /var/log/winhub
 
 [Install]
 WantedBy=multi-user.target

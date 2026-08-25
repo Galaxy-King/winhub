@@ -1,0 +1,429 @@
+<style nonce="{{ csp_nonce }}">
+    .quick-launch-header-button {
+        min-height: 3rem;
+        padding: 0.75rem 1.1rem;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        gap: 0.55rem;
+        border: 1px solid rgba(103, 232, 249, 0.68);
+        border-radius: 0.9rem;
+        background: linear-gradient(135deg, #0891b2, #0f3d8a);
+        color: #fff;
+        font-size: 0.72rem;
+        font-weight: 900;
+        letter-spacing: 0.08em;
+        text-transform: uppercase;
+        box-shadow: 0 12px 28px rgba(8, 145, 178, 0.24);
+        transition: transform 160ms ease, filter 160ms ease, box-shadow 160ms ease;
+    }
+    .quick-launch-header-button:hover {
+        filter: brightness(1.1);
+        transform: translateY(-1px);
+        box-shadow: 0 16px 34px rgba(8, 145, 178, 0.30);
+    }
+    .quick-launch-fab {
+        display: none;
+    }
+    #quickLaunchModal {
+        position: fixed;
+        inset: 0;
+        z-index: 160;
+        align-items: center;
+        justify-content: center;
+        padding: 1rem;
+        background: rgba(2, 6, 23, 0.78);
+        backdrop-filter: blur(10px);
+    }
+    #quickLaunchModal:not(.hidden) {
+        display: flex;
+    }
+    .quick-launch-sheet {
+        width: min(46rem, 100%);
+        max-height: min(54rem, calc(100dvh - 2rem));
+        display: flex;
+        flex-direction: column;
+        overflow: hidden;
+        color: #e8f6ff;
+        border: 1px solid rgba(34, 211, 238, 0.38);
+        border-radius: 2rem;
+        background:
+            radial-gradient(circle at 8% 0%, rgba(34, 211, 238, 0.16), transparent 22rem),
+            radial-gradient(circle at 100% 100%, rgba(99, 102, 241, 0.16), transparent 24rem),
+            linear-gradient(145deg, #07152e, #08111f 60%, #050b16);
+        box-shadow: 0 30px 90px rgba(0, 0, 0, 0.58), 0 0 42px rgba(34, 211, 238, 0.12);
+    }
+    .quick-launch-header,
+    .quick-launch-footer {
+        flex: 0 0 auto;
+        padding: 1.1rem 1.25rem;
+        border-color: rgba(125, 211, 252, 0.18);
+        background: rgba(3, 10, 23, 0.72);
+    }
+    .quick-launch-header {
+        border-bottom-width: 1px;
+    }
+    .quick-launch-footer {
+        border-top-width: 1px;
+        padding-bottom: max(1.1rem, env(safe-area-inset-bottom));
+    }
+    .quick-launch-close,
+    .quick-launch-back,
+    .quick-launch-next,
+    .quick-launch-run {
+        min-height: 3rem;
+        border-radius: 0.9rem;
+        font-size: 0.72rem;
+        font-weight: 900;
+        letter-spacing: 0.07em;
+        text-transform: uppercase;
+    }
+    .quick-launch-close {
+        width: 3rem;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        border: 1px solid rgba(125, 211, 252, 0.24);
+        background: rgba(15, 23, 42, 0.82);
+        color: #bae6fd;
+    }
+    .quick-launch-progress {
+        display: grid;
+        grid-template-columns: repeat(3, 1fr);
+        gap: 0.45rem;
+        margin-top: 1rem;
+    }
+    .quick-launch-progress-step {
+        height: 0.3rem;
+        border-radius: 999px;
+        background: rgba(148, 163, 184, 0.18);
+        transition: background 180ms ease, box-shadow 180ms ease;
+    }
+    .quick-launch-progress-step.is-active {
+        background: linear-gradient(90deg, #22d3ee, #38bdf8);
+        box-shadow: 0 0 14px rgba(34, 211, 238, 0.38);
+    }
+    .quick-launch-sheet .text-cyan-300 {
+        color: #67e8f9 !important;
+    }
+    .quick-launch-body {
+        flex: 1 1 auto;
+        min-height: 0;
+        overflow-y: auto;
+        overscroll-behavior: contain;
+        padding: 1.25rem;
+    }
+    .quick-launch-input,
+    .quick-launch-select {
+        width: 100%;
+        min-height: 3.15rem;
+        padding: 0.8rem 1rem;
+        border: 1px solid rgba(34, 211, 238, 0.28);
+        border-radius: 1rem;
+        outline: none;
+        background: rgba(3, 10, 23, 0.86) !important;
+        color: #e8f6ff !important;
+        font-size: 0.9rem;
+        font-weight: 700;
+    }
+    .quick-launch-input:focus,
+    .quick-launch-select:focus {
+        border-color: rgba(34, 211, 238, 0.82);
+        box-shadow: 0 0 0 4px rgba(34, 211, 238, 0.13);
+    }
+    .quick-launch-list {
+        display: grid;
+        gap: 0.65rem;
+        margin-top: 0.9rem;
+    }
+    .quick-launch-template-wrap,
+    .quick-launch-host-row,
+    .quick-launch-summary {
+        border: 1px solid rgba(56, 189, 248, 0.22);
+        border-radius: 1rem;
+        background: rgba(3, 10, 23, 0.74);
+    }
+    .quick-launch-template-wrap {
+        display: grid;
+        grid-template-columns: minmax(0, 1fr) 3.25rem;
+        overflow: hidden;
+    }
+    .quick-launch-template-row {
+        min-height: 4.5rem;
+        padding: 0.9rem 1rem;
+        display: block;
+        min-width: 0;
+        text-align: left;
+        color: #e8f6ff;
+    }
+    .quick-launch-template-row:hover,
+    .quick-launch-template-wrap.is-selected {
+        background: linear-gradient(135deg, rgba(8, 145, 178, 0.24), rgba(30, 64, 175, 0.18));
+        border-color: rgba(34, 211, 238, 0.62);
+    }
+    .quick-launch-favorite {
+        min-height: 3.25rem;
+        border-left: 1px solid rgba(56, 189, 248, 0.16);
+        color: #64748b;
+        font-size: 1.25rem;
+    }
+    .quick-launch-favorite.is-favorite {
+        color: #fbbf24;
+    }
+    .quick-launch-segmented {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 0.5rem;
+        padding: 0.35rem;
+        border: 1px solid rgba(34, 211, 238, 0.18);
+        border-radius: 1rem;
+        background: rgba(3, 10, 23, 0.64);
+    }
+    .quick-launch-target-button {
+        min-height: 3rem;
+        border: 1px solid transparent;
+        border-radius: 0.75rem;
+        color: #94a3b8;
+        font-size: 0.72rem;
+        font-weight: 900;
+        text-transform: uppercase;
+    }
+    .quick-launch-target-button.is-active {
+        border-color: rgba(103, 232, 249, 0.54);
+        background: linear-gradient(135deg, rgba(8, 145, 178, 0.52), rgba(30, 64, 175, 0.38));
+        color: #fff;
+    }
+    .quick-launch-host-row {
+        width: 100%;
+        min-height: 4.25rem;
+        padding: 0.8rem 0.9rem;
+        display: flex;
+        align-items: center;
+        gap: 0.8rem;
+        text-align: left;
+        color: #e8f6ff;
+    }
+    .quick-launch-host-row.is-selected {
+        border-color: rgba(34, 211, 238, 0.68);
+        background: linear-gradient(135deg, rgba(8, 145, 178, 0.26), rgba(30, 64, 175, 0.18));
+    }
+    .quick-launch-check {
+        width: 1.35rem;
+        height: 1.35rem;
+        flex: 0 0 auto;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        border: 2px solid rgba(125, 211, 252, 0.42);
+        border-radius: 0.45rem;
+        color: transparent;
+    }
+    .quick-launch-host-row.is-selected .quick-launch-check {
+        border-color: #22d3ee;
+        background: #0891b2;
+        color: #fff;
+    }
+    .quick-launch-online-dot {
+        width: 0.45rem;
+        height: 0.45rem;
+        display: inline-block;
+        border-radius: 999px;
+        background: #64748b;
+    }
+    .quick-launch-online-dot.is-online {
+        background: #34d399;
+        box-shadow: 0 0 9px rgba(52, 211, 153, 0.7);
+    }
+    .quick-launch-summary {
+        padding: 1rem;
+        margin-bottom: 1rem;
+    }
+    .quick-launch-empty {
+        padding: 2.25rem 1rem;
+        text-align: center;
+        color: #94a3b8;
+        font-size: 0.85rem;
+        font-weight: 700;
+    }
+    .quick-launch-back {
+        padding: 0.75rem 1rem;
+        border: 1px solid rgba(125, 211, 252, 0.24);
+        background: rgba(15, 23, 42, 0.82);
+        color: #bae6fd;
+    }
+    .quick-launch-next,
+    .quick-launch-run {
+        padding: 0.75rem 1.3rem;
+        border: 1px solid rgba(103, 232, 249, 0.64);
+        background: linear-gradient(135deg, #0891b2, #0f3d8a);
+        color: #fff;
+        box-shadow: 0 10px 24px rgba(8, 145, 178, 0.22);
+    }
+    .quick-launch-next:disabled,
+    .quick-launch-run:disabled {
+        cursor: not-allowed;
+        opacity: 0.5;
+        box-shadow: none;
+    }
+    .quick-launch-error {
+        min-height: 1.1rem;
+        margin-bottom: 0.65rem;
+        color: #fda4af;
+        font-size: 0.75rem;
+        font-weight: 800;
+    }
+    .quick-launch-toast {
+        position: fixed;
+        z-index: 190;
+        right: max(1rem, env(safe-area-inset-right));
+        bottom: max(1rem, env(safe-area-inset-bottom));
+        max-width: min(25rem, calc(100vw - 2rem));
+        padding: 1rem 1.1rem;
+        border: 1px solid rgba(52, 211, 153, 0.48);
+        border-radius: 1rem;
+        background: linear-gradient(135deg, #064e3b, #07152e);
+        color: #ecfdf5;
+        font-size: 0.85rem;
+        font-weight: 800;
+        box-shadow: 0 18px 48px rgba(0, 0, 0, 0.44);
+    }
+    @media (max-width: 1023px) {
+        .quick-launch-header-button {
+            display: none;
+        }
+        .quick-launch-fab {
+            position: fixed;
+            z-index: 75;
+            right: max(1rem, env(safe-area-inset-right));
+            bottom: max(1rem, env(safe-area-inset-bottom));
+            min-height: 3.5rem;
+            padding: 0.85rem 1.05rem;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            gap: 0.55rem;
+            border: 1px solid rgba(103, 232, 249, 0.74);
+            border-radius: 999px;
+            background: linear-gradient(135deg, #06b6d4, #0f3d8a);
+            color: #fff;
+            font-size: 0.75rem;
+            font-weight: 900;
+            letter-spacing: 0.04em;
+            text-transform: uppercase;
+            box-shadow: 0 18px 42px rgba(2, 6, 23, 0.48), 0 0 24px rgba(34, 211, 238, 0.24);
+        }
+        #quickLaunchModal {
+            align-items: flex-end;
+            padding: 0;
+        }
+        .quick-launch-sheet {
+            width: 100%;
+            max-height: 94dvh;
+            border-width: 1px 0 0;
+            border-radius: 1.5rem 1.5rem 0 0;
+        }
+    }
+    @media (max-width: 520px) {
+        .quick-launch-header,
+        .quick-launch-body,
+        .quick-launch-footer {
+            padding-left: 1rem;
+            padding-right: 1rem;
+        }
+        .quick-launch-fab span {
+            display: none;
+        }
+        .quick-launch-fab {
+            width: 3.5rem;
+            padding-left: 0;
+            padding-right: 0;
+        }
+    }
+</style>
+
+<button type="button" class="quick-launch-fab" onclick="openQuickLaunch()" aria-label="New task">
+    <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
+        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M12 5v14m-7-7h14"/>
+    </svg>
+    <span>New Task</span>
+</button>
+
+<div id="quickLaunchModal" class="hidden" role="dialog" aria-modal="true" aria-labelledby="quickLaunchTitle">
+    <div class="quick-launch-sheet">
+        <header class="quick-launch-header">
+            <div class="flex items-center justify-between gap-4">
+                <div class="min-w-0">
+                    <p id="quickLaunchEyebrow" class="text-[10px] font-black text-cyan-300 uppercase tracking-widest">Step 1 of 3</p>
+                    <h2 id="quickLaunchTitle" class="mt-1 text-xl font-black text-white tracking-tight">Choose a template</h2>
+                </div>
+                <button type="button" class="quick-launch-close" onclick="closeQuickLaunch()" aria-label="Close quick launch">
+                    <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
+                        <path stroke-linecap="round" stroke-width="2.5" d="M6 18 18 6M6 6l12 12"/>
+                    </svg>
+                </button>
+            </div>
+            <div class="quick-launch-progress" aria-hidden="true">
+                <span class="quick-launch-progress-step is-active" data-quick-progress="1"></span>
+                <span class="quick-launch-progress-step" data-quick-progress="2"></span>
+                <span class="quick-launch-progress-step" data-quick-progress="3"></span>
+            </div>
+        </header>
+
+        <main class="quick-launch-body custom-scrollbar">
+            <section data-quick-step="1">
+                <label for="quickLaunchTemplateSearch" class="block mb-2 text-[10px] font-black text-slate-400 uppercase tracking-widest">Template</label>
+                <input id="quickLaunchTemplateSearch" type="search" class="quick-launch-input" placeholder="Search by name or category..." autocomplete="off">
+                <div id="quickLaunchTemplateList" class="quick-launch-list"></div>
+            </section>
+
+            <section data-quick-step="2" class="hidden">
+                <div class="quick-launch-segmented" role="group" aria-label="Target type">
+                    <button id="quickLaunchTargetHostsButton" type="button" class="quick-launch-target-button is-active" onclick="setQuickLaunchTargetType('hosts')">Endpoints</button>
+                    <button id="quickLaunchTargetGroupButton" type="button" class="quick-launch-target-button" onclick="setQuickLaunchTargetType('group')">Group</button>
+                </div>
+
+                <div id="quickLaunchHostsPanel" class="mt-4">
+                    <div class="flex items-center justify-between gap-3 mb-2">
+                        <label for="quickLaunchHostSearch" class="text-[10px] font-black text-slate-400 uppercase tracking-widest">Allowed endpoints</label>
+                        <span class="text-[10px] font-black text-cyan-300 uppercase"><span id="quickLaunchHostCount">0</span> selected</span>
+                    </div>
+                    <input id="quickLaunchHostSearch" type="search" class="quick-launch-input" placeholder="Search hostname or IP..." autocomplete="off">
+                    <div id="quickLaunchHostList" class="quick-launch-list"></div>
+                </div>
+
+                <div id="quickLaunchGroupPanel" class="hidden mt-4">
+                    <label for="quickLaunchGroup" class="block mb-2 text-[10px] font-black text-slate-400 uppercase tracking-widest">Endpoint group</label>
+                    <select id="quickLaunchGroup" class="quick-launch-select">
+                        <option value="">Choose a group...</option>
+                        {% for group in groups %}
+                        <option value="{{ group.id }}">{{ group.name }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+            </section>
+
+            <section data-quick-step="3" class="hidden">
+                <div id="quickLaunchSummary" class="quick-launch-summary"></div>
+
+                <div class="mb-4">
+                    <label for="quickLaunchTaskTitle" class="block mb-2 text-[10px] font-black text-slate-400 uppercase tracking-widest">Task name</label>
+                    <input id="quickLaunchTaskTitle" type="text" class="quick-launch-input" maxlength="180" autocomplete="off">
+                </div>
+
+                <div id="quickLaunchVariablesBlock">
+                    <p class="mb-2 text-[10px] font-black text-slate-400 uppercase tracking-widest">Template variables</p>
+                    <div id="quickLaunchVariables" class="grid grid-cols-1 sm:grid-cols-2 gap-3"></div>
+                </div>
+            </section>
+        </main>
+
+        <footer class="quick-launch-footer">
+            <p id="quickLaunchError" class="quick-launch-error" role="alert"></p>
+            <div class="flex items-center justify-between gap-3">
+                <button id="quickLaunchBack" type="button" class="quick-launch-back invisible" onclick="quickLaunchBack()">Back</button>
+                <button id="quickLaunchNext" type="button" class="quick-launch-next" onclick="quickLaunchNext()" disabled>Next</button>
+                <button id="quickLaunchRun" type="button" class="quick-launch-run hidden" onclick="submitQuickLaunch()">Run task</button>
+            </div>
+        </footer>
+    </div>
+</div>

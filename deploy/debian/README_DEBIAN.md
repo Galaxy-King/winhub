@@ -9,84 +9,58 @@ Recommended target:
 - External users and agents connect to `https://SERVER_IP`
 - Optional agent-only public listener controlled by `AGENT_PUBLIC_PORT`
 
-## 1. Copy project
+## 1. Clone the Git project
 
-Clone the Git repository to the Debian server:
+Clone as the normal SSH/deploy-key user. The installer copies the checkout to `/opt/winhub` when needed:
 
 ```bash
-sudo mkdir -p /opt/winhub
-sudo git clone git@github.com:Galaxy-King/winhub.git /opt/winhub
-cd /opt/winhub
+sudo apt update
+sudo apt install -y git ca-certificates
+git clone <WINHUB_GIT_URL> ~/winhub
+cd ~/winhub
 ```
 
-## 2. Install runtime files
+You may clone directly into `/opt/winhub` when the root/deploy Git credentials are already configured.
+
+## 2. Run the interactive end-to-end installer
 
 ```bash
 sudo bash deploy/debian/install_debian.sh
 ```
 
-The installer creates:
+For a fresh installation the script:
 
-- `/etc/winhub/winhub.env`
-- `/etc/winhub/certs/cert.pem`
-- `/etc/winhub/certs/key.pem`
-- `/var/lib/winhub`
-- `/var/log/winhub`
-- `/etc/systemd/system/winhub.service`
-- `/etc/nginx/sites-available/winhub`
+- asks for the public DNS name or IPv4 address;
+- installs Debian dependencies;
+- creates the `winhub` and isolated `winhub-renderer` users;
+- generates independent session, database, enrollment and task-signing secrets with the OS CSPRNG;
+- creates/reconciles the local PostgreSQL role and database;
+- creates a self-signed TLS certificate with the selected host in SAN when no certificate exists;
+- installs Python dependencies, systemd units, Nginx and logrotate configuration;
+- applies Alembic migrations;
+- starts services and runs the backend/renderer healthcheck;
+- creates the first administrator with a random password and TOTP seed;
+- creates a one-time recovery bundle in `/run`.
 
-The Debian service starts:
+Fresh installation intentionally requires an interactive terminal. At each security checkpoint, read the message and press Enter only after understanding where recovery material will be stored.
+
+## 3. Save the one-time recovery bundle
+
+After the healthcheck succeeds, the installer prints the bundle path and SHA-256. Copy it to an encrypted password manager or encrypted off-host/offline storage and verify its checksum. Then type:
 
 ```text
-/opt/winhub/server_debian.py
+SAVED
 ```
 
-Nginx terminates TLS on `443` and proxies to the local backend on `127.0.0.1:8443`.
-By default agents also use `443`, so existing deployments keep working.
+The bundle contains the initial admin credentials, `/etc/winhub/winhub.env`, TLS certificate/private key, `master_key.enc`, `sys_secret.enc` and checksums. It grants control over the installation and must never be stored in Git, Confluence, tickets, chat, ordinary cloud folders or email.
 
-## 3. PostgreSQL
+After confirmation the script removes the temporary archive and duplicate admin recovery file. The server retains only secrets required for runtime operation.
 
-Create database and user:
+The complete Ukrainian procedure is in `WinHUB-WiKi/02-Сервер/01-Встановлення-з-нуля.md`.
 
-```bash
-sudo -u postgres psql
-```
+## 4. Installed topology
 
-```sql
-CREATE USER winhub WITH PASSWORD 'CHANGE_ME_STRONG_PASSWORD';
-CREATE DATABASE winhub OWNER winhub;
-\q
-```
-
-Then edit:
-
-```bash
-sudo nano /etc/winhub/winhub.env
-```
-
-Set:
-
-```ini
-POSTGRES_DB=winhub
-POSTGRES_USER=winhub
-POSTGRES_PASSWORD=CHANGE_ME_STRONG_PASSWORD
-```
-
-## 4. Generate production secrets
-
-```bash
-openssl rand -base64 48
-openssl rand -base64 48
-openssl rand -base64 48
-```
-
-Put different values into:
-
-```ini
-SECRET_KEY=
-AGENT_API_KEY=
-AGENT_TASK_HMAC_SECRET=
-```
+The Debian service starts `/opt/winhub/server_debian.py`. Nginx terminates TLS on `443` and proxies to the local backend on `127.0.0.1:8443`. PostgreSQL is local. By default agents also use `443`.
 
 ## Agent polling cadence
 
@@ -165,7 +139,7 @@ Everything else on that port returns `404`, so the web UI is not available throu
 
 ## 5. Certificates for IP-based access
 
-Because the server is accessed by IP, the certificate must contain the server IP in SAN.
+The fresh installer creates a certificate with the selected DNS/IP in SAN. Replace the self-signed certificate with a trusted/internal-CA certificate when available. For manual replacement, the certificate must contain the public DNS name or IP in SAN.
 
 Example self-signed certificate for `192.168.37.223`:
 
@@ -181,11 +155,12 @@ sudo chmod 0640 /etc/winhub/certs/*.pem
 
 Use the same certificate fingerprint in the agent config if TLS pinning is enabled.
 
-## 6. Start
+## 6. Verify the completed installation
 
 ```bash
-sudo systemctl enable --now winhub
-sudo systemctl reload nginx
+sudo systemctl status winhub --no-pager
+sudo systemctl status winhub-renderer.socket --no-pager
+sudo nginx -t
 sudo /opt/winhub/deploy/debian/healthcheck_winhub.sh
 ```
 
@@ -205,11 +180,7 @@ https://SERVER_IP
 
 Do not expose `8443` to the network on Debian. It is an internal backend port.
 
-The first admin credentials are written to:
-
-```text
-/var/lib/winhub/admin_recovery.txt
-```
+The first admin credentials are in the off-host recovery bundle. On a successful fresh install the temporary `/var/lib/winhub/admin_recovery.txt` copy has already been removed.
 
 ## 7. Updates
 

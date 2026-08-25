@@ -1,297 +1,171 @@
 {% extends "base.html" %}
-
 {% block title %}Audit & History - WinHUB{% endblock %}
 
 {% block content %}
 {% include "sidebar.html" %}
-
-<main class="history-audit-shell flex-1 flex flex-col min-w-0 bg-slate-100 relative z-10">
-    <div class="flex-1 overflow-y-auto custom-scrollbar">
-        <div class="max-w-[1600px] mx-auto w-full p-6 md:p-10 flex flex-col gap-8">
-
-            <header class="bg-white rounded-[2.5rem] shadow-sm border border-slate-200 p-6 flex flex-col lg:flex-row items-center justify-between gap-6 shrink-0 transition-all">
-                <div class="flex items-center gap-5 shrink-0">
-                    <div class="w-14 h-14 bg-indigo-600 rounded-2xl flex items-center justify-center text-white shadow-lg shadow-indigo-200">
-                        <svg class="w-8 h-8" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>
-                    </div>
-                    <div>
-                        <h2 class="text-2xl font-black text-slate-800 tracking-tight">Task History & Audit</h2>
-                        <p class="text-[11px] font-bold text-slate-400 uppercase tracking-widest mt-1">Actions & Security Logs</p>
-                    </div>
-                </div>
-
-                <div class="flex items-center gap-4 bg-slate-50 p-2 rounded-2xl border border-slate-200/60 overflow-x-auto shadow-inner w-full lg:w-auto">
-                    {% if is_admin %}
-                    <span class="px-4 py-2 text-[10px] font-black uppercase tracking-widest bg-emerald-100 text-emerald-700 rounded-xl border border-emerald-200 shadow-sm shrink-0">
-                        Administrator
-                    </span>
-                    {% endif %}
-                    <div class="w-px h-6 bg-slate-300 mx-1 shrink-0"></div>
-                    <div class="flex items-center gap-3 px-2 shrink-0">
-                        <div class="w-8 h-8 rounded-full bg-indigo-100 text-indigo-700 flex items-center justify-center font-black shadow-sm">{{ username[0]|upper if username else 'U' }}</div>
-                        <span class="text-xs font-black text-slate-700 uppercase tracking-wider pr-2">{{ username }}</span>
-                    </div>
-                </div>
-
-                <div class="shrink-0 flex gap-3 w-full lg:w-auto">
-                    {% if permissions.manage_history and is_admin %}
-                    <button onclick="runCleanup()" id="cleanupBtn" class="flex-1 lg:flex-none px-6 py-3 bg-white border border-slate-200 text-rose-500 rounded-2xl text-xs font-black uppercase hover:bg-rose-50 shadow-sm transition-all flex justify-center items-center gap-2">
-                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"></path></svg>
-                        Clean {{ retention }}d
-                    </button>
-                    {% endif %}
-                    {% if permissions.manage_history and (is_admin or permissions.delete_tasks) %}
-                    <button onclick="deleteSelected()" id="delSelBtn" class="flex-1 lg:flex-none px-6 py-3 bg-slate-800 border border-slate-700 text-white rounded-2xl text-xs font-black uppercase hover:bg-slate-900 shadow-sm transition-all hidden justify-center items-center gap-2">
-                        Delete Selected
-                    </button>
-                    {% endif %}
-                </div>
-            </header>
-
-            <div class="flex flex-col md:flex-row gap-4">
-                <input type="text" id="searchInput" placeholder="Search by user, action, target..." class="flex-1 px-6 py-4 bg-white border border-slate-200 rounded-2xl text-sm font-bold shadow-sm focus:ring-4 focus:ring-indigo-500/10 outline-none transition-all">
-                <select id="typeFilter" class="px-6 py-4 bg-white border border-slate-200 rounded-2xl text-sm font-bold shadow-sm focus:ring-4 focus:ring-indigo-500/10 outline-none transition-all cursor-pointer">
-                    <option value="all">All Event Types</option>
-                    <option value="audit">System Audit Logs</option>
-                    <option value="task">Agent Task Logs</option>
-                    <option value="registration">Agent Registrations</option>
-                    <option value="module">Module Events</option>
-                </select>
-                <select id="statusFilter" class="px-6 py-4 bg-white border border-slate-200 rounded-2xl text-sm font-bold shadow-sm focus:ring-4 focus:ring-indigo-500/10 outline-none transition-all cursor-pointer">
-                    <option value="all">All Statuses</option>
-                    <option value="Success">Success</option>
-                    <option value="Error">Error</option>
-                    <option value="Warning">Warning / Pending</option>
-                </select>
-            </div>
-
-            <div class="bg-white rounded-[3rem] border border-slate-200 shadow-sm overflow-hidden overflow-x-auto flex-1">
-                <table class="w-full text-left min-w-[900px]">
-                    <thead class="bg-slate-50/50 border-b border-slate-100 text-[10px] font-black text-slate-400 uppercase tracking-widest sticky top-0">
-                        <tr>
-                            {% if permissions.manage_history and (is_admin or permissions.delete_tasks) %}<th class="px-6 py-6 w-12 text-center"><input type="checkbox" id="selectAll" class="w-4 h-4 text-indigo-600 rounded border-slate-300 focus:ring-indigo-500 cursor-pointer"></th>{% endif %}
-                            <th class="px-6 py-6 w-48">Timestamp</th>
-                            <th class="px-6 py-6 w-48">User / Initiator</th>
-                            <th class="px-6 py-6 w-32">Type</th>
-                            <th class="px-6 py-6">Action & Details</th>
-                            <th class="px-6 py-6 w-32 text-center">Status</th>
-                        </tr>
-                    </thead>
-                    <tbody id="historyBody" class="divide-y divide-slate-100 text-sm">
-                        <tr><td colspan="6" class="p-20 text-center text-slate-400 font-bold uppercase tracking-widest text-xs">Loading logs...</td></tr>
-                    </tbody>
-                </table>
-            </div>
-
-            <div class="flex justify-between items-center py-4 px-2">
-                <span id="pageInfo" class="text-[10px] font-black uppercase tracking-widest text-slate-400">Page 1 of 1</span>
-                <div class="flex gap-2">
-                    <button onclick="changePage(-1)" id="btnPrev" class="px-6 py-3 bg-white border border-slate-200 text-slate-600 rounded-xl text-[10px] font-black uppercase shadow-sm hover:bg-slate-50 transition-all disabled:opacity-50">Previous</button>
-                    <button onclick="changePage(1)" id="btnNext" class="px-6 py-3 bg-white border border-slate-200 text-slate-600 rounded-xl text-[10px] font-black uppercase shadow-sm hover:bg-slate-50 transition-all disabled:opacity-50">Next</button>
-                </div>
-            </div>
-
+<main class="flex-1 min-w-0 bg-slate-100 overflow-y-auto custom-scrollbar">
+  <div class="max-w-[1700px] mx-auto p-5 md:p-8 space-y-5">
+    <header class="bg-white rounded-3xl border border-slate-200 shadow-sm p-6 flex flex-col xl:flex-row xl:items-center justify-between gap-5">
+      <div class="flex items-center gap-4">
+        <div class="w-12 h-12 rounded-2xl bg-indigo-600 text-white grid place-items-center shadow-lg shadow-indigo-200">
+          <svg class="w-7 h-7" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.2" d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z"/></svg>
         </div>
-    </div>
+        <div>
+          <h1 class="text-2xl font-black text-slate-800">Audit, tasks & reports</h1>
+          <p class="text-xs text-slate-500 mt-1">Server-side search across the full retained history · retention: {% if retention %}{{ retention }} days (≈ {{ retention_years }} years){% else %}unlimited{% endif %}</p>
+        </div>
+      </div>
+      <div class="flex flex-wrap gap-2">
+        <span class="px-4 py-2 rounded-xl bg-slate-100 text-slate-600 text-xs font-bold">{{ username }}</span>
+        {% if is_admin %}
+        <button id="reindexBtn" class="px-4 py-2 rounded-xl border border-indigo-200 text-indigo-700 bg-indigo-50 text-xs font-black hover:bg-indigo-100">Index older records</button>
+        <button id="cleanupBtn" class="px-4 py-2 rounded-xl border border-rose-200 text-rose-700 bg-rose-50 text-xs font-black hover:bg-rose-100">Apply retention</button>
+        <button id="deleteBtn" class="hidden px-4 py-2 rounded-xl bg-rose-600 text-white text-xs font-black hover:bg-rose-700">Delete selected</button>
+        {% endif %}
+      </div>
+    </header>
+
+    <section class="bg-white rounded-3xl border border-slate-200 shadow-sm p-5 space-y-4">
+      <div class="grid grid-cols-1 lg:grid-cols-12 gap-3">
+        <label class="lg:col-span-5"><span class="block text-[10px] font-black uppercase tracking-widest text-slate-400 mb-1.5">Quick search</span><input id="q" class="audit-input" placeholder="User, action, host, task, report or ID"></label>
+        {% if can_search_content %}<label class="lg:col-span-4"><span class="block text-[10px] font-black uppercase tracking-widest text-slate-400 mb-1.5">Word(s) in input / result / report</span><input id="content" class="audit-input" placeholder="e.g. service nginx failed"></label>
+        <label class="lg:col-span-2"><span class="block text-[10px] font-black uppercase tracking-widest text-slate-400 mb-1.5">Match words</span><select id="contentMode" class="audit-input"><option value="all">All words (AND)</option><option value="any">Any word (OR)</option></select></label>{% endif %}
+        <div class="lg:col-span-1 flex items-end"><button id="searchBtn" class="w-full h-[46px] rounded-xl bg-indigo-600 text-white font-black text-xs hover:bg-indigo-700">Search</button></div>
+      </div>
+
+      <div class="flex flex-wrap gap-2" id="typeChips">
+        <label class="audit-chip"><input type="checkbox" value="task" checked> Tasks</label>
+        <label class="audit-chip"><input type="checkbox" value="report" checked> Reports</label>
+        <label class="audit-chip"><input type="checkbox" value="legacy_task" checked> Module jobs</label>
+        {% if is_admin %}<label class="audit-chip"><input type="checkbox" value="audit" checked> User actions</label><label class="audit-chip"><input type="checkbox" value="registration" checked> Sign-ins / agents</label>{% endif %}
+      </div>
+
+      <details id="advancedFilters" class="group border-t border-slate-100 pt-4">
+        <summary class="cursor-pointer select-none text-xs font-black text-indigo-700 flex items-center gap-2">Advanced filters <span class="text-slate-400 font-medium">actor, source, dates, host, status, job/template</span></summary>
+        <div class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-3 mt-4">
+          <label><span class="audit-label">Actor</span><select id="actor" class="audit-input"><option value="">Any actor</option></select></label>
+          <label><span class="audit-label">Source</span><select id="source" class="audit-input"><option value="">Any source</option></select></label>
+          <label><span class="audit-label">Module</span><select id="module" class="audit-input"><option value="">Any module</option></select></label>
+          <label><span class="audit-label">Status</span><select id="status" class="audit-input"><option value="">Any status</option></select></label>
+          {% if is_admin %}<label><span class="audit-label">Actor role</span><select id="role" class="audit-input"><option value="">Any role</option><option value="superadmin">Superadmin</option><option value="operator">Operator</option><option value="api_key">API key</option><option value="system">System</option></select></label>
+          <label><span class="audit-label">Actor type</span><select id="actorType" class="audit-input"><option value="">Any actor type</option><option value="user">User</option><option value="api_key">API key</option><option value="system">System</option></select></label>{% endif %}
+          <label><span class="audit-label">Action / title contains</span><input id="action" class="audit-input" placeholder="Login, PowerShell, report..."></label>
+          <label><span class="audit-label">Host / target</span><input id="target" class="audit-input" placeholder="Hostname, display name or HWID"></label>
+          <label><span class="audit-label">From (Kyiv time)</span><input id="dateFrom" type="datetime-local" class="audit-input"></label>
+          <label><span class="audit-label">To (Kyiv time)</span><input id="dateTo" type="datetime-local" class="audit-input"></label>
+          <label><span class="audit-label">Job ID</span><input id="jobId" class="audit-input" placeholder="Exact job ID"></label>
+          <label><span class="audit-label">Template ID</span><input id="templateId" class="audit-input" placeholder="Exact template ID"></label>
+          {% if is_admin %}<label><span class="audit-label">Session hash</span><input id="sessionHash" class="audit-input" placeholder="Exact audited session hash"></label><label><span class="audit-label">Request ID</span><input id="requestId" class="audit-input" placeholder="Exact request ID"></label>{% endif %}
+          {% if can_search_content %}<label><span class="audit-label">Content area</span><select id="contentField" class="audit-input"><option value="">All task/report history</option><option value="input">Task input only</option><option value="output">Task result only</option><option value="current">Current report only</option><option value="original">Original report only</option><option value="revisions">Any report revision</option><option value="deliveries">Exact sent snapshots</option></select></label>{% endif %}
+          <div class="flex items-end"><button id="resetBtn" class="w-full h-[46px] rounded-xl border border-slate-200 bg-slate-50 text-slate-600 text-xs font-black hover:bg-slate-100">Reset all filters</button></div>
+        </div>
+      </details>
+      <div id="indexInfo" class="hidden text-[11px] text-slate-400"></div>
+    </section>
+
+    <section class="bg-white rounded-3xl border border-slate-200 shadow-sm overflow-hidden">
+      <div class="overflow-x-auto">
+        <table class="w-full min-w-[1050px] text-left">
+          <thead class="bg-slate-50 border-b border-slate-200 text-[10px] uppercase tracking-widest text-slate-500">
+            <tr>{% if is_admin %}<th class="p-4 w-10"><input id="selectAll" type="checkbox"></th>{% endif %}<th class="p-4 w-48">Time</th><th class="p-4 w-48">Actor</th><th class="p-4 w-32">Type</th><th class="p-4">Event / target</th><th class="p-4 w-36">Status</th></tr>
+          </thead>
+          <tbody id="historyBody" class="divide-y divide-slate-100"><tr><td colspan="6" class="p-16 text-center text-slate-400">Loading history…</td></tr></tbody>
+        </table>
+      </div>
+      <footer class="border-t border-slate-100 p-4 flex items-center justify-between gap-4">
+        <span id="pageInfo" class="text-xs text-slate-500">Page 1</span>
+        <div class="flex gap-2"><button id="prevBtn" class="audit-page-btn" disabled>Previous</button><button id="nextBtn" class="audit-page-btn" disabled>Next</button></div>
+      </footer>
+    </section>
+  </div>
 </main>
 
-<div id="logModal" class="fixed inset-0 z-50 hidden bg-slate-900/60 backdrop-blur-md flex justify-center items-center p-4 animate-in fade-in">
-    <div class="bg-white rounded-[3rem] p-10 w-full max-w-6xl shadow-2xl relative flex flex-col max-h-[90vh]">
-        <button onclick="closeLogModal()" class="absolute top-6 right-6 text-slate-400 hover:text-slate-600 bg-slate-50 hover:bg-slate-100 p-2 rounded-xl transition-colors shrink-0"><svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M6 18L18 6M6 6l12 12"></path></svg></button>
-        <h3 class="text-2xl font-black text-slate-800 mb-2 uppercase tracking-tight shrink-0">Detailed Log</h3>
-        <p class="text-[10px] text-slate-400 font-bold uppercase tracking-widest mb-6 shrink-0" id="logModalSub">Information</p>
-
-        <div class="bg-[#0f172a] rounded-2xl border border-slate-800 shadow-inner flex-1 overflow-auto custom-scrollbar p-6">
-            <pre id="logContent" class="text-emerald-400 font-mono text-xs whitespace-pre-wrap break-words"></pre>
-        </div>
-    </div>
+<div id="logModal" class="fixed inset-0 z-50 hidden bg-slate-950/65 backdrop-blur-sm p-4 items-center justify-center">
+  <div class="bg-white rounded-3xl shadow-2xl w-full max-w-6xl max-h-[92vh] flex flex-col overflow-hidden">
+    <header class="p-5 border-b border-slate-200 flex items-center justify-between"><div><h2 class="font-black text-slate-800">Audit detail</h2><p id="logSub" class="text-xs text-slate-500 mt-1"></p></div><button id="closeModal" class="w-9 h-9 rounded-xl bg-slate-100 text-slate-500 font-black">×</button></header>
+    <div class="p-5 bg-slate-950 overflow-auto flex-1"><pre id="logContent" class="text-emerald-300 font-mono text-xs whitespace-pre-wrap break-words">Loading…</pre></div>
+  </div>
 </div>
 
+<style nonce="{{ csp_nonce }}">
+  .audit-input{width:100%;height:46px;border:1px solid #e2e8f0;border-radius:.75rem;padding:0 .9rem;background:#fff;color:#334155;font-size:.8rem;outline:none}.audit-input:focus{border-color:#818cf8;box-shadow:0 0 0 3px #e0e7ff}.audit-label{display:block;font-size:.625rem;font-weight:900;text-transform:uppercase;letter-spacing:.1em;color:#94a3b8;margin-bottom:.375rem}.audit-chip{display:flex;align-items:center;gap:.5rem;padding:.55rem .8rem;border:1px solid #e2e8f0;border-radius:.75rem;background:#f8fafc;color:#475569;font-size:.75rem;font-weight:800;cursor:pointer}.audit-chip:has(input:checked){border-color:#a5b4fc;background:#eef2ff;color:#4338ca}.audit-page-btn{padding:.65rem 1rem;border:1px solid #e2e8f0;border-radius:.7rem;background:#fff;color:#475569;font-size:.7rem;font-weight:900}.audit-page-btn:disabled{opacity:.4}.audit-row{cursor:pointer}.audit-row:hover{background:#f8fafc}.audit-badge{display:inline-flex;padding:.3rem .55rem;border-radius:.5rem;font-size:.6rem;font-weight:900;text-transform:uppercase;letter-spacing:.06em;border:1px solid #e2e8f0}.type-audit{background:#fef2f2;color:#be123c;border-color:#fecdd3}.type-task{background:#eff6ff;color:#1d4ed8;border-color:#bfdbfe}.type-report{background:#f5f3ff;color:#6d28d9;border-color:#ddd6fe}.type-registration{background:#ecfdf5;color:#047857;border-color:#a7f3d0}.type-legacy_task{background:#fff7ed;color:#c2410c;border-color:#fed7aa}.status-success,.status-sent{background:#ecfdf5;color:#047857;border-color:#a7f3d0}.status-error,.status-failed{background:#fef2f2;color:#be123c;border-color:#fecdd3}.status-pending,.status-running,.status-pickedup,.status-waiting-review{background:#fffbeb;color:#a16207;border-color:#fde68a}
+</style>
+
 <script nonce="{{ csp_nonce }}">
-    let allData = []; let filteredData = [];
-    let currentPage = 1; const perPage = 100;
-    const canManageHistory = {{ 'true' if permissions.manage_history and (is_admin or permissions.delete_tasks) else 'false' }};
-    const isHistorySuperadmin = {{ 'true' if is_admin else 'false' }};
+(() => {
+  const isSuperadmin = {{ 'true' if is_admin else 'false' }};
+  let rows = [], cursorStack = [null], page = 0, nextCursor = null, loading = false;
+  const $ = id => document.getElementById(id);
+  const esc = value => String(value ?? '').replace(/[&<>"']/g, ch => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[ch]));
+  const selectedTypes = () => Array.from(document.querySelectorAll('#typeChips input:checked')).map(input => input.value);
 
-    async function loadHistory() {
-        const tbody = document.getElementById('historyBody');
-        try {
-            const res = await fetch('/api/history/tasks');
-            const data = await res.json();
-            if(data.success) {
-                allData = data.history;
-                applyFilters();
-            } else tbody.innerHTML = `<tr><td colspan="6" class="p-10 text-center text-rose-500 font-bold">${escapeHtml(data.message)}</td></tr>`;
-        } catch(e) { tbody.innerHTML = `<tr><td colspan="6" class="p-10 text-center text-rose-500 font-bold">Network Error.</td></tr>`; }
-    }
+  function params(cursor) {
+    const p = new URLSearchParams({limit:'100'});
+    const values = {q:$('q').value, content:$('content')?.value, content_mode:$('contentMode')?.value, actor_id:$('actor').value, role:$('role')?.value, actor_type:$('actorType')?.value, source:$('source').value, module:$('module').value, status:$('status').value, action:$('action').value, target:$('target').value, date_from:$('dateFrom').value, date_to:$('dateTo').value, job_id:$('jobId').value, template_id:$('templateId').value, session_id_hash:$('sessionHash')?.value, request_id:$('requestId')?.value, content_field:$('contentField')?.value};
+    Object.entries(values).forEach(([key,value]) => { if(value) p.set(key,value); });
+    selectedTypes().forEach(type => p.append('type', type));
+    if(cursor) p.set('cursor', cursor);
+    return p;
+  }
 
-    function applyFilters() {
-        const term = document.getElementById('searchInput').value.toLowerCase();
-        const typeF = document.getElementById('typeFilter').value;
-        const statF = document.getElementById('statusFilter').value;
+  async function load(reset=false) {
+    if(loading) return;
+    if(reset){ page=0; cursorStack=[null]; }
+    loading=true; $('historyBody').innerHTML='<tr><td colspan="6" class="p-16 text-center text-slate-400">Searching the full history…</td></tr>';
+    try {
+      const response = await fetch('/api/history/search?' + params(cursorStack[page]));
+      const data = await response.json();
+      if(!response.ok || !data.success) throw new Error(data.message || 'Search failed');
+      rows=data.history || []; nextCursor=data.next_cursor || null; render();
+    } catch(error) {
+      $('historyBody').innerHTML=`<tr><td colspan="6" class="p-12 text-center text-rose-600 font-bold">${esc(error.message)}</td></tr>`;
+    } finally { loading=false; }
+  }
 
-        filteredData = allData.filter(i => {
-            const matchTerm = (i.user || '').toLowerCase().includes(term) || (i.action || '').toLowerCase().includes(term) || (i.details || '').toLowerCase().includes(term);
-            const matchType = typeF === 'all' || i.type === typeF;
-            let matchStat = statF === 'all' || i.status === statF;
-            if(statF === 'Warning' && i.status === 'Pending') matchStat = true;
-            return matchTerm && matchType && matchStat;
-        });
+  function render(){
+    $('pageInfo').textContent=`Page ${page+1} · ${rows.length} records on this page`;
+    $('prevBtn').disabled=page===0; $('nextBtn').disabled=!nextCursor;
+    if(!rows.length){ $('historyBody').innerHTML='<tr><td colspan="6" class="p-16 text-center text-slate-400">No records match all selected filters.</td></tr>'; return; }
+    $('historyBody').innerHTML=rows.map(row => {
+      const statusClass='status-'+String(row.status||'').toLowerCase().replace(/\s+/g,'-');
+      const check=isSuperadmin?`<td class="p-4" onclick="event.stopPropagation()"><input class="rowCheck" type="checkbox" value="${esc(row.id)}"></td>`:'';
+      return `<tr class="audit-row" data-id="${esc(row.id)}">${check}<td class="p-4 text-xs text-slate-500 whitespace-nowrap">${esc(row.date)}</td><td class="p-4"><div class="font-bold text-slate-700">${esc(row.user)}</div><div class="text-[10px] text-slate-400">${esc(row.source||row.actor_role||'')}</div></td><td class="p-4"><span class="audit-badge type-${esc(row.type)}">${esc(row.type.replace('_',' '))}</span></td><td class="p-4"><div class="font-bold text-slate-800">${esc(row.action)}</div><div class="text-xs text-slate-500 mt-1">${esc(row.details)}</div>${row.job_id?`<div class="text-[10px] font-mono text-slate-400 mt-1">${esc(row.job_id)}</div>`:''}</td><td class="p-4"><span class="audit-badge ${statusClass}">${esc(row.status)}</span></td></tr>`;
+    }).join('');
+    document.querySelectorAll('.audit-row').forEach(row => row.addEventListener('click',()=>viewLog(row.dataset.id)));
+    document.querySelectorAll('.rowCheck').forEach(input => input.addEventListener('change', updateSelection));
+    updateSelection();
+  }
 
-        currentPage = 1;
-        renderTable();
-    }
+  async function viewLog(id){
+    const row=rows.find(item=>item.id===id); $('logSub').textContent=row?`${row.type} · ${row.action} · ${row.status}`:id; $('logContent').textContent='Loading…'; $('logModal').classList.remove('hidden'); $('logModal').classList.add('flex');
+    try { const response=await fetch('/api/history/log/'+encodeURIComponent(id)); const data=await response.json(); $('logContent').textContent=data.success?(data.log||'No details'):`Error: ${data.message}`; }
+    catch(error){ $('logContent').textContent='Network error: '+error.message; }
+  }
 
-    function renderTable() {
-        const tbody = document.getElementById('historyBody');
-        const start = (currentPage - 1) * perPage;
-        const end = start + perPage;
-        const pageData = filteredData.slice(start, end);
-        const totalPages = Math.ceil(filteredData.length / perPage) || 1;
+  function updateSelection(){ if(!isSuperadmin)return; const checks=Array.from(document.querySelectorAll('.rowCheck')); const selected=checks.filter(item=>item.checked); $('deleteBtn').classList.toggle('hidden',!selected.length); $('selectAll').checked=checks.length>0&&selected.length===checks.length; }
+  async function deleteSelected(){ const ids=Array.from(document.querySelectorAll('.rowCheck:checked')).map(item=>item.value); if(!ids.length||!confirm(`Permanently delete ${ids.length} selected records? This cannot be undone.`))return; const response=await fetch('/api/history/delete_selected',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({task_ids:ids})}); const data=await response.json(); if(!response.ok)alert(data.message||'Delete failed'); await load(true); }
 
-        document.getElementById('pageInfo').innerText = `Page ${currentPage} of ${totalPages} (Total: ${filteredData.length})`;
-        document.getElementById('btnPrev').disabled = currentPage === 1;
-        document.getElementById('btnNext').disabled = currentPage === totalPages;
+  async function loadFacets(){
+    try { const response=await fetch('/api/history/facets'); const data=await response.json(); if(!data.success)return;
+      data.actors.forEach(item=>$('actor').insertAdjacentHTML('beforeend',`<option value="${item.id}">${esc(item.name)} · ${esc(item.role)}</option>`));
+      data.sources.forEach(item=>$('source').insertAdjacentHTML('beforeend',`<option value="${esc(item)}">${esc(item)}</option>`));
+      data.modules.forEach(item=>$('module').insertAdjacentHTML('beforeend',`<option value="${esc(item)}">${esc(item)}</option>`));
+      data.statuses.forEach(item=>$('status').insertAdjacentHTML('beforeend',`<option value="${esc(item)}">${esc(item)}</option>`));
+      if(data.index){ const summary=Object.entries(data.index).map(([type,stats])=>`${type}: ${stats.documents} records indexed`).join(' · '); $('indexInfo').textContent='Encrypted content index · '+(summary||'backfill pending'); $('indexInfo').classList.remove('hidden'); }
+    } catch(_){}
+  }
 
-        if (pageData.length === 0) {
-            tbody.innerHTML = `<tr><td colspan="6" class="p-16 text-center text-slate-400 font-bold italic">No records match criteria.</td></tr>`;
-            return;
-        }
-
-        tbody.innerHTML = pageData.map(i => {
-            let sCls = 'audit-status-badge audit-status-default';
-            if(i.status === 'Success') sCls = 'audit-status-badge audit-status-success';
-            else if(i.status === 'Error') sCls = 'audit-status-badge audit-status-error';
-            else if(i.status === 'Warning' || i.status === 'Pending') sCls = 'audit-status-badge audit-status-warning';
-
-            let tCls = 'audit-type-badge audit-type-default';
-            if(i.type === 'audit') tCls = 'audit-type-badge audit-type-audit';
-            else if(i.type === 'task') tCls = 'audit-type-badge audit-type-task';
-            else if(i.type === 'registration') tCls = 'audit-type-badge audit-type-registration';
-            else if(i.type === 'module') tCls = 'audit-type-badge audit-type-module';
-
-            const safeId = escapeInlineJs(i.id);
-            const mayDeleteRow = canManageHistory && (isHistorySuperadmin || String(i.id || '').startsWith('agent_'));
-            const checkbox = canManageHistory ? `<td class="px-6 py-4 text-center" onclick="event.stopPropagation()">${mayDeleteRow ? `<input type="checkbox" value="${escapeHtml(i.id)}" class="row-cb w-4 h-4 text-indigo-600 rounded border-slate-300 focus:ring-indigo-500 cursor-pointer" onchange="toggleDelBtn()">` : ''}</td>` : '';
-
-            const actionClick = `onclick="viewLog('${safeId}')" class="hover:bg-slate-50/80 cursor-pointer transition-colors"`;
-
-            return `
-            <tr ${actionClick}>
-                ${checkbox}
-                <td class="px-6 py-5 text-xs font-bold text-slate-500">${escapeHtml(i.date)}</td>
-                <td class="px-6 py-5 font-black text-slate-700">${escapeHtml(i.user)}</td>
-                <td class="px-6 py-5"><span class="px-3 py-1.5 rounded-lg text-[9px] font-black uppercase tracking-widest border shadow-sm ${tCls}">${escapeHtml(i.type)}</span></td>
-                <td class="px-6 py-5">
-                    <div class="font-bold text-slate-800 text-sm mb-1">${escapeHtml(i.action)}</div>
-                    <div class="text-xs text-slate-400 max-w-3xl whitespace-normal leading-relaxed">${escapeHtml(i.details)}</div>
-                </td>
-                <td class="px-6 py-5 text-center"><span class="px-3 py-1.5 rounded-lg text-[9px] font-black uppercase tracking-widest border shadow-sm ${sCls}">${escapeHtml(i.status)}</span></td>
-            </tr>`;
-        }).join('');
-    }
-
-    function escapeHtml(value) {
-        return String(value ?? '').replace(/[&<>"']/g, ch => ({
-            '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
-        }[ch]));
-    }
-
-    function escapeInlineJs(value) {
-        return escapeHtml(String(value ?? '')
-            .replace(/\\/g, '\\\\')
-            .replace(/'/g, "\\'")
-            .replace(/\r/g, '\\r')
-            .replace(/\n/g, '\\n')
-            .replace(/</g, '\\x3c'));
-    }
-
-    document.getElementById('searchInput').addEventListener('input', applyFilters);
-    document.getElementById('typeFilter').addEventListener('change', applyFilters);
-    document.getElementById('statusFilter').addEventListener('change', applyFilters);
-
-    function changePage(dir) {
-        const total = Math.ceil(filteredData.length / perPage);
-        if(currentPage + dir > 0 && currentPage + dir <= total) {
-            currentPage += dir;
-            renderTable();
-        }
-    }
-
-    function toggleDelBtn() {
-        const anyChecked = document.querySelectorAll('.row-cb:checked').length > 0;
-        const btn = document.getElementById('delSelBtn');
-        if(btn) btn.style.display = anyChecked ? 'flex' : 'none';
-
-        const allCb = document.getElementById('selectAll');
-        if(allCb) {
-            const allChecked = document.querySelectorAll('.row-cb').length === document.querySelectorAll('.row-cb:checked').length;
-            allCb.checked = allChecked && document.querySelectorAll('.row-cb').length > 0;
-        }
-    }
-
-    if(document.getElementById('selectAll')) {
-        document.getElementById('selectAll').addEventListener('change', function() {
-            document.querySelectorAll('.row-cb').forEach(cb => cb.checked = this.checked);
-            toggleDelBtn();
-        });
-    }
-
-    async function deleteSelected() {
-        const ids = Array.from(document.querySelectorAll('.row-cb:checked')).map(cb => cb.value);
-        if(!confirm(`Delete ${ids.length} records?`)) return;
-        const btn = document.getElementById('delSelBtn');
-        btn.disabled = true; btn.innerText = "Deleting...";
-        try {
-            await fetch('/api/history/delete_selected', { method: 'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({task_ids: ids}) });
-            loadHistory();
-            document.getElementById('selectAll').checked = false;
-            toggleDelBtn();
-        } catch(e) { alert("Error deleting records"); }
-        finally { btn.disabled = false; btn.innerText = "Delete Selected"; }
-    }
-
-    async function viewLog(taskId) {
-        const row = allData.find(item => item.id === taskId);
-        document.getElementById('logContent').innerText = "Loading log from server...";
-        document.getElementById('logModalSub').innerText = row
-            ? `${String(row.type || 'record').toUpperCase()} / ${row.status || 'Details'} / ${row.action || taskId}`
-            : taskId;
-        document.getElementById('logModal').classList.remove('hidden');
-        try {
-            const res = await fetch('/api/history/log/' + taskId);
-            const data = await res.json();
-            if(data.success) {
-                document.getElementById('logContent').innerText = data.log || 'No output.';
-            } else {
-                document.getElementById('logContent').innerText = `Error: ${data.message}`;
-                document.getElementById('logContent').classList.replace('text-emerald-400', 'text-rose-400');
-            }
-        } catch (e) {
-            document.getElementById('logContent').innerText = "Network Error.";
-        }
-    }
-
-    function closeLogModal() {
-        document.getElementById('logModal').classList.add('hidden');
-        document.getElementById('logContent').classList.replace('text-rose-400', 'text-emerald-400');
-    }
-
-    async function runCleanup() {
-        if (!confirm("This will permanently delete all logs older than {{ retention }} days. Continue?")) return;
-        const btn = document.getElementById('cleanupBtn');
-        const oldHtml = btn.innerHTML;
-        btn.disabled = true; btn.innerText = "Cleaning...";
-
-        try {
-            const res = await fetch('/api/history/cleanup', {method: 'POST'});
-            const data = await res.json();
-            alert(data.message);
-            loadHistory();
-        } catch(e) { alert("Error running cleanup."); }
-        finally { btn.disabled = false; btn.innerHTML = oldHtml; }
-    }
-
-    window.onload = loadHistory;
+  $('searchBtn').addEventListener('click',()=>load(true));
+  ['q','content','action','target','jobId','templateId','sessionHash','requestId'].forEach(id => $(id)?.addEventListener('keydown',event=>{if(event.key==='Enter')load(true);}));
+  $('resetBtn').addEventListener('click',()=>{ document.querySelectorAll('.audit-input').forEach(input=>input.value=''); if($('contentMode')) $('contentMode').value='all'; document.querySelectorAll('#typeChips input').forEach(input=>input.checked=true); load(true); });
+  $('prevBtn').addEventListener('click',()=>{if(page>0){page--;load();}}); $('nextBtn').addEventListener('click',()=>{if(nextCursor){cursorStack[page+1]=nextCursor;page++;load();}});
+  $('closeModal').addEventListener('click',()=>{$('logModal').classList.add('hidden');$('logModal').classList.remove('flex');});
+  $('logModal').addEventListener('click',event=>{if(event.target===$('logModal'))$('closeModal').click();});
+  if(isSuperadmin){ $('selectAll').addEventListener('change',event=>{document.querySelectorAll('.rowCheck').forEach(input=>input.checked=event.target.checked);updateSelection();}); $('deleteBtn').addEventListener('click',deleteSelected);
+    $('cleanupBtn').addEventListener('click',async()=>{if(!confirm('Permanently remove one bounded batch of records older than the configured retention period?'))return; const response=await fetch('/api/history/cleanup',{method:'POST'}); const data=await response.json(); alert(data.message||'Finished');load(true);});
+    $('reindexBtn').addEventListener('click',async()=>{const button=$('reindexBtn');button.disabled=true;button.textContent='Indexing…';try{const response=await fetch('/api/history/reindex',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({limit:1000})});const data=await response.json();alert(data.success?`Indexed ${data.result.total} older records.`:(data.message||'Failed'));await loadFacets();}finally{button.disabled=false;button.textContent='Index older records';}});
+  }
+  loadFacets(); load(true);
+})();
 </script>
 {% endblock %}
