@@ -87,7 +87,14 @@ install -m 0644 "${APP_DIR}/deploy/debian/nginx-winhub.conf" /etc/nginx/sites-av
 ln -sfn /etc/nginx/sites-available/winhub /etc/nginx/sites-enabled/winhub
 install -m 0644 "${APP_DIR}/deploy/debian/winhub.logrotate" /etc/logrotate.d/winhub
 
-chown -R winhub:winhub "${APP_DIR}" /var/lib/winhub /var/log/winhub
+chown -R root:winhub "${APP_DIR}"
+chmod -R u=rwX,g=rX,o= "${APP_DIR}"
+chmod 0751 "${APP_DIR}"
+chmod -R u=rwX,go=rX "${APP_DIR}/static"
+chmod -R u=rwX,go=rX "${APP_DIR}/venv"
+chmod 0751 "${APP_DIR}/core"
+chmod 0644 "${APP_DIR}/core/report_renderer.py"
+chown -R winhub:winhub /var/lib/winhub /var/log/winhub
 chown -R root:winhub /etc/winhub
 chmod 0750 /etc/winhub /etc/winhub/certs
 chmod 0640 "${ENV_FILE}"

@@ -15,8 +15,6 @@ MODULE_INTERNAL_PERMISSION_CATALOG = {
         {"id": "view_sensitive_reports", "name": "Reveal sensitive task/report values"},
         {"id": "edit_reports", "name": "Edit reports"},
         {"id": "dismiss_reports", "name": "Dismiss reports"},
-        {"id": "delete_reports", "name": "Delete reports"},
-        {"id": "delete_tasks", "name": "Delete task history"},
         {"id": "run_tasks", "name": "Run approved templates"},
         {"id": "manage_software", "name": "Manage software packages"},
         {"id": "send_reports", "name": "Send reports by email"},
@@ -36,7 +34,6 @@ MODULE_INTERNAL_PERMISSION_CATALOG = {
     ],
     "HistoryAudit": [
         {"id": "view_history", "name": "View history"},
-        {"id": "manage_history", "name": "Cleanup/delete history"},
     ],
 }
 
@@ -87,14 +84,8 @@ PERMISSION_ALIASES = {
             "manage_groups",
         },
         "delete": {
-            "delete_reports",
-            "delete_tasks",
             "delete_hosts",
             "delete_groups",
-        },
-        # Compatibility for users that had the former exact cleanup permission.
-        "cleanup_tasks": {
-            "delete_tasks",
         },
         "scheduler": {
             "manage_scheduler",
@@ -117,9 +108,7 @@ PERMISSION_ALIASES = {
         "view": {
             "view_history",
         },
-        "delete": {
-            "manage_history",
-        },
+        "delete": set(),
     },
 }
 
@@ -130,11 +119,21 @@ PERMISSION_ALIASES = {
 EXPLICIT_ONLY_PERMISSIONS = {
     "Infrastructure": {
         "view_sensitive_reports",
+        # Legacy tokens remain parseable during upgrades, but route-level hard
+        # deletion is reserved for an interactive superadmin.
         "delete_reports",
         "delete_tasks",
         "delete_hosts",
         "delete_groups",
     },
+}
+
+# Retired delegable capabilities kept here so legacy database/API tokens cannot
+# regain hard-delete access after an upgrade. Route checks still enforce an
+# interactive (non-API-key) superadmin session as the final security boundary.
+SUPERADMIN_ONLY_PERMISSIONS = {
+    "Infrastructure": {"delete_reports", "delete_tasks"},
+    "HistoryAudit": {"manage_history"},
 }
 
 
@@ -215,6 +214,8 @@ def has_permission(user, module_id, permission_id):
         return False
 
     api_permissions = request_api_permissions()
+    if permission_id in SUPERADMIN_ONLY_PERMISSIONS.get(module_id, set()):
+        return bool(api_permissions is None and getattr(user, "is_admin", False))
     if api_permissions is not None:
         allowed = api_permissions
     else:

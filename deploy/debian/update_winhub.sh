@@ -203,7 +203,14 @@ ln -sfn /etc/nginx/sites-available/winhub /etc/nginx/sites-enabled/winhub
 install -m 0644 "${APP_DIR}/deploy/debian/winhub.logrotate" /etc/logrotate.d/winhub
 chmod 0755 "${APP_DIR}/deploy/debian/backup_winhub.sh" "${APP_DIR}/deploy/debian/healthcheck_winhub.sh" "${APP_DIR}/deploy/debian/security_smoke_test.sh" "${APP_DIR}/deploy/debian/migrate_winhub.sh" "${APP_DIR}/deploy/debian/render_nginx_config.sh" "${APP_DIR}/deploy/debian/restore_winhub.sh" "${APP_DIR}/deploy/debian/rollback_winhub.sh" "${APP_DIR}/deploy/debian/update_winhub.sh"
 
-chown -R winhub:winhub "${APP_DIR}" /var/lib/winhub /var/log/winhub
+chown -R root:winhub "${APP_DIR}"
+chmod -R u=rwX,g=rX,o= "${APP_DIR}"
+chmod 0751 "${APP_DIR}"
+chmod -R u=rwX,go=rX "${APP_DIR}/static"
+chmod -R u=rwX,go=rX "${APP_DIR}/venv"
+chmod 0751 "${APP_DIR}/core"
+chmod 0644 "${APP_DIR}/core/report_renderer.py"
+chown -R winhub:winhub /var/lib/winhub /var/log/winhub
 chmod 0750 /var/lib/winhub /var/log/winhub
 chown -R root:winhub /etc/winhub
 chmod 0750 /etc/winhub /etc/winhub/certs

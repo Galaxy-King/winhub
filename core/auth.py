@@ -4,6 +4,7 @@ import time
 import secrets
 import string
 import threading
+import uuid
 from flask import Blueprint, request, jsonify, session, render_template, redirect, url_for
 from core.database import db, User, PasswordReset
 from core.security import sec_manager
@@ -72,6 +73,7 @@ def api_login():
     session['user_id'] = user.id
     session['username'] = user.username
     session['is_admin'] = user.is_admin
+    session['audit_session_id'] = str(uuid.uuid4())
     session['login_at'] = time.time()
     session['last_activity'] = time.time()
     session['csrf_token'] = secrets.token_urlsafe(32)

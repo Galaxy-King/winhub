@@ -1179,6 +1179,8 @@ def agent_result():
             except Exception as e:
                 log.error(f"Error processing metric result: {e}")
 
+        from core.history_search import index_agent_task
+        index_agent_task(task)
         db.session.commit()
 
         pending_tasks = AgentTask.query.filter(

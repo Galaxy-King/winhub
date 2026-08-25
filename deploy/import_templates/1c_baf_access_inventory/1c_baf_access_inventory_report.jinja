@@ -1,0 +1,75 @@
+[[WINHUB_REPORT title="1C / BAF Access Inventory - {{ job_title }}"]]
+{% set ns = namespace(installed=0, missing=0, warnings=0) -%}
+{% for result in results -%}
+{% if result.data.software_installed -%}
+{% set ns.installed = ns.installed + 1 -%}
+{% else -%}
+{% set ns.missing = ns.missing + 1 -%}
+{% endif -%}
+{% set ns.warnings = ns.warnings + (result.data.warnings|length) -%}
+{% endfor -%}
+{% set ordered = namespace(items=[]) -%}
+{% for candidate in results -%}
+{% set insertion = namespace(done=false, items=[]) -%}
+{% for current in ordered.items -%}
+{% if not insertion.done and candidate.data.ip_sort_key < current.data.ip_sort_key -%}
+{% set insertion.items = insertion.items + [candidate] -%}
+{% set insertion.done = true -%}
+{% endif -%}
+{% set insertion.items = insertion.items + [current] -%}
+{% endfor -%}
+{% if not insertion.done -%}
+{% set insertion.items = insertion.items + [candidate] -%}
+{% endif -%}
+{% set ordered.items = insertion.items -%}
+{% endfor -%}
+ПІДСУМОК
+========
+- Серверів зі встановленим 1С / BAF: {{ ns.installed }}
+- Серверів без 1С / BAF: {{ ns.missing }}
+
+1С / BAF — ВСТАНОВЛЕНО
+======================
+{% for result in ordered.items if result.data.software_installed -%}
+{{ result.data.primary_ip or '(без IP 192.168.*)' }} | {{ result.host }}
+1С / BAF: ВСТАНОВЛЕНО
+Користувачі (Enabled, не заблоковані):
+{% for account in result.data.active_access_accounts -%}
+- {% if '\\' in account.name %}{{ account.name.split('\\', 1)[1] }}{% else %}{{ account.name }}{% endif %}
+{% else -%}
+- не знайдено
+{% endfor -%}
+----------------------------------------
+{% endfor -%}
+{% if ns.installed == 0 -%}
+- немає
+{% endif -%}
+{% if ignored_results -%}
+ПОМИЛКИ ПЕРЕВІРКИ
+-----------------
+{% for result in ignored_results -%}
+- {{ result.host }} | {{ result.status }}
+{% endfor -%}
+{% endif -%}
+
+1С / BAF — НЕ ВСТАНОВЛЕНО
+=========================
+{% for result in ordered.items if not result.data.software_installed -%}
+- {{ result.data.primary_ip or '(без IP 192.168.*)' }} | {{ result.host }}
+{% endfor -%}
+{% if ns.missing == 0 -%}
+- немає
+{% endif -%}
+
+ПОПЕРЕДЖЕННЯ
+============
+{% for result in ordered.items if result.data.warnings -%}
+{{ result.data.primary_ip or '(без IP 192.168.*)' }} | {{ result.host }}
+{% for warning in result.data.warnings -%}
+- {{ warning }}
+{% endfor -%}
+{% endfor -%}
+{% if ns.warnings == 0 -%}
+- немає
+{% endif -%}
+[[/WINHUB_REPORT]]

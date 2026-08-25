@@ -27,7 +27,7 @@ from werkzeug.exceptions import HTTPException
 from werkzeug.utils import secure_filename
 from apscheduler.triggers.cron import CronTrigger
 
-from core.database import db, User, Endpoint, EndpointGroup, EndpointDuplicateException, AgentTask, TaskTemplate, TelemetryHistory, ConnectionIpHistory, ScheduledTask, EndpointMetric, AgentUpdateRollout, TriggerRule, AggregatedJob, ApiKey, RegistrationHistory, AuditLog, endpoint_group_m2m
+from core.database import db, User, Endpoint, EndpointGroup, EndpointDuplicateException, AgentTask, TaskTemplate, TelemetryHistory, ConnectionIpHistory, ScheduledTask, EndpointMetric, AgentUpdateRollout, TriggerRule, AggregatedJob, ApiKey, RegistrationHistory, AuditLog, ReportRevision, ReportDelivery, HistorySearchToken, endpoint_group_m2m
 from core.sdk import WinHubCore
 from core.admin import send_notification_email
 from core.security import sec_manager
@@ -39,6 +39,12 @@ from core.report_renderer import validate_report_template
 from core.template_security import current_template_hash, template_approval_valid
 from core.outbound_security import normalized_origin, pinned_outbound_host, pinned_outbound_url
 from core.sensitive_data import is_sensitive_name, mask_sensitive_text, masked_variables
+from core.report_versions import (
+    create_report_revision,
+    ensure_report_revision,
+    finish_report_delivery,
+    record_report_delivery,
+)
 from core.group_access import (
     allowed_group_ids_for_action,
     allowed_host_ids_for_action,
@@ -758,13 +764,14 @@ def accessible_report_id_set(report_ids, user_id=None, action_id="view_reports")
 
     source_by_report = {report_id: report_source_job_id(report_id) for report_id in report_ids}
     source_job_ids = set(source_by_report.values())
+    endpoint_key = func.coalesce(AgentTask.endpoint_id, AgentTask.endpoint_id_snapshot)
     allowed_endpoint = case(
-        (AgentTask.endpoint_id.in_(allowed_hosts), AgentTask.endpoint_id),
+        (endpoint_key.in_(allowed_hosts), endpoint_key),
         else_=None,
     )
     job_scope_rows = db.session.query(
         AgentTask.job_id,
-        func.count(func.distinct(AgentTask.endpoint_id)),
+        func.count(func.distinct(endpoint_key)),
         func.count(func.distinct(allowed_endpoint)),
     ).filter(
         AgentTask.job_id.in_(source_job_ids)
@@ -777,7 +784,7 @@ def accessible_report_id_set(report_ids, user_id=None, action_id="view_reports")
 
     unresolved_source_ids = source_job_ids - allowed_source_ids
     if unresolved_source_ids:
-        direct_rows = db.session.query(AgentTask.id, AgentTask.endpoint_id).filter(
+        direct_rows = db.session.query(AgentTask.id, endpoint_key).filter(
             AgentTask.id.in_(unresolved_source_ids)
         ).all()
         allowed_source_ids.update(
@@ -1139,23 +1146,40 @@ def current_actor_label():
 
 def write_infra_audit(action, target_type="", target_id="", details=None, status="Success"):
     try:
-        db.session.add(AuditLog(
+        actor = current_user()
+        audit_session_id = session.get("audit_session_id")
+        entry = AuditLog(
             user=session.get("username") or "System",
+            actor_user_id=getattr(actor, "id", None),
             actor_type="api_key" if session.get("api_key_auth") else "user",
             actor_name=current_actor_label(),
+            actor_role="superadmin" if getattr(actor, "is_admin", False) else (
+                "api_key" if session.get("api_key_auth") else "operator"
+            ),
+            source_type="api" if session.get("api_key_auth") else "web",
+            session_id_hash=hashlib.sha256(str(audit_session_id).encode("utf-8")).hexdigest()
+            if audit_session_id else None,
+            user_agent=request.headers.get("User-Agent", "")[:1000],
             module="Infrastructure",
             action=action,
             target_type=target_type,
             target_id=str(target_id or ""),
             ip_address=request.headers.get("X-Forwarded-For", request.remote_addr or ""),
+            request_id=getattr(g, "request_id", None),
             details=json.dumps(details or {}, ensure_ascii=False),
             status=status,
-        ))
+        )
+        db.session.add(entry)
+        db.session.flush()
+        from core.history_search import index_audit_log
+        index_audit_log(entry)
     except Exception:
         logging.getLogger("winhub").exception("Failed to write Infrastructure audit")
 
 
-def dispatch_infrastructure_task(user_id, action_type, target_ids, payload, title, created_by=None):
+def dispatch_infrastructure_task(
+    user_id, action_type, target_ids, payload, title, created_by=None, source_type=None
+):
     user = current_user() if user_id == session.get("user_id") else User.query.get(user_id)
     if not user:
         raise PermissionError("Invalid user")
@@ -1173,6 +1197,21 @@ def dispatch_infrastructure_task(user_id, action_type, target_ids, payload, titl
     }
     allowed_host_ids = WinHubCore.authorized_target_ids(user_id, requested_ids)
     tasks = []
+    resolved_source = str(source_type or "").strip().lower()
+    if not resolved_source:
+        if session.get("api_key_auth"):
+            resolved_source = "api"
+        elif str(title or "").startswith("[Auto-Fix]"):
+            resolved_source = "trigger"
+        elif str(title or "").startswith("[Auto]"):
+            resolved_source = "scheduler"
+        else:
+            resolved_source = "manual"
+    template_id = (
+        payload.get("__template_id") or payload.get("__report_template_id")
+        if isinstance(payload, dict) else None
+    )
+    schedule_id = payload.get("__schedule_id") if isinstance(payload, dict) else None
 
     for host_id in requested_ids:
         host = hosts_by_id.get(host_id)
@@ -1189,9 +1228,20 @@ def dispatch_infrastructure_task(user_id, action_type, target_ids, payload, titl
             id=task_id,
             job_id=job_id,
             endpoint_id=host_id,
+            endpoint_id_snapshot=host_id,
+            endpoint_hostname_snapshot=host.hostname,
+            endpoint_name_snapshot=host.display_name,
+            endpoint_groups_snapshot=json.dumps([
+                {"id": group.id, "name": group.name}
+                for group in host.groups
+            ], ensure_ascii=False),
             title=title,
             module_source="Infrastructure",
             action_type=action_type,
+            source_type=resolved_source,
+            actor_user_id=user.id,
+            template_id=str(template_id) if template_id else None,
+            schedule_id=str(schedule_id) if schedule_id else None,
             payload=payload_json,
             created_by=created_by or user.username
         ))
@@ -1200,7 +1250,29 @@ def dispatch_infrastructure_task(user_id, action_type, target_ids, payload, titl
         raise PermissionError("No authorized targets selected")
 
     db.session.add_all(tasks)
+    db.session.flush()
+    from core.history_search import index_agent_task
+    for task in tasks:
+        index_agent_task(task)
     db.session.commit()
+    WinHubCore.audit(
+        user_id=user.id,
+        username=created_by or user.username,
+        module="Infrastructure",
+        action="Task Dispatched",
+        details={
+            "job_id": job_id,
+            "title": title,
+            "action_type": action_type,
+            "target_count": len(tasks),
+            "template_id": template_id,
+            "schedule_id": schedule_id,
+        },
+        target_type="task_job",
+        target_id=job_id,
+        source_type=resolved_source,
+        status="Success",
+    )
     return job_id, [task.id for task in tasks]
 
 def current_user():
@@ -1218,6 +1290,20 @@ def current_user():
 
 def can(permission_id):
     return has_permission(current_user(), "Infrastructure", permission_id)
+
+
+def is_interactive_superadmin():
+    user = current_user()
+    return bool(user and user.is_admin and not session.get("api_key_auth"))
+
+
+def require_interactive_superadmin():
+    if not is_interactive_superadmin():
+        return jsonify({
+            "success": False,
+            "message": "This permanent deletion requires an interactive superadmin session",
+        }), 403
+    return None
 
 def infra_allowed_host_ids(user_id, action_id="view_hosts"):
     user = current_user() if user_id == session.get("user_id") else User.query.get(user_id)
@@ -1824,6 +1910,19 @@ def send_report_email(title, report_body, sender_email, recipient_list, custom_m
         return False, str(e), 0
 
 def perform_auto_email_send(report_id, title, report_body, sender_email, recipient_list, use_gpg=True):
+    report = AggregatedJob.query.get(report_id)
+    delivery = None
+    if report:
+        delivery, _ = record_report_delivery(
+            report,
+            channel="email",
+            destination={"sender": sender_email, "recipients": parse_recipients(recipient_list), "gpg": use_gpg},
+            subject=title,
+            content_snapshot=report_body,
+            actor_name="System",
+            status="Sending",
+        )
+        db.session.commit()
     success, message, sent_count = send_report_email(
         title=title,
         report_body=report_body,
@@ -1833,6 +1932,14 @@ def perform_auto_email_send(report_id, title, report_body, sender_email, recipie
     )
     if not success:
         logging.getLogger("winhub").error(f"[Auto-Email] {message}")
+    if delivery:
+        delivery = ReportDelivery.query.get(delivery.id)
+        finish_report_delivery(
+            delivery,
+            success=success,
+            details={"message": message, "sent_count": sent_count, "automatic": True},
+        )
+        db.session.commit()
     return success, message, sent_count
 
 
@@ -1863,6 +1970,23 @@ def perform_auto_confluence_publish(report_id, profile_name, page_id, title=None
     if body_format not in ("escaped_pre", "storage_html"):
         body_format = "escaped_pre"
 
+    outbound_snapshot = (
+        report.report_data or ""
+        if body_format == "storage_html"
+        else confluence_report_storage_html(report, report.report_data or "", custom_note)
+    )
+    delivery, _ = record_report_delivery(
+        report,
+        channel="confluence",
+        destination={"profile": profile_name, "page_id": page_id},
+        subject=str(title or report.title or ""),
+        note=custom_note,
+        content_snapshot=outbound_snapshot,
+        actor_name="System",
+        status="Sending",
+    )
+    db.session.commit()
+
     success, message, web_url = publish_report_to_confluence(
         profile=profile,
         report=report,
@@ -1878,6 +2002,13 @@ def perform_auto_confluence_publish(report_id, profile_name, page_id, title=None
     profile["last_status"] = "Published" if success else message
     profiles[profile_name] = profile
     save_confluence_profiles(profiles)
+    delivery = ReportDelivery.query.get(delivery.id)
+    finish_report_delivery(
+        delivery,
+        success=success,
+        details={"message": message, "url": web_url, "automatic": True},
+    )
+    db.session.commit()
     if not success:
         logging.getLogger("winhub").error("[Auto-Confluence] %s", message)
     return success, message, web_url
@@ -2830,7 +2961,7 @@ def manage_scheduled_reports():
 
 @infrastructure_bp.route('/api/infrastructure/scheduled-reports/<report_id>', methods=['DELETE'])
 def delete_scheduled_report(report_id):
-    denied = require_permission("manage_smtp")
+    denied = require_interactive_superadmin()
     if denied:
         return denied
     reports = load_scheduled_reports()
@@ -2927,7 +3058,13 @@ def delete_template_secret(name):
 def get_reports():
     denied = require_permission("view_reports")
     if denied: return denied
-    reports = db.session.query(
+    try:
+        page = max(1, int(request.args.get("page", 1)))
+        per_page = max(10, min(200, int(request.args.get("per_page", 100))))
+    except (TypeError, ValueError):
+        return jsonify({"success": False, "message": "Invalid pagination"}), 400
+
+    query = AggregatedJob.query.options(load_only(
         AggregatedJob.id,
         AggregatedJob.title,
         AggregatedJob.status,
@@ -2935,16 +3072,101 @@ def get_reports():
         AggregatedJob.success_count,
         AggregatedJob.error_count,
         AggregatedJob.created_at,
-    ).order_by(AggregatedJob.created_at.desc()).limit(100).all()
+        AggregatedJob.actor_user_id,
+        AggregatedJob.created_by,
+        AggregatedJob.source_type,
+        AggregatedJob.template_id,
+        AggregatedJob.current_revision_number,
+    ))
+    q = str(request.args.get("q") or "").strip()
+    actor = str(request.args.get("actor") or "").strip()
+    source = str(request.args.get("source") or "").strip().lower()
+    statuses = [item.strip() for item in str(request.args.get("status") or "").split(",") if item.strip()]
+    if q:
+        like = f"%{q}%"
+        query = query.filter(or_(
+            AggregatedJob.title.ilike(like),
+            AggregatedJob.id.ilike(like),
+            AggregatedJob.created_by.ilike(like),
+            AggregatedJob.status.ilike(like),
+        ))
+    if actor:
+        query = query.filter(AggregatedJob.created_by.ilike(f"%{actor}%"))
+    actor_id = request.args.get("actor_id", type=int)
+    if actor_id:
+        query = query.filter(AggregatedJob.actor_user_id == actor_id)
+    if source:
+        query = query.filter(AggregatedJob.source_type == source)
+    if statuses:
+        status_predicates = [
+            AggregatedJob.status.ilike(f"{item}%") if item in {"Sent", "Published"}
+            else AggregatedJob.status == item
+            for item in statuses
+        ]
+        query = query.filter(or_(*status_predicates))
+    if request.args.get("has_errors") in {"1", "true", "yes"}:
+        query = query.filter(AggregatedJob.error_count > 0)
+
+    def parse_report_date(value, end=False):
+        if not value:
+            return None
+        parsed = datetime.fromisoformat(str(value).replace("Z", "+00:00"))
+        if parsed.tzinfo is None:
+            parsed = parsed.replace(tzinfo=kyiv_tz)
+        if end and len(str(value)) == 10:
+            parsed = parsed.replace(hour=23, minute=59, second=59, microsecond=999999)
+        return parsed.astimezone(timezone.utc).replace(tzinfo=None)
+
+    try:
+        date_from = parse_report_date(request.args.get("date_from"))
+        date_to = parse_report_date(request.args.get("date_to"), end=True)
+    except ValueError:
+        return jsonify({"success": False, "message": "Invalid date filter"}), 400
+    if date_from:
+        query = query.filter(AggregatedJob.created_at >= date_from)
+    if date_to:
+        query = query.filter(AggregatedJob.created_at <= date_to)
+
+    content = str(request.args.get("content") or "").strip()
+    if content:
+        if not can("view_sensitive_reports"):
+            return jsonify({"success": False, "message": "Sensitive report search permission required"}), 403
+        from core.history_search import matching_entity_ids
+        fields = [item for item in str(request.args.get("content_field") or "current,original,revisions,deliveries").split(",") if item]
+        matched = matching_entity_ids(
+            "report", content, fields=fields, mode=request.args.get("content_mode", "all")
+        )
+        if matched is not None:
+            query = query.filter(AggregatedJob.id.in_(matched))
+        else:
+            query = query.filter(False)
+
+    query = query.order_by(AggregatedJob.created_at.desc(), AggregatedJob.id.desc())
     if not session.get('is_admin'):
-        accessible_reports = accessible_report_id_set([r.id for r in reports])
-        reports = [r for r in reports if str(r.id) in accessible_reports]
+        candidate_ids = [row.id for row in query.all()]
+        accessible_reports = accessible_report_id_set(candidate_ids)
+        query = query.filter(AggregatedJob.id.in_(accessible_reports)) if accessible_reports else query.filter(False)
+    total = query.count()
+    reports = query.offset((page - 1) * per_page).limit(per_page).all()
     data = [{
         "id": r.id, "title": r.title, "status": r.status,
         "total": r.total_count, "success": r.success_count, "error": r.error_count,
-        "created_at": to_kyiv_time(r.created_at), "has_body": True
+        "created_at": to_kyiv_time(r.created_at), "has_body": True,
+        "created_by": r.created_by or "System",
+        "source": r.source_type or "system",
+        "template_id": r.template_id,
+        "revision": int(r.current_revision_number or 0),
     } for r in reports]
-    return jsonify({"success": True, "data": data})
+    return jsonify({
+        "success": True,
+        "data": data,
+        "pagination": {
+            "page": page,
+            "per_page": per_page,
+            "total": total,
+            "has_more": page * per_page < total,
+        },
+    })
 
 @infrastructure_bp.route('/api/infrastructure/reports/<report_id>', methods=['GET'])
 def get_report(report_id):
@@ -2956,6 +3178,24 @@ def get_report(report_id):
     if not can_access_report(report_id):
         return jsonify({"success": False, "message": "Access denied"}), 403
 
+    revision = ensure_report_revision(
+        r,
+        actor_user_id=session.get("user_id"),
+        actor_name=current_actor_label(),
+    )
+    db.session.commit()
+    visible_body = report_body_for_current_user(r.report_data, report_id=report_id)
+    if Config.AUDIT_SENSITIVE_READS:
+        WinHubCore.audit(
+            user_id=session.get("user_id"),
+            module="Infrastructure",
+            action="Report Viewed",
+            details={"revision": revision.revision_number, "content_hash": revision.content_hash},
+            target_type="report",
+            target_id=report_id,
+            status="Success",
+        )
+
     return jsonify({
         "success": True,
         "data": {
@@ -2966,8 +3206,152 @@ def get_report(report_id):
             "success": r.success_count,
             "error": r.error_count,
             "created_at": to_kyiv_time(r.created_at),
-            "report_data": report_body_for_current_user(r.report_data, report_id=report_id),
+            "report_data": visible_body,
+            "revision": revision.revision_number,
+            "content_hash": revision.content_hash,
+            "original_content_hash": r.original_content_hash,
         }
+    })
+
+
+@infrastructure_bp.route('/api/infrastructure/reports/<report_id>/revisions', methods=['GET'])
+def get_report_revisions(report_id):
+    denied = require_permission("view_reports")
+    if denied:
+        return denied
+    if not can_access_report(report_id):
+        return jsonify({"success": False, "message": "Access denied"}), 403
+    report = AggregatedJob.query.get(report_id)
+    if not report:
+        return jsonify({"success": False, "message": "Report not found"}), 404
+    ensure_report_revision(report)
+    db.session.commit()
+    revisions = ReportRevision.query.filter_by(report_id=report_id).order_by(
+        ReportRevision.revision_number.desc()
+    ).all()
+    return jsonify({
+        "success": True,
+        "revisions": [{
+            "id": item.id,
+            "number": item.revision_number,
+            "kind": item.kind,
+            "actor": item.actor_name or "System",
+            "reason": item.reason or "",
+            "created_at": to_kyiv_time(item.created_at),
+            "content_hash": item.content_hash,
+            "is_original": item.revision_number == 1 and item.kind == "generated",
+            "is_current": item.revision_number == int(report.current_revision_number or 0),
+        } for item in revisions],
+    })
+
+
+@infrastructure_bp.route('/api/infrastructure/reports/<report_id>/revisions/<revision_id>', methods=['GET'])
+def get_report_revision(report_id, revision_id):
+    denied = require_permission("view_reports")
+    if denied:
+        return denied
+    if not can_access_report(report_id):
+        return jsonify({"success": False, "message": "Access denied"}), 403
+    revision = ReportRevision.query.filter_by(id=revision_id, report_id=report_id).first()
+    if not revision:
+        return jsonify({"success": False, "message": "Revision not found"}), 404
+    body = revision.content
+    if not can_view_sensitive_reports(report_id=report_id):
+        body = mask_sensitive_text(body)
+    if Config.AUDIT_SENSITIVE_READS:
+        WinHubCore.audit(
+            user_id=session.get("user_id"),
+            module="Infrastructure",
+            action="Report Revision Viewed",
+            details={"revision": revision.revision_number, "content_hash": revision.content_hash},
+            target_type="report",
+            target_id=report_id,
+            status="Success",
+        )
+    return jsonify({
+        "success": True,
+        "revision": {
+            "id": revision.id,
+            "number": revision.revision_number,
+            "kind": revision.kind,
+            "actor": revision.actor_name or "System",
+            "reason": revision.reason or "",
+            "created_at": to_kyiv_time(revision.created_at),
+            "content_hash": revision.content_hash,
+            "content": body or "",
+        },
+    })
+
+
+@infrastructure_bp.route('/api/infrastructure/reports/<report_id>/deliveries', methods=['GET'])
+def get_report_deliveries(report_id):
+    denied = require_permission("view_reports")
+    if denied:
+        return denied
+    if not can_access_report(report_id):
+        return jsonify({"success": False, "message": "Access denied"}), 403
+    rows = ReportDelivery.query.filter_by(report_id=report_id).order_by(
+        ReportDelivery.created_at.desc()
+    ).limit(250).all()
+    can_view_destination = bool(is_interactive_superadmin() or can("send_reports"))
+    return jsonify({
+        "success": True,
+        "deliveries": [{
+            "id": row.id,
+            "revision_id": row.revision_id,
+            "channel": row.channel,
+            "destination": row.destination if can_view_destination else "Restricted",
+            "subject": row.subject or "",
+            "actor": row.actor_name or "System",
+            "status": row.status,
+            "content_hash": row.content_hash,
+            "created_at": to_kyiv_time(row.created_at),
+            "completed_at": to_kyiv_time(row.completed_at),
+            "result": row.result_details or "",
+        } for row in rows],
+    })
+
+
+@infrastructure_bp.route('/api/infrastructure/reports/<report_id>/deliveries/<delivery_id>', methods=['GET'])
+def get_report_delivery(report_id, delivery_id):
+    denied = require_permission("view_reports")
+    if denied:
+        return denied
+    if not can_access_report(report_id):
+        return jsonify({"success": False, "message": "Access denied"}), 403
+    row = ReportDelivery.query.filter_by(id=delivery_id, report_id=report_id).first()
+    if not row:
+        return jsonify({"success": False, "message": "Delivery not found"}), 404
+    content = row.content_snapshot or ""
+    if not can_view_sensitive_reports(report_id=report_id):
+        content = mask_sensitive_text(content)
+    if Config.AUDIT_SENSITIVE_READS:
+        WinHubCore.audit(
+            user_id=session.get("user_id"),
+            module="Infrastructure",
+            action="Report Delivery Snapshot Viewed",
+            details={"delivery_id": row.id, "channel": row.channel, "content_hash": row.content_hash},
+            target_type="report",
+            target_id=report_id,
+            status="Success",
+        )
+    return jsonify({
+        "success": True,
+        "delivery": {
+            "id": row.id,
+            "revision_id": row.revision_id,
+            "channel": row.channel,
+            "destination": row.destination if (is_interactive_superadmin() or can("send_reports")) else "Restricted",
+            "subject": row.subject or "",
+            "note": row.note or "",
+            "actor": row.actor_name or "System",
+            "status": row.status,
+            "content_hash": row.content_hash,
+            "content": content,
+            "created_at": to_kyiv_time(row.created_at),
+            "completed_at": to_kyiv_time(row.completed_at),
+            "result": row.result_details or "",
+        },
     })
 
 
@@ -2997,6 +3381,16 @@ def download_report_text(report_id):
         return jsonify({"success": False, "message": "Access denied"}), 403
 
     visible_body = report_body_for_current_user(report.report_data, report_id=report_id)
+    if Config.AUDIT_SENSITIVE_READS:
+        WinHubCore.audit(
+            user_id=session.get("user_id"),
+            module="Infrastructure",
+            action="Report Downloaded",
+            details={"format": "text"},
+            target_type="report",
+            target_id=report_id,
+            status="Success",
+        )
     filename_base = secure_filename(report.title or "")[:80] or f"winhub-report-{report.id}"
     return Response(
         report_text_download_body(visible_body),
@@ -3030,13 +3424,52 @@ def action_report(report_id):
                 "success": False,
                 "message": "This report contains masked sensitive data. Users without sensitive report access cannot save report text."
             }), 403
-        r.report_data = data.get('report_data', '')
+        current_revision = ensure_report_revision(r)
+        expected_hash = str(data.get("expected_content_hash") or "").strip()
+        if expected_hash and expected_hash != current_revision.content_hash:
+            db.session.rollback()
+            return jsonify({
+                "success": False,
+                "message": "This report was changed by another user. Reopen it before saving.",
+                "current_revision": current_revision.revision_number,
+                "current_content_hash": current_revision.content_hash,
+            }), 409
+        revision = create_report_revision(
+            r,
+            data.get('report_data', ''),
+            kind="edited",
+            actor_user_id=session.get("user_id"),
+            actor_name=current_actor_label(),
+            reason=str(data.get("reason") or "Manual report edit")[:500],
+        )
         db.session.commit()
-        return jsonify({"success": True})
+        WinHubCore.audit(
+            user_id=session.get("user_id"),
+            module="Infrastructure",
+            action="Report Edited",
+            details={
+                "revision": revision.revision_number,
+                "content_hash": revision.content_hash,
+                "reason": revision.reason,
+            },
+            target_type="report",
+            target_id=report_id,
+            status="Success",
+        )
+        return jsonify({
+            "success": True,
+            "revision": revision.revision_number,
+            "content_hash": revision.content_hash,
+        })
 
     elif action == 'dismiss':
         r.status = 'Dismissed'
         db.session.commit()
+        WinHubCore.audit(
+            user_id=session.get("user_id"), module="Infrastructure", action="Report Dismissed",
+            details={"title": r.title}, target_type="report", target_id=report_id,
+            status="Success", source_type="interactive",
+        )
         return jsonify({"success": True})
 
     elif action == 'send':
@@ -3063,10 +3496,28 @@ def action_report(report_id):
         # Sending is a blind delivery operation: the operator may be allowed to send
         # the original report without being allowed to reveal its sensitive values in
         # the UI, downloads, or task logs.  Never return this body in the API response.
-        report_body = r.report_data or ""
+        outbound_snapshot = r.report_data or ""
+        if custom_message:
+            outbound_snapshot = f"{custom_message}\n\n{'=' * 50}\n\n{outbound_snapshot}"
+        delivery, revision = record_report_delivery(
+            r,
+            channel="email",
+            destination={"sender": sender, "recipients": recipients, "gpg": use_gpg},
+            subject=subject,
+            note=custom_message,
+            content_snapshot=outbound_snapshot,
+            actor_user_id=session.get("user_id"),
+            actor_name=current_actor_label(),
+            status="Sending",
+        )
+        report_body = revision.content or ""
+        revision_number = revision.revision_number
+        revision_hash = revision.content_hash
+        delivery_hash = delivery.content_hash
 
         r.status = 'Sending...'
         db.session.commit()
+        delivery_id = delivery.id
         db.session.remove()
         success, message, sent_count = send_report_email(
             title=subject,
@@ -3077,6 +3528,14 @@ def action_report(report_id):
             use_gpg=use_gpg
         )
 
+        delivery = ReportDelivery.query.get(delivery_id)
+        if delivery:
+            finish_report_delivery(
+                delivery,
+                success=success,
+                details={"message": message, "sent_count": sent_count},
+            )
+
         write_infra_audit(
             "Report Email",
             "report",
@@ -3086,6 +3545,10 @@ def action_report(report_id):
                 "recipient_count": sent_count if success else len(recipients),
                 "gpg": use_gpg,
                 "delivery_mode": "original_report",
+                "delivery_id": delivery_id,
+                "revision": revision_number,
+                "content_hash": revision_hash,
+                "delivery_content_hash": delivery_hash,
             },
             status="Success" if success else "Error",
         )
@@ -3130,6 +3593,26 @@ def publish_report_confluence(report_id):
         else report_body_for_current_user(report.report_data, report_id=report_id)
     )
 
+    outbound_snapshot = (
+        visible_report_body
+        if body_format == "storage_html"
+        else confluence_report_storage_html(report, visible_report_body, custom_note)
+    )
+    delivery, revision = record_report_delivery(
+        report,
+        channel="confluence",
+        destination={"profile": profile_name, "page_id": page_id},
+        subject=title or report.title,
+        note=custom_note,
+        content_snapshot=outbound_snapshot,
+        actor_user_id=session.get("user_id"),
+        actor_name=current_actor_label(),
+        status="Sending",
+    )
+    delivery_id = delivery.id
+    revision_number = revision.revision_number
+    db.session.commit()
+
     success, message, web_url = publish_report_to_confluence(
         profile=profile,
         report=report,
@@ -3139,6 +3622,14 @@ def publish_report_confluence(report_id):
         custom_note=custom_note,
         report_body=visible_report_body,
     )
+
+    delivery = ReportDelivery.query.get(delivery_id)
+    if delivery:
+        finish_report_delivery(
+            delivery,
+            success=success,
+            details={"message": message, "url": web_url, "page_id": page_id},
+        )
 
     now_str = datetime.now(kyiv_tz).strftime("%Y-%m-%d %H:%M:%S %Z")
     profile["last_published_at"] = now_str if success else profile.get("last_published_at", "")
@@ -3150,7 +3641,15 @@ def publish_report_confluence(report_id):
         "report_publish_confluence",
         "report",
         report_id,
-        {"profile": profile_name, "page_id": page_id, "success": success, "message": message},
+        {
+            "profile": profile_name,
+            "page_id": page_id,
+            "success": success,
+            "message": message,
+            "delivery_id": delivery_id,
+            "revision": revision_number,
+            "delivery_content_hash": delivery.content_hash if delivery else None,
+        },
         status="Success" if success else "Error",
     )
     if success:
@@ -3164,13 +3663,16 @@ def publish_report_confluence(report_id):
 
 @infrastructure_bp.route('/api/infrastructure/reports/<report_id>', methods=['DELETE'])
 def delete_report(report_id):
-    denied = require_permission("delete_reports")
+    denied = require_interactive_superadmin()
     if denied: return denied
-    if not can_access_report(report_id, "delete_reports"):
-        return jsonify({"success": False, "message": "Report is outside your assigned host scope"}), 403
     r = AggregatedJob.query.get(report_id)
     if r:
         write_infra_audit("Delete Report", "report", report_id, {"title": r.title})
+        ReportDelivery.query.filter_by(report_id=str(report_id)).delete(synchronize_session=False)
+        ReportRevision.query.filter_by(report_id=str(report_id)).delete(synchronize_session=False)
+        HistorySearchToken.query.filter_by(entity_type="report", entity_id=str(report_id)).delete(
+            synchronize_session=False
+        )
         db.session.delete(r)
         db.session.commit()
         return jsonify({"success": True})
@@ -3262,7 +3764,7 @@ def manage_trigger():
 
 @infrastructure_bp.route('/api/infrastructure/triggers/<tid>', methods=['DELETE'])
 def delete_trigger(tid):
-    denied = require_permission("manage_triggers")
+    denied = require_interactive_superadmin()
     if denied: return denied
     tr = TriggerRule.query.get(tid)
     if tr: db.session.delete(tr); db.session.commit()
@@ -3384,7 +3886,7 @@ def manage_schedule():
 
 @infrastructure_bp.route('/api/infrastructure/schedule/<tid>', methods=['DELETE'])
 def delete_schedule(tid):
-    denied = require_permission("manage_scheduler")
+    denied = require_interactive_superadmin()
     if denied: return denied
     st = ScheduledTask.query.get(tid)
     if not st:
@@ -3421,7 +3923,12 @@ def run_schedule_now(tid):
     except ValueError as exc:
         return jsonify({"success": False, "message": str(exc)}), 400
     from core import run_scheduled_job
-    result = run_scheduled_job(tid, manual_run=True) or {"success": False, "message": "Schedule did not run"}
+    result = run_scheduled_job(
+        tid,
+        manual_run=True,
+        actor_user_id=session.get("user_id"),
+        actor_name=current_actor_label(),
+    ) or {"success": False, "message": "Schedule did not run"}
     status = 200 if result.get("success") else 400
     return jsonify(result), status
 
@@ -3857,8 +4364,32 @@ def create_agent_update_wave(update_items, created_by, wave_index, wave_total):
     job_id = str(uuid.uuid4())
     created_at = datetime.utcnow()
     updater_script = agent_updater_bootstrap_script()
+    host_ids = [str(item.get("host_id")) for item in update_items if item.get("host_id")]
+    hosts = {row.id: row for row in Endpoint.query.filter(Endpoint.id.in_(host_ids)).all()}
+    actor = User.query.filter_by(username=created_by).first() if created_by and created_by != "System" else None
+    created_tasks = []
+
+    def add_update_task(host, **values):
+        task = AgentTask(
+            endpoint_id=host.id,
+            endpoint_id_snapshot=host.id,
+            endpoint_hostname_snapshot=host.hostname,
+            endpoint_name_snapshot=host.display_name,
+            endpoint_groups_snapshot=json.dumps([
+                {"id": group.id, "name": group.name} for group in host.groups
+            ], ensure_ascii=False),
+            source_type="scheduler",
+            actor_user_id=getattr(actor, "id", None),
+            **values,
+        )
+        db.session.add(task)
+        created_tasks.append(task)
+
     for item in update_items:
         host_id = item["host_id"]
+        host = hosts.get(host_id)
+        if not host:
+            continue
         platform = item.get("platform") or "windows"
         package = item["package"]
         payload = {
@@ -3870,29 +4401,42 @@ def create_agent_update_wave(update_items, created_by, wave_index, wave_total):
         title = f"Agent Update {package.get('version')} {platform} - Wave {wave_index}/{wave_total}"
         task_created_at = created_at
         if platform == "windows":
-            db.session.add(AgentTask(
+            add_update_task(host,
                 id=str(uuid.uuid4()),
                 job_id=job_id,
-                endpoint_id=host_id,
                 title=f"Prepare Agent Updater - Wave {wave_index}/{wave_total}",
                 module_source="Infrastructure",
                 action_type="run_script",
                 payload=json.dumps({"script": updater_script}, ensure_ascii=False),
                 created_by=created_by,
                 created_at=created_at,
-            ))
+            )
             task_created_at = created_at + timedelta(seconds=1)
-        db.session.add(AgentTask(
+        add_update_task(host,
             id=str(uuid.uuid4()),
             job_id=job_id,
-            endpoint_id=host_id,
             title=title,
             module_source="Infrastructure",
             action_type="agent_update",
             payload=json.dumps(payload, ensure_ascii=False),
             created_by=created_by,
             created_at=task_created_at,
-        ))
+        )
+    db.session.flush()
+    from core.history_search import index_agent_task, index_audit_log
+    for task in created_tasks:
+        index_agent_task(task)
+    audit_entry = AuditLog(
+        user=created_by or "System", actor_user_id=getattr(actor, "id", None),
+        actor_type="system", actor_name=created_by or "System",
+        actor_role="system", source_type="scheduler", module="Infrastructure",
+        action="Agent Update Wave Dispatched", target_type="job", target_id=job_id,
+        details=json.dumps({"wave": wave_index, "total_waves": wave_total, "tasks": len(created_tasks)}, ensure_ascii=False),
+        status="Success",
+    )
+    db.session.add(audit_entry)
+    db.session.flush()
+    index_audit_log(audit_entry)
     return job_id
 
 
@@ -4990,7 +5534,7 @@ def template_deletion_impact_api(tid):
 
 @infrastructure_bp.route('/api/infrastructure/templates/<tid>', methods=['DELETE'])
 def delete_template(tid):
-    denied = require_permission("manage_templates")
+    denied = require_interactive_superadmin()
     if denied:
         return denied
 
@@ -5094,6 +5638,9 @@ def create_task():
             return jsonify({"success": False, "message": "Template denied or not found"}), 403
         action_type = 'agent_update'
         payload_dict = load_template_payload(template) if template else dict(data.get('payload', {}))
+
+    if template:
+        payload_dict['__template_id'] = template.id
 
     try:
         timeout_minutes = int(data.get("timeout_minutes") or 0)
@@ -5239,6 +5786,7 @@ def run_template_api(template_id):
 
     try:
         payload_dict = load_template_payload(template)
+        payload_dict["__template_id"] = template.id
         if "script" not in payload_dict and "command" in payload_dict:
             payload_dict["script"] = payload_dict["command"]
         payload_dict, unresolved = apply_template_variables(payload_dict, variables)
@@ -5349,6 +5897,21 @@ def run_template_api(template_id):
             logging.getLogger("winhub").exception("Failed to write API template failure audit")
         return jsonify({"success": False, "message": "Template run failed. Check server logs for details."}), 500
 
+def parse_iso_datetime(value, *, end=False):
+    raw = str(value or "").strip()
+    if not raw:
+        return None
+    try:
+        parsed = datetime.fromisoformat(raw.replace("Z", "+00:00"))
+        if len(raw) == 10 and end:
+            parsed = parsed.replace(hour=23, minute=59, second=59, microsecond=999999)
+        if parsed.tzinfo is None:
+            parsed = parsed.replace(tzinfo=kyiv_tz)
+        return parsed.astimezone(timezone.utc).replace(tzinfo=None)
+    except (TypeError, ValueError):
+        return None
+
+
 @infrastructure_bp.route('/api/infrastructure/tasks/all')
 def get_tasks():
     denied = require_permission("view_queue")
@@ -5363,7 +5926,8 @@ def get_tasks():
         page_size = 20
     user_id = session.get('user_id')
     allowed_hosts = infra_allowed_host_ids(user_id, "view_queue")
-    if not allowed_hosts:
+    full_admin = bool(session.get("is_admin") and not session.get("api_key_auth"))
+    if not allowed_hosts and not full_admin:
         return jsonify({
             "success": True,
             "jobs": [],
@@ -5371,16 +5935,104 @@ def get_tasks():
         })
     planned_jobs = planned_agent_update_rollout_jobs(allowed_hosts)
 
+    search_term = str(request.args.get("q") or "").strip()
+    content_term = str(request.args.get("content") or "").strip()
+    can_search_sensitive_content = can("view_sensitive_reports")
+    if content_term and not can_search_sensitive_content:
+        return jsonify({"success": False, "message": "Sensitive task-content search permission required"}), 403
+    actor_filter = str(request.args.get("actor") or "").strip()
+    source_filter = str(request.args.get("source") or "").strip().lower()
+    status_filter = str(request.args.get("status") or "").strip().lower()
+    target_filter = str(request.args.get("target") or "").strip()
+    date_from = parse_iso_datetime(request.args.get("date_from"))
+    date_to = parse_iso_datetime(request.args.get("date_to"), end=True)
+
+    if content_term or target_filter or date_from or date_to:
+        planned_jobs = []
+    else:
+        if search_term:
+            planned_jobs = [job for job in planned_jobs if search_term.casefold() in " ".join((
+                str(job.get("title") or ""), str(job.get("created_by") or ""),
+                str(job.get("job_id") or ""), str(job.get("target_summary") or ""),
+            )).casefold()]
+        if actor_filter:
+            planned_jobs = [job for job in planned_jobs if str(job.get("created_by") or "") == actor_filter]
+        if source_filter in {"manual", "auto-fix"}:
+            planned_jobs = []
+        if status_filter and status_filter != "scheduled":
+            planned_jobs = []
+
+    base_filters = [AgentTask.job_id.isnot(None)]
+    if status_filter == "scheduled":
+        base_filters.append(False)
+    if not full_admin:
+        base_filters.append(or_(
+            AgentTask.endpoint_id.in_(allowed_hosts),
+            AgentTask.endpoint_id_snapshot.in_(allowed_hosts),
+        ))
+    if actor_filter:
+        base_filters.append(AgentTask.created_by == actor_filter)
+    if source_filter:
+        source_aliases = {
+            "manual": ["manual", "interactive", "api"],
+            "auto": ["scheduler", "scheduled"],
+            "auto-fix": ["trigger", "auto-fix"],
+        }
+        base_filters.append(AgentTask.source_type.in_(source_aliases.get(source_filter, [source_filter])))
+    if target_filter:
+        target_like = f"%{target_filter}%"
+        base_filters.append(or_(
+            AgentTask.endpoint_id.ilike(target_like),
+            AgentTask.endpoint_id_snapshot.ilike(target_like),
+            AgentTask.endpoint_hostname_snapshot.ilike(target_like),
+            AgentTask.endpoint_name_snapshot.ilike(target_like),
+        ))
+    if date_from:
+        base_filters.append(AgentTask.created_at >= date_from)
+    if date_to:
+        base_filters.append(AgentTask.created_at <= date_to)
+
+    from core.history_search import matching_entity_ids
+    content_ids = matching_entity_ids(
+        "task", content_term, fields=["input", "output"],
+        mode=request.args.get("content_mode", "all"),
+    ) if content_term else None
+    if content_term:
+        base_filters.append(AgentTask.id.in_(content_ids) if content_ids is not None else False)
+    if search_term:
+        search_like = f"%{search_term}%"
+        search_tokens = matching_entity_ids("task", search_term, fields=["input", "output"], mode="all") if can_search_sensitive_content else None
+        metadata_filter = or_(
+            AgentTask.title.ilike(search_like),
+            AgentTask.created_by.ilike(search_like),
+            AgentTask.action_type.ilike(search_like),
+            AgentTask.module_source.ilike(search_like),
+            AgentTask.job_id.ilike(search_like),
+            AgentTask.endpoint_id_snapshot.ilike(search_like),
+            AgentTask.endpoint_hostname_snapshot.ilike(search_like),
+            AgentTask.endpoint_name_snapshot.ilike(search_like),
+        )
+        base_filters.append(or_(metadata_filter, AgentTask.id.in_(search_tokens)) if search_tokens is not None else metadata_filter)
+
     last_created_at = func.max(AgentTask.created_at).label("last_created_at")
     recent_jobs_query = db.session.query(
         AgentTask.job_id,
         last_created_at
-    ).filter(
-        AgentTask.endpoint_id.in_(allowed_hosts),
-        AgentTask.job_id.isnot(None)
-    ).group_by(
+    ).filter(*base_filters).group_by(
         AgentTask.job_id
-    ).order_by(last_created_at.desc())
+    )
+    error_count_expr = func.sum(case((func.lower(func.coalesce(AgentTask.status, "pending")) == "error", 1), else_=0))
+    active_count_expr = func.sum(case((func.lower(func.coalesce(AgentTask.status, "pending")).in_(["pending", "pickedup", "running"]), 1), else_=0))
+    cancelled_count_expr = func.sum(case((func.lower(func.coalesce(AgentTask.status, "pending")) == "cancelled", 1), else_=0))
+    if status_filter == "error":
+        recent_jobs_query = recent_jobs_query.having(error_count_expr > 0)
+    elif status_filter in {"pending", "running"}:
+        recent_jobs_query = recent_jobs_query.having(error_count_expr == 0, active_count_expr > 0)
+    elif status_filter == "cancelled":
+        recent_jobs_query = recent_jobs_query.having(cancelled_count_expr == func.count(AgentTask.id))
+    elif status_filter == "success":
+        recent_jobs_query = recent_jobs_query.having(error_count_expr == 0, active_count_expr == 0, cancelled_count_expr < func.count(AgentTask.id))
+    recent_jobs_query = recent_jobs_query.order_by(last_created_at.desc())
     total_persisted_jobs = recent_jobs_query.count()
     recent_jobs = recent_jobs_query.offset((page - 1) * page_size).limit(page_size).all()
 
@@ -5400,8 +6052,14 @@ def get_tasks():
             },
         })
 
-    tasks = db.session.query(AgentTask, Endpoint.hostname, Endpoint.display_name).join(Endpoint).filter(
+    task_scope_filter = True if full_admin else or_(
         AgentTask.endpoint_id.in_(allowed_hosts),
+        AgentTask.endpoint_id_snapshot.in_(allowed_hosts),
+    )
+    tasks = db.session.query(AgentTask, Endpoint.hostname, Endpoint.display_name).outerjoin(
+        Endpoint, Endpoint.id == AgentTask.endpoint_id
+    ).filter(
+        task_scope_filter,
         AgentTask.job_id.in_(job_ids)
     ).order_by(AgentTask.created_at.desc()).all()
 
@@ -5413,8 +6071,11 @@ def get_tasks():
             jobs[jid] = {"job_id": jid, "title": t.title or "Untitled Task", "action": t.action_type, "created_at": to_kyiv_time(t.created_at), "_sort_at": job_sort_at.get(jid) or t.created_at, "created_by": t.created_by, "tasks": [], "total": 0, "success": 0, "error": 0, "pending": 0, "running": 0, "cancelled": 0}
         if is_agent_updater_prepare_task(t):
             continue
-        display_label = (display_name or hostname or t.endpoint_id or "Unknown").strip()
-        jobs[jid]["tasks"].append({"task_id": t.id, "endpoint_id": t.endpoint_id, "hostname": hostname, "display_name": display_name or "", "name": display_label, "status": t.status or "Pending"})
+        resolved_hostname = hostname or t.endpoint_hostname_snapshot or ""
+        resolved_name = display_name or t.endpoint_name_snapshot or ""
+        resolved_endpoint_id = t.endpoint_id or t.endpoint_id_snapshot
+        display_label = (resolved_name or resolved_hostname or resolved_endpoint_id or "Deleted host").strip()
+        jobs[jid]["tasks"].append({"task_id": t.id, "endpoint_id": resolved_endpoint_id, "hostname": resolved_hostname, "display_name": resolved_name, "name": display_label, "status": t.status or "Pending"})
         jobs[jid]["total"] += 1
 
         status_norm = (t.status or "Pending").capitalize()
@@ -5450,6 +6111,16 @@ def get_tasks():
     return jsonify({
         "success": True,
         "jobs": result,
+        "filters": {
+            "actors": [row[0] for row in db.session.query(AgentTask.created_by).filter(
+                task_scope_filter,
+                AgentTask.created_by.isnot(None)
+            ).distinct().order_by(AgentTask.created_by).all() if row[0]],
+            "sources": [row[0] for row in db.session.query(AgentTask.source_type).filter(
+                task_scope_filter,
+                AgentTask.source_type.isnot(None)
+            ).distinct().order_by(AgentTask.source_type).all() if row[0]],
+        },
         "pagination": {
             "page": page,
             "page_size": page_size,
@@ -5464,14 +6135,43 @@ def get_single_task(task_id):
     if denied: return denied
     task = AgentTask.query.get(task_id)
     if not task: return jsonify({"success": False}), 404
-    if not WinHubCore.can_manage_host(session.get('user_id'), task.endpoint_id, "view_queue"): return jsonify({"success": False}), 403
+    resolved_endpoint_id = task.endpoint_id or task.endpoint_id_snapshot
+    if not is_interactive_superadmin() and not WinHubCore.can_manage_host(session.get('user_id'), resolved_endpoint_id, "view_queue"):
+        return jsonify({"success": False}), 403
     task_log = task.result_log if task.result_log else "Waiting..."
     endpoint_name = endpoint_display_name(task.endpoint) if task.endpoint else "Unknown"
-    return jsonify({"success": True, "data": {"id": task.id, "title": task.title or "Untitled", "status": task.status or "Pending", "log": report_body_for_current_user(task_log, host_id=task.endpoint_id), "hostname": task.endpoint.hostname if task.endpoint else "Unknown", "display_name": getattr(task.endpoint, "display_name", None) if task.endpoint else "", "name": endpoint_name}})
+    visible_log = report_body_for_current_user(task_log, host_id=task.endpoint_id)
+    visible_payload = task.payload if is_interactive_superadmin() else None
+    if Config.AUDIT_SENSITIVE_READS:
+        WinHubCore.audit(
+            user_id=session.get("user_id"),
+            module="Infrastructure",
+            action="Task Result Viewed",
+            details={"job_id": task.job_id, "endpoint_id": task.endpoint_id or task.endpoint_id_snapshot},
+            target_type="agent_task",
+            target_id=task.id,
+            status="Success",
+        )
+    return jsonify({"success": True, "data": {
+        "id": task.id,
+        "job_id": task.job_id,
+        "title": task.title or "Untitled",
+        "action": task.action_type or "",
+        "source": task.source_type or "manual",
+        "created_by": task.created_by or "System",
+        "created_at": to_kyiv_time(task.created_at),
+        "finished_at": to_kyiv_time(task.finished_at),
+        "status": task.status or "Pending",
+        "log": visible_log,
+        "payload": visible_payload,
+        "hostname": task.endpoint.hostname if task.endpoint else (task.endpoint_hostname_snapshot or "Unknown"),
+        "display_name": getattr(task.endpoint, "display_name", None) if task.endpoint else (task.endpoint_name_snapshot or ""),
+        "name": endpoint_name if task.endpoint else (task.endpoint_name_snapshot or task.endpoint_hostname_snapshot or task.endpoint_id_snapshot or "Unknown"),
+    }})
 
 @infrastructure_bp.route('/api/infrastructure/tasks/cleanup', methods=['POST'])
 def cleanup_tasks():
-    denied = require_permission("delete_tasks")
+    denied = require_interactive_superadmin()
     if denied:
         return denied
     try:
@@ -5480,35 +6180,14 @@ def cleanup_tasks():
         return jsonify({"success": False, "message": "Days must be a number between 1 and 3650"}), 400
 
     cutoff = datetime.utcnow() - timedelta(days=days)
-    if session.get("is_admin"):
-        deleted = AgentTask.query.filter(AgentTask.created_at < cutoff).delete(synchronize_session=False)
-    else:
-        allowed_host_ids = infra_allowed_host_ids(session.get("user_id"), "delete_tasks")
-        if not allowed_host_ids:
-            return jsonify({"success": True, "deleted": 0})
-
-        allowed_endpoint = case(
-            (AgentTask.endpoint_id.in_(allowed_host_ids), AgentTask.endpoint_id),
-            else_=None,
-        )
-        scoped_jobs = db.session.query(AgentTask.job_id.label("job_id")).filter(
-            AgentTask.job_id.isnot(None),
-        ).group_by(AgentTask.job_id).having(
-            func.max(AgentTask.created_at) < cutoff,
-            func.count(func.distinct(AgentTask.endpoint_id))
-            == func.count(func.distinct(allowed_endpoint)),
-        ).subquery()
-        scoped_job_ids = db.session.query(scoped_jobs.c.job_id)
-        deleted = AgentTask.query.filter(
-            or_(
-                AgentTask.job_id.in_(scoped_job_ids),
-                and_(
-                    AgentTask.job_id.is_(None),
-                    AgentTask.created_at < cutoff,
-                    AgentTask.endpoint_id.in_(allowed_host_ids),
-                ),
-            )
-        ).delete(synchronize_session=False)
+    expired_ids = db.session.query(AgentTask.id).filter(AgentTask.created_at < cutoff)
+    HistorySearchToken.query.filter(
+        HistorySearchToken.entity_type == "task",
+        HistorySearchToken.entity_id.in_(expired_ids),
+    ).delete(synchronize_session=False)
+    deleted = AgentTask.query.filter(
+        AgentTask.created_at < cutoff
+    ).delete(synchronize_session=False)
 
     write_infra_audit("Cleanup Scoped Task History", "task", "bulk", {"days": days, "deleted": deleted})
     db.session.commit()
@@ -5516,7 +6195,7 @@ def cleanup_tasks():
 
 @infrastructure_bp.route('/api/infrastructure/job/<job_id>', methods=['DELETE'])
 def delete_job(job_id):
-    denied = require_permission("delete_tasks")
+    denied = require_interactive_superadmin()
     if denied:
         return denied
     task_count = AgentTask.query.filter(
@@ -5524,9 +6203,13 @@ def delete_job(job_id):
     ).count()
     if not task_count:
         return jsonify({"success": False, "message": "Task job not found"}), 404
-    if str(job_id) not in accessible_report_id_set([job_id], action_id="delete_tasks"):
-        return jsonify({"success": False, "message": "Task job is outside your assigned host scope"}), 403
-
+    task_ids = db.session.query(AgentTask.id).filter(
+        or_(AgentTask.job_id == job_id, AgentTask.id == job_id)
+    )
+    HistorySearchToken.query.filter(
+        HistorySearchToken.entity_type == "task",
+        HistorySearchToken.entity_id.in_(task_ids),
+    ).delete(synchronize_session=False)
     deleted = AgentTask.query.filter(
         or_(AgentTask.job_id == job_id, AgentTask.id == job_id)
     ).delete(synchronize_session=False)
@@ -5555,6 +6238,10 @@ def cancel_pending_job(job_id):
             task.result_log = f"Cancelled by operator while task status was {previous_status}. If the agent had already started the script, the local process may still finish, but WinHUB will keep this task cancelled."
             task.finished_at = datetime.utcnow()
             cancelled += 1
+    from core.history_search import index_agent_task
+    for task in tasks:
+        if task.status == "Cancelled":
+            index_agent_task(task)
     write_infra_audit("Cancel Job Tasks", "job", job_id, {"cancelled": cancelled})
     db.session.commit()
     pending_tasks = AgentTask.query.filter(
@@ -5640,6 +6327,11 @@ def finalize_job_report(job_id):
             task.finished_at = datetime.utcnow()
             cancelled += 1
 
+    from core.history_search import index_agent_task
+    for task in pending_tasks:
+        if task.status == "Cancelled":
+            index_agent_task(task)
+
     db.session.commit()
 
     WinHubCore.process_job_completion(job_id, include_statuses=["Success", "Error"], force=True)
@@ -5656,23 +6348,38 @@ def retry_failed_job(job_id):
     failed_tasks = AgentTask.query.filter_by(job_id=job_id).filter(AgentTask.status.in_(["Error", "Cancelled"])).all()
     new_job_id = str(uuid.uuid4())
     created = 0
+    created_tasks = []
     allowed_host_ids = set(infra_allowed_host_ids(session.get("user_id"), "run_tasks"))
     for task in failed_tasks:
         if task.endpoint_id not in allowed_host_ids:
             continue
-        db.session.add(AgentTask(
+        endpoint = task.endpoint
+        retry_task = AgentTask(
             id=str(uuid.uuid4()),
             job_id=new_job_id,
             endpoint_id=task.endpoint_id,
+            endpoint_id_snapshot=task.endpoint_id_snapshot or task.endpoint_id,
+            endpoint_hostname_snapshot=task.endpoint_hostname_snapshot or getattr(endpoint, "hostname", None),
+            endpoint_name_snapshot=task.endpoint_name_snapshot or getattr(endpoint, "display_name", None),
+            endpoint_groups_snapshot=task.endpoint_groups_snapshot,
             title=f"[Retry] {task.title or 'Untitled Task'}",
             module_source=task.module_source or "Infrastructure",
             action_type=task.action_type,
             payload=task.payload,
+            source_type="manual",
+            actor_user_id=session.get("user_id"),
+            template_id=task.template_id,
             created_by=current_actor_label(),
-        ))
+        )
+        db.session.add(retry_task)
+        created_tasks.append(retry_task)
         created += 1
     if not created:
         return jsonify({"success": False, "message": "No failed tasks available to retry"}), 400
+    db.session.flush()
+    from core.history_search import index_agent_task
+    for retry_task in created_tasks:
+        index_agent_task(retry_task)
     write_infra_audit("Retry Failed Job Tasks", "job", job_id, {"new_job_id": new_job_id, "created": created})
     db.session.commit()
     return jsonify({"success": True, "job_id": new_job_id, "created": created})
@@ -5696,6 +6403,20 @@ def host_operations(host_id):
     if not agent:
         return jsonify({"success": False, "message": "Host not found"}), 404
     if request.method == 'DELETE':
+        superadmin_denied = require_interactive_superadmin()
+        if superadmin_denied:
+            return superadmin_denied
+        group_snapshot = json.dumps([
+            {"id": group.id, "name": group.name}
+            for group in agent.groups
+        ], ensure_ascii=False)
+        AgentTask.query.filter_by(endpoint_id=agent.id).update({
+            "endpoint_id_snapshot": agent.id,
+            "endpoint_hostname_snapshot": agent.hostname,
+            "endpoint_name_snapshot": agent.display_name,
+            "endpoint_groups_snapshot": group_snapshot,
+            "endpoint_id": None,
+        }, synchronize_session=False)
         write_infra_audit("Delete Host", "endpoint", agent.id, {"hostname": agent.hostname})
         db.session.delete(agent); db.session.commit()
         return jsonify({"success": True})

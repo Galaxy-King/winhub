@@ -204,6 +204,8 @@ class MobileOperatorContractTests(unittest.TestCase):
             routes, "can_access_report", return_value=True
         ), mock.patch.object(
             routes, "report_body_for_current_user", side_effect=lambda value, **_context: value
+        ), mock.patch.object(
+            routes.WinHubCore, "audit"
         ):
             response = routes.download_report_text("report-1")
 
@@ -225,6 +227,14 @@ class MobileOperatorContractTests(unittest.TestCase):
         )
         report_model = types.SimpleNamespace(query=types.SimpleNamespace(get=mock.Mock(return_value=report)))
         fake_session = mock.Mock()
+        delivery = types.SimpleNamespace(id="delivery-1", content_hash="delivery-hash")
+        revision = types.SimpleNamespace(
+            id="revision-1", content="token=unmasked-secret",
+            revision_number=1, content_hash="revision-hash",
+        )
+        delivery_model = types.SimpleNamespace(
+            query=types.SimpleNamespace(get=mock.Mock(return_value=delivery))
+        )
         with app.test_request_context(
             "/api/infrastructure/reports/report-1/action",
             method="POST",
@@ -246,6 +256,12 @@ class MobileOperatorContractTests(unittest.TestCase):
             routes, "update_report_send_status"
         ) as update_status, mock.patch.object(
             routes, "db", types.SimpleNamespace(session=fake_session)
+        ), mock.patch.object(
+            routes, "record_report_delivery", return_value=(delivery, revision)
+        ) as record_delivery, mock.patch.object(
+            routes, "finish_report_delivery"
+        ), mock.patch.object(
+            routes, "ReportDelivery", delivery_model
         ):
             response = routes.action_report("report-1")
 
@@ -262,6 +278,7 @@ class MobileOperatorContractTests(unittest.TestCase):
         )
         audit.assert_called_once()
         update_status.assert_called_once_with("report-1", True, 2)
+        self.assertEqual(record_delivery.call_args.kwargs["content_snapshot"], "Please review.\n\n" + "=" * 50 + "\n\ntoken=unmasked-secret")
 
     def test_report_email_rejects_header_injection_before_smtp_delivery(self):
         from flask import Flask

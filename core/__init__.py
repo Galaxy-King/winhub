@@ -3,9 +3,9 @@ import logging
 import importlib
 import json
 import secrets
-import string
 import time
 import uuid
+from pathlib import Path
 from datetime import datetime, timedelta, timezone
 from zoneinfo import ZoneInfo
 
@@ -13,7 +13,7 @@ from flask import Flask, g, request, redirect, url_for, session, render_template
 from flask_socketio import SocketIO
 from flask_limiter import Limiter
 from flask_limiter.util import get_remote_address
-from sqlalchemy import inspect, text
+from sqlalchemy import inspect, or_, text
 from werkzeug.exceptions import RequestEntityTooLarge
 
 from apscheduler.schedulers.background import BackgroundScheduler
@@ -22,7 +22,12 @@ from apscheduler.triggers.date import DateTrigger
 
 from core.config import Config
 from core.csp import build_csp_headers, new_csp_nonce
-from core.database import db, User, Endpoint, AgentTask, AuditLog, TelemetryHistory, ScheduledTask, EndpointGroup, ApiKey, TaskTemplate
+from core.database import (
+    db, User, Endpoint, AgentTask, AuditLog, TelemetryHistory, ScheduledTask,
+    EndpointGroup, ApiKey, TaskTemplate, AggregatedJob, Task,
+    RegistrationHistory, ConnectionIpHistory, ReportRevision, ReportDelivery,
+    HistorySearchToken,
+)
 from core.security import sec_manager
 from core.host_security import apply_endpoint_encryption_status
 from core.auth import auth_bp
@@ -50,15 +55,180 @@ scheduler = BackgroundScheduler(timezone=kyiv_tz)
 
 # ГЛОБАЛЬНА ЗМІННА ДЛЯ ФОНОВИХ ПОТОКІВ (Захист від RuntimeError Context)
 global_app = None
+_last_retention_cleanup_day = None
+
+
+def _bounded_ids(query, id_column, limit):
+    return [row[0] for row in query.with_entities(id_column).limit(limit).all()]
+
+
+def _remove_legacy_task_logs(tasks, data_dir):
+    """Remove only task logs that resolve inside DATA_DIR/logs."""
+    log_root = (Path(data_dir) / "logs").resolve()
+    removed = 0
+    for task in tasks:
+        if not task.log_file:
+            continue
+        for candidate in (Path(task.log_file), Path(str(task.log_file).replace(".log", "_public.log"))):
+            try:
+                resolved = candidate.resolve()
+                if resolved.parent != log_root or not resolved.name.startswith("task_"):
+                    continue
+                if resolved.is_file():
+                    resolved.unlink()
+                    removed += 1
+            except OSError:
+                log.warning("Retention could not remove legacy task log %s", candidate)
+    return removed
+
+
+def _expired_report_query(cutoff):
+    """Keep an old report while it has a revision or delivery inside retention."""
+    recent_revision = db.session.query(ReportRevision.id).filter(
+        ReportRevision.report_id == AggregatedJob.id,
+        ReportRevision.created_at >= cutoff,
+    ).exists()
+    recent_delivery = db.session.query(ReportDelivery.id).filter(
+        ReportDelivery.report_id == AggregatedJob.id,
+        ReportDelivery.created_at >= cutoff,
+    ).exists()
+    return AggregatedJob.query.filter(
+        AggregatedJob.created_at < cutoff,
+        ~recent_revision,
+        ~recent_delivery,
+    )
+
+
+def _run_history_retention(now):
+    """Delete one bounded batch of expired history in dependency-safe order."""
+    retention_days = int(global_app.config.get("HISTORY_RETENTION_DAYS", 1825) or 0)
+    if retention_days <= 0:
+        return {"disabled": True, "retention_days": retention_days}
+
+    cutoff = now - timedelta(days=retention_days)
+    batch_size = max(100, min(int(global_app.config.get("HISTORY_CLEANUP_BATCH_SIZE", 5000)), 50000))
+    counts = {
+        "reports": 0,
+        "tasks": 0,
+        "legacy_tasks": 0,
+        "registrations": 0,
+        "connection_ips": 0,
+        "audit": 0,
+        "log_files": 0,
+    }
+
+    report_ids = _bounded_ids(
+        _expired_report_query(cutoff).order_by(AggregatedJob.created_at),
+        AggregatedJob.id,
+        batch_size,
+    )
+    if report_ids:
+        revision_ids = [row[0] for row in db.session.query(ReportRevision.id).filter(
+            ReportRevision.report_id.in_(report_ids)
+        ).all()]
+        ReportDelivery.query.filter(ReportDelivery.report_id.in_(report_ids)).delete(synchronize_session=False)
+        if revision_ids:
+            ReportDelivery.query.filter(ReportDelivery.revision_id.in_(revision_ids)).delete(synchronize_session=False)
+        ReportRevision.query.filter(ReportRevision.report_id.in_(report_ids)).delete(synchronize_session=False)
+        HistorySearchToken.query.filter(
+            HistorySearchToken.entity_type == "report",
+            HistorySearchToken.entity_id.in_(report_ids),
+        ).delete(synchronize_session=False)
+        counts["reports"] = AggregatedJob.query.filter(AggregatedJob.id.in_(report_ids)).delete(synchronize_session=False)
+
+    task_ids = _bounded_ids(
+        AgentTask.query.filter(
+            AgentTask.created_at < cutoff,
+            or_(AgentTask.finished_at.is_(None), AgentTask.finished_at < cutoff),
+        ).order_by(AgentTask.created_at),
+        AgentTask.id,
+        batch_size,
+    )
+    if task_ids:
+        HistorySearchToken.query.filter(
+            HistorySearchToken.entity_type == "task",
+            HistorySearchToken.entity_id.in_(task_ids),
+        ).delete(synchronize_session=False)
+        counts["tasks"] = AgentTask.query.filter(AgentTask.id.in_(task_ids)).delete(synchronize_session=False)
+
+    legacy_ids = _bounded_ids(
+        Task.query.filter(
+            Task.created_at < cutoff,
+            or_(Task.ended_at.is_(None), Task.ended_at < cutoff),
+        ).order_by(Task.created_at),
+        Task.id,
+        batch_size,
+    )
+    if legacy_ids:
+        legacy_rows = Task.query.filter(Task.id.in_(legacy_ids)).all()
+        counts["log_files"] = _remove_legacy_task_logs(legacy_rows, global_app.config["DATA_DIR"])
+        HistorySearchToken.query.filter(
+            HistorySearchToken.entity_type == "legacy_task",
+            HistorySearchToken.entity_id.in_(legacy_ids),
+        ).delete(synchronize_session=False)
+        counts["legacy_tasks"] = Task.query.filter(Task.id.in_(legacy_ids)).delete(synchronize_session=False)
+
+    registration_ids = _bounded_ids(
+        RegistrationHistory.query.filter(RegistrationHistory.timestamp < cutoff).order_by(RegistrationHistory.timestamp),
+        RegistrationHistory.id,
+        batch_size,
+    )
+    if registration_ids:
+        counts["registrations"] = RegistrationHistory.query.filter(
+            RegistrationHistory.id.in_(registration_ids)
+        ).delete(synchronize_session=False)
+
+    connection_ids = _bounded_ids(
+        ConnectionIpHistory.query.filter(ConnectionIpHistory.timestamp < cutoff).order_by(ConnectionIpHistory.timestamp),
+        ConnectionIpHistory.id,
+        batch_size,
+    )
+    if connection_ids:
+        counts["connection_ips"] = ConnectionIpHistory.query.filter(
+            ConnectionIpHistory.id.in_(connection_ids)
+        ).delete(synchronize_session=False)
+
+    audit_ids = _bounded_ids(
+        AuditLog.query.filter(AuditLog.timestamp < cutoff).order_by(AuditLog.timestamp),
+        AuditLog.id,
+        batch_size,
+    )
+    if audit_ids:
+        audit_entity_ids = [str(item) for item in audit_ids]
+        HistorySearchToken.query.filter(
+            HistorySearchToken.entity_type == "audit",
+            HistorySearchToken.entity_id.in_(audit_entity_ids),
+        ).delete(synchronize_session=False)
+        counts["audit"] = AuditLog.query.filter(AuditLog.id.in_(audit_ids)).delete(synchronize_session=False)
+
+    db.session.commit()
+    counts["retention_days"] = retention_days
+    counts["cutoff_utc"] = cutoff.isoformat() + "Z"
+    counts["has_more"] = any((
+        _expired_report_query(cutoff).first() is not None,
+        AgentTask.query.filter(
+            AgentTask.created_at < cutoff,
+            or_(AgentTask.finished_at.is_(None), AgentTask.finished_at < cutoff),
+        ).first() is not None,
+        Task.query.filter(
+            Task.created_at < cutoff,
+            or_(Task.ended_at.is_(None), Task.ended_at < cutoff),
+        ).first() is not None,
+        RegistrationHistory.query.filter(RegistrationHistory.timestamp < cutoff).first() is not None,
+        ConnectionIpHistory.query.filter(ConnectionIpHistory.timestamp < cutoff).first() is not None,
+        AuditLog.query.filter(AuditLog.timestamp < cutoff).first() is not None,
+    ))
+    return counts
 
 # --- ФОНОВІ ЗАДАЧІ ---
 def scheduled_cleanup(*args):
-    global global_app
+    global global_app, _last_retention_cleanup_day
     if not global_app: return
     with global_app.app_context():
         now = datetime.utcnow()
         completed_job_ids = set()
         timed_out_schedule_ids = set()
+        changed_history_tasks = []
         # Очищення завислих задач
         zombie_threshold = now - timedelta(seconds=global_app.config.get('AGENT_TASK_TIMEOUT_SECONDS', 1800))
         zombies = AgentTask.query.filter(AgentTask.status == "PickedUp", AgentTask.created_at < zombie_threshold).all()
@@ -67,6 +237,7 @@ def scheduled_cleanup(*args):
             z.result_log = "TIMEOUT: Agent picked up the task but never returned a result."
             z.finished_at = now
             completed_job_ids.add(z.job_id)
+            changed_history_tasks.append(z)
 
         deadline_candidates = AgentTask.query.filter(
             AgentTask.status.in_(["Pending", "PickedUp", "Running"]),
@@ -92,19 +263,63 @@ def scheduled_cleanup(*args):
             task.result_log = "TIMEOUT: Scheduled task deadline reached before this host returned a final result."
             task.finished_at = now
             completed_job_ids.add(task.job_id)
+            changed_history_tasks.append(task)
             schedule_id = payload.get("__schedule_id")
             if schedule_id:
                 timed_out_schedule_ids.add(str(schedule_id))
 
-        # Очищення телеметрії
-        retention_days = global_app.config.get('LOG_RETENTION_DAYS', 30)
-        telemetry_threshold = now - timedelta(days=retention_days)
-        TelemetryHistory.query.filter(TelemetryHistory.timestamp < telemetry_threshold).delete()
-        audit_retention_days = global_app.config.get('AUDIT_RETENTION_DAYS', 365)
-        if audit_retention_days > 0:
-            audit_threshold = now - timedelta(days=audit_retention_days)
-            AuditLog.query.filter(AuditLog.timestamp < audit_threshold).delete()
+        if changed_history_tasks:
+            from core.history_search import index_agent_task
+            for changed_task in changed_history_tasks:
+                index_agent_task(changed_task)
+
+        # Telemetry has an independent, typically much shorter retention window.
+        telemetry_days = int(global_app.config.get('TELEMETRY_RETENTION_DAYS', 30) or 0)
+        if telemetry_days > 0:
+            telemetry_threshold = now - timedelta(days=telemetry_days)
+            TelemetryHistory.query.filter(TelemetryHistory.timestamp < telemetry_threshold).delete()
         db.session.commit()
+
+        # Long-term history cleanup runs once per UTC day and is deliberately
+        # bounded so a five-year deployment never locks the database for long.
+        today = now.date()
+        if _last_retention_cleanup_day != today:
+            try:
+                retention_result = _run_history_retention(now)
+                if not retention_result.get("has_more"):
+                    _last_retention_cleanup_day = today
+                from core.sdk import WinHubCore
+                WinHubCore.audit(
+                    user_id=None,
+                    module="HistoryAudit",
+                    action="Scheduled History Retention",
+                    details=retention_result,
+                    status="Success",
+                    source_type="retention",
+                )
+            except Exception as exc:
+                db.session.rollback()
+                log.exception("Scheduled history retention failed")
+                from core.sdk import WinHubCore
+                WinHubCore.audit(
+                    user_id=None,
+                    module="HistoryAudit",
+                    action="Scheduled History Retention",
+                    details={"error": str(exc)},
+                    status="Error",
+                    source_type="retention",
+                )
+
+        try:
+            from core.history_search import backfill_history_search_index
+            backfill_result = backfill_history_search_index(
+                global_app.config.get("HISTORY_SEARCH_BACKFILL_BATCH_SIZE", 250)
+            )
+            if backfill_result.get("total"):
+                db.session.commit()
+        except Exception:
+            db.session.rollback()
+            log.exception("History search index backfill failed")
 
         if completed_job_ids:
             from core.sdk import WinHubCore
@@ -151,7 +366,9 @@ def scheduled_task_next_run_utc(task, from_time=None):
     except Exception:
         return None
 
-def run_scheduled_job(scheduled_task_id, *args, manual_run=False):
+def run_scheduled_job(
+    scheduled_task_id, *args, manual_run=False, actor_user_id=None, actor_name=None
+):
     """Функція, яку викликає APScheduler коли настав точний час або адмін запускає вручну."""
     global global_app
     if not global_app:
@@ -209,12 +426,14 @@ def run_scheduled_job(scheduled_task_id, *args, manual_run=False):
                 db.session.commit()
                 return {"success": False, "message": f"Missing variables: {', '.join(unresolved)}"}
 
+            payload_dict["__template_id"] = st.template_id
+            payload_dict["__schedule_id"] = st.id
+
             timeout_minutes = int(st.timeout_minutes or 0)
             if timeout_minutes > 0:
                 deadline = datetime.utcnow() + timedelta(minutes=timeout_minutes)
                 payload_dict["__deadline_utc"] = deadline.replace(microsecond=0).isoformat() + "Z"
                 payload_dict["__agent_timeout_seconds"] = max(60, timeout_minutes * 60)
-                payload_dict["__schedule_id"] = st.id
 
             # ДОДАНО: Перевіряємо, чи це шаблон метрики, і додаємо необхідні прапорці
             if getattr(st.template, 'type', 'action') == 'metric':
@@ -228,7 +447,11 @@ def run_scheduled_job(scheduled_task_id, *args, manual_run=False):
                 action=st.template.action_type,
                 target_ids=agent_ids,
                 payload=payload_dict,
-                title=f"[Manual] {st.name}" if manual_run else f"[Auto] {st.name}"
+                title=f"[Manual] {st.name}" if manual_run else f"[Auto] {st.name}",
+                source_type="manual" if manual_run else "scheduler",
+                actor_name=actor_name or (st.created_by if manual_run else "Scheduler"),
+                actor_user_id=actor_user_id,
+                system_actor=not manual_run,
             )
             st.last_job_id = job_id
             st.last_status = f"Manual run dispatched to {len(agent_ids)} hosts" if manual_run else f"Dispatched to {len(agent_ids)} hosts"
@@ -497,6 +720,14 @@ def ensure_performance_indexes():
         "CREATE INDEX IF NOT EXISTS ix_agent_tasks_endpoint_status_created ON agent_tasks (endpoint_id, status, created_at)",
         "CREATE INDEX IF NOT EXISTS ix_agent_tasks_job_status ON agent_tasks (job_id, status)",
         "CREATE INDEX IF NOT EXISTS ix_agent_tasks_job_endpoint ON agent_tasks (job_id, endpoint_id)",
+        "CREATE INDEX IF NOT EXISTS ix_agent_tasks_actor_created ON agent_tasks (actor_user_id, created_at)",
+        "CREATE INDEX IF NOT EXISTS ix_agent_tasks_source_created ON agent_tasks (source_type, created_at)",
+        "CREATE INDEX IF NOT EXISTS ix_agent_tasks_status_created ON agent_tasks (status, created_at)",
+        "CREATE INDEX IF NOT EXISTS ix_agent_tasks_endpoint_id_snapshot ON agent_tasks (endpoint_id_snapshot)",
+        "CREATE INDEX IF NOT EXISTS ix_agent_tasks_endpoint_hostname_snapshot ON agent_tasks (endpoint_hostname_snapshot)",
+        "CREATE INDEX IF NOT EXISTS ix_agent_tasks_endpoint_name_snapshot ON agent_tasks (endpoint_name_snapshot)",
+        "CREATE INDEX IF NOT EXISTS ix_agent_tasks_template_id ON agent_tasks (template_id)",
+        "CREATE INDEX IF NOT EXISTS ix_agent_tasks_schedule_id ON agent_tasks (schedule_id)",
     ]
     if "endpoint_group_membership" in tables:
         statements.append(
@@ -519,6 +750,17 @@ def ensure_performance_indexes():
         statements.append("CREATE INDEX IF NOT EXISTS ix_connection_ip_endpoint_timestamp ON connection_ip_history (endpoint_id, timestamp)")
     if "aggregated_jobs" in tables:
         statements.append("CREATE INDEX IF NOT EXISTS ix_aggregated_jobs_created_at ON aggregated_jobs (created_at)")
+        statements.append("CREATE INDEX IF NOT EXISTS ix_aggregated_jobs_actor_created ON aggregated_jobs (actor_user_id, created_at)")
+        statements.append("CREATE INDEX IF NOT EXISTS ix_aggregated_jobs_status_created ON aggregated_jobs (status, created_at)")
+        statements.append("CREATE INDEX IF NOT EXISTS ix_aggregated_jobs_creator_created ON aggregated_jobs (created_by, created_at)")
+        statements.append("CREATE INDEX IF NOT EXISTS ix_aggregated_jobs_source_created ON aggregated_jobs (source_type, created_at)")
+        statements.append("CREATE INDEX IF NOT EXISTS ix_aggregated_jobs_template_created ON aggregated_jobs (template_id, created_at)")
+    if "audit_logs" in tables:
+        statements.append("CREATE INDEX IF NOT EXISTS ix_audit_actor_timestamp ON audit_logs (actor_user_id, timestamp)")
+        statements.append("CREATE INDEX IF NOT EXISTS ix_audit_module_status_timestamp ON audit_logs (module, status, timestamp)")
+        statements.append("CREATE INDEX IF NOT EXISTS ix_audit_role_timestamp ON audit_logs (actor_role, timestamp)")
+        statements.append("CREATE INDEX IF NOT EXISTS ix_audit_source_timestamp ON audit_logs (source_type, timestamp)")
+        statements.append("CREATE INDEX IF NOT EXISTS ix_audit_session_timestamp ON audit_logs (session_id_hash, timestamp)")
     if "endpoints" in tables:
         statements.append("CREATE INDEX IF NOT EXISTS ix_endpoints_encryption_level ON endpoints (encryption_level)")
         statements.append("CREATE INDEX IF NOT EXISTS ix_endpoints_agent_version ON endpoints (agent_version)")
@@ -547,12 +789,123 @@ def ensure_audit_schema():
         statements.append("ALTER TABLE audit_logs ADD COLUMN ip_address TEXT")
     if "request_id" not in columns:
         statements.append("ALTER TABLE audit_logs ADD COLUMN request_id VARCHAR(36)")
+    if "actor_user_id" not in columns:
+        statements.append("ALTER TABLE audit_logs ADD COLUMN actor_user_id INTEGER")
+    if "actor_role" not in columns:
+        statements.append("ALTER TABLE audit_logs ADD COLUMN actor_role VARCHAR(30)")
+    if "source_type" not in columns:
+        statements.append("ALTER TABLE audit_logs ADD COLUMN source_type VARCHAR(30)")
+    if "session_id_hash" not in columns:
+        statements.append("ALTER TABLE audit_logs ADD COLUMN session_id_hash VARCHAR(64)")
+    if "user_agent" not in columns:
+        statements.append("ALTER TABLE audit_logs ADD COLUMN user_agent TEXT")
 
     for statement in statements:
         db.session.execute(text(statement))
     if statements:
         db.session.execute(text("UPDATE audit_logs SET actor_type = 'user' WHERE actor_type IS NULL OR actor_type = ''"))
-        db.session.execute(text("UPDATE audit_logs SET actor_name = \"user\" WHERE actor_name IS NULL OR actor_name = ''"))
+        db.session.execute(text("UPDATE audit_logs SET actor_name = 'user' WHERE actor_name IS NULL OR actor_name = ''"))
+        db.session.execute(text(
+            "UPDATE audit_logs SET actor_user_id = "
+            "(SELECT id FROM users WHERE users.username = COALESCE(audit_logs.actor_name, audit_logs.user)) "
+            "WHERE actor_user_id IS NULL"
+        ))
+        db.session.execute(text(
+            "UPDATE audit_logs SET actor_role = CASE "
+            "WHEN actor_type = 'api_key' THEN 'api_key' "
+            "WHEN actor_user_id IN (SELECT id FROM users WHERE is_admin IS TRUE) THEN 'superadmin' "
+            "ELSE 'operator' END WHERE actor_role IS NULL"
+        ))
+        db.session.execute(text(
+            "UPDATE audit_logs SET source_type = CASE "
+            "WHEN actor_type = 'api_key' THEN 'api' ELSE 'web' END "
+            "WHERE source_type IS NULL"
+        ))
+        db.session.commit()
+
+
+def ensure_history_schema():
+    """Compatibility DDL for installations that have not run Alembic yet."""
+    inspector = inspect(db.engine)
+    tables = set(inspector.get_table_names())
+    additions = {
+        "agent_tasks": {
+            "endpoint_id_snapshot": "VARCHAR(100)",
+            "endpoint_hostname_snapshot": "VARCHAR(100)",
+            "endpoint_name_snapshot": "VARCHAR(120)",
+            "endpoint_groups_snapshot": "TEXT",
+            "source_type": "VARCHAR(30) DEFAULT 'manual'",
+            "actor_user_id": "INTEGER",
+            "template_id": "VARCHAR(36)",
+            "schedule_id": "VARCHAR(36)",
+        },
+        "aggregated_jobs": {
+            "actor_user_id": "INTEGER",
+            "created_by": "VARCHAR(150)",
+            "source_type": "VARCHAR(30)",
+            "template_id": "VARCHAR(36)",
+            "original_content_hash": "VARCHAR(64)",
+            "current_revision_number": "INTEGER NOT NULL DEFAULT 0",
+        },
+        "report_deliveries": {
+            "content_snapshot": "TEXT",
+        },
+    }
+    changed = False
+    for table_name, table_additions in additions.items():
+        if table_name not in tables:
+            continue
+        columns = {column["name"] for column in inspector.get_columns(table_name)}
+        for column_name, ddl in table_additions.items():
+            if column_name not in columns:
+                db.session.execute(text(
+                    f"ALTER TABLE {table_name} ADD COLUMN {column_name} {ddl}"
+                ))
+                changed = True
+    if "agent_tasks" in tables:
+        db.session.execute(text(
+            "UPDATE agent_tasks SET endpoint_id_snapshot = endpoint_id "
+            "WHERE endpoint_id_snapshot IS NULL"
+        ))
+        db.session.execute(text(
+            "UPDATE agent_tasks SET endpoint_hostname_snapshot = "
+            "(SELECT hostname FROM endpoints WHERE endpoints.id = agent_tasks.endpoint_id) "
+            "WHERE endpoint_hostname_snapshot IS NULL AND endpoint_id IS NOT NULL"
+        ))
+        db.session.execute(text(
+            "UPDATE agent_tasks SET endpoint_name_snapshot = "
+            "(SELECT display_name FROM endpoints WHERE endpoints.id = agent_tasks.endpoint_id) "
+            "WHERE endpoint_name_snapshot IS NULL AND endpoint_id IS NOT NULL"
+        ))
+        db.session.execute(text(
+            "UPDATE agent_tasks SET source_type = CASE "
+            "WHEN title LIKE '[Auto-Fix]%' THEN 'trigger' "
+            "WHEN title LIKE '[Auto]%' THEN 'scheduler' "
+            "ELSE COALESCE(source_type, 'manual') END"
+        ))
+        db.session.execute(text(
+            "UPDATE agent_tasks SET actor_user_id = "
+            "(SELECT id FROM users WHERE users.username = agent_tasks.created_by) "
+            "WHERE actor_user_id IS NULL AND created_by IS NOT NULL"
+        ))
+        changed = True
+    if "aggregated_jobs" in tables and "agent_tasks" in tables:
+        for column_name in ("actor_user_id", "created_by", "source_type", "template_id"):
+            db.session.execute(text(
+                f"UPDATE aggregated_jobs SET {column_name} = "
+                f"(SELECT {column_name} FROM agent_tasks "
+                "WHERE agent_tasks.job_id = aggregated_jobs.id "
+                "ORDER BY agent_tasks.created_at LIMIT 1) "
+                f"WHERE {column_name} IS NULL"
+            ))
+        changed = True
+    if "report_deliveries" in tables:
+        db.session.execute(text(
+            "UPDATE report_deliveries SET content_snapshot = '' "
+            "WHERE content_snapshot IS NULL"
+        ))
+        changed = True
+    if changed:
         db.session.commit()
 
 # ====================================================================
@@ -735,6 +1088,19 @@ def handle_security_and_auth():
         )
         if absolute_expired or idle_expired:
             username = session.get("username", "Unknown")
+            try:
+                from core.sdk import WinHubCore
+                WinHubCore.audit(
+                    user_id=session.get("user_id"),
+                    username=username,
+                    module="Auth",
+                    action="Session Expired",
+                    details={"reason": "absolute_timeout" if absolute_expired else "idle_timeout"},
+                    status="Success",
+                    source_type="web",
+                )
+            except Exception:
+                log.exception("Failed to audit expired session for %s", username)
             session.clear()
             if request.path.startswith('/api/'):
                 return {"success": False, "message": "Session expired"}, 440
@@ -940,12 +1306,13 @@ def create_app():
         ensure_group_access_schema()
         backfill_endpoint_encryption_status()
         ensure_audit_schema()
+        ensure_history_schema()
         ensure_performance_indexes()
         seed_default_os_groups()
         remove_default_agent_update_template()
 
         if not User.query.first():
-            raw_password = ''.join(secrets.choice(string.ascii_letters + string.digits) for _ in range(16))
+            raw_password = secrets.token_urlsafe(24)
             totp = sec_manager.generate_totp_secret()
 
             admin = User(
@@ -960,15 +1327,23 @@ def create_app():
             db.session.commit()
 
             backup_path = os.path.join(Config.DATA_DIR, 'admin_recovery.txt')
-            with open(backup_path, 'w', encoding='utf-8') as f:
+            recovery_flags = os.O_WRONLY | os.O_CREAT | os.O_TRUNC
+            if hasattr(os, 'O_NOFOLLOW'):
+                recovery_flags |= os.O_NOFOLLOW
+            recovery_fd = os.open(backup_path, recovery_flags, 0o600)
+            if os.name != 'nt':
+                os.fchmod(recovery_fd, 0o600)
+            with os.fdopen(recovery_fd, 'w', encoding='utf-8') as f:
                 f.write("=== WINHUB ADMIN RECOVERY ===\n")
                 f.write(f"Username: admin\n")
                 f.write(f"Password: {raw_password}\n")
                 f.write(f"2FA Secret: {totp}\n")
                 f.write("\nЗбережіть цей файл у безпечному місці!\n")
 
-            print(f"\n[!!!] СТВОРЕНО НОВОГО АДМІНІСТРАТОРА [!!!]")
-            print(f"Дані для входу збережено у файл: {backup_path}\n")
+            # Keep bootstrap output ASCII-safe for Windows service consoles that
+            # still use a legacy code page.
+            print("\n[!!!] NEW ADMINISTRATOR CREATED [!!!]")
+            print(f"Recovery credentials were saved to: {backup_path}\n")
 
         load_modules(global_app)
 

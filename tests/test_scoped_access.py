@@ -32,20 +32,29 @@ class GranularPermissionTests(unittest.TestCase):
         self.assertTrue(has_permission(exact, "Infrastructure", "delete_hosts"))
         self.assertFalse(has_permission(exact, "Infrastructure", "delete_groups"))
 
+        retired_delete = types.SimpleNamespace(
+            id=81, is_admin=False,
+            allowed_modules=json.dumps(["Infrastructure:delete_reports", "Infrastructure:delete_tasks"]),
+        )
+        self.assertFalse(has_permission(retired_delete, "Infrastructure", "delete_reports"))
+        self.assertFalse(has_permission(retired_delete, "Infrastructure", "delete_tasks"))
+
         legacy = types.SimpleNamespace(
             id=9,
             is_admin=False,
             allowed_modules=json.dumps(["Infrastructure:delete"]),
         )
-        for permission in ("delete_reports", "delete_tasks", "delete_hosts", "delete_groups"):
+        for permission in ("delete_hosts", "delete_groups"):
             self.assertTrue(has_permission(legacy, "Infrastructure", permission))
+        self.assertFalse(has_permission(legacy, "Infrastructure", "delete_reports"))
+        self.assertFalse(has_permission(legacy, "Infrastructure", "delete_tasks"))
 
         legacy_cleanup = types.SimpleNamespace(
             id=10,
             is_admin=False,
             allowed_modules=json.dumps(["Infrastructure:cleanup_tasks"]),
         )
-        self.assertTrue(has_permission(legacy_cleanup, "Infrastructure", "delete_tasks"))
+        self.assertFalse(has_permission(legacy_cleanup, "Infrastructure", "delete_tasks"))
 
     def test_granular_catalog_exposes_independent_assignment_controls(self):
         from core.permissions import granular_permission_catalog
@@ -53,11 +62,11 @@ class GranularPermissionTests(unittest.TestCase):
         ids = {item["id"] for item in granular_permission_catalog("Infrastructure")}
         self.assertTrue({
             "view_sensitive_reports",
-            "delete_reports",
-            "delete_tasks",
             "delete_hosts",
             "delete_groups",
         }.issubset(ids))
+        self.assertNotIn("delete_reports", ids)
+        self.assertNotIn("delete_tasks", ids)
 
 
 class PerGroupPermissionTests(unittest.TestCase):
@@ -223,11 +232,11 @@ class ScopedAccessPerformanceContractTests(unittest.TestCase):
     def test_destructive_routes_require_granular_permissions_and_scope(self):
         from modules.Infrastructure import routes
 
-        self.assertIn("can_access_report", inspect.getsource(routes.delete_report))
-        self.assertIn('require_permission("delete_tasks")', inspect.getsource(routes.delete_job))
-        self.assertIn("accessible_report_id_set", inspect.getsource(routes.delete_job))
+        self.assertIn("require_interactive_superadmin", inspect.getsource(routes.delete_report))
+        self.assertIn("require_interactive_superadmin", inspect.getsource(routes.delete_job))
         host_source = inspect.getsource(routes.host_operations)
         self.assertIn('"DELETE": "delete_hosts"', host_source)
+        self.assertIn("require_interactive_superadmin", host_source)
         self.assertIn("infra_allowed_host_ids", host_source)
         self.assertIn('require_permission("delete_groups")', inspect.getsource(routes.manage_group))
         self.assertIn("infra_allowed_group_ids", inspect.getsource(routes.manage_group))

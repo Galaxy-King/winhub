@@ -229,7 +229,7 @@ class TemplateCloneTests(unittest.TestCase):
             "/api/infrastructure/templates/template-id",
             method="DELETE",
             json={"confirm_name": "wrong name"},
-        ), mock.patch.object(routes, "require_permission", return_value=None), mock.patch.object(
+        ), mock.patch.object(routes, "require_interactive_superadmin", return_value=None), mock.patch.object(
             routes, "TaskTemplate", template_model
         ), mock.patch.object(routes, "can_access_template_library_entry", return_value=True), mock.patch.object(
             routes, "can_delete_template", return_value=True

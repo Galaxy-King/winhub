@@ -14,6 +14,10 @@ let currentViewedHostData = null;
 let currentViewedGroupId = null;
 let currentGroupNonMembers = [];
 let currentReportId = null;
+let reportPage = 1;
+let reportPagination = { page: 1, total: 0, has_more: false };
+let selectedReportSnapshot = null;
+let selectedReportSnapshotLabel = '';
 
 let selectedTemplateId = null;
 let editingTemplateId = null;
@@ -27,6 +31,9 @@ let activityChart = null;
 let currentHostStatus = 'all';
 let queueTypeFilter = 'ALL';
 let queueStatusFilter = 'ALL';
+let queuePage = 1;
+let queuePagination = { page: 1, total: 0, has_more: false };
+let queueSearchTimer = null;
 const infraPermissions = window.WinhubPermissions || {};
 let infraLivePollTimer = null;
 let infraLivePollStarted = false;
@@ -53,6 +60,9 @@ const infraStateKeys = {
     queueStatus: 'infra_queue_status',
     queueSearch: 'infra_queue_search',
     queueUser: 'infra_queue_user',
+    queueContent: 'infra_queue_content',
+    queueDateFrom: 'infra_queue_date_from',
+    queueDateTo: 'infra_queue_date_to',
     workspaceTab: 'infra_workspace_tab',
     categories: 'infra_open_categories',
     template: 'infra_selected_template'
@@ -108,6 +118,9 @@ function scopedInfraState(view, params = {}) {
         queueStatus: null,
         queueSearch: null,
         queueUser: null,
+        queueContent: null,
+        queueDateFrom: null,
+        queueDateTo: null,
         workspaceTab: null,
         ...params,
     };
@@ -797,16 +810,43 @@ function updateVariablesUI() {
 
 
 // --- REPORTS (BUFFER) & SMTP LOGIC ---
-async function loadReports() {
+async function loadReports(requestedPage = reportPage) {
     try {
-        const res = await fetch('/api/infrastructure/reports/all');
+        reportPage = Math.max(1, Number(requestedPage) || 1);
+        const params = new URLSearchParams({page: String(reportPage), per_page: '50'});
+        const filterValues = {
+            q: document.getElementById('reportSearch')?.value?.trim(),
+            content: document.getElementById('reportContentSearch')?.value?.trim(),
+            content_field: document.getElementById('reportContentField')?.value,
+            actor: document.getElementById('reportActorFilter')?.value?.trim(),
+            source: document.getElementById('reportSourceFilter')?.value,
+            status: document.getElementById('reportStatusFilter')?.value,
+            date_from: document.getElementById('reportDateFrom')?.value,
+            date_to: document.getElementById('reportDateTo')?.value,
+        };
+        Object.entries(filterValues).forEach(([key, value]) => { if(value) params.set(key, value); });
+        if(document.getElementById('reportHasErrors')?.checked) params.set('has_errors', '1');
+        const res = await fetch('/api/infrastructure/reports/all?' + params.toString());
         if (!res.ok) throw new Error(`Reports request failed: ${res.status}`);
         const data = await res.json();
         if (data.success) {
             allReports = data.data;
+            reportPagination = data.pagination || {page: reportPage, total: allReports.length, has_more: false};
             renderReports();
+            const pageInfo = document.getElementById('reportPageInfo');
+            if(pageInfo) pageInfo.innerText = `Page ${reportPage} · ${reportPagination.total || 0} matching reports`;
+            const prev = document.getElementById('reportPrev');
+            const next = document.getElementById('reportNext');
+            if(prev) prev.disabled = reportPage <= 1;
+            if(next) next.disabled = !reportPagination.has_more;
         }
     } catch(e) { console.error("Error loading reports", e); }
+}
+
+function changeReportPage(delta) {
+    const requested = reportPage + Number(delta || 0);
+    if(requested < 1 || (delta > 0 && !reportPagination.has_more)) return;
+    loadReports(requested);
 }
 
 function renderReports() {
@@ -833,6 +873,7 @@ function renderReports() {
                         <span class="text-slate-300">•</span>
                         <span class="text-[10px] text-slate-500 font-bold">Total: ${r.total} | <span class="text-emerald-500">Succ: ${r.success}</span> | <span class="text-rose-500">Err: ${r.error}</span></span>
                     </div>
+                    <div class="text-[10px] text-slate-400 mt-1">By ${escapeHtml(r.created_by || 'System')} · ${escapeHtml(r.source || 'system')} · revision ${escapeHtml(r.revision || 1)}</div>
                 </div>
             </div>
             <div class="shrink-0">
@@ -859,6 +900,10 @@ async function viewReport(id) {
 
     const bodyEl = document.getElementById('vrBody');
     if(bodyEl) bodyEl.value = r.report_data_loaded ? (r.report_data || "") : "Loading report body...";
+    selectedReportSnapshot = null;
+    selectedReportSnapshotLabel = '';
+    const compare = document.getElementById('vrCompareToggle');
+    if(compare) compare.checked = false;
 
     const saveBtn = document.getElementById('btnSaveReportText');
     if(saveBtn) {
@@ -885,24 +930,122 @@ async function viewReport(id) {
             }
         }
     }
+    if(currentReportId === id) {
+        showCurrentReportVersion();
+        loadReportTrail();
+    }
+}
+
+function reportLineDiff(snapshot, current) {
+    const before = String(snapshot || '').split('\n');
+    const after = String(current || '').split('\n');
+    const result = ['--- selected immutable snapshot', '+++ current working copy'];
+    const count = Math.max(before.length, after.length);
+    for(let index = 0; index < count; index++) {
+        if(before[index] === after[index]) result.push(`  ${before[index] ?? ''}`);
+        else {
+            if(before[index] !== undefined) result.push(`- ${before[index]}`);
+            if(after[index] !== undefined) result.push(`+ ${after[index]}`);
+        }
+    }
+    return result.join('\n');
+}
+
+function renderSelectedReportVersion() {
+    const report = allReports.find(item => item.id === currentReportId);
+    const body = document.getElementById('vrBody');
+    if(!report || !body) return;
+    if(selectedReportSnapshot === null) {
+        body.value = report.report_data || '';
+        body.readOnly = !infraPermissions.edit_reports || !infraPermissions.view_sensitive_reports;
+        return;
+    }
+    const compare = document.getElementById('vrCompareToggle')?.checked;
+    body.value = compare ? reportLineDiff(selectedReportSnapshot, report.report_data || '') : selectedReportSnapshot;
+    body.readOnly = true;
+}
+
+function showCurrentReportVersion() {
+    const report = allReports.find(item => item.id === currentReportId);
+    if(!report) return;
+    selectedReportSnapshot = null;
+    selectedReportSnapshotLabel = 'Current working copy';
+    const label = document.getElementById('vrVersionLabel');
+    if(label) label.innerText = `Current revision ${report.revision || 1}`;
+    const compare = document.getElementById('vrCompareToggle');
+    if(compare) compare.checked = false;
+    const save = document.getElementById('btnSaveReportText');
+    if(save) save.disabled = false;
+    renderSelectedReportVersion();
+}
+
+async function loadReportTrail() {
+    if(!currentReportId) return;
+    const list = document.getElementById('vrVersionList');
+    if(list) list.innerHTML = '<div class="p-4 text-xs text-slate-400">Loading immutable history…</div>';
+    try {
+        const [revisionResponse, deliveryResponse] = await Promise.all([
+            fetch(`/api/infrastructure/reports/${currentReportId}/revisions`),
+            fetch(`/api/infrastructure/reports/${currentReportId}/deliveries`),
+        ]);
+        const revisions = await revisionResponse.json();
+        const deliveries = await deliveryResponse.json();
+        if(!revisionResponse.ok || !revisions.success) throw new Error(revisions.message || 'Revision history failed');
+        const revisionHtml = (revisions.revisions || []).map(item => `<button onclick="viewReportRevision('${escapeInlineJs(item.id)}')" class="w-full text-left p-3 rounded-xl border border-slate-200 bg-white hover:border-indigo-300 transition-colors"><div class="flex justify-between gap-2"><span class="text-xs font-black text-slate-700">Revision ${item.number}${item.is_original ? ' · Original' : ''}</span><span class="text-[9px] uppercase font-black text-indigo-600">${escapeHtml(item.kind)}</span></div><div class="text-[10px] text-slate-400 mt-1">${escapeHtml(item.actor)} · ${escapeHtml(item.created_at)}</div><div class="text-[9px] font-mono text-slate-400 truncate mt-1" title="${escapeHtml(item.content_hash)}">${escapeHtml(item.content_hash)}</div>${item.reason ? `<div class="text-[10px] text-slate-500 mt-1">${escapeHtml(item.reason)}</div>` : ''}</button>`).join('');
+        const deliveryHtml = (deliveries.deliveries || []).map(item => `<button onclick="viewReportDelivery('${escapeInlineJs(item.id)}')" class="w-full text-left p-3 rounded-xl border border-sky-200 bg-sky-50 hover:border-sky-400 transition-colors"><div class="flex justify-between gap-2"><span class="text-xs font-black text-sky-800">Sent snapshot · ${escapeHtml(item.channel)}</span><span class="text-[9px] uppercase font-black ${item.status === 'Success' ? 'text-emerald-600' : 'text-rose-600'}">${escapeHtml(item.status)}</span></div><div class="text-[10px] text-slate-500 mt-1">${escapeHtml(item.actor)} · ${escapeHtml(item.created_at)}</div><div class="text-[9px] font-mono text-slate-400 truncate mt-1" title="${escapeHtml(item.content_hash)}">${escapeHtml(item.content_hash)}</div></button>`).join('');
+        if(list) list.innerHTML = `${revisionHtml || '<div class="p-3 text-xs text-slate-400">No revisions</div>'}${deliveryHtml ? '<div class="pt-3 mt-3 border-t border-slate-200 text-[10px] font-black uppercase tracking-widest text-slate-400">Deliveries</div>' + deliveryHtml : ''}`;
+    } catch(error) {
+        if(list) list.innerHTML = `<div class="p-3 text-xs text-rose-500">${escapeHtml(error.message)}</div>`;
+    }
+}
+
+async function viewReportRevision(revisionId) {
+    const response = await fetch(`/api/infrastructure/reports/${currentReportId}/revisions/${revisionId}`);
+    const data = await response.json();
+    if(!response.ok || !data.success) return alert(data.message || 'Could not load revision');
+    selectedReportSnapshot = data.revision.content || '';
+    selectedReportSnapshotLabel = `Revision ${data.revision.number}${data.revision.kind === 'generated' ? ' · Original' : (data.revision.kind === 'recovered' ? ' · Migration baseline' : '')}`;
+    const label = document.getElementById('vrVersionLabel'); if(label) label.innerText = selectedReportSnapshotLabel;
+    const save = document.getElementById('btnSaveReportText'); if(save) save.disabled = true;
+    renderSelectedReportVersion();
+}
+
+async function viewReportDelivery(deliveryId) {
+    const response = await fetch(`/api/infrastructure/reports/${currentReportId}/deliveries/${deliveryId}`);
+    const data = await response.json();
+    if(!response.ok || !data.success) return alert(data.message || 'Could not load sent snapshot');
+    selectedReportSnapshot = data.delivery.content || '';
+    selectedReportSnapshotLabel = `Exact ${data.delivery.channel} delivery · ${data.delivery.status}`;
+    const label = document.getElementById('vrVersionLabel'); if(label) label.innerText = selectedReportSnapshotLabel;
+    const save = document.getElementById('btnSaveReportText'); if(save) save.disabled = true;
+    renderSelectedReportVersion();
 }
 
 async function saveReportChanges() {
     const bodyEl = document.getElementById('vrBody');
     if(!bodyEl) return;
     const newText = bodyEl.value;
+    if(selectedReportSnapshot !== null) return;
+    const currentReport = allReports.find(item => item.id === currentReportId);
+    if(currentReport && newText === (currentReport.report_data || '')) return true;
+    const reason = window.prompt('Short reason for this immutable report revision:', 'Manual report edit');
+    if(reason === null) return;
 
     const btn = document.getElementById('btnSaveReportText');
     if(btn) btn.innerText = "Saving...";
 
     try {
-        await fetch(`/api/infrastructure/reports/${currentReportId}/action`, {
+        const response = await fetch(`/api/infrastructure/reports/${currentReportId}/action`, {
             method: 'POST', headers: {'Content-Type': 'application/json'},
-            body: JSON.stringify({action: 'save', report_data: newText})
+            body: JSON.stringify({action: 'save', report_data: newText, reason: reason || 'Manual report edit', expected_content_hash: currentReport?.content_hash || ''})
         });
+        const data = await response.json();
+        if(!response.ok || !data.success) throw new Error(data.message || 'Failed to save report revision');
 
         const r = allReports.find(x => x.id === currentReportId);
-        if(r) r.report_data = newText;
+        if(r) { r.report_data = newText; r.revision = data.revision || r.revision; r.content_hash = data.content_hash || r.content_hash; }
+        const label = document.getElementById('vrVersionLabel'); if(label) label.innerText = `Current revision ${data.revision || ''}`;
+        loadReportTrail();
 
         if(btn) {
             btn.innerText = "Saved!";
@@ -916,7 +1059,8 @@ async function saveReportChanges() {
                 btn.classList.replace('border-indigo-200', 'border-emerald-200');
             }, 2000);
         }
-    } catch(e) { console.error("Error saving report", e); }
+        return true;
+    } catch(e) { console.error("Error saving report", e); alert(e.message || 'Error saving report'); return false; }
 }
 
 async function dismissCurrentReport() {
@@ -1739,6 +1883,27 @@ document.addEventListener('DOMContentLoaded', () => {
 
         const hostSearchEl = document.getElementById('hostSearch');
         if(hostSearchEl) hostSearchEl.addEventListener('input', applyHostFilters);
+        ['queueSearch', 'queueContent', 'queueDateFrom', 'queueDateTo', 'qFilterUser'].forEach(id => {
+            const element = document.getElementById(id);
+            if (!element) return;
+            const eventName = element.tagName === 'INPUT' && element.type === 'text' ? 'input' : 'change';
+            element.addEventListener(eventName, () => {
+                clearTimeout(queueSearchTimer);
+                queueSearchTimer = setTimeout(() => {
+                    persistQueueState();
+                    loadQueue(1);
+                }, eventName === 'input' ? 350 : 0);
+            });
+        });
+        ['reportSearch', 'reportContentSearch', 'reportActorFilter', 'reportSourceFilter', 'reportStatusFilter', 'reportContentField', 'reportDateFrom', 'reportDateTo', 'reportHasErrors'].forEach(id => {
+            const element = document.getElementById(id);
+            if(!element) return;
+            const eventName = element.tagName === 'INPUT' && element.type === 'text' ? 'input' : 'change';
+            element.addEventListener(eventName, () => {
+                clearTimeout(element._reportFilterTimer);
+                element._reportFilterTimer = setTimeout(() => loadReports(1), eventName === 'input' ? 400 : 0);
+            });
+        });
 
         initPayloadEditor();
         initScheduleTimeWheels();
@@ -4162,21 +4327,36 @@ function restoreQueueState() {
     if (searchEl) searchEl.value = readInfraState('queueSearch', infraStateKeys.queueSearch, '');
     const userEl = document.getElementById('qFilterUser');
     if (userEl) userEl.value = readInfraState('queueUser', infraStateKeys.queueUser, '');
+    const contentEl = document.getElementById('queueContent');
+    if (contentEl) contentEl.value = readInfraState('queueContent', infraStateKeys.queueContent, '');
+    const dateFromEl = document.getElementById('queueDateFrom');
+    if (dateFromEl) dateFromEl.value = readInfraState('queueDateFrom', infraStateKeys.queueDateFrom, '');
+    const dateToEl = document.getElementById('queueDateTo');
+    if (dateToEl) dateToEl.value = readInfraState('queueDateTo', infraStateKeys.queueDateTo, '');
     renderQueueFilterButtons();
 }
 
 function persistQueueState() {
     const search = (document.getElementById('queueSearch')?.value || '').trim();
     const user = document.getElementById('qFilterUser')?.value || '';
+    const content = (document.getElementById('queueContent')?.value || '').trim();
+    const dateFrom = document.getElementById('queueDateFrom')?.value || '';
+    const dateTo = document.getElementById('queueDateTo')?.value || '';
     localStorage.setItem(infraStateKeys.queueType, queueTypeFilter || 'ALL');
     localStorage.setItem(infraStateKeys.queueStatus, queueStatusFilter || 'ALL');
     localStorage.setItem(infraStateKeys.queueSearch, search);
     localStorage.setItem(infraStateKeys.queueUser, user);
+    localStorage.setItem(infraStateKeys.queueContent, content);
+    localStorage.setItem(infraStateKeys.queueDateFrom, dateFrom);
+    localStorage.setItem(infraStateKeys.queueDateTo, dateTo);
     writeInfraState(scopedInfraState('queue', {
         queueType: queueTypeFilter === 'ALL' ? null : queueTypeFilter,
         queueStatus: queueStatusFilter === 'ALL' ? null : queueStatusFilter,
         queueSearch: search || null,
         queueUser: user || null,
+        queueContent: content || null,
+        queueDateFrom: dateFrom || null,
+        queueDateTo: dateTo || null,
     }));
 }
 
@@ -4201,37 +4381,67 @@ function setQueueTypeFilter(type, btn) {
     queueTypeFilter = type;
     renderQueueFilterButtons();
     persistQueueState();
-    renderQueue();
+    loadQueue(1);
 }
 
 function setQueueStatusFilter(status, btn) {
     queueStatusFilter = status || 'ALL';
     renderQueueFilterButtons();
     persistQueueState();
-    renderQueue();
+    loadQueue(1);
 }
 
-async function loadQueue() {
+async function loadQueue(requestedPage = queuePage) {
     try {
-        const res = await fetch('/api/infrastructure/tasks/all');
+        queuePage = Math.max(1, Number(requestedPage) || 1);
+        persistQueueState();
+        const params = new URLSearchParams({page: String(queuePage), page_size: '20'});
+        const q = (document.getElementById('queueSearch')?.value || '').trim();
+        const content = (document.getElementById('queueContent')?.value || '').trim();
+        const actor = document.getElementById('qFilterUser')?.value || readInfraState('queueUser', infraStateKeys.queueUser, '');
+        const dateFrom = document.getElementById('queueDateFrom')?.value || '';
+        const dateTo = document.getElementById('queueDateTo')?.value || '';
+        if (q) params.set('q', q);
+        if (content) params.set('content', content);
+        if (actor) params.set('actor', actor);
+        if (dateFrom) params.set('date_from', dateFrom);
+        if (dateTo) params.set('date_to', dateTo);
+        if (queueTypeFilter !== 'ALL') params.set('source', queueTypeFilter);
+        if (queueStatusFilter !== 'ALL') params.set('status', queueStatusFilter);
+        const res = await fetch('/api/infrastructure/tasks/all?' + params.toString());
         const data = await res.json();
         if (!data.success) return;
         allQueueJobs = data.jobs;
+        queuePagination = data.pagination || {page: queuePage, total: allQueueJobs.length, has_more: false};
 
-        const users = new Set(allQueueJobs.map(j => j.created_by));
+        const users = new Set((data.filters?.actors || []).concat(allQueueJobs.map(j => j.created_by)));
         const uSelect = document.getElementById('qFilterUser');
-        if(uSelect && uSelect.options.length <= 1) {
+        if(uSelect) {
+            const selectedUser = actor;
+            uSelect.innerHTML = '<option value="">All Users</option>';
             users.forEach(u => { if(u) uSelect.add(new Option(u, u)); });
-            uSelect.add(new Option('System (Auto)', 'System'));
+            if (!users.has('System')) uSelect.add(new Option('System (Auto)', 'System'));
+            uSelect.value = selectedUser;
         }
 
-        restoreQueueState();
         renderQueue();
         const t = document.getElementById('statQTotal');
         const p = document.getElementById('statQPending');
-        if(t) t.innerText = allQueueJobs.length;
+        if(t) t.innerText = queuePagination.total ?? allQueueJobs.length;
         if(p) p.innerText = allQueueJobs.filter(j => j.status === 'Pending' || j.status === 'Running' || j.status === 'Scheduled').length;
+        const pageInfo = document.getElementById('queuePageInfo');
+        if(pageInfo) pageInfo.innerText = `Page ${queuePagination.page || queuePage} · ${queuePagination.total || 0} matching jobs`;
+        const prev = document.getElementById('queuePrev');
+        const next = document.getElementById('queueNext');
+        if(prev) prev.disabled = queuePage <= 1;
+        if(next) next.disabled = !queuePagination.has_more;
     } catch(e) { console.error("Error loading queue:", e); }
+}
+
+function changeQueuePage(delta) {
+    const nextPage = queuePage + Number(delta || 0);
+    if (nextPage < 1 || (delta > 0 && !queuePagination.has_more)) return;
+    loadQueue(nextPage);
 }
 
 function renderQueue() {
@@ -4240,41 +4450,14 @@ function renderQueue() {
     persistQueueState();
     renderQueueFilterButtons();
 
-    const searchEl = document.getElementById('queueSearch');
-    const q = (searchEl ? searchEl.value : '').toLowerCase();
-
-    const uFilterEl = document.getElementById('qFilterUser');
-    const uFilter = uFilterEl ? uFilterEl.value : '';
-
-    const filtered = allQueueJobs.filter(j => {
-        const titleLower = (j.title || '').toLowerCase();
-        const matchSearch = titleLower.includes(q) || (j.target_summary || '').toLowerCase().includes(q) || (j.status || '').toLowerCase().includes(q);
-
-        let matchUser = true;
-        if(uFilter !== '') {
-            if(uFilter === 'System') matchUser = !j.created_by || j.created_by === 'System';
-            else matchUser = j.created_by === uFilter;
-        }
-
-        let matchType = true;
-        if(queueTypeFilter === 'Auto') matchType = titleLower.startsWith('[auto] ');
-        else if(queueTypeFilter === 'Auto-Fix') matchType = titleLower.startsWith('[auto-fix]');
-        else if(queueTypeFilter === 'Manual') matchType = !titleLower.startsWith('[auto]') && !titleLower.startsWith('[auto-fix]');
-
-        let matchStatus = true;
-        if(queueStatusFilter !== 'ALL') matchStatus = (j.status || 'Pending').toLowerCase() === queueStatusFilter.toLowerCase();
-
-        return matchSearch && matchUser && matchType && matchStatus;
-    });
-
-    tbody.innerHTML = filtered.map(j => {
+    tbody.innerHTML = allQueueJobs.map(j => {
         const statusStr = j.status || 'Pending';
         let cls = statusStr === 'Pending' ? 'bg-amber-100 text-amber-700' : (statusStr === 'Success' ? 'bg-emerald-100 text-emerald-700' : 'bg-rose-100 text-rose-700');
         if (statusStr === 'Scheduled') cls = 'bg-sky-100 text-sky-700';
         if (statusStr === 'Cancelled') cls = 'bg-slate-100 text-slate-500';
         if (j.error > 0 && j.success > 0) cls = 'bg-orange-100 text-orange-700';
 
-        const hasActionColumn = infraPermissions.delete_tasks || infraPermissions.run_tasks;
+        const hasActionColumn = !!window.WinhubIsAdmin || infraPermissions.run_tasks;
         let actionBtn = hasActionColumn ? '<td class="px-10 py-4 text-right"></td>' : '';
         if(j.planned && hasActionColumn) {
             actionBtn = `<td class="px-10 py-4 text-right">
@@ -4288,7 +4471,7 @@ function renderQueue() {
                     ${infraPermissions.run_tasks && j.error > 0 ? `<button onclick="event.stopPropagation(); retryFailedJob('${escapeInlineJs(j.job_id)}')" class="queue-action-btn p-3 border rounded-2xl transition-colors shadow-sm" title="Retry failed hosts"><svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path d="M4 4v6h6M20 20v-6h-6M5 19A9 9 0 0119 5l1 1M19 5A9 9 0 005 19l-1-1" stroke-width="2.3" stroke-linecap="round" stroke-linejoin="round"/></svg></button>` : ''}
                     ${infraPermissions.run_tasks && (j.pending + j.running) > 0 && (j.success + j.error) > 0 ? `<button onclick="event.stopPropagation(); finalizeJobReport('${escapeInlineJs(j.job_id)}')" class="queue-action-btn p-3 border rounded-2xl transition-colors shadow-sm" title="Finalize report without active hosts"><svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path d="M9 12l2 2 4-5M4 20h16M5 4h14v12H5z" stroke-width="2.3" stroke-linecap="round" stroke-linejoin="round"/></svg></button>` : ''}
                     ${infraPermissions.run_tasks && (j.pending + j.running) > 0 ? `<button onclick="event.stopPropagation(); cancelPendingJob('${escapeInlineJs(j.job_id)}')" class="queue-action-btn p-3 border rounded-2xl transition-colors shadow-sm" title="Cancel pending/running hosts"><svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path d="M10 10l4 4m0-4l-4 4M12 22a10 10 0 100-20 10 10 0 000 20z" stroke-width="2.3" stroke-linecap="round" stroke-linejoin="round"/></svg></button>` : ''}
-                    ${infraPermissions.delete_tasks ? `<button onclick="event.stopPropagation(); deleteJob('${escapeInlineJs(j.job_id)}')" class="queue-action-btn p-3 border rounded-2xl transition-colors shadow-sm" title="Delete job"><svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" stroke-width="2.5"/></svg></button>` : ''}
+                    ${window.WinhubIsAdmin ? `<button onclick="event.stopPropagation(); deleteJob('${escapeInlineJs(j.job_id)}')" class="queue-action-btn p-3 border rounded-2xl transition-colors shadow-sm" title="Delete job"><svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" stroke-width="2.5"/></svg></button>` : ''}
                 </div>
             </td>`;
         }

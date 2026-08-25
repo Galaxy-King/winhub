@@ -26,9 +26,12 @@ class SecurityManager:
                 else:
                     sys_key = Fernet.generate_key().decode()
                     os.makedirs(Config.DATA_DIR, exist_ok=True)
-                    with open(key_path, 'w', encoding='utf-8') as f:
-                        f.write(sys_key)
-                    log.warning(f"Згенеровано новий Sys Secret. Збережено в {key_path}")
+                    if self._write_private_key(key_path, sys_key):
+                        log.warning(f"Згенеровано новий Sys Secret. Збережено в {key_path}")
+                    else:
+                        with open(key_path, 'r', encoding='utf-8') as f:
+                            sys_key = f.read().strip()
+                self._lock_private_key(key_path)
             return Fernet(sys_key.encode())
         except Exception as e:
             log.error(f"Error init sys cipher: {e}")
@@ -46,20 +49,38 @@ class SecurityManager:
                 else:
                     master_key = Fernet.generate_key().decode()
                     os.makedirs(Config.DATA_DIR, exist_ok=True)
-                    with open(key_path, 'w', encoding='utf-8') as f:
-                        f.write(master_key)
-
-                    backup_path = os.path.join(Config.DATA_DIR, 'MASTER_KEY_BACKUP.txt')
-                    with open(backup_path, 'w', encoding='utf-8') as f:
-                        f.write("=== WinHUB System Master Key ===\n\n")
-                        f.write(f"Key: {master_key}\n\n")
-                        f.write("Keep this file protected and include it in encrypted off-host backups.\n")
-
-                    log.warning(f"Згенеровано новий Master Key. Збережено в {key_path}")
+                    if self._write_private_key(key_path, master_key):
+                        log.warning(f"Згенеровано новий Master Key. Збережено в {key_path}")
+                    else:
+                        with open(key_path, 'r', encoding='utf-8') as f:
+                            master_key = f.read().strip()
+                self._lock_private_key(key_path)
             return Fernet(master_key.encode())
         except Exception as e:
             log.error(f"Error init master cipher: {e}")
             return None
+
+    @staticmethod
+    def _lock_private_key(path):
+        if os.path.islink(path):
+            raise RuntimeError(f"Secret key path must not be a symbolic link: {path}")
+        if os.name != 'nt':
+            os.chmod(path, 0o600)
+
+    @staticmethod
+    def _write_private_key(path, value):
+        flags = os.O_WRONLY | os.O_CREAT | os.O_EXCL
+        if hasattr(os, 'O_NOFOLLOW'):
+            flags |= os.O_NOFOLLOW
+        try:
+            descriptor = os.open(path, flags, 0o600)
+        except FileExistsError:
+            return False
+        with os.fdopen(descriptor, 'w', encoding='utf-8') as key_file:
+            key_file.write(value)
+            key_file.flush()
+            os.fsync(key_file.fileno())
+        return True
 
     # --- TOTP / SYSTEM SECRETS ---
     def encrypt_data(self, data: str) -> str:

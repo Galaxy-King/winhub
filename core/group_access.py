@@ -28,8 +28,6 @@ GROUP_ACTION_CATALOG = [
     {"id": "dismiss_reports", "name": "Dismiss reports", "category": "Operations"},
     {"id": "manage_hosts", "name": "Edit, approve and block hosts", "category": "Management"},
     {"id": "manage_groups", "name": "Change group membership", "category": "Management"},
-    {"id": "delete_reports", "name": "Delete reports", "category": "Deletion"},
-    {"id": "delete_tasks", "name": "Delete tasks", "category": "Deletion"},
     {"id": "delete_hosts", "name": "Delete hosts", "category": "Deletion"},
     {"id": "delete_groups", "name": "Delete group", "category": "Deletion"},
 ]

@@ -272,28 +272,38 @@
 
 <!-- ВІКНО ПЕРЕГЛЯДУ ТА РЕДАГУВАННЯ ЗВІТУ -->
 <div id="reportViewModal" class="fixed inset-0 z-[115] hidden flex items-center justify-center bg-slate-900/60 backdrop-blur-md p-4 animate-in fade-in">
-    <div class="bg-white w-full max-w-5xl rounded-[3rem] shadow-2xl overflow-hidden flex flex-col h-[90vh]">
+    <div class="bg-white w-full max-w-7xl rounded-[3rem] shadow-2xl overflow-hidden flex flex-col h-[92vh]">
         <div class="p-6 sm:p-8 border-b border-slate-100 flex justify-between items-start bg-slate-50/50 shrink-0">
             <div>
                 <h2 id="vrTitle" class="text-2xl font-black text-slate-800 uppercase tracking-tight">Report Details</h2>
                 <div class="flex items-center gap-3 mt-2">
                     <span id="vrStatus" class="px-3 py-1 rounded-lg text-[10px] font-black uppercase tracking-widest border shadow-sm">...</span>
+                    <span id="vrVersionLabel" class="text-[10px] font-black uppercase tracking-widest text-slate-400">Current revision</span>
                 </div>
             </div>
             <div class="flex items-center gap-3">
-                {% if permissions.edit_reports %}
+                {% if permissions.edit_reports and permissions.view_sensitive_reports %}
                 <button id="btnSaveReportText" onclick="saveReportChanges()" class="px-6 py-3 bg-emerald-50 text-emerald-600 border border-emerald-200 hover:bg-emerald-100 rounded-2xl text-xs font-black uppercase transition-all shadow-sm">Save Changes</button>
                 {% endif %}
                 <button onclick="closeModal('reportViewModal')" class="p-3 bg-white border border-slate-200 hover:bg-slate-50 rounded-2xl text-slate-500 hover:text-slate-800 transition-colors shadow-sm"><svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path d="M6 18L18 6M6 6l12 12" stroke-width="2.5"/></svg></button>
             </div>
         </div>
 
-        <div class="flex-1 bg-slate-900 shadow-inner flex flex-col p-6 sm:p-8">
-            <textarea id="vrBody" spellcheck="false" class="w-full flex-1 bg-transparent text-emerald-400 font-mono text-sm leading-relaxed resize-none outline-none custom-scrollbar border-0 p-0 focus:ring-0" {% if not permissions.edit_reports %}readonly{% endif %}>Loading...</textarea>
+        <div class="flex-1 min-h-0 grid grid-cols-1 lg:grid-cols-[19rem_1fr] bg-slate-900 shadow-inner">
+            <aside class="bg-slate-50 border-r border-slate-200 p-4 overflow-y-auto custom-scrollbar">
+                <div class="flex items-center justify-between mb-3"><span class="text-[10px] font-black uppercase tracking-widest text-slate-500">Immutable trail</span><button onclick="loadReportTrail()" class="text-[10px] font-black text-indigo-600">Refresh</button></div>
+                <button id="vrCurrentBtn" onclick="showCurrentReportVersion()" class="w-full text-left p-3 rounded-xl border border-indigo-200 bg-indigo-50 text-indigo-700 text-xs font-black mb-3">Current working copy</button>
+                <div id="vrVersionList" class="space-y-2"><div class="p-4 text-xs text-slate-400">Loading revisions…</div></div>
+                <label class="mt-4 flex items-center gap-2 text-[11px] font-bold text-slate-600"><input id="vrCompareToggle" type="checkbox" onchange="renderSelectedReportVersion()"> Compare selected snapshot to current</label>
+                <p class="text-[10px] text-slate-400 mt-3 leading-relaxed">Generated original, every saved edit, and the exact body sent by email or Confluence remain available until retention cleanup.</p>
+            </aside>
+            <div class="flex flex-col p-6 sm:p-8 min-h-0">
+                <textarea id="vrBody" spellcheck="false" class="w-full flex-1 bg-transparent text-emerald-400 font-mono text-sm leading-relaxed resize-none outline-none custom-scrollbar border-0 p-0 focus:ring-0" {% if not permissions.edit_reports or not permissions.view_sensitive_reports %}readonly{% endif %}>Loading...</textarea>
+            </div>
         </div>
 
         <div class="p-6 sm:p-8 border-t border-slate-100 bg-white flex flex-wrap justify-between items-center gap-4 shrink-0">
-            {% if permissions.delete_reports %}
+            {% if is_admin %}
             <button onclick="deleteCurrentReport()" class="px-6 py-3.5 bg-white border border-rose-200 text-rose-500 hover:bg-rose-50 rounded-2xl text-xs font-black uppercase transition-all shadow-sm">Delete Report</button>
             {% else %}
             <div></div> <!-- Spacer -->
