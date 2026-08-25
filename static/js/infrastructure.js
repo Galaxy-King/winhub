@@ -18,6 +18,17 @@ let reportPage = 1;
 let reportPagination = { page: 1, total: 0, has_more: false };
 let selectedReportSnapshot = null;
 let selectedReportSnapshotLabel = '';
+let selectedReportSnapshotKey = 'current';
+let reportViewerFontSize = 14;
+let reportViewerWrap = true;
+try {
+    const storedFontSizeValue = localStorage.getItem('winhub_report_font_size');
+    const storedFontSize = Number(storedFontSizeValue);
+    if(storedFontSizeValue !== null && Number.isFinite(storedFontSize)) reportViewerFontSize = Math.min(22, Math.max(11, storedFontSize));
+    reportViewerWrap = localStorage.getItem('winhub_report_line_wrap') !== 'off';
+} catch(error) {
+    console.warn('Could not restore report reader preferences', error);
+}
 
 let selectedTemplateId = null;
 let editingTemplateId = null;
@@ -883,6 +894,117 @@ function renderReports() {
     }).join('');
 }
 
+function setReportTrailOpen(open) {
+    const main = document.getElementById('reportViewerMain');
+    const button = document.getElementById('reportTrailToggle');
+    if(main) main.classList.toggle('is-trail-open', Boolean(open));
+    if(button) button.setAttribute('aria-expanded', open ? 'true' : 'false');
+}
+
+function toggleReportTrail() {
+    const main = document.getElementById('reportViewerMain');
+    setReportTrailOpen(!main?.classList.contains('is-trail-open'));
+}
+
+function setReportFullscreen(enabled) {
+    const modal = document.getElementById('reportViewModal');
+    const button = document.getElementById('reportFullscreenToggle');
+    if(modal) modal.classList.toggle('is-fullscreen', Boolean(enabled));
+    if(button) {
+        button.setAttribute('aria-pressed', enabled ? 'true' : 'false');
+        button.title = enabled ? 'Exit fullscreen report view' : 'Open report fullscreen';
+        const label = button.querySelector('.report-control-label');
+        if(label) label.innerText = enabled ? 'Exit fullscreen' : 'Fullscreen';
+    }
+}
+
+function toggleReportFullscreen() {
+    const modal = document.getElementById('reportViewModal');
+    setReportFullscreen(!modal?.classList.contains('is-fullscreen'));
+}
+
+function applyReportReadingPreferences() {
+    const body = document.getElementById('vrBody');
+    const wrapButton = document.getElementById('reportWrapToggle');
+    const fontLabel = document.getElementById('reportFontSizeLabel');
+    if(body) {
+        body.style.fontSize = `${reportViewerFontSize}px`;
+        body.wrap = reportViewerWrap ? 'soft' : 'off';
+        body.classList.toggle('report-no-wrap', !reportViewerWrap);
+    }
+    if(wrapButton) {
+        wrapButton.setAttribute('aria-pressed', reportViewerWrap ? 'true' : 'false');
+        wrapButton.innerText = reportViewerWrap ? 'Wrap' : 'No wrap';
+        wrapButton.title = reportViewerWrap ? 'Disable line wrapping' : 'Enable line wrapping';
+    }
+    if(fontLabel) fontLabel.innerText = `${reportViewerFontSize}px`;
+}
+
+function toggleReportWrap() {
+    reportViewerWrap = !reportViewerWrap;
+    try { localStorage.setItem('winhub_report_line_wrap', reportViewerWrap ? 'on' : 'off'); } catch(error) {}
+    applyReportReadingPreferences();
+}
+
+function changeReportFontSize(delta) {
+    reportViewerFontSize = Math.min(22, Math.max(11, reportViewerFontSize + Number(delta || 0)));
+    try { localStorage.setItem('winhub_report_font_size', String(reportViewerFontSize)); } catch(error) {}
+    applyReportReadingPreferences();
+}
+
+function updateReportBodyStats() {
+    const body = document.getElementById('vrBody');
+    const stats = document.getElementById('vrBodyStats');
+    if(!body || !stats) return;
+    const text = body.value || '';
+    const lineCount = text.length ? text.split(/\r?\n/).length : 0;
+    stats.innerText = `${lineCount.toLocaleString()} ${lineCount === 1 ? 'line' : 'lines'} · ${text.length.toLocaleString()} characters`;
+}
+
+async function copyVisibleReportBody() {
+    const body = document.getElementById('vrBody');
+    const button = document.getElementById('reportCopyButton');
+    if(!body) return;
+    try {
+        if(navigator.clipboard?.writeText) await navigator.clipboard.writeText(body.value || '');
+        else {
+            body.focus();
+            body.select();
+            if(!document.execCommand('copy')) throw new Error('Copy command was rejected');
+        }
+        if(button) {
+            const previous = button.innerText;
+            button.innerText = 'Copied';
+            setTimeout(() => { button.innerText = previous; }, 1400);
+        }
+    } catch(error) {
+        console.error('Could not copy report body', error);
+        alert('Could not copy the report body. Select the text and copy it manually.');
+    }
+}
+
+function markReportSnapshotSelection(key) {
+    selectedReportSnapshotKey = key || 'current';
+    document.querySelectorAll('#reportViewModal [data-report-snapshot]').forEach(button => {
+        const selected = button.dataset.reportSnapshot === selectedReportSnapshotKey;
+        button.classList.toggle('is-selected', selected);
+        button.setAttribute('aria-pressed', selected ? 'true' : 'false');
+    });
+}
+
+function reportRevisionKindLabel(kind) {
+    return ({generated: 'Original', recovered: 'Recovered', edited: 'Saved edit'}[kind] || kind || 'Revision');
+}
+
+function resetReportViewerLayout() {
+    selectedReportSnapshotKey = 'current';
+    setReportFullscreen(false);
+    setReportTrailOpen(!window.matchMedia('(max-width: 960px)').matches);
+    applyReportReadingPreferences();
+    markReportSnapshotSelection('current');
+    updateReportBodyStats();
+}
+
 async function viewReport(id) {
     const r = allReports.find(x => x.id === id);
     if(!r) return;
@@ -908,9 +1030,10 @@ async function viewReport(id) {
     const saveBtn = document.getElementById('btnSaveReportText');
     if(saveBtn) {
         saveBtn.innerText = "Save Changes";
-        saveBtn.className = "px-6 py-3 bg-emerald-50 text-emerald-600 border border-emerald-200 hover:bg-emerald-100 rounded-2xl text-xs font-black uppercase transition-all shadow-sm";
+        saveBtn.className = "report-save-button px-5 py-3 bg-emerald-50 text-emerald-600 border border-emerald-200 hover:bg-emerald-100 rounded-2xl text-xs font-black uppercase transition-all shadow-sm";
     }
 
+    resetReportViewerLayout();
     openModal('reportViewModal');
 
     if (!r.report_data_loaded) {
@@ -922,11 +1045,13 @@ async function viewReport(id) {
             Object.assign(r, data.data || {}, { report_data_loaded: true });
             if (currentReportId === id && bodyEl) {
                 bodyEl.value = r.report_data || "";
+                updateReportBodyStats();
             }
         } catch(e) {
             console.error("Error loading report body", e);
             if (currentReportId === id && bodyEl) {
                 bodyEl.value = "Failed to load report body.";
+                updateReportBodyStats();
             }
         }
     }
@@ -954,15 +1079,22 @@ function reportLineDiff(snapshot, current) {
 function renderSelectedReportVersion() {
     const report = allReports.find(item => item.id === currentReportId);
     const body = document.getElementById('vrBody');
+    const mode = document.getElementById('vrEditorMode');
     if(!report || !body) return;
     if(selectedReportSnapshot === null) {
         body.value = report.report_data || '';
         body.readOnly = !infraPermissions.edit_reports || !infraPermissions.view_sensitive_reports;
+        if(mode) mode.innerText = body.readOnly ? 'Current report · read only' : 'Working copy · editable';
+        markReportSnapshotSelection('current');
+        updateReportBodyStats();
         return;
     }
     const compare = document.getElementById('vrCompareToggle')?.checked;
     body.value = compare ? reportLineDiff(selectedReportSnapshot, report.report_data || '') : selectedReportSnapshot;
     body.readOnly = true;
+    if(mode) mode.innerText = compare ? 'Comparison · read only' : 'Immutable snapshot · read only';
+    markReportSnapshotSelection(selectedReportSnapshotKey);
+    updateReportBodyStats();
 }
 
 function showCurrentReportVersion() {
@@ -970,6 +1102,7 @@ function showCurrentReportVersion() {
     if(!report) return;
     selectedReportSnapshot = null;
     selectedReportSnapshotLabel = 'Current working copy';
+    selectedReportSnapshotKey = 'current';
     const label = document.getElementById('vrVersionLabel');
     if(label) label.innerText = `Current revision ${report.revision || 1}`;
     const compare = document.getElementById('vrCompareToggle');
@@ -977,6 +1110,7 @@ function showCurrentReportVersion() {
     const save = document.getElementById('btnSaveReportText');
     if(save) save.disabled = false;
     renderSelectedReportVersion();
+    if(window.matchMedia('(max-width: 960px)').matches) setReportTrailOpen(false);
 }
 
 async function loadReportTrail() {
@@ -991,9 +1125,10 @@ async function loadReportTrail() {
         const revisions = await revisionResponse.json();
         const deliveries = await deliveryResponse.json();
         if(!revisionResponse.ok || !revisions.success) throw new Error(revisions.message || 'Revision history failed');
-        const revisionHtml = (revisions.revisions || []).map(item => `<button onclick="viewReportRevision('${escapeInlineJs(item.id)}')" class="w-full text-left p-3 rounded-xl border border-slate-200 bg-white hover:border-indigo-300 transition-colors"><div class="flex justify-between gap-2"><span class="text-xs font-black text-slate-700">Revision ${item.number}${item.is_original ? ' · Original' : ''}</span><span class="text-[9px] uppercase font-black text-indigo-600">${escapeHtml(item.kind)}</span></div><div class="text-[10px] text-slate-400 mt-1">${escapeHtml(item.actor)} · ${escapeHtml(item.created_at)}</div><div class="text-[9px] font-mono text-slate-400 truncate mt-1" title="${escapeHtml(item.content_hash)}">${escapeHtml(item.content_hash)}</div>${item.reason ? `<div class="text-[10px] text-slate-500 mt-1">${escapeHtml(item.reason)}</div>` : ''}</button>`).join('');
-        const deliveryHtml = (deliveries.deliveries || []).map(item => `<button onclick="viewReportDelivery('${escapeInlineJs(item.id)}')" class="w-full text-left p-3 rounded-xl border border-sky-200 bg-sky-50 hover:border-sky-400 transition-colors"><div class="flex justify-between gap-2"><span class="text-xs font-black text-sky-800">Sent snapshot · ${escapeHtml(item.channel)}</span><span class="text-[9px] uppercase font-black ${item.status === 'Success' ? 'text-emerald-600' : 'text-rose-600'}">${escapeHtml(item.status)}</span></div><div class="text-[10px] text-slate-500 mt-1">${escapeHtml(item.actor)} · ${escapeHtml(item.created_at)}</div><div class="text-[9px] font-mono text-slate-400 truncate mt-1" title="${escapeHtml(item.content_hash)}">${escapeHtml(item.content_hash)}</div></button>`).join('');
+        const revisionHtml = (revisions.revisions || []).map(item => `<button type="button" onclick="viewReportRevision('${escapeInlineJs(item.id)}')" class="report-snapshot-card w-full text-left p-3 rounded-xl border border-slate-200 bg-white" data-report-snapshot="revision:${escapeHtml(item.id)}" aria-pressed="false"><div class="flex justify-between gap-2"><span class="text-xs font-black text-slate-700">Revision ${item.number}${item.is_original ? ' · Original' : ''}</span><span class="text-[9px] uppercase font-black text-indigo-600">${escapeHtml(reportRevisionKindLabel(item.kind))}</span></div><div class="text-[10px] text-slate-400 mt-1">${escapeHtml(item.actor)} · ${escapeHtml(item.created_at)}</div><div class="text-[9px] font-mono text-slate-400 truncate mt-1" title="${escapeHtml(item.content_hash)}">${escapeHtml(item.content_hash)}</div>${item.reason ? `<div class="text-[10px] text-slate-500 mt-1">${escapeHtml(item.reason)}</div>` : ''}</button>`).join('');
+        const deliveryHtml = (deliveries.deliveries || []).map(item => `<button type="button" onclick="viewReportDelivery('${escapeInlineJs(item.id)}')" class="report-snapshot-card w-full text-left p-3 rounded-xl border border-sky-200 bg-sky-50" data-report-snapshot="delivery:${escapeHtml(item.id)}" aria-pressed="false"><div class="flex justify-between gap-2"><span class="text-xs font-black text-sky-800">Sent snapshot · ${escapeHtml(item.channel)}</span><span class="text-[9px] uppercase font-black ${item.status === 'Success' ? 'text-emerald-600' : 'text-rose-600'}">${escapeHtml(item.status)}</span></div><div class="text-[10px] text-slate-500 mt-1">${escapeHtml(item.actor)} · ${escapeHtml(item.created_at)}</div><div class="text-[9px] font-mono text-slate-400 truncate mt-1" title="${escapeHtml(item.content_hash)}">${escapeHtml(item.content_hash)}</div></button>`).join('');
         if(list) list.innerHTML = `${revisionHtml || '<div class="p-3 text-xs text-slate-400">No revisions</div>'}${deliveryHtml ? '<div class="pt-3 mt-3 border-t border-slate-200 text-[10px] font-black uppercase tracking-widest text-slate-400">Deliveries</div>' + deliveryHtml : ''}`;
+        markReportSnapshotSelection(selectedReportSnapshotKey);
     } catch(error) {
         if(list) list.innerHTML = `<div class="p-3 text-xs text-rose-500">${escapeHtml(error.message)}</div>`;
     }
@@ -1005,9 +1140,11 @@ async function viewReportRevision(revisionId) {
     if(!response.ok || !data.success) return alert(data.message || 'Could not load revision');
     selectedReportSnapshot = data.revision.content || '';
     selectedReportSnapshotLabel = `Revision ${data.revision.number}${data.revision.kind === 'generated' ? ' · Original' : (data.revision.kind === 'recovered' ? ' · Migration baseline' : '')}`;
+    selectedReportSnapshotKey = `revision:${revisionId}`;
     const label = document.getElementById('vrVersionLabel'); if(label) label.innerText = selectedReportSnapshotLabel;
     const save = document.getElementById('btnSaveReportText'); if(save) save.disabled = true;
     renderSelectedReportVersion();
+    if(window.matchMedia('(max-width: 960px)').matches) setReportTrailOpen(false);
 }
 
 async function viewReportDelivery(deliveryId) {
@@ -1016,9 +1153,11 @@ async function viewReportDelivery(deliveryId) {
     if(!response.ok || !data.success) return alert(data.message || 'Could not load sent snapshot');
     selectedReportSnapshot = data.delivery.content || '';
     selectedReportSnapshotLabel = `Exact ${data.delivery.channel} delivery · ${data.delivery.status}`;
+    selectedReportSnapshotKey = `delivery:${deliveryId}`;
     const label = document.getElementById('vrVersionLabel'); if(label) label.innerText = selectedReportSnapshotLabel;
     const save = document.getElementById('btnSaveReportText'); if(save) save.disabled = true;
     renderSelectedReportVersion();
+    if(window.matchMedia('(max-width: 960px)').matches) setReportTrailOpen(false);
 }
 
 async function saveReportChanges() {
@@ -1045,6 +1184,8 @@ async function saveReportChanges() {
         const r = allReports.find(x => x.id === currentReportId);
         if(r) { r.report_data = newText; r.revision = data.revision || r.revision; r.content_hash = data.content_hash || r.content_hash; }
         const label = document.getElementById('vrVersionLabel'); if(label) label.innerText = `Current revision ${data.revision || ''}`;
+        markReportSnapshotSelection('current');
+        updateReportBodyStats();
         loadReportTrail();
 
         if(btn) {
@@ -1724,6 +1865,7 @@ window.closeModal = function(id) {
     if (origCloseModal) origCloseModal(id);
     else document.getElementById(id)?.classList.add('hidden');
 
+    if (id === 'reportViewModal') setReportFullscreen(false);
     if (id === 'smtpManagerModal') fetchSmtpProfilesGlobally();
     if (id === 'confluenceManagerModal') fetchConfluenceProfilesGlobally();
 };
@@ -1904,6 +2046,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 element._reportFilterTimer = setTimeout(() => loadReports(1), eventName === 'input' ? 400 : 0);
             });
         });
+        document.getElementById('vrBody')?.addEventListener('input', updateReportBodyStats);
 
         initPayloadEditor();
         initScheduleTimeWheels();
