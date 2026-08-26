@@ -1719,6 +1719,126 @@
         .rounded-2xl {
             border-radius: 0.75rem !important;
         }
+
+        /*
+         * Stable semantic surface system.
+         *
+         * Feature templates should opt into these component classes instead of
+         * depending on global recolouring of Tailwind utilities such as
+         * `bg-white`. This final cascade layer is deliberately placed after all
+         * legacy theme compatibility rules so component appearance is
+         * deterministic even when markup is rendered dynamically.
+         */
+        .wh-theme-scope {
+            color-scheme: dark;
+            --wh-ui-page-bg:
+                radial-gradient(circle at 0 0, rgba(34, 211, 238, 0.11), transparent 28rem),
+                radial-gradient(circle at 100% 0, rgba(52, 211, 153, 0.055), transparent 22rem),
+                linear-gradient(135deg, #050b14 0%, #08111f 52%, #050812 100%);
+            --wh-ui-surface-bg:
+                radial-gradient(circle at 0 0, rgba(34, 211, 238, 0.095), transparent 20rem),
+                linear-gradient(145deg, rgba(12, 23, 41, 0.99), rgba(7, 15, 29, 0.98));
+            --wh-ui-surface-muted-bg:
+                linear-gradient(90deg, rgba(5, 12, 24, 0.99), rgba(10, 42, 64, 0.90));
+            --wh-ui-control-bg: rgba(3, 10, 23, 0.94);
+            --wh-ui-control-hover-bg: rgba(8, 47, 73, 0.76);
+            --wh-ui-line: rgba(34, 211, 238, 0.30);
+            --wh-ui-line-strong: rgba(125, 211, 252, 0.62);
+            --wh-ui-text: #eaf8ff;
+            --wh-ui-heading: #f7fdff;
+            --wh-ui-muted: #b4c8df;
+            --wh-ui-dim: #8ea9c6;
+            --wh-ui-accent: #67e8f9;
+            --wh-ui-shadow: 0 18px 44px rgba(0, 0, 0, 0.34), 0 0 28px rgba(34, 211, 238, 0.055);
+            color: var(--wh-ui-text);
+        }
+        .wh-theme-scope.wh-ui-page,
+        .wh-theme-scope .wh-ui-page {
+            background: var(--wh-ui-page-bg) !important;
+            color: var(--wh-ui-text) !important;
+        }
+        .wh-theme-scope .wh-ui-surface {
+            background: var(--wh-ui-surface-bg) !important;
+            color: var(--wh-ui-text) !important;
+            border-color: var(--wh-ui-line) !important;
+            box-shadow: var(--wh-ui-shadow) !important;
+        }
+        .wh-theme-scope .wh-ui-surface-muted {
+            background: var(--wh-ui-surface-muted-bg) !important;
+            color: var(--wh-ui-accent) !important;
+            border-color: var(--wh-ui-line) !important;
+        }
+        .wh-theme-scope .wh-ui-control {
+            background: var(--wh-ui-control-bg) !important;
+            color: var(--wh-ui-text) !important;
+            border-color: var(--wh-ui-line) !important;
+        }
+        .wh-theme-scope .wh-ui-control::placeholder {
+            color: rgba(180, 200, 223, 0.72) !important;
+        }
+        .wh-theme-scope .wh-ui-control:focus {
+            border-color: var(--wh-ui-accent) !important;
+            box-shadow: 0 0 0 3px rgba(34, 211, 238, 0.17), 0 0 24px rgba(34, 211, 238, 0.12) !important;
+        }
+        .wh-theme-scope .wh-ui-chip,
+        .wh-theme-scope .wh-ui-button-secondary {
+            background: var(--wh-ui-control-bg) !important;
+            color: var(--wh-ui-muted) !important;
+            border-color: var(--wh-ui-line) !important;
+        }
+        .wh-theme-scope .wh-ui-chip:hover,
+        .wh-theme-scope .wh-ui-button-secondary:hover {
+            background: var(--wh-ui-control-hover-bg) !important;
+            color: var(--wh-ui-heading) !important;
+            border-color: var(--wh-ui-line-strong) !important;
+        }
+        .wh-theme-scope .wh-ui-button-accent {
+            background: linear-gradient(135deg, rgba(8, 145, 178, 0.52), rgba(8, 47, 73, 0.92)) !important;
+            color: #ecfeff !important;
+            border-color: rgba(103, 232, 249, 0.64) !important;
+            box-shadow: 0 0 18px rgba(34, 211, 238, 0.09) !important;
+        }
+        .wh-theme-scope .wh-ui-button-accent:hover {
+            background: linear-gradient(135deg, rgba(6, 182, 212, 0.60), rgba(14, 116, 144, 0.92)) !important;
+            border-color: rgba(165, 243, 252, 0.82) !important;
+        }
+        .wh-theme-scope .wh-ui-button-danger {
+            background: linear-gradient(135deg, rgba(190, 24, 93, 0.40), rgba(76, 5, 25, 0.88)) !important;
+            color: #ffe4e6 !important;
+            border-color: rgba(251, 113, 133, 0.62) !important;
+        }
+        .wh-theme-scope .wh-ui-button-danger:hover {
+            background: linear-gradient(135deg, rgba(225, 29, 72, 0.50), rgba(136, 19, 55, 0.90)) !important;
+            border-color: rgba(253, 164, 175, 0.82) !important;
+        }
+        .wh-theme-scope .wh-ui-chip:has(input:checked),
+        .wh-theme-scope .wh-ui-chip.is-active {
+            background:
+                linear-gradient(135deg, rgba(8, 145, 178, 0.34), rgba(8, 47, 73, 0.80)) !important;
+            color: #ecfeff !important;
+            border-color: rgba(103, 232, 249, 0.70) !important;
+            box-shadow: inset 3px 0 0 rgba(34, 211, 238, 0.84), 0 0 18px rgba(34, 211, 238, 0.10) !important;
+        }
+        .wh-theme-scope .wh-ui-row {
+            background:
+                linear-gradient(90deg, rgba(12, 21, 38, 0.99), rgba(13, 31, 58, 0.94)) !important;
+            color: var(--wh-ui-text) !important;
+            border-color: rgba(34, 211, 238, 0.20) !important;
+        }
+        .wh-theme-scope .wh-ui-row:hover {
+            background:
+                linear-gradient(90deg, rgba(8, 145, 178, 0.28), rgba(15, 23, 42, 0.96)) !important;
+            color: var(--wh-ui-heading) !important;
+            box-shadow: inset 4px 0 0 rgba(34, 211, 238, 0.82), 0 0 24px rgba(34, 211, 238, 0.10) !important;
+        }
+        .wh-theme-scope .wh-ui-modal {
+            background:
+                radial-gradient(circle at 0 0, rgba(34, 211, 238, 0.14), transparent 22rem),
+                linear-gradient(180deg, rgba(10, 18, 33, 0.995), rgba(5, 10, 20, 0.995)) !important;
+            color: var(--wh-ui-text) !important;
+            border: 1px solid var(--wh-ui-line-strong) !important;
+            box-shadow: 0 30px 80px rgba(0, 0, 0, 0.60), 0 0 38px rgba(34, 211, 238, 0.11) !important;
+        }
     </style>
 
     <script nonce="{{ csp_nonce }}">

@@ -3,9 +3,9 @@
 
 {% block content %}
 {% include "sidebar.html" %}
-<main class="flex-1 min-w-0 bg-slate-100 overflow-y-auto custom-scrollbar">
+<main class="history-audit-shell wh-theme-scope wh-ui-page flex-1 min-w-0 overflow-y-auto custom-scrollbar">
   <div class="max-w-[1700px] mx-auto p-5 md:p-8 space-y-5">
-    <header class="bg-white rounded-3xl border border-slate-200 shadow-sm p-6 flex flex-col xl:flex-row xl:items-center justify-between gap-5">
+    <header class="wh-ui-surface rounded-3xl border p-6 flex flex-col xl:flex-row xl:items-center justify-between gap-5">
       <div class="flex items-center gap-4">
         <div class="w-12 h-12 rounded-2xl bg-indigo-600 text-white grid place-items-center shadow-lg shadow-indigo-200">
           <svg class="w-7 h-7" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.2" d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z"/></svg>
@@ -16,79 +16,156 @@
         </div>
       </div>
       <div class="flex flex-wrap gap-2">
-        <span class="px-4 py-2 rounded-xl bg-slate-100 text-slate-600 text-xs font-bold">{{ username }}</span>
+        <span class="wh-ui-chip px-4 py-2 rounded-xl border text-xs font-bold">{{ username }}</span>
         {% if is_admin %}
-        <button id="reindexBtn" class="px-4 py-2 rounded-xl border border-indigo-200 text-indigo-700 bg-indigo-50 text-xs font-black hover:bg-indigo-100">Index older records</button>
-        <button id="cleanupBtn" class="px-4 py-2 rounded-xl border border-rose-200 text-rose-700 bg-rose-50 text-xs font-black hover:bg-rose-100">Apply retention</button>
-        <button id="deleteBtn" class="hidden px-4 py-2 rounded-xl bg-rose-600 text-white text-xs font-black hover:bg-rose-700">Delete selected</button>
+        <button id="reindexBtn" class="wh-ui-button-accent px-4 py-2 rounded-xl border text-xs font-black">Index older records</button>
+        <button id="cleanupBtn" class="wh-ui-button-danger px-4 py-2 rounded-xl border text-xs font-black">Apply retention</button>
+        <button id="deleteBtn" class="wh-ui-button-danger hidden px-4 py-2 rounded-xl border text-xs font-black">Delete selected</button>
         {% endif %}
       </div>
     </header>
 
-    <section class="bg-white rounded-3xl border border-slate-200 shadow-sm p-5 space-y-4">
-      <div class="grid grid-cols-1 lg:grid-cols-12 gap-3">
-        <label class="lg:col-span-5"><span class="block text-[10px] font-black uppercase tracking-widest text-slate-400 mb-1.5">Quick search</span><input id="q" class="audit-input" placeholder="User, action, host, task, report or ID"></label>
-        {% if can_search_content %}<label class="lg:col-span-4"><span class="block text-[10px] font-black uppercase tracking-widest text-slate-400 mb-1.5">Word(s) in input / result / report</span><input id="content" class="audit-input" placeholder="e.g. service nginx failed"></label>
-        <label class="lg:col-span-2"><span class="block text-[10px] font-black uppercase tracking-widest text-slate-400 mb-1.5">Match words</span><select id="contentMode" class="audit-input"><option value="all">All words (AND)</option><option value="any">Any word (OR)</option></select></label>{% endif %}
-        <div class="lg:col-span-1 flex items-end"><button id="searchBtn" class="w-full h-[46px] rounded-xl bg-indigo-600 text-white font-black text-xs hover:bg-indigo-700">Search</button></div>
+    <section class="wh-ui-surface rounded-3xl border p-5 space-y-4">
+      <div class="audit-filter-grid">
+        <label class="audit-filter-query"><span class="block text-[10px] font-black uppercase tracking-widest text-slate-400 mb-1.5">Quick search</span><input id="q" class="audit-input wh-ui-control" placeholder="User, action, host, task, report or ID"></label>
+        {% if can_search_content %}<label class="audit-filter-content"><span class="block text-[10px] font-black uppercase tracking-widest text-slate-400 mb-1.5">Word(s) in input / result / report</span><input id="content" class="audit-input wh-ui-control" placeholder="e.g. service nginx failed"></label>
+        <label class="audit-filter-mode"><span class="block text-[10px] font-black uppercase tracking-widest text-slate-400 mb-1.5">Match words</span><select id="contentMode" class="audit-input wh-ui-control"><option value="all">All words (AND)</option><option value="any">Any word (OR)</option></select></label>{% endif %}
+        <div class="audit-filter-submit flex items-end"><button id="searchBtn" class="w-full h-[46px] rounded-xl bg-indigo-600 text-white font-black text-xs hover:bg-indigo-700">Search</button></div>
       </div>
 
       <div class="flex flex-wrap gap-2" id="typeChips">
-        <label class="audit-chip"><input type="checkbox" value="task" checked> Tasks</label>
-        <label class="audit-chip"><input type="checkbox" value="report" checked> Reports</label>
-        <label class="audit-chip"><input type="checkbox" value="legacy_task" checked> Module jobs</label>
-        {% if is_admin %}<label class="audit-chip"><input type="checkbox" value="audit" checked> User actions</label><label class="audit-chip"><input type="checkbox" value="registration" checked> Sign-ins / agents</label>{% endif %}
+        <label class="audit-chip wh-ui-chip"><input type="checkbox" value="task" checked> Tasks</label>
+        <label class="audit-chip wh-ui-chip"><input type="checkbox" value="report" checked> Reports</label>
+        <label class="audit-chip wh-ui-chip"><input type="checkbox" value="legacy_task" checked> Module jobs</label>
+        {% if is_admin %}<label class="audit-chip wh-ui-chip"><input type="checkbox" value="audit" checked> User actions</label><label class="audit-chip wh-ui-chip"><input type="checkbox" value="registration" checked> Sign-ins / agents</label>{% endif %}
       </div>
 
       <details id="advancedFilters" class="group border-t border-slate-100 pt-4">
         <summary class="cursor-pointer select-none text-xs font-black text-indigo-700 flex items-center gap-2">Advanced filters <span class="text-slate-400 font-medium">actor, source, dates, host, status, job/template</span></summary>
         <div class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-3 mt-4">
-          <label><span class="audit-label">Actor</span><select id="actor" class="audit-input"><option value="">Any actor</option></select></label>
-          <label><span class="audit-label">Source</span><select id="source" class="audit-input"><option value="">Any source</option></select></label>
-          <label><span class="audit-label">Module</span><select id="module" class="audit-input"><option value="">Any module</option></select></label>
-          <label><span class="audit-label">Status</span><select id="status" class="audit-input"><option value="">Any status</option></select></label>
-          {% if is_admin %}<label><span class="audit-label">Actor role</span><select id="role" class="audit-input"><option value="">Any role</option><option value="superadmin">Superadmin</option><option value="operator">Operator</option><option value="api_key">API key</option><option value="system">System</option></select></label>
-          <label><span class="audit-label">Actor type</span><select id="actorType" class="audit-input"><option value="">Any actor type</option><option value="user">User</option><option value="api_key">API key</option><option value="system">System</option></select></label>{% endif %}
-          <label><span class="audit-label">Action / title contains</span><input id="action" class="audit-input" placeholder="Login, PowerShell, report..."></label>
-          <label><span class="audit-label">Host / target</span><input id="target" class="audit-input" placeholder="Hostname, display name or HWID"></label>
-          <label><span class="audit-label">From (Kyiv time)</span><input id="dateFrom" type="datetime-local" class="audit-input"></label>
-          <label><span class="audit-label">To (Kyiv time)</span><input id="dateTo" type="datetime-local" class="audit-input"></label>
-          <label><span class="audit-label">Job ID</span><input id="jobId" class="audit-input" placeholder="Exact job ID"></label>
-          <label><span class="audit-label">Template ID</span><input id="templateId" class="audit-input" placeholder="Exact template ID"></label>
-          {% if is_admin %}<label><span class="audit-label">Session hash</span><input id="sessionHash" class="audit-input" placeholder="Exact audited session hash"></label><label><span class="audit-label">Request ID</span><input id="requestId" class="audit-input" placeholder="Exact request ID"></label>{% endif %}
-          {% if can_search_content %}<label><span class="audit-label">Content area</span><select id="contentField" class="audit-input"><option value="">All task/report history</option><option value="input">Task input only</option><option value="output">Task result only</option><option value="current">Current report only</option><option value="original">Original report only</option><option value="revisions">Any report revision</option><option value="deliveries">Exact sent snapshots</option></select></label>{% endif %}
-          <div class="flex items-end"><button id="resetBtn" class="w-full h-[46px] rounded-xl border border-slate-200 bg-slate-50 text-slate-600 text-xs font-black hover:bg-slate-100">Reset all filters</button></div>
+          <label><span class="audit-label">Actor</span><select id="actor" class="audit-input wh-ui-control"><option value="">Any actor</option></select></label>
+          <label><span class="audit-label">Source</span><select id="source" class="audit-input wh-ui-control"><option value="">Any source</option></select></label>
+          <label><span class="audit-label">Module</span><select id="module" class="audit-input wh-ui-control"><option value="">Any module</option></select></label>
+          <label><span class="audit-label">Status</span><select id="status" class="audit-input wh-ui-control"><option value="">Any status</option></select></label>
+          {% if is_admin %}<label><span class="audit-label">Actor role</span><select id="role" class="audit-input wh-ui-control"><option value="">Any role</option><option value="superadmin">Superadmin</option><option value="operator">Operator</option><option value="api_key">API key</option><option value="system">System</option></select></label>
+          <label><span class="audit-label">Actor type</span><select id="actorType" class="audit-input wh-ui-control"><option value="">Any actor type</option><option value="user">User</option><option value="api_key">API key</option><option value="system">System</option></select></label>{% endif %}
+          <label><span class="audit-label">Action / title contains</span><input id="action" class="audit-input wh-ui-control" placeholder="Login, PowerShell, report..."></label>
+          <label><span class="audit-label">Host / target</span><input id="target" class="audit-input wh-ui-control" placeholder="Hostname, display name or HWID"></label>
+          <label><span class="audit-label">From (Kyiv time)</span><input id="dateFrom" type="datetime-local" class="audit-input wh-ui-control"></label>
+          <label><span class="audit-label">To (Kyiv time)</span><input id="dateTo" type="datetime-local" class="audit-input wh-ui-control"></label>
+          <label><span class="audit-label">Job ID</span><input id="jobId" class="audit-input wh-ui-control" placeholder="Exact job ID"></label>
+          <label><span class="audit-label">Template ID</span><input id="templateId" class="audit-input wh-ui-control" placeholder="Exact template ID"></label>
+          {% if is_admin %}<label><span class="audit-label">Session hash</span><input id="sessionHash" class="audit-input wh-ui-control" placeholder="Exact audited session hash"></label><label><span class="audit-label">Request ID</span><input id="requestId" class="audit-input wh-ui-control" placeholder="Exact request ID"></label>{% endif %}
+          {% if can_search_content %}<label><span class="audit-label">Content area</span><select id="contentField" class="audit-input wh-ui-control"><option value="">All task/report history</option><option value="input">Task input only</option><option value="output">Task result only</option><option value="current">Current report only</option><option value="original">Original report only</option><option value="revisions">Any report revision</option><option value="deliveries">Exact sent snapshots</option></select></label>{% endif %}
+          <div class="flex items-end"><button id="resetBtn" class="wh-ui-button-secondary w-full h-[46px] rounded-xl border text-xs font-black">Reset all filters</button></div>
         </div>
       </details>
       <div id="indexInfo" class="hidden text-[11px] text-slate-400"></div>
     </section>
 
-    <section class="bg-white rounded-3xl border border-slate-200 shadow-sm overflow-hidden">
+    <section class="wh-ui-surface rounded-3xl border overflow-hidden">
       <div class="overflow-x-auto">
         <table class="w-full min-w-[1050px] text-left">
-          <thead class="bg-slate-50 border-b border-slate-200 text-[10px] uppercase tracking-widest text-slate-500">
+          <thead class="wh-ui-surface-muted border-b text-[10px] uppercase tracking-widest">
             <tr>{% if is_admin %}<th class="p-4 w-10"><input id="selectAll" type="checkbox"></th>{% endif %}<th class="p-4 w-48">Time</th><th class="p-4 w-48">Actor</th><th class="p-4 w-32">Type</th><th class="p-4">Event / target</th><th class="p-4 w-36">Status</th></tr>
           </thead>
-          <tbody id="historyBody" class="divide-y divide-slate-100"><tr><td colspan="6" class="p-16 text-center text-slate-400">Loading history…</td></tr></tbody>
+          <tbody id="historyBody" class="divide-y divide-slate-100"><tr class="wh-ui-row"><td colspan="6" class="p-16 text-center text-slate-400">Loading history…</td></tr></tbody>
         </table>
       </div>
       <footer class="border-t border-slate-100 p-4 flex items-center justify-between gap-4">
         <span id="pageInfo" class="text-xs text-slate-500">Page 1</span>
-        <div class="flex gap-2"><button id="prevBtn" class="audit-page-btn" disabled>Previous</button><button id="nextBtn" class="audit-page-btn" disabled>Next</button></div>
+        <div class="flex gap-2"><button id="prevBtn" class="audit-page-btn wh-ui-button-secondary" disabled>Previous</button><button id="nextBtn" class="audit-page-btn wh-ui-button-secondary" disabled>Next</button></div>
       </footer>
     </section>
   </div>
 </main>
 
-<div id="logModal" class="fixed inset-0 z-50 hidden bg-slate-950/65 backdrop-blur-sm p-4 items-center justify-center">
-  <div class="bg-white rounded-3xl shadow-2xl w-full max-w-6xl max-h-[92vh] flex flex-col overflow-hidden">
-    <header class="p-5 border-b border-slate-200 flex items-center justify-between"><div><h2 class="font-black text-slate-800">Audit detail</h2><p id="logSub" class="text-xs text-slate-500 mt-1"></p></div><button id="closeModal" class="w-9 h-9 rounded-xl bg-slate-100 text-slate-500 font-black">×</button></header>
+<div id="logModal" class="wh-theme-scope fixed inset-0 z-50 hidden bg-slate-950/65 backdrop-blur-sm p-4 items-center justify-center">
+  <div class="wh-ui-modal rounded-3xl w-full max-w-6xl max-h-[92vh] flex flex-col overflow-hidden">
+    <header class="p-5 border-b border-slate-200 flex items-center justify-between"><div><h2 class="font-black text-slate-800">Audit detail</h2><p id="logSub" class="text-xs text-slate-500 mt-1"></p></div><button id="closeModal" class="wh-ui-button-secondary w-9 h-9 rounded-xl border font-black">×</button></header>
     <div class="p-5 bg-slate-950 overflow-auto flex-1"><pre id="logContent" class="text-emerald-300 font-mono text-xs whitespace-pre-wrap break-words">Loading…</pre></div>
   </div>
 </div>
 
 <style nonce="{{ csp_nonce }}">
-  .audit-input{width:100%;height:46px;border:1px solid #e2e8f0;border-radius:.75rem;padding:0 .9rem;background:#fff;color:#334155;font-size:.8rem;outline:none}.audit-input:focus{border-color:#818cf8;box-shadow:0 0 0 3px #e0e7ff}.audit-label{display:block;font-size:.625rem;font-weight:900;text-transform:uppercase;letter-spacing:.1em;color:#94a3b8;margin-bottom:.375rem}.audit-chip{display:flex;align-items:center;gap:.5rem;padding:.55rem .8rem;border:1px solid #e2e8f0;border-radius:.75rem;background:#f8fafc;color:#475569;font-size:.75rem;font-weight:800;cursor:pointer}.audit-chip:has(input:checked){border-color:#a5b4fc;background:#eef2ff;color:#4338ca}.audit-page-btn{padding:.65rem 1rem;border:1px solid #e2e8f0;border-radius:.7rem;background:#fff;color:#475569;font-size:.7rem;font-weight:900}.audit-page-btn:disabled{opacity:.4}.audit-row{cursor:pointer}.audit-row:hover{background:#f8fafc}.audit-badge{display:inline-flex;padding:.3rem .55rem;border-radius:.5rem;font-size:.6rem;font-weight:900;text-transform:uppercase;letter-spacing:.06em;border:1px solid #e2e8f0}.type-audit{background:#fef2f2;color:#be123c;border-color:#fecdd3}.type-task{background:#eff6ff;color:#1d4ed8;border-color:#bfdbfe}.type-report{background:#f5f3ff;color:#6d28d9;border-color:#ddd6fe}.type-registration{background:#ecfdf5;color:#047857;border-color:#a7f3d0}.type-legacy_task{background:#fff7ed;color:#c2410c;border-color:#fed7aa}.status-success,.status-sent{background:#ecfdf5;color:#047857;border-color:#a7f3d0}.status-error,.status-failed{background:#fef2f2;color:#be123c;border-color:#fecdd3}.status-pending,.status-running,.status-pickedup,.status-waiting-review{background:#fffbeb;color:#a16207;border-color:#fde68a}
+  .audit-filter-grid {
+    display: grid;
+    grid-template-columns: minmax(13rem, 5fr) minmax(13rem, 4fr) minmax(8rem, 2fr) minmax(7rem, 1.2fr);
+    gap: .75rem;
+  }
+  .audit-input {
+    width: 100%;
+    height: 46px;
+    border: 1px solid var(--wh-ui-line);
+    border-radius: .75rem;
+    padding: 0 .9rem;
+    font-size: .8rem;
+    outline: none;
+  }
+  .audit-label {
+    display: block;
+    margin-bottom: .375rem;
+    font-size: .625rem;
+    font-weight: 900;
+    letter-spacing: .1em;
+    text-transform: uppercase;
+  }
+  .audit-chip {
+    display: flex;
+    align-items: center;
+    gap: .5rem;
+    padding: .55rem .8rem;
+    border: 1px solid var(--wh-ui-line);
+    border-radius: .75rem;
+    font-size: .75rem;
+    font-weight: 800;
+    cursor: pointer;
+  }
+  .audit-page-btn {
+    padding: .65rem 1rem;
+    border: 1px solid var(--wh-ui-line);
+    border-radius: .7rem;
+    font-size: .7rem;
+    font-weight: 900;
+  }
+  .audit-page-btn:disabled { opacity: .4; }
+  .audit-row { cursor: pointer; }
+  .audit-badge {
+    display: inline-flex;
+    padding: .3rem .55rem;
+    border: 1px solid var(--wh-ui-line);
+    border-radius: .5rem;
+    font-size: .6rem;
+    font-weight: 900;
+    letter-spacing: .06em;
+    text-transform: uppercase;
+  }
+  /* Audit-specific accents use dark translucent fills; no light fallback surfaces. */
+  .history-audit-shell .audit-label { color: var(--wh-ui-dim); }
+  .history-audit-shell .audit-badge {
+    color: var(--wh-ui-text);
+    border-color: var(--wh-ui-line);
+    box-shadow: 0 0 16px rgba(34,211,238,.06);
+  }
+  .history-audit-shell .type-audit { background:rgba(139,92,246,.24);color:#ede9fe;border-color:rgba(167,139,250,.58) }
+  .history-audit-shell .type-task { background:rgba(14,165,233,.24);color:#e0f2fe;border-color:rgba(125,211,252,.58) }
+  .history-audit-shell .type-report { background:rgba(99,102,241,.24);color:#e0e7ff;border-color:rgba(165,180,252,.58) }
+  .history-audit-shell .type-registration { background:rgba(16,185,129,.23);color:#d1fae5;border-color:rgba(52,211,153,.58) }
+  .history-audit-shell .type-legacy_task { background:rgba(245,158,11,.23);color:#fef3c7;border-color:rgba(251,191,36,.58) }
+  .history-audit-shell .status-success,
+  .history-audit-shell .status-sent { background:rgba(16,185,129,.23);color:#d1fae5;border-color:rgba(52,211,153,.58) }
+  .history-audit-shell .status-error,
+  .history-audit-shell .status-failed { background:rgba(244,63,94,.23);color:#ffe4e6;border-color:rgba(251,113,133,.60) }
+  .history-audit-shell .status-pending,
+  .history-audit-shell .status-running,
+  .history-audit-shell .status-pickedup,
+  .history-audit-shell .status-waiting-review { background:rgba(245,158,11,.23);color:#fef3c7;border-color:rgba(251,191,36,.58) }
+  @media (max-width: 1180px) {
+    .audit-filter-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  }
+  @media (max-width: 680px) {
+    .audit-filter-grid { grid-template-columns: minmax(0, 1fr); }
+  }
 </style>
 
 <script nonce="{{ csp_nonce }}">
@@ -111,25 +188,25 @@
   async function load(reset=false) {
     if(loading) return;
     if(reset){ page=0; cursorStack=[null]; }
-    loading=true; $('historyBody').innerHTML='<tr><td colspan="6" class="p-16 text-center text-slate-400">Searching the full history…</td></tr>';
+    loading=true; $('historyBody').innerHTML='<tr class="wh-ui-row"><td colspan="6" class="p-16 text-center text-slate-400">Searching the full history…</td></tr>';
     try {
       const response = await fetch('/api/history/search?' + params(cursorStack[page]));
       const data = await response.json();
       if(!response.ok || !data.success) throw new Error(data.message || 'Search failed');
       rows=data.history || []; nextCursor=data.next_cursor || null; render();
     } catch(error) {
-      $('historyBody').innerHTML=`<tr><td colspan="6" class="p-12 text-center text-rose-600 font-bold">${esc(error.message)}</td></tr>`;
+      $('historyBody').innerHTML=`<tr class="wh-ui-row"><td colspan="6" class="p-12 text-center text-rose-600 font-bold">${esc(error.message)}</td></tr>`;
     } finally { loading=false; }
   }
 
   function render(){
     $('pageInfo').textContent=`Page ${page+1} · ${rows.length} records on this page`;
     $('prevBtn').disabled=page===0; $('nextBtn').disabled=!nextCursor;
-    if(!rows.length){ $('historyBody').innerHTML='<tr><td colspan="6" class="p-16 text-center text-slate-400">No records match all selected filters.</td></tr>'; return; }
+    if(!rows.length){ $('historyBody').innerHTML='<tr class="wh-ui-row"><td colspan="6" class="p-16 text-center text-slate-400">No records match all selected filters.</td></tr>'; return; }
     $('historyBody').innerHTML=rows.map(row => {
       const statusClass='status-'+String(row.status||'').toLowerCase().replace(/\s+/g,'-');
       const check=isSuperadmin?`<td class="p-4" onclick="event.stopPropagation()"><input class="rowCheck" type="checkbox" value="${esc(row.id)}"></td>`:'';
-      return `<tr class="audit-row" data-id="${esc(row.id)}">${check}<td class="p-4 text-xs text-slate-500 whitespace-nowrap">${esc(row.date)}</td><td class="p-4"><div class="font-bold text-slate-700">${esc(row.user)}</div><div class="text-[10px] text-slate-400">${esc(row.source||row.actor_role||'')}</div></td><td class="p-4"><span class="audit-badge type-${esc(row.type)}">${esc(row.type.replace('_',' '))}</span></td><td class="p-4"><div class="font-bold text-slate-800">${esc(row.action)}</div><div class="text-xs text-slate-500 mt-1">${esc(row.details)}</div>${row.job_id?`<div class="text-[10px] font-mono text-slate-400 mt-1">${esc(row.job_id)}</div>`:''}</td><td class="p-4"><span class="audit-badge ${statusClass}">${esc(row.status)}</span></td></tr>`;
+      return `<tr class="audit-row wh-ui-row" data-id="${esc(row.id)}">${check}<td class="p-4 text-xs text-slate-500 whitespace-nowrap">${esc(row.date)}</td><td class="p-4"><div class="font-bold text-slate-700">${esc(row.user)}</div><div class="text-[10px] text-slate-400">${esc(row.source||row.actor_role||'')}</div></td><td class="p-4"><span class="audit-badge type-${esc(row.type)}">${esc(row.type.replace('_',' '))}</span></td><td class="p-4"><div class="font-bold text-slate-800">${esc(row.action)}</div><div class="text-xs text-slate-500 mt-1">${esc(row.details)}</div>${row.job_id?`<div class="text-[10px] font-mono text-slate-400 mt-1">${esc(row.job_id)}</div>`:''}</td><td class="p-4"><span class="audit-badge ${statusClass}">${esc(row.status)}</span></td></tr>`;
     }).join('');
     document.querySelectorAll('.audit-row').forEach(row => row.addEventListener('click',()=>viewLog(row.dataset.id)));
     document.querySelectorAll('.rowCheck').forEach(input => input.addEventListener('change', updateSelection));
