@@ -456,6 +456,45 @@ class RendererDeploymentTests(unittest.TestCase):
         self.assertIn("SocketMode=0660", socket_unit)
 
 
+class ThemeSurfaceContractTests(unittest.TestCase):
+    def test_audit_history_uses_semantic_dark_surfaces(self):
+        base = (ROOT / "templates/base.html").read_text(encoding="utf-8")
+        history = (ROOT / "modules/HistoryAudit/templates/history_index.html").read_text(encoding="utf-8")
+
+        self.assertIn("Stable semantic surface system", base)
+        for component in (
+            ".wh-theme-scope",
+            ".wh-ui-page",
+            ".wh-ui-surface",
+            ".wh-ui-control",
+            ".wh-ui-chip",
+            ".wh-ui-row",
+            ".wh-ui-modal",
+            ".wh-ui-button-accent",
+            ".wh-ui-button-danger",
+        ):
+            with self.subTest(component=component):
+                self.assertIn(component, base)
+
+        self.assertIn("history-audit-shell wh-theme-scope wh-ui-page", history)
+        self.assertIn('class="audit-filter-grid"', history)
+        self.assertIn("grid-template-columns: minmax(13rem, 5fr)", history)
+        self.assertIn('class="wh-ui-surface rounded-3xl', history)
+        self.assertIn("audit-input wh-ui-control", history)
+        self.assertIn("audit-chip wh-ui-chip", history)
+        self.assertIn('class="audit-row wh-ui-row"', history)
+        self.assertIn('class="wh-ui-modal rounded-3xl', history)
+        self.assertIn("wh-ui-button-accent", history)
+        self.assertIn("wh-ui-button-danger", history)
+
+        direct_light_surface = re.compile(
+            r"background(?:-color)?\s*:\s*(?:#fff(?:fff)?\b|white\b|#f8fafc\b)",
+            re.IGNORECASE,
+        )
+        self.assertNotRegex(history, direct_light_surface)
+        self.assertNotIn("bg-white", history)
+
+
 class SchedulerRegressionTests(unittest.TestCase):
     def test_scheduler_access_can_be_granted_without_system_admin(self):
         from core.permissions import MODULE_PERMISSION_CATALOG, has_permission
