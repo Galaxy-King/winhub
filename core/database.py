@@ -30,6 +30,17 @@ user_group_m2m = db.Table('user_group_access',
     db.Column('permissions', db.Text, nullable=False, server_default='["*"]')
 )
 
+api_key_group_m2m = db.Table('api_key_group_access',
+    db.Column('api_key_id', db.Integer, db.ForeignKey('api_keys.id', ondelete="CASCADE"), primary_key=True),
+    db.Column('group_id', db.String(36), db.ForeignKey('endpoint_groups.id', ondelete="CASCADE"), primary_key=True),
+    db.Column('permissions', db.Text, nullable=False, server_default='[]')
+)
+
+api_key_template_m2m = db.Table('api_key_template_access',
+    db.Column('api_key_id', db.Integer, db.ForeignKey('api_keys.id', ondelete="CASCADE"), primary_key=True),
+    db.Column('template_id', db.String(36), db.ForeignKey('task_templates.id', ondelete="CASCADE"), primary_key=True)
+)
+
 endpoint_group_m2m = db.Table('endpoint_group_membership',
     db.Column('endpoint_id', db.String(100), db.ForeignKey('endpoints.id', ondelete="CASCADE"), primary_key=True),
     db.Column('group_id', db.String(36), db.ForeignKey('endpoint_groups.id', ondelete="CASCADE"), primary_key=True)
@@ -68,8 +79,15 @@ class ApiKey(db.Model):
     key_hash = db.Column(db.String(256), unique=True, nullable=False)
     prefix = db.Column(db.String(10), nullable=False)
     permissions = db.Column(db.Text, default="[]")
+    allowed_networks = db.Column(db.Text, default="[]")
+    ip_allowlist_enforced = db.Column(db.Boolean, default=True, nullable=False)
+    template_scope_enforced = db.Column(db.Boolean, default=True, nullable=False)
+    max_targets_per_run = db.Column(db.Integer, default=1, nullable=False)
     expires_at = db.Column(db.DateTime, nullable=True)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    last_used_at = db.Column(db.DateTime, nullable=True)
+    last_used_ip = db.Column(EncryptedString, nullable=True)
+    revoked_at = db.Column(db.DateTime, nullable=True)
     is_active = db.Column(db.Boolean, default=True)
     user = db.relationship('User', backref=db.backref('api_keys', cascade="all, delete-orphan"))
 

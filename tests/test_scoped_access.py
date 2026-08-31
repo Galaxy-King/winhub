@@ -1,7 +1,9 @@
 import inspect
 import json
+import tempfile
 import types
 import unittest
+from pathlib import Path
 from unittest import mock
 
 
@@ -113,6 +115,25 @@ class PerGroupPermissionTests(unittest.TestCase):
             )
             self.assertTrue(group_access.group_action_allowed(user, "group-a", "delete_hosts"))
             self.assertFalse(group_access.group_action_allowed(user, "group-b", "delete_hosts"))
+
+    def test_api_key_uses_exact_actions_per_group(self):
+        from flask import Flask, g, session
+        from core import group_access
+
+        app = Flask(__name__)
+        app.secret_key = "api-group-policy-test"
+        user = types.SimpleNamespace(id=25, is_admin=False)
+        with app.test_request_context("/api/infrastructure/hosts"):
+            session["api_key_auth"] = True
+            session["api_permissions"] = ["Infrastructure:view_hosts", "Infrastructure:run_tasks"]
+            g.winhub_api_permissions = list(session["api_permissions"])
+            g.winhub_api_group_permissions = {
+                "group-a": frozenset({"view_hosts"}),
+                "group-b": frozenset({"run_tasks"}),
+            }
+            self.assertEqual(group_access.allowed_group_ids_for_action(user, "view_hosts"), {"group-a"})
+            self.assertEqual(group_access.allowed_group_ids_for_action(user, "run_tasks"), {"group-b"})
+            self.assertFalse(group_access.group_action_allowed(user, "group-a", "run_tasks"))
 
     def test_group_access_uses_batch_queries_and_deny_wins_for_shared_host_deletion(self):
         from core import group_access
@@ -240,6 +261,163 @@ class ScopedAccessPerformanceContractTests(unittest.TestCase):
         self.assertIn("infra_allowed_host_ids", host_source)
         self.assertIn('require_permission("delete_groups")', inspect.getsource(routes.manage_group))
         self.assertIn("infra_allowed_group_ids", inspect.getsource(routes.manage_group))
+
+
+class ApiKeySecurityPolicyTests(unittest.TestCase):
+    def test_api_policy_migration_upgrades_legacy_keys_fail_closed(self):
+        import sqlalchemy as sa
+        from alembic import command
+        from alembic.config import Config as AlembicConfig
+        from core.config import Config
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            database_path = Path(temp_dir) / "legacy.db"
+            uri = f"sqlite:///{database_path.as_posix()}"
+            engine = sa.create_engine(uri)
+            metadata = sa.MetaData()
+            sa.Table(
+                "users", metadata,
+                sa.Column("id", sa.Integer(), primary_key=True),
+            )
+            sa.Table(
+                "endpoint_groups", metadata,
+                sa.Column("id", sa.String(36), primary_key=True),
+            )
+            sa.Table(
+                "task_templates", metadata,
+                sa.Column("id", sa.String(36), primary_key=True),
+            )
+            api_keys = sa.Table(
+                "api_keys", metadata,
+                sa.Column("id", sa.Integer(), primary_key=True),
+                sa.Column("user_id", sa.Integer(), nullable=False),
+                sa.Column("permissions", sa.Text()),
+            )
+            metadata.create_all(engine)
+            with engine.begin() as connection:
+                connection.execute(sa.text("INSERT INTO users (id) VALUES (1)"))
+                connection.execute(sa.text("INSERT INTO endpoint_groups (id) VALUES ('group-a')"))
+                connection.execute(api_keys.insert().values(
+                    id=5,
+                    user_id=1,
+                    permissions=json.dumps(["Infrastructure:run_tasks", "scope:group:group-a"]),
+                ))
+
+            old_uri = Config.SQLALCHEMY_DATABASE_URI
+            try:
+                Config.SQLALCHEMY_DATABASE_URI = uri
+                alembic = AlembicConfig(str(Path("alembic.ini").resolve()))
+                command.upgrade(alembic, "head")
+            finally:
+                Config.SQLALCHEMY_DATABASE_URI = old_uri
+
+            inspector = sa.inspect(engine)
+            columns = {column["name"] for column in inspector.get_columns("api_keys")}
+            self.assertTrue({
+                "allowed_networks", "ip_allowlist_enforced", "template_scope_enforced",
+                "max_targets_per_run", "last_used_at", "last_used_ip", "revoked_at",
+            }.issubset(columns))
+            with engine.connect() as connection:
+                policy = connection.execute(sa.text(
+                    "SELECT ip_allowlist_enforced, template_scope_enforced, max_targets_per_run "
+                    "FROM api_keys WHERE id = 5"
+                )).one()
+                grant = connection.execute(sa.text(
+                    "SELECT group_id, permissions FROM api_key_group_access WHERE api_key_id = 5"
+                )).one()
+            self.assertEqual(tuple(policy), (1, 1, 1))
+            self.assertEqual(grant.group_id, "group-a")
+            self.assertIn("run_tasks", json.loads(grant.permissions))
+            engine.dispose()
+
+    def test_api_key_cannot_reveal_sensitive_results_even_with_legacy_token(self):
+        from flask import Flask, g, session
+        from core.permissions import has_permission
+
+        app = Flask(__name__)
+        app.secret_key = "api-sensitive-policy-test"
+        user = types.SimpleNamespace(id=7, is_admin=True, allowed_modules="[]")
+        with app.test_request_context("/api/infrastructure/tasks/all"):
+            session["api_key_auth"] = True
+            session["api_permissions"] = ["Infrastructure:view_sensitive_reports"]
+            g.winhub_api_permissions = list(session["api_permissions"])
+            self.assertFalse(has_permission(user, "Infrastructure", "view_sensitive_reports"))
+
+    def test_networks_are_canonical_and_spoofed_forwarding_is_ignored(self):
+        from flask import Flask
+        from core.api_access import effective_client_ip, normalize_allowed_networks
+
+        self.assertEqual(
+            normalize_allowed_networks("203.0.113.25, 10.20.4.9/16"),
+            ["203.0.113.25/32", "10.20.0.0/16"],
+        )
+        app = Flask(__name__)
+        app.config["TRUSTED_PROXY_CIDRS"] = "127.0.0.1/32"
+        with app.test_request_context(
+            "/api/infrastructure/templates",
+            headers={"X-Forwarded-For": "198.51.100.7"},
+            environ_base={"REMOTE_ADDR": "203.0.113.10"},
+        ):
+            self.assertEqual(effective_client_ip(), "203.0.113.10")
+        with app.test_request_context(
+            "/api/infrastructure/templates",
+            headers={"X-Forwarded-For": "192.0.2.99, 198.51.100.7"},
+            environ_base={"REMOTE_ADDR": "127.0.0.1"},
+        ):
+            self.assertEqual(effective_client_ip(), "198.51.100.7")
+
+    def test_api_template_variables_require_schema_and_reject_shell_syntax(self):
+        from flask import Flask, session
+        from modules.Infrastructure.routes import validate_api_template_variables
+
+        app = Flask(__name__)
+        app.secret_key = "api-variable-policy-test"
+        safe_payload = {
+            "script": 'Reset-User -Login "{{user_login}}"',
+            "__variable_schema": {
+                "user_login": {
+                    "type": "text",
+                    "pattern": r"[A-Za-z0-9_.-]{1,64}",
+                    "max_length": 64,
+                }
+            },
+        }
+        with app.test_request_context("/api/infrastructure/templates/t/run"):
+            session["api_key_auth"] = True
+            self.assertEqual(
+                validate_api_template_variables(safe_payload, {"user_login": "operator.1"}),
+                {"user_login": "operator.1"},
+            )
+            with self.assertRaisesRegex(ValueError, "unsafe"):
+                validate_api_template_variables(safe_payload, {"user_login": 'operator\"; Restart-Computer'})
+            with self.assertRaisesRegex(ValueError, "requires a variable schema"):
+                validate_api_template_variables({"script": "echo {{login}}"}, {"login": "operator"})
+
+    def test_api_retry_requires_a_fresh_template_run(self):
+        from modules.Infrastructure import routes
+
+        self.assertIn('session.get("api_key_auth")', inspect.getsource(routes.retry_failed_job))
+        self.assertIn("run the approved template again", inspect.getsource(routes.retry_failed_job))
+
+    def test_bot_job_status_exposes_no_result_or_delivery_content(self):
+        from modules.Infrastructure import routes
+
+        source = inspect.getsource(routes.get_job_status_api)
+        self.assertIn('require_permission("view_queue")', source)
+        self.assertIn('"view_queue"', source)
+        self.assertNotIn("result_log", source)
+        self.assertNotIn("content_snapshot", source)
+        self.assertNotIn('"destination"', source)
+
+    def test_admin_ui_exposes_network_template_group_and_rotation_controls(self):
+        from pathlib import Path
+
+        source = Path("templates/admin_users.html").read_text(encoding="utf-8")
+        for marker in (
+            "apiAllowedNetworks", "apiTemplateScopeContainer", "apiMaxTargets",
+            "collectApiGroupAccess", "rotateApiKey", "toggleApiKey",
+        ):
+            self.assertIn(marker, source)
 
 
 if __name__ == "__main__":

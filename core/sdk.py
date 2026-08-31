@@ -50,7 +50,9 @@ class WinHubCore:
             source_type = source_type or ("api" if session.get("api_key_auth") else "web")
             if actor_type == "api_key" and session.get("api_key_id"):
                 username = f"{username or 'API Key'} (key:{session.get('api_key_id')})"
-            ip_address = ip_address or request.headers.get("X-Forwarded-For", request.remote_addr or "").split(",")[0].strip()
+            if not ip_address:
+                from core.api_access import effective_client_ip
+                ip_address = effective_client_ip(request)
             request_id = request_id or getattr(g, "request_id", None)
         else:
             actor_type = actor_type or "system"

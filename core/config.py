@@ -95,6 +95,9 @@ class Config:
     RATELIMIT_DEFAULT = clean_env_value(os.environ.get('RATELIMIT_DEFAULT')) or ''
     LOGIN_RATE_LIMIT = clean_env_value(os.environ.get('LOGIN_RATE_LIMIT')) or '5 per minute'
     AGENT_ENROLLMENT_RATE_LIMIT = clean_env_value(os.environ.get('AGENT_ENROLLMENT_RATE_LIMIT')) or '10 per minute'
+    # X-Forwarded-For is trusted only when the direct peer belongs to one of
+    # these networks. The Debian deployment terminates HTTP at local Nginx.
+    TRUSTED_PROXY_CIDRS = clean_env_value(os.environ.get('TRUSTED_PROXY_CIDRS')) or '127.0.0.1/32,::1/128'
 
     AGENT_API_KEY = clean_env_value(os.environ.get('AGENT_API_KEY')) or DEFAULT_AGENT_API_KEY
     AGENT_ENROLLMENT_ENABLED = (clean_env_value(os.environ.get('AGENT_ENROLLMENT_ENABLED')) or 'true').lower() in ('1', 'true', 'yes', 'on')

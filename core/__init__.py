@@ -26,7 +26,7 @@ from core.database import (
     db, User, Endpoint, AgentTask, AuditLog, TelemetryHistory, ScheduledTask,
     EndpointGroup, ApiKey, TaskTemplate, AggregatedJob, Task,
     RegistrationHistory, ConnectionIpHistory, ReportRevision, ReportDelivery,
-    HistorySearchToken,
+    HistorySearchToken, api_key_group_m2m, api_key_template_m2m,
 )
 from core.security import sec_manager
 from core.host_security import apply_endpoint_encryption_status
@@ -36,6 +36,12 @@ from core.agent_gateway import agent_gateway_bp
 from core.version import get_version
 from core.module_registry import REQUIRED_MODULES, get_loaded_modules, get_module_registry, reset_module_registry, set_module_status
 from core.permissions import full_module_grants, has_module_access, has_permission
+from core.api_access import (
+    api_key_source_allowed,
+    effective_client_ip,
+    prime_api_request_policy,
+    touch_api_key,
+)
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s [%(levelname)s] %(message)s')
 log = logging.getLogger("winhub")
@@ -686,6 +692,64 @@ def ensure_group_access_schema():
         ))
         db.session.commit()
 
+
+def ensure_api_key_access_schema():
+    """Add API policy columns/tables for installations upgrading in place."""
+    inspector = inspect(db.engine)
+    tables = set(inspector.get_table_names())
+    if "api_keys" not in tables:
+        return
+    columns = {column["name"] for column in inspector.get_columns("api_keys")}
+    statements = []
+    additions = {
+        "allowed_networks": "TEXT DEFAULT '[]'",
+        # Fail closed: upgraded keys remain blocked until an allowlist is set.
+        "ip_allowlist_enforced": "BOOLEAN NOT NULL DEFAULT TRUE",
+        "template_scope_enforced": "BOOLEAN NOT NULL DEFAULT TRUE",
+        "max_targets_per_run": "INTEGER NOT NULL DEFAULT 1",
+        "last_used_at": "TIMESTAMP",
+        "last_used_ip": "TEXT",
+        "revoked_at": "TIMESTAMP",
+    }
+    for name, definition in additions.items():
+        if name not in columns:
+            statements.append(f"ALTER TABLE api_keys ADD COLUMN {name} {definition}")
+    for statement in statements:
+        db.session.execute(text(statement))
+    if statements:
+        db.session.commit()
+
+    api_key_group_m2m.create(bind=db.engine, checkfirst=True)
+    api_key_template_m2m.create(bind=db.engine, checkfirst=True)
+
+    # Preserve legacy scope:group:* grants as explicit rows with the former
+    # full-action behavior. New and edited keys use the narrower matrix.
+    from core.group_access import GROUP_ACTION_IDS, serialize_group_permissions
+    existing_key_ids = {
+        int(row[0]) for row in db.session.query(api_key_group_m2m.c.api_key_id).distinct().all()
+    }
+    valid_group_ids = {str(row[0]) for row in db.session.query(EndpointGroup.id).all()}
+    inserts = []
+    for key_id, raw_permissions in db.session.query(ApiKey.id, ApiKey.permissions).all():
+        if key_id in existing_key_ids:
+            continue
+        try:
+            parsed = json.loads(raw_permissions or "[]")
+        except (TypeError, ValueError):
+            parsed = []
+        for item in parsed if isinstance(parsed, list) else []:
+            if isinstance(item, str) and item.startswith("scope:group:"):
+                group_id = item[len("scope:group:"):]
+                if group_id in valid_group_ids:
+                    inserts.append({
+                        "api_key_id": key_id,
+                        "group_id": group_id,
+                        "permissions": serialize_group_permissions(GROUP_ACTION_IDS),
+                    })
+    if inserts:
+        db.session.execute(api_key_group_m2m.insert(), inserts)
+        db.session.commit()
+
 def backfill_endpoint_encryption_status(limit=5000):
     endpoints = Endpoint.query.filter(
         Endpoint.host_info.isnot(None),
@@ -1045,16 +1109,61 @@ def handle_security_and_auth():
         api_key_value = api_key_value or request.headers.get('X-API-Key')
         if api_key_value:
             prefix = api_key_value[:8]
-            key = ApiKey.query.filter_by(prefix=prefix, is_active=True).first()
-            if key and (not key.expires_at or key.expires_at >= datetime.utcnow()) and sec_manager.verify_password(key.key_hash, api_key_value):
+            source_ip = effective_client_ip(request)
+            key = None
+            denied_reason = "invalid_key"
+            for candidate in ApiKey.query.filter_by(prefix=prefix, is_active=True).all():
+                if sec_manager.verify_password(candidate.key_hash, api_key_value):
+                    key = candidate
+                    break
+            if key and key.expires_at and key.expires_at < datetime.utcnow():
+                denied_reason = "expired"
+                key = None
+            elif key and (not key.user or not bool(key.user.is_active)):
+                denied_reason = "owner_inactive"
+                key = None
+            elif key and not api_key_source_allowed(key, source_ip):
+                denied_reason = "source_ip_denied"
+            elif key:
+                session.clear()
                 session['logged_in'] = True
                 session['user_id'] = key.user_id
                 session['username'] = key.user.username if key.user else 'API Key'
                 session['is_admin'] = False
                 session['api_key_auth'] = True
                 session['api_key_id'] = key.id
-                session['api_permissions'] = json.loads(key.permissions or '[]')
+                prime_api_request_policy(key, source_ip)
+                session['api_permissions'] = list(getattr(g, 'winhub_api_permissions', []) or [])
+                try:
+                    touch_api_key(key, source_ip)
+                except Exception:
+                    db.session.rollback()
+                    log.exception("Failed to update API key usage metadata")
                 return None
+            if key and denied_reason == "source_ip_denied":
+                try:
+                    from core.sdk import WinHubCore
+                    WinHubCore.audit(
+                        user_id=key.user_id,
+                        username=key.user.username if key.user else "API Key",
+                        actor_type="api_key",
+                        module="Security",
+                        action="API Key Source Denied",
+                        details={
+                            "path": request.path,
+                            "method": request.method,
+                            "prefix": prefix,
+                            "api_key_id": key.id,
+                            "source_ip": source_ip,
+                        },
+                        ip_address=source_ip,
+                        status="Denied"
+                    )
+                    db.session.commit()
+                except Exception:
+                    db.session.rollback()
+                    log.exception("Failed to audit API key source denial")
+                return {"success": False, "message": "API key is not permitted from this source address"}, 403
             try:
                 from core.sdk import WinHubCore
                 WinHubCore.audit(
@@ -1062,10 +1171,19 @@ def handle_security_and_auth():
                     actor_type="api_key",
                     module="Security",
                     action="Invalid API Key",
-                    details={"path": request.path, "method": request.method, "prefix": prefix},
+                    details={
+                        "path": request.path,
+                        "method": request.method,
+                        "prefix": prefix,
+                        "reason": denied_reason,
+                        "source_ip": source_ip,
+                    },
+                    ip_address=source_ip,
                     status="Denied"
                 )
+                db.session.commit()
             except Exception:
+                db.session.rollback()
                 log.exception("Failed to audit invalid API key")
             return {"success": False, "message": "Invalid API key"}, 401
         if session.get('api_key_auth'):
@@ -1140,7 +1258,7 @@ def apply_security_headers(response):
                 request.full_path.rstrip("?"),
                 response.status_code,
                 elapsed,
-                request.headers.get("X-Forwarded-For", request.remote_addr),
+                effective_client_ip(request),
                 getattr(g, "request_id", "-"),
             )
     response.headers.setdefault("X-Content-Type-Options", "nosniff")
@@ -1304,6 +1422,7 @@ def create_app():
         ensure_template_approval_schema()
         ensure_scheduler_schema()
         ensure_group_access_schema()
+        ensure_api_key_access_schema()
         backfill_endpoint_encryption_status()
         ensure_audit_schema()
         ensure_history_schema()
