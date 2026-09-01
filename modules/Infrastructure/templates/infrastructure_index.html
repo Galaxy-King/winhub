@@ -646,8 +646,8 @@
         padding: 1.75rem;
         overflow: auto;
         border-radius: 0.75rem;
-        background: #f8fafc;
-        color: #0f172a;
+        background: #f8fafc !important;
+        color: #0f172a !important;
         font: 14px/1.6 Inter, "Segoe UI", system-ui, sans-serif;
     }
     #reportViewModal #vrPreview h1,
@@ -661,24 +661,55 @@
     #reportViewModal #vrPreview h1 { font-size: 1.625rem; }
     #reportViewModal #vrPreview h2 { margin-top: 1.5rem; font-size: 1.25rem; }
     #reportViewModal #vrPreview h3 { margin-top: 1.25rem; font-size: 1.0625rem; }
+    body #reportViewModal #vrPreview p,
+    body #reportViewModal #vrPreview li,
+    body #reportViewModal #vrPreview strong,
+    body #reportViewModal #vrPreview em,
+    body #reportViewModal #vrPreview blockquote {
+        color: #0f172a !important;
+    }
     #reportViewModal #vrPreview p { margin: 0 0 0.875rem; }
-    #reportViewModal #vrPreview table {
+    body #reportViewModal #vrPreview table {
         width: 100%;
         margin: 1rem 0 1.375rem;
         border-collapse: collapse;
-        background: #fff;
+        background: #fff !important;
+        color: #0f172a !important;
         box-shadow: 0 1px 3px rgba(15, 23, 42, 0.08);
     }
-    #reportViewModal #vrPreview th,
-    #reportViewModal #vrPreview td {
+    body #reportViewModal #vrPreview th,
+    body #reportViewModal #vrPreview td {
         padding: 0.625rem 0.75rem;
         border: 1px solid #cbd5e1;
         color: #0f172a !important;
         text-align: left;
         vertical-align: top;
     }
-    #reportViewModal #vrPreview th { background: #e2e8f0 !important; font-weight: 800; }
-    #reportViewModal #vrPreview tbody tr:nth-child(even) { background: #f8fafc; }
+    body #reportViewModal #vrPreview thead,
+    body #reportViewModal #vrPreview thead tr,
+    body #reportViewModal #vrPreview th {
+        background: #e2e8f0 !important;
+        color: #0f172a !important;
+        font-weight: 800;
+    }
+    body #reportViewModal #vrPreview tbody,
+    body #reportViewModal #vrPreview tbody tr,
+    body #reportViewModal #vrPreview tbody tr:nth-child(odd),
+    body #reportViewModal #vrPreview tbody tr:nth-child(odd) td {
+        background: #fff !important;
+        color: #0f172a !important;
+        box-shadow: none !important;
+    }
+    body #reportViewModal #vrPreview tbody tr:nth-child(even),
+    body #reportViewModal #vrPreview tbody tr:nth-child(even) td {
+        background: #f1f5f9 !important;
+        color: #0f172a !important;
+    }
+    body #reportViewModal #vrPreview tbody tr:hover,
+    body #reportViewModal #vrPreview tbody tr:hover td,
+    body #reportViewModal #vrPreview tbody tr:hover * {
+        color: #0f172a !important;
+    }
     #reportViewModal #vrPreview ul,
     #reportViewModal #vrPreview ol { margin: 0 0 1rem; padding-left: 1.5rem; }
     #reportViewModal #vrPreview pre {
@@ -691,7 +722,7 @@
     #reportViewModal #vrPreview code {
         padding: 1px 4px;
         border-radius: 4px;
-        background: #e2e8f0;
+        background: #e2e8f0 !important;
         color: #0f172a !important;
         font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
     }
@@ -699,7 +730,65 @@
         margin: 1rem 0;
         padding: 0.625rem 1rem;
         border-left: 4px solid #6366f1;
-        background: #eef2ff;
+        background: #eef2ff !important;
+    }
+
+    /* The provider dialog is intentionally scoped so legacy utility recolouring
+       cannot produce pale text on a light modal surface. */
+    body #aiProviderModal {
+        background: rgba(2, 6, 23, 0.78) !important;
+    }
+    body #aiProviderModal > .ai-provider-dialog {
+        background:
+            radial-gradient(circle at 0 0, rgba(34, 211, 238, 0.14), transparent 22rem),
+            linear-gradient(180deg, rgba(10, 18, 33, 0.995), rgba(5, 10, 20, 0.995)) !important;
+        color: #eaf8ff !important;
+        border-color: rgba(125, 211, 252, 0.62) !important;
+    }
+    body #aiProviderModal .ai-provider-heading {
+        color: #f7fdff !important;
+    }
+    body #aiProviderModal .ai-provider-copy,
+    body #aiProviderModal .ai-provider-status {
+        color: #b4c8df !important;
+    }
+    body #aiProviderModal .ai-provider-form {
+        background: linear-gradient(145deg, rgba(12, 23, 41, 0.99), rgba(7, 15, 29, 0.98)) !important;
+        color: #eaf8ff !important;
+        border-color: rgba(34, 211, 238, 0.30) !important;
+    }
+    body #aiProviderModal .ai-provider-label {
+        color: #a5f3fc !important;
+    }
+    body #aiProviderModal .ai-provider-control {
+        background: rgba(3, 10, 23, 0.94) !important;
+        color: #eaf8ff !important;
+        border-color: rgba(34, 211, 238, 0.38) !important;
+    }
+    body #aiProviderModal .ai-provider-control::placeholder {
+        color: #8ea9c6 !important;
+        opacity: 1;
+    }
+    body #aiProviderModal .ai-provider-copy code {
+        display: inline-block;
+        padding: 0.05rem 0.3rem;
+        border-radius: 0.25rem;
+        background: rgba(34, 211, 238, 0.10) !important;
+        color: #67e8f9 !important;
+    }
+    body #aiProviderModal .ai-provider-button-secondary {
+        background: rgba(3, 10, 23, 0.94) !important;
+        color: #b4c8df !important;
+        border-color: rgba(34, 211, 238, 0.38) !important;
+    }
+    body #aiProviderModal .ai-provider-button-primary {
+        background: linear-gradient(135deg, rgba(8, 145, 178, 0.72), rgba(8, 47, 73, 0.98)) !important;
+        color: #ecfeff !important;
+        border: 1px solid rgba(103, 232, 249, 0.64) !important;
+    }
+    body #aiProviderModal .ai-provider-close {
+        background: rgba(8, 47, 73, 0.58) !important;
+        color: #dffaff !important;
     }
     #reportViewModal #vrBody:focus {
         box-shadow: none;

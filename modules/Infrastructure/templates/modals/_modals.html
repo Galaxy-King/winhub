@@ -574,25 +574,25 @@
 
 {% if permissions.manage_ai %}
 <!-- OPEN WEBUI PROVIDER -->
-<div id="aiProviderModal" class="fixed inset-0 z-[130] hidden flex items-center justify-center bg-slate-900/60 backdrop-blur-md p-4 animate-in fade-in">
-    <div class="bg-white w-full max-w-2xl rounded-[3rem] shadow-2xl p-8 sm:p-10 border border-slate-200">
+<div id="aiProviderModal" class="wh-theme-scope fixed inset-0 z-[130] hidden flex items-center justify-center bg-slate-900/60 backdrop-blur-md p-4 animate-in fade-in">
+    <div class="ai-provider-dialog wh-ui-modal w-full max-w-2xl rounded-[3rem] shadow-2xl p-8 sm:p-10 border">
         <div class="flex justify-between items-start mb-6">
             <div>
-                <h2 class="text-2xl font-black text-slate-800 uppercase tracking-tight">AI / Open WebUI</h2>
-                <p class="text-[10px] font-bold text-slate-400 uppercase tracking-widest mt-1">The API key is encrypted and never returned to the browser</p>
+                <h2 class="ai-provider-heading text-2xl font-black uppercase tracking-tight">AI / Open WebUI</h2>
+                <p class="ai-provider-copy text-[10px] font-bold uppercase tracking-widest mt-1">The API key is encrypted and never returned to the browser</p>
             </div>
-            <button onclick="closeModal('aiProviderModal')" class="text-slate-400 hover:text-slate-700 bg-slate-50 p-2 rounded-xl"><svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path d="M6 18L18 6M6 6l12 12" stroke-width="2.5"/></svg></button>
+            <button onclick="closeModal('aiProviderModal')" class="ai-provider-close p-2 rounded-xl"><svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path d="M6 18L18 6M6 6l12 12" stroke-width="2.5"/></svg></button>
         </div>
-        <div class="space-y-4 bg-violet-50/60 border border-violet-100 rounded-[2rem] p-6">
-            <label class="flex items-center gap-3 text-sm font-black text-violet-900"><input id="aiProviderEnabled" type="checkbox" class="w-5 h-5 rounded text-violet-600"> Enable AI reports</label>
-            <div><label class="text-[10px] font-black text-violet-700 uppercase tracking-widest block mb-2">Open WebUI URL</label><input id="aiProviderBaseUrl" type="url" placeholder="https://ai.internal.example" class="w-full p-3 bg-white border border-violet-200 rounded-xl text-sm font-bold outline-none focus:ring-2 focus:ring-violet-500"></div>
-            <div><label class="text-[10px] font-black text-violet-700 uppercase tracking-widest block mb-2">Model ID</label><input id="aiProviderModel" type="text" list="aiProviderModels" placeholder="Test connection, then select a model" class="w-full p-3 bg-white border border-violet-200 rounded-xl text-sm font-bold outline-none focus:ring-2 focus:ring-violet-500"><datalist id="aiProviderModels"></datalist></div>
-            <div><label class="text-[10px] font-black text-violet-700 uppercase tracking-widest block mb-2">Service account API key</label><input id="aiProviderApiKey" type="password" autocomplete="new-password" class="w-full p-3 bg-white border border-violet-200 rounded-xl text-sm font-bold outline-none focus:ring-2 focus:ring-violet-500"></div>
-            <p class="text-xs font-bold text-slate-500">For your current HTTP address, WinHUB also requires <span class="font-mono">AI_ALLOW_INSECURE_HTTP=true</span> and the host in <span class="font-mono">OUTBOUND_ALLOWED_HOSTS</span>.</p>
+        <div class="ai-provider-form wh-ui-surface space-y-4 border rounded-[2rem] p-6">
+            <label class="ai-provider-label flex items-center gap-3 text-sm font-black"><input id="aiProviderEnabled" type="checkbox" class="w-5 h-5 rounded text-violet-600"> Enable AI reports</label>
+            <div><label class="ai-provider-label text-[10px] font-black uppercase tracking-widest block mb-2">Open WebUI URL</label><input id="aiProviderBaseUrl" type="url" placeholder="https://ai.internal.example" class="ai-provider-control wh-ui-control w-full p-3 border rounded-xl text-sm font-bold outline-none focus:ring-2 focus:ring-violet-500"></div>
+            <div><label class="ai-provider-label text-[10px] font-black uppercase tracking-widest block mb-2">Model ID</label><input id="aiProviderModel" type="text" list="aiProviderModels" placeholder="Test connection, then select a model" class="ai-provider-control wh-ui-control w-full p-3 border rounded-xl text-sm font-bold outline-none focus:ring-2 focus:ring-violet-500"><datalist id="aiProviderModels"></datalist></div>
+            <div><label class="ai-provider-label text-[10px] font-black uppercase tracking-widest block mb-2">Service account API key</label><input id="aiProviderApiKey" type="password" autocomplete="new-password" class="ai-provider-control wh-ui-control w-full p-3 border rounded-xl text-sm font-bold outline-none focus:ring-2 focus:ring-violet-500"></div>
+            <p class="ai-provider-copy text-xs font-bold">For your current HTTP address, WinHUB also requires <code class="font-mono">AI_ALLOW_INSECURE_HTTP=true</code> and the host in <code class="font-mono">OUTBOUND_ALLOWED_HOSTS</code>.</p>
         </div>
         <div class="mt-5 flex flex-wrap items-center justify-between gap-3">
-            <span id="aiProviderStatus" class="text-xs font-black text-slate-500">Not tested</span>
-            <div class="flex gap-3"><button onclick="testAiProviderSettings()" class="px-5 py-3 bg-white border border-violet-200 text-violet-700 rounded-xl text-xs font-black uppercase">Test saved config</button><button onclick="saveAiProviderSettings()" class="px-6 py-3 bg-violet-600 text-white rounded-xl text-xs font-black uppercase shadow-lg">Save</button></div>
+            <span id="aiProviderStatus" class="ai-provider-status text-xs font-black">Not tested</span>
+            <div class="flex gap-3"><button onclick="testAiProviderSettings()" class="ai-provider-button-secondary wh-ui-button-secondary px-5 py-3 border rounded-xl text-xs font-black uppercase">Test saved config</button><button onclick="saveAiProviderSettings()" class="ai-provider-button-primary wh-ui-button-accent px-6 py-3 rounded-xl text-xs font-black uppercase shadow-lg">Save</button></div>
         </div>
     </div>
 </div>
