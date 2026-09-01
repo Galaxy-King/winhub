@@ -37,6 +37,17 @@ ALLOWED_FILTERS = {
 }
 ALLOWED_TESTS = {"boolean", "defined", "false", "mapping", "none", "number", "string", "true", "undefined"}
 FORBIDDEN_NODES = (nodes.CallBlock, nodes.Extends, nodes.FromImport, nodes.Import, nodes.Include, nodes.Macro)
+ALLOWED_LOOP_ATTRIBUTES = {
+    "depth",
+    "depth0",
+    "first",
+    "index",
+    "index0",
+    "last",
+    "length",
+    "revindex",
+    "revindex0",
+}
 
 
 def report_range(*args: Any) -> range:
@@ -64,6 +75,9 @@ class ReportSandbox(ImmutableSandboxedEnvironment):
         # Namespace attributes are data slots used by the bundled report templates.
         if obj.__class__.__module__ == "jinja2.utils" and obj.__class__.__name__ == "Namespace":
             return not callable(value)
+        # Loop metadata is read-only and cannot expose application objects or methods.
+        if obj.__class__.__module__ == "jinja2.runtime" and obj.__class__.__name__ == "LoopContext":
+            return attr in ALLOWED_LOOP_ATTRIBUTES and not callable(value)
         return False
 
     def is_safe_callable(self, obj: Any) -> bool:
