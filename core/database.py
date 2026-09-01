@@ -30,6 +30,17 @@ user_group_m2m = db.Table('user_group_access',
     db.Column('permissions', db.Text, nullable=False, server_default='["*"]')
 )
 
+api_key_group_m2m = db.Table('api_key_group_access',
+    db.Column('api_key_id', db.Integer, db.ForeignKey('api_keys.id', ondelete="CASCADE"), primary_key=True),
+    db.Column('group_id', db.String(36), db.ForeignKey('endpoint_groups.id', ondelete="CASCADE"), primary_key=True),
+    db.Column('permissions', db.Text, nullable=False, server_default='[]')
+)
+
+api_key_template_m2m = db.Table('api_key_template_access',
+    db.Column('api_key_id', db.Integer, db.ForeignKey('api_keys.id', ondelete="CASCADE"), primary_key=True),
+    db.Column('template_id', db.String(36), db.ForeignKey('task_templates.id', ondelete="CASCADE"), primary_key=True)
+)
+
 endpoint_group_m2m = db.Table('endpoint_group_membership',
     db.Column('endpoint_id', db.String(100), db.ForeignKey('endpoints.id', ondelete="CASCADE"), primary_key=True),
     db.Column('group_id', db.String(36), db.ForeignKey('endpoint_groups.id', ondelete="CASCADE"), primary_key=True)
@@ -68,8 +79,15 @@ class ApiKey(db.Model):
     key_hash = db.Column(db.String(256), unique=True, nullable=False)
     prefix = db.Column(db.String(10), nullable=False)
     permissions = db.Column(db.Text, default="[]")
+    allowed_networks = db.Column(db.Text, default="[]")
+    ip_allowlist_enforced = db.Column(db.Boolean, default=True, nullable=False)
+    template_scope_enforced = db.Column(db.Boolean, default=True, nullable=False)
+    max_targets_per_run = db.Column(db.Integer, default=1, nullable=False)
     expires_at = db.Column(db.DateTime, nullable=True)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    last_used_at = db.Column(db.DateTime, nullable=True)
+    last_used_ip = db.Column(EncryptedString, nullable=True)
+    revoked_at = db.Column(db.DateTime, nullable=True)
     is_active = db.Column(db.Boolean, default=True)
     user = db.relationship('User', backref=db.backref('api_keys', cascade="all, delete-orphan"))
 
@@ -368,6 +386,27 @@ class ReportDelivery(db.Model):
     status = db.Column(db.String(30), nullable=False, default="Pending", index=True)
     result_details = db.Column(EncryptedText)
     created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False, index=True)
+    completed_at = db.Column(db.DateTime, nullable=True, index=True)
+
+
+class AiReportRequest(db.Model):
+    """Durable, auditable request to transform endpoint results with AI."""
+    __tablename__ = 'ai_report_requests'
+    id = db.Column(db.String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
+    job_id = db.Column(db.String(36), nullable=False, index=True)
+    report_id = db.Column(db.String(36), db.ForeignKey('aggregated_jobs.id', ondelete="SET NULL"), nullable=True, index=True)
+    actor_user_id = db.Column(db.Integer, db.ForeignKey('users.id', ondelete="SET NULL"), nullable=True, index=True)
+    actor_name = db.Column(db.String(150), nullable=True)
+    prompt = db.Column(EncryptedText, nullable=False)
+    model = db.Column(db.String(150), nullable=True)
+    status = db.Column(db.String(30), nullable=False, default="WaitingForTasks", index=True)
+    attempt = db.Column(db.Integer, nullable=False, default=0)
+    input_hash = db.Column(db.String(64), nullable=True, index=True)
+    prompt_hash = db.Column(db.String(64), nullable=False, index=True)
+    output_revision_id = db.Column(db.String(36), nullable=True, index=True)
+    error = db.Column(EncryptedText, nullable=True)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False, index=True)
+    started_at = db.Column(db.DateTime, nullable=True)
     completed_at = db.Column(db.DateTime, nullable=True, index=True)
 
 

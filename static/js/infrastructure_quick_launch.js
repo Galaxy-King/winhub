@@ -314,10 +314,14 @@ function resetQuickLaunch() {
     const hostSearch = document.getElementById('quickLaunchHostSearch');
     const group = document.getElementById('quickLaunchGroup');
     const taskTitle = document.getElementById('quickLaunchTaskTitle');
+    const aiToggle = document.getElementById('quickLaunchAiToggle');
+    const aiPrompt = document.getElementById('quickLaunchAiPrompt');
     if (templateSearch) templateSearch.value = '';
     if (hostSearch) hostSearch.value = '';
     if (group) group.value = '';
     if (taskTitle) taskTitle.value = '';
+    if (aiToggle) aiToggle.checked = false;
+    if (aiPrompt) { aiPrompt.value = ''; aiPrompt.classList.add('hidden'); }
     const savedTargetType = localStorage.getItem('winhub_quick_launch_target_type');
     setQuickLaunchTargetType(savedTargetType === 'group' ? 'group' : 'hosts');
     renderQuickLaunchTemplates();
@@ -363,10 +367,18 @@ async function submitQuickLaunch() {
     const variables = collectVariableInputs('.quick-launch-var-input');
     const title = document.getElementById('quickLaunchTaskTitle')?.value?.trim() || quickLaunchState.templateName;
     const groupId = document.getElementById('quickLaunchGroup')?.value || '';
+    const aiEnabled = document.getElementById('quickLaunchAiToggle')?.checked || false;
+    const aiPrompt = document.getElementById('quickLaunchAiPrompt')?.value?.trim() || '';
+    if (aiEnabled && !aiPrompt) {
+        quickLaunchSetError('Describe how AI should format the report.');
+        document.getElementById('quickLaunchAiPrompt')?.focus();
+        return;
+    }
     const payload = {
         title,
         target_type: quickLaunchState.targetType,
         variables,
+        ai_report: {enabled: aiEnabled, prompt: aiPrompt},
         ...(quickLaunchState.targetType === 'group'
             ? {target_id: groupId}
             : {target_ids: Array.from(quickLaunchState.hostIds)}),

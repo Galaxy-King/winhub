@@ -423,13 +423,27 @@
                         <div class="workspace-form-panel p-6 bg-slate-50 rounded-3xl border border-slate-200 space-y-4">
                             <div>
                                 <label class="text-xs font-bold text-slate-600 block mb-2">Aggregation Report Template (Optional)</label>
-                                <select id="depReportTemplate" class="workspace-select w-full p-4 bg-white border border-slate-200 rounded-2xl text-sm font-bold outline-none focus:ring-4 focus:ring-indigo-500/10 transition-all cursor-pointer">
+                                <select id="depReportTemplate" onchange="if(this.value){const toggle=document.getElementById('depAiReportToggle');if(toggle){toggle.checked=false;toggleDeploymentAiReport();}}" class="workspace-select w-full p-4 bg-white border border-slate-200 rounded-2xl text-sm font-bold outline-none focus:ring-4 focus:ring-indigo-500/10 transition-all cursor-pointer">
                                     <option value="">-- No custom report --</option>
                                     {% for r in templates if r.type == 'report' %}
                                     <option value="{{ r.id }}">{{ r.name }}</option>
                                     {% endfor %}
                                 </select>
                             </div>
+
+                            {% if permissions.use_ai_reports %}
+                            <div class="pt-2 border-t border-violet-200">
+                                <label class="flex items-center gap-3 cursor-pointer group">
+                                    <input type="checkbox" id="depAiReportToggle" onchange="toggleDeploymentAiReport()" class="w-5 h-5 text-violet-600 rounded border-slate-300 focus:ring-violet-500">
+                                    <span class="text-sm font-bold text-slate-700 group-hover:text-violet-700 transition-colors">Form report with AI</span>
+                                </label>
+                                <div id="depAiReportSettings" class="hidden mt-3 p-4 rounded-2xl border border-violet-200 bg-violet-50">
+                                    <label class="text-[10px] font-black text-violet-700 uppercase tracking-widest block mb-2">Report instruction</label>
+                                    <textarea id="depAiReportPrompt" maxlength="4000" placeholder="This script returns WireGuard settings. Create a short table with Host and endpoint:port." class="w-full h-28 p-3 bg-white border border-violet-200 rounded-xl text-xs font-bold text-slate-800 outline-none focus:ring-2 focus:ring-violet-500/20 resize-y"></textarea>
+                                    <p class="mt-2 text-[10px] font-bold text-violet-600">AI and a Jinja report template are mutually exclusive.</p>
+                                </div>
+                            </div>
+                            {% endif %}
 
                             <div class="pt-2 border-t border-slate-200">
                                 <label class="flex items-center gap-3 cursor-pointer group">

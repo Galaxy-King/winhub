@@ -381,20 +381,32 @@
                         <button type="button" onclick="selectAllApiPermissions()" class="px-3 py-2 bg-slate-100 hover:bg-slate-200 text-slate-600 rounded-xl text-[10px] font-black uppercase transition-colors">Select All</button>
                     </div>
                     <div id="apiPermissionsContainer" class="grid grid-cols-1 md:grid-cols-2 gap-3 max-h-72 overflow-y-auto custom-scrollbar pr-2"></div>
+                    <div>
+                        <h4 class="text-[10px] font-black text-indigo-600 uppercase tracking-widest mb-2">Actions by Host Group</h4>
+                        <p class="text-xs text-slate-500 font-bold mb-3">Choose both a group and the exact actions allowed inside it. Empty access means no host access.</p>
+                        <div id="apiGroupScopeContainer" class="space-y-3 max-h-72 overflow-y-auto custom-scrollbar pr-2"></div>
+                    </div>
                     <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
                         <div>
-                            <h4 class="text-[10px] font-black text-indigo-600 uppercase tracking-widest mb-2">Host Group Scope</h4>
-                            <p class="text-xs text-slate-500 font-bold mb-3">The key can only target hosts from selected groups. Empty scope means no host access.</p>
-                            <div id="apiGroupScopeContainer" class="space-y-2 max-h-44 overflow-y-auto custom-scrollbar pr-2"></div>
+                            <h4 class="text-[10px] font-black text-indigo-600 uppercase tracking-widest mb-2">Allowed Source IPs / CIDRs</h4>
+                            <textarea id="apiAllowedNetworks" rows="4" placeholder="203.0.113.25&#10;10.20.0.0/16" class="w-full p-4 bg-slate-50 border border-slate-200 rounded-2xl text-sm font-mono font-bold focus:bg-white focus:ring-4 focus:ring-indigo-500/10 outline-none transition-all"></textarea>
+                            <label class="flex items-center gap-2 mt-2 text-xs font-bold text-slate-600"><input id="apiIpEnforced" type="checkbox" checked disabled class="w-4 h-4 text-indigo-600 rounded"> IP allowlist is always enforced</label>
+                        </div>
+                        <div>
+                            <div class="flex justify-between gap-3 mb-2">
+                                <h4 class="text-[10px] font-black text-indigo-600 uppercase tracking-widest">Approved Template Allowlist</h4>
+                                <label class="flex items-center gap-2 text-[10px] font-black text-slate-500 uppercase"><input id="apiTemplateEnforced" type="checkbox" checked disabled class="w-4 h-4 text-indigo-600 rounded"> Enforced</label>
+                            </div>
+                            <div id="apiTemplateScopeContainer" class="space-y-2 max-h-40 overflow-y-auto custom-scrollbar p-3 bg-slate-50 border border-slate-200 rounded-2xl"></div>
+                        </div>
+                        <div>
+                            <h4 class="text-[10px] font-black text-indigo-600 uppercase tracking-widest mb-2">Max Hosts per Run</h4>
+                            <input id="apiMaxTargets" type="number" min="1" max="500" value="1" class="w-full p-4 bg-slate-50 border border-slate-200 rounded-2xl text-sm font-bold outline-none">
                         </div>
                         <div>
                             <h4 class="text-[10px] font-black text-indigo-600 uppercase tracking-widest mb-2">Expiration</h4>
                             <select id="apiExpiryDays" class="w-full p-4 bg-slate-50 border border-slate-200 rounded-2xl text-sm font-bold focus:bg-white focus:ring-4 focus:ring-indigo-500/10 outline-none transition-all">
-                                <option value="30">30 days</option>
-                                <option value="7">7 days</option>
-                                <option value="90">90 days</option>
-                                <option value="365">1 year</option>
-                                <option value="">Never expires</option>
+                                <option value="30">30 days</option><option value="7">7 days</option><option value="90">90 days</option><option value="365">1 year</option><option value="">Never expires</option>
                             </select>
                         </div>
                     </div>
@@ -424,7 +436,7 @@
     <div class="bg-white rounded-[3rem] p-10 w-full max-w-3xl shadow-2xl relative max-h-[90vh] overflow-y-auto custom-scrollbar">
         <button onclick="toggleModal('apiHelp', false)" class="absolute top-6 right-6 text-slate-400 hover:text-slate-600 bg-slate-50 hover:bg-slate-100 p-2 rounded-xl transition-colors"><svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M6 18L18 6M6 6l12 12"></path></svg></button>
         <h3 class="text-2xl font-black text-slate-800 mb-2 uppercase tracking-tight">API Key Usage</h3>
-        <p class="text-sm text-slate-500 font-bold mb-6">Create a key, assign module permissions, then send the key with every API request.</p>
+        <p class="text-sm text-slate-500 font-bold mb-6">A request is accepted only when the key, source IP, global permission, group action and approved template all match.</p>
         <div class="grid grid-cols-1 md:grid-cols-3 gap-3 mb-6">
             <div class="p-4 bg-slate-50 border border-slate-200 rounded-2xl">
                 <div class="text-[10px] font-black text-indigo-600 uppercase tracking-widest mb-2">1. Create</div>
@@ -432,11 +444,11 @@
             </div>
             <div class="p-4 bg-slate-50 border border-slate-200 rounded-2xl">
                 <div class="text-[10px] font-black text-indigo-600 uppercase tracking-widest mb-2">2. Grant</div>
-                <p class="text-xs font-bold text-slate-600">Tick only the module actions and host groups the integration needs. Empty host scope means no host access.</p>
+                <p class="text-xs font-bold text-slate-600">Assign exact actions per host group, approved templates, source IP/CIDR and a small target limit.</p>
             </div>
             <div class="p-4 bg-slate-50 border border-slate-200 rounded-2xl">
                 <div class="text-[10px] font-black text-indigo-600 uppercase tracking-widest mb-2">3. Call</div>
-                <p class="text-xs font-bold text-slate-600">Send the key in Authorization Bearer or X-API-Key. Expired keys return 401; missing permissions return 403.</p>
+                <p class="text-xs font-bold text-slate-600">Send the key from an allowed bot address. WinHUB returns task/job IDs and status, never generated passwords.</p>
             </div>
         </div>
         <div class="space-y-4">
@@ -486,7 +498,9 @@ $StaticPassword = "{{secret:local_admin_password}}"
 }
 
 # Secrets are created in Endpoint Management -> Template Secrets.
-# API clients do not send secret values.{% endraw %}</code></pre>
+# API clients do not send secret values.
+# Every API text variable also needs schema options/choices or a strict pattern,
+# for example: "pattern": "[A-Za-z0-9_.-]{1,64}".{% endraw %}</code></pre>
             </div>
             <div>
                 <label class="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2">Targets and report email</label>
@@ -523,9 +537,25 @@ $StaticPassword = "{{secret:local_admin_password}}"
             </div>
             <div class="space-y-5">
                 <div>
-                    <h4 class="text-[10px] font-black text-indigo-600 uppercase tracking-widest mb-3">Host Group Scope</h4>
-                    <p class="text-xs text-slate-500 font-bold mb-3">Empty scope means this key cannot target any host, even if its owner is admin.</p>
-                    <div id="editApiGroupScopeContainer" class="space-y-2 max-h-64 overflow-y-auto custom-scrollbar pr-2"></div>
+                    <h4 class="text-[10px] font-black text-indigo-600 uppercase tracking-widest mb-3">Actions by Host Group</h4>
+                    <p class="text-xs text-slate-500 font-bold mb-3">Global permission and matching group action are both required.</p>
+                    <div id="editApiGroupScopeContainer" class="space-y-3 max-h-72 overflow-y-auto custom-scrollbar pr-2"></div>
+                </div>
+                <div>
+                    <h4 class="text-[10px] font-black text-indigo-600 uppercase tracking-widest mb-2">Allowed Source IPs / CIDRs</h4>
+                    <textarea id="editApiAllowedNetworks" rows="3" class="w-full p-4 bg-slate-50 border border-slate-200 rounded-2xl text-sm font-mono font-bold outline-none"></textarea>
+                    <label class="flex items-center gap-2 mt-2 text-xs font-bold text-slate-600"><input id="editApiIpEnforced" type="checkbox" checked disabled class="w-4 h-4 text-indigo-600 rounded"> IP allowlist is enforced after save</label>
+                </div>
+                <div>
+                    <div class="flex justify-between gap-3 mb-2">
+                        <h4 class="text-[10px] font-black text-indigo-600 uppercase tracking-widest">Approved Template Allowlist</h4>
+                        <label class="flex items-center gap-2 text-[10px] font-black text-slate-500 uppercase"><input id="editApiTemplateEnforced" type="checkbox" checked disabled class="w-4 h-4 text-indigo-600 rounded"> Enforced after save</label>
+                    </div>
+                    <div id="editApiTemplateScopeContainer" class="space-y-2 max-h-40 overflow-y-auto custom-scrollbar p-3 bg-slate-50 border border-slate-200 rounded-2xl"></div>
+                </div>
+                <div>
+                    <h4 class="text-[10px] font-black text-indigo-600 uppercase tracking-widest mb-2">Max Hosts per Run</h4>
+                    <input id="editApiMaxTargets" type="number" min="1" max="500" value="1" class="w-full p-4 bg-slate-50 border border-slate-200 rounded-2xl text-sm font-bold outline-none">
                 </div>
                 <div>
                     <h4 class="text-[10px] font-black text-indigo-600 uppercase tracking-widest mb-3">Expiration</h4>
@@ -551,6 +581,7 @@ $StaticPassword = "{{secret:local_admin_password}}"
     let sysModules = [];
     let sysGroups = [];
     let sysGroupPermissions = [];
+    let sysActionTemplates = [];
     let currentUsersById = new Map();
     let currentApiKeysById = new Map();
     let currentTab = 'users';
@@ -732,9 +763,9 @@ $StaticPassword = "{{secret:local_admin_password}}"
         container.innerHTML = sysModules.map(m => `
             <div class="p-4 bg-slate-50 border border-slate-200 rounded-2xl">
                 <div class="font-black text-slate-800 text-sm mb-3">${escapeHtml(m.name)}</div>
-                ${(m.permissions || []).length ? `
+                ${(m.permissions || []).filter(p => p.id !== 'view_sensitive_reports').length ? `
                     <div class="space-y-2">
-                        ${m.permissions.map(p => {
+                        ${m.permissions.filter(p => p.id !== 'view_sensitive_reports').map(p => {
                             const token = `${m.id}:${p.id}`;
                             return `
                                 <label class="flex items-center gap-2 cursor-pointer">
@@ -759,14 +790,60 @@ $StaticPassword = "{{secret:local_admin_password}}"
     }
 
     function renderApiGroupScope(selected = [], containerId = 'apiGroupScopeContainer') {
-        const selectedSet = new Set(selected || []);
+        const accessMap = Array.isArray(selected)
+            ? Object.fromEntries((selected || []).map(groupId => [String(groupId), sysGroupPermissions.map(permission => permission.id)]))
+            : (selected || {});
         const container = document.getElementById(containerId);
-        container.innerHTML = sysGroups.map(g => `
-            <label class="flex items-center gap-3 p-3 bg-slate-50 border border-slate-200 hover:bg-slate-100 rounded-xl cursor-pointer transition-colors">
-                <input type="checkbox" value="${escapeHtml(g.id)}" class="api-group-scope-cb w-4 h-4 text-indigo-600 rounded border-slate-300 focus:ring-indigo-500" ${selectedSet.has(g.id) ? 'checked' : ''}>
-                <span class="text-sm font-bold text-slate-700">${escapeHtml(g.name)}</span>
+        container.innerHTML = sysGroups.map(g => {
+            const groupId = String(g.id);
+            const enabled = Object.prototype.hasOwnProperty.call(accessMap, groupId);
+            const actions = new Set(accessMap[groupId] || []);
+            return `
+            <article class="p-3 bg-slate-50 border border-slate-200 rounded-2xl">
+                <label class="flex items-center gap-3 cursor-pointer mb-2">
+                    <input type="checkbox" value="${escapeHtml(groupId)}" class="api-group-scope-cb w-4 h-4 text-indigo-600 rounded border-slate-300 focus:ring-indigo-500" ${enabled ? 'checked' : ''} onchange="toggleApiGroupAccess('${escapeInlineJs(containerId)}','${escapeInlineJs(groupId)}',this.checked)">
+                    <span class="text-sm font-black text-slate-700">${escapeHtml(g.name)}</span>
+                </label>
+                <div class="grid grid-cols-1 sm:grid-cols-2 gap-1 ml-7">
+                    ${sysGroupPermissions.filter(permission => permission.id !== 'view_sensitive_reports').map(permission => `
+                        <label class="flex items-start gap-2 text-[11px] font-bold text-slate-600 cursor-pointer">
+                            <input type="checkbox" class="api-group-action-cb mt-0.5 w-3.5 h-3.5 text-indigo-600 rounded" data-group-id="${escapeHtml(groupId)}" value="${escapeHtml(permission.id)}" ${actions.has(permission.id) ? 'checked' : ''} ${enabled ? '' : 'disabled'}>
+                            <span>${escapeHtml(permission.name)}</span>
+                        </label>
+                    `).join('')}
+                </div>
+            </article>`;
+        }).join('') || '<div class="text-xs font-bold text-slate-400 p-4 bg-slate-50 rounded-xl">No groups available.</div>';
+    }
+
+    function toggleApiGroupAccess(containerId, groupId, enabled) {
+        const container = document.getElementById(containerId);
+        const actions = Array.from(container.querySelectorAll('.api-group-action-cb')).filter(cb => cb.dataset.groupId === String(groupId));
+        actions.forEach(cb => cb.disabled = !enabled);
+        if (enabled && !actions.some(cb => cb.checked)) {
+            actions.forEach(cb => cb.checked = ['run_tasks', 'view_queue'].includes(cb.value));
+        }
+    }
+
+    function collectApiGroupAccess(containerId) {
+        const container = document.getElementById(containerId);
+        return Array.from(container.querySelectorAll('.api-group-scope-cb:checked')).map(scope => ({
+            group_id: scope.value,
+            permissions: Array.from(container.querySelectorAll('.api-group-action-cb:checked'))
+                .filter(cb => cb.dataset.groupId === String(scope.value))
+                .map(cb => cb.value)
+        }));
+    }
+
+    function renderApiTemplateScope(selected = [], containerId = 'apiTemplateScopeContainer') {
+        const selectedSet = new Set((selected || []).map(String));
+        const container = document.getElementById(containerId);
+        container.innerHTML = sysActionTemplates.map(template => `
+            <label class="flex items-start gap-2 cursor-pointer">
+                <input type="checkbox" value="${escapeHtml(template.id)}" class="api-template-scope-cb mt-0.5 w-4 h-4 text-indigo-600 rounded" ${selectedSet.has(String(template.id)) ? 'checked' : ''}>
+                <span class="text-xs font-bold text-slate-700">${escapeHtml(template.name)} <span class="text-slate-400">/ ${escapeHtml(template.category || 'General')}</span></span>
             </label>
-        `).join('') || '<div class="text-xs font-bold text-slate-400 p-4 bg-slate-50 rounded-xl">No groups available.</div>';
+        `).join('') || '<div class="text-xs font-bold text-slate-400 p-4 bg-slate-50 rounded-xl">No approved action templates available.</div>';
     }
 
 	    function switchTab(tab) {
@@ -1066,6 +1143,7 @@ $StaticPassword = "{{secret:local_admin_password}}"
             if(mData.success) {
                 sysModules = mData.modules;
                 sysGroupPermissions = mData.group_permissions || [];
+                sysActionTemplates = mData.action_templates || [];
             }
             sysGroups = groups;
         } catch (e) { console.error("Failed loading sys data"); }
@@ -1115,19 +1193,22 @@ $StaticPassword = "{{secret:local_admin_password}}"
                 currentApiKeysById = new Map((data.keys || []).map(key => [String(key.id), key]));
                 tbody.innerHTML = data.keys.map(k => `
                     <tr class="hover:bg-slate-50/80 transition-colors">
-                        <td class="px-10 py-5 font-black text-slate-800">${escapeHtml(k.name)}</td>
+                        <td class="px-10 py-5"><div class="font-black text-slate-800">${escapeHtml(k.name)}</div><span class="text-[9px] font-black uppercase ${k.is_active ? 'text-emerald-600' : 'text-rose-600'}">${k.is_active ? 'Active' : 'Revoked'} · ${escapeHtml(k.policy_mode || 'legacy')}</span></td>
                         <td class="px-10 py-5 font-mono text-indigo-600 font-bold bg-indigo-50 px-2 rounded border border-indigo-100">${escapeHtml(k.prefix)}*****</td>
                         <td class="px-10 py-5 text-slate-500 font-bold">${escapeHtml(k.user)}</td>
                         <td class="px-10 py-5"><span class="bg-slate-100 text-slate-600 px-3 py-1 rounded-lg text-xs font-bold border border-slate-200">${escapeHtml(permissionSummary(k.permissions))}</span></td>
                         <td class="px-10 py-5">
                             <div class="flex flex-col gap-1">
-                                <span class="bg-slate-100 text-slate-600 px-3 py-1 rounded-lg text-xs font-bold border border-slate-200 w-fit">${escapeHtml(scopeSummary(k.group_scope))}</span>
+                                <span class="bg-slate-100 text-slate-600 px-3 py-1 rounded-lg text-xs font-bold border border-slate-200 w-fit">${escapeHtml(scopeSummary(k.group_scope))} · ${(k.allowed_template_ids || []).length} template(s)</span>
+                                <span class="text-[10px] font-bold text-slate-500">${(k.allowed_networks || []).length ? escapeHtml((k.allowed_networks || []).join(', ')) : 'No IP allowlist'}</span>
                                 <span class="text-[10px] font-bold text-slate-400 uppercase tracking-widest">${escapeHtml(k.expires)}</span>
+                                <span class="text-[9px] font-bold text-slate-400">Last used: ${k.last_used_at ? escapeHtml(k.last_used_at) : 'never'}${k.last_used_ip ? ' / ' + escapeHtml(k.last_used_ip) : ''}</span>
                             </div>
                         </td>
                         <td class="px-10 py-5 text-right flex justify-end gap-2">
                             <button onclick="openApiAccessModalById('${escapeInlineJs(k.id)}')" class="px-4 py-2 bg-white text-slate-600 hover:text-indigo-600 rounded-xl text-xs font-black uppercase transition-colors border border-slate-200 shadow-sm">Access</button>
-                            <button onclick="deleteApiKey('${escapeInlineJs(k.id)}')" class="p-2 bg-white text-slate-400 hover:text-rose-600 rounded-xl transition-colors border border-slate-200 shadow-sm"><svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"></path></svg></button>
+                            <button onclick="rotateApiKey('${escapeInlineJs(k.id)}')" class="px-3 py-2 bg-white text-slate-600 hover:text-amber-600 rounded-xl text-[10px] font-black uppercase border border-slate-200 shadow-sm">Rotate</button>
+                            <button onclick="toggleApiKey('${escapeInlineJs(k.id)}')" class="px-3 py-2 bg-white ${k.is_active ? 'text-rose-600' : 'text-emerald-600'} rounded-xl text-[10px] font-black uppercase border border-slate-200 shadow-sm">${k.is_active ? 'Revoke' : 'Enable'}</button>
                         </td>
                     </tr>
                 `).join('') || '<tr><td colspan="6" class="p-16 text-center text-slate-400 font-bold">No API keys.</td></tr>';
@@ -1154,8 +1235,13 @@ $StaticPassword = "{{secret:local_admin_password}}"
         document.getElementById('apiPermissionsArea').classList.remove('hidden');
         document.getElementById('newEmail').parentElement.classList.add('hidden'); // сховати імейл
         document.getElementById('newEmail').required = false;
-        renderApiPermissionPicker([]);
-        renderApiGroupScope([]);
+        renderApiPermissionPicker(['Infrastructure:run_tasks', 'Infrastructure:view_queue']);
+        renderApiGroupScope({});
+        renderApiTemplateScope([]);
+        document.getElementById('apiAllowedNetworks').value = '';
+        document.getElementById('apiIpEnforced').checked = true;
+        document.getElementById('apiTemplateEnforced').checked = true;
+        document.getElementById('apiMaxTargets').value = '1';
         document.getElementById('apiExpiryDays').value = '30';
         toggleModal('create', true);
     }
@@ -1168,7 +1254,12 @@ $StaticPassword = "{{secret:local_admin_password}}"
         document.getElementById('editApiKeyId').value = key.id;
         document.getElementById('editApiKeyLabel').innerText = `${key.name} / ${key.prefix}*****`;
         renderApiPermissionPicker(key.permissions || [], 'editApiPermissionsContainer');
-        renderApiGroupScope(key.group_scope || [], 'editApiGroupScopeContainer');
+        renderApiGroupScope(key.group_access || key.group_scope || [], 'editApiGroupScopeContainer');
+        renderApiTemplateScope(key.allowed_template_ids || [], 'editApiTemplateScopeContainer');
+        document.getElementById('editApiAllowedNetworks').value = (key.allowed_networks || []).join('\n');
+        document.getElementById('editApiIpEnforced').checked = true;
+        document.getElementById('editApiTemplateEnforced').checked = true;
+        document.getElementById('editApiMaxTargets').value = String(key.max_targets_per_run || 1);
         document.getElementById('editApiExpiryDays').value = '__keep';
         toggleModal('apiAccess', true);
     }
@@ -1188,13 +1279,27 @@ $StaticPassword = "{{secret:local_admin_password}}"
     async function saveApiAccess() {
         const id = document.getElementById('editApiKeyId').value;
         const permissions = Array.from(document.querySelectorAll('#editApiPermissionsContainer .api-perm-cb:checked')).map(cb => cb.value);
-        const groupScope = Array.from(document.querySelectorAll('#editApiGroupScopeContainer .api-group-scope-cb:checked')).map(cb => cb.value);
+        const groupAccess = collectApiGroupAccess('editApiGroupScopeContainer');
+        const allowedTemplateIds = Array.from(document.querySelectorAll('#editApiTemplateScopeContainer .api-template-scope-cb:checked')).map(cb => cb.value);
         const days = document.getElementById('editApiExpiryDays').value;
+        const allowedNetworks = document.getElementById('editApiAllowedNetworks').value;
+        const ipAllowlistEnforced = document.getElementById('editApiIpEnforced').checked;
+        const templateScopeEnforced = document.getElementById('editApiTemplateEnforced').checked;
+        const maxTargetsPerRun = document.getElementById('editApiMaxTargets').value;
         try {
             const res = await fetch(`/api/admin/apikeys/${id}/permissions`, {
                 method: 'PUT',
                 headers: {'Content-Type': 'application/json'},
-                body: JSON.stringify({ permissions, group_scope: groupScope, days })
+                body: JSON.stringify({
+                    permissions,
+                    group_access: groupAccess,
+                    allowed_template_ids: allowedTemplateIds,
+                    allowed_networks: allowedNetworks,
+                    ip_allowlist_enforced: ipAllowlistEnforced,
+                    template_scope_enforced: templateScopeEnforced,
+                    max_targets_per_run: maxTargetsPerRun,
+                    days
+                })
             });
             const data = await res.json();
             if (!data.success) return alert(data.message || 'Save failed');
@@ -1432,7 +1537,29 @@ $StaticPassword = "{{secret:local_admin_password}}"
 
     async function toggleUser(id) { await fetch(`/api/admin/users/${id}/toggle`, {method: 'POST'}); fetchUsers(); }
     async function deleteUser(id) { if(confirm('Delete user?')) { await fetch(`/api/admin/users/${id}`, {method: 'DELETE'}); fetchUsers(); } }
-    async function deleteApiKey(id) { if(confirm('Revoke API Key?')) { await fetch(`/api/admin/apikeys/${id}`, {method: 'DELETE'}); fetchApiKeys(); } }
+    async function toggleApiKey(id) {
+        const key = currentApiKeysById.get(String(id));
+        if (!key || !confirm(key.is_active ? 'Revoke this API key immediately?' : 'Enable this API key?')) return;
+        const res = await fetch(`/api/admin/apikeys/${id}/toggle`, {method: 'POST'});
+        const data = await res.json();
+        if (!res.ok || !data.success) return alert(data.message || 'Operation failed');
+        fetchApiKeys();
+    }
+
+    async function rotateApiKey(id) {
+        if (!confirm('Rotate this key? The old secret stops working immediately.')) return;
+        const key = currentApiKeysById.get(String(id));
+        const res = await fetch(`/api/admin/apikeys/${id}/rotate`, {method: 'POST'});
+        const data = await res.json();
+        if (!res.ok || !data.success) return alert(data.message || 'Rotation failed');
+        document.getElementById('creationFormArea').classList.add('hidden');
+        document.getElementById('creationResultArea').classList.remove('hidden');
+        document.getElementById('resUser').innerText = `${key?.name || 'API key'} (rotated)`;
+        document.getElementById('resPass').innerText = data.raw_key;
+        document.getElementById('resTotp').innerText = 'Old key revoked';
+        document.getElementById('resTotp').previousElementSibling.innerText = 'Save once, then close';
+        toggleModal('create', true);
+    }
 
     async function resetCredentials(id) {
         if(!confirm("Reset password and 2FA for this user?")) return;
@@ -1456,12 +1583,27 @@ $StaticPassword = "{{secret:local_admin_password}}"
         if(currentTab === 'api') {
             const name = document.getElementById('newUsername').value;
             const permissions = Array.from(document.querySelectorAll('#apiPermissionsContainer .api-perm-cb:checked')).map(cb => cb.value);
-            const groupScope = Array.from(document.querySelectorAll('#apiGroupScopeContainer .api-group-scope-cb:checked')).map(cb => cb.value);
+            const groupAccess = collectApiGroupAccess('apiGroupScopeContainer');
+            const allowedTemplateIds = Array.from(document.querySelectorAll('#apiTemplateScopeContainer .api-template-scope-cb:checked')).map(cb => cb.value);
             const days = document.getElementById('apiExpiryDays').value;
+            const allowedNetworks = document.getElementById('apiAllowedNetworks').value;
+            const ipAllowlistEnforced = document.getElementById('apiIpEnforced').checked;
+            const templateScopeEnforced = document.getElementById('apiTemplateEnforced').checked;
+            const maxTargetsPerRun = document.getElementById('apiMaxTargets').value;
             try {
                 const res = await fetch('/api/admin/apikeys', {
                     method: 'POST', headers: {'Content-Type': 'application/json'},
-                    body: JSON.stringify({ name: name, permissions: permissions, group_scope: groupScope, days })
+                    body: JSON.stringify({
+                        name,
+                        permissions,
+                        group_access: groupAccess,
+                        allowed_template_ids: allowedTemplateIds,
+                        allowed_networks: allowedNetworks,
+                        ip_allowlist_enforced: ipAllowlistEnforced,
+                        template_scope_enforced: templateScopeEnforced,
+                        max_targets_per_run: maxTargetsPerRun,
+                        days
+                    })
                 });
                 const data = await res.json();
                 if (data.success) {

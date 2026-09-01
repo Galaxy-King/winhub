@@ -16,7 +16,7 @@ from datetime import datetime, timedelta, timezone
 from zoneinfo import ZoneInfo
 from email.mime.text import MIMEText
 from flask import Blueprint, request, jsonify, session, render_template, redirect, url_for, Response
-from core.database import db, User, Endpoint, EndpointGroup, ApiKey, AuditLog
+from core.database import db, User, Endpoint, EndpointGroup, ApiKey, AuditLog, TaskTemplate
 from core.security import sec_manager
 from core.config import Config
 from core.module_registry import get_module_registry
@@ -32,6 +32,16 @@ from core.group_access import (
     GROUP_ACTION_IDS,
     group_permissions_for_users,
     replace_user_group_permissions,
+)
+from core.api_access import (
+    api_key_group_permissions_for_keys,
+    api_key_template_ids_for_keys,
+    approved_action_templates,
+    normalize_allowed_networks,
+    normalize_max_targets,
+    replace_api_key_group_permissions,
+    replace_api_key_template_ids,
+    stored_allowed_networks,
 )
 from core.sdk import WinHubCore
 from core.gpg import gpg_env, import_public_key, fetch_public_key, list_public_keys, delete_public_key, validate_gpg
@@ -247,6 +257,68 @@ def parse_expiration(days):
     if days_int > 3650:
         raise ValueError("Expiration cannot exceed 3650 days")
     return datetime.utcnow() + timedelta(days=days_int)
+
+
+def _api_group_entries(data):
+    entries = data.get("group_access")
+    if entries is not None:
+        if not isinstance(entries, list):
+            raise ValueError("Group access must be a list")
+        return entries
+    # Compatibility with older clients that only sent a group checkbox list.
+    return [
+        {"group_id": group_id, "permissions": list(GROUP_ACTION_IDS)}
+        for group_id in sanitize_api_group_scope(data.get("group_scope", []))
+    ]
+
+
+def _api_policy_values(data, existing_key=None):
+    permissions = sanitize_allowed_modules(data.get("permissions", []))
+    group_entries = _api_group_entries(data)
+    template_ids = data.get("allowed_template_ids", [])
+    if not isinstance(template_ids, list):
+        raise ValueError("Allowed templates must be a list")
+    template_ids = list(dict.fromkeys(str(item) for item in template_ids if item))
+
+    if "Infrastructure:view_sensitive_reports" in permissions:
+        raise ValueError("API keys cannot be granted permission to reveal passwords or secrets")
+    if any(
+        isinstance(entry, dict) and "view_sensitive_reports" in (entry.get("permissions") or [])
+        for entry in group_entries
+    ):
+        raise ValueError("API keys cannot reveal sensitive task or report output")
+
+    existing_networks = stored_allowed_networks(existing_key) if existing_key else []
+    networks = normalize_allowed_networks(data.get("allowed_networks", existing_networks))
+    # New and edited keys always use the strict policy; the migration also
+    # blocks pre-existing keys until this policy is configured.
+    ip_enforced = True
+    template_enforced = True
+    max_targets = normalize_max_targets(
+        data.get("max_targets_per_run", getattr(existing_key, "max_targets_per_run", 1) if existing_key else 1)
+    )
+
+    if ip_enforced and not networks:
+        raise ValueError("At least one allowed source IP or CIDR is required")
+
+    grants_run_tasks = "Infrastructure" in permissions or "Infrastructure:run_tasks" in permissions
+    if grants_run_tasks and template_enforced and not template_ids:
+        raise ValueError("Select at least one approved action template for a key that can run tasks")
+    if grants_run_tasks and not any(
+        isinstance(entry, dict) and "run_tasks" in (entry.get("permissions") or [])
+        for entry in group_entries
+    ):
+        raise ValueError("Grant run_tasks in at least one host group")
+
+    return {
+        "permissions": permissions,
+        "group_entries": group_entries,
+        "template_ids": template_ids,
+        "networks": networks,
+        "ip_enforced": ip_enforced,
+        "template_enforced": template_enforced,
+        "max_targets": max_targets,
+    }
 
 def hidden_subprocess_kwargs():
     return {"creationflags": 0x08000000} if os.name == "nt" else {}
@@ -474,10 +546,17 @@ def get_modules():
             "error_message": None,
             "permissions": granular_permission_catalog("Administration"),
         })
+    action_templates = approved_action_templates()
     return jsonify({
         "success": True,
         "modules": modules,
         "group_permissions": GROUP_ACTION_CATALOG,
+        "action_templates": [{
+            "id": template.id,
+            "name": template.name,
+            "category": template.category or "General",
+            "action_type": template.action_type,
+        } for template in action_templates],
     })
 
 @admin_bp.route('/api/admin/groups', methods=['GET'])
@@ -649,9 +728,25 @@ def reset_credentials(user_id):
 @admin_bp.route('/api/admin/apikeys', methods=['GET'])
 def get_api_keys():
     keys = ApiKey.query.order_by(ApiKey.created_at.desc()).all()
+    key_ids = [key.id for key in keys]
+    group_maps = api_key_group_permissions_for_keys(key_ids)
+    template_maps = api_key_template_ids_for_keys(key_ids)
+    template_names = {
+        str(template.id): template.name
+        for template in TaskTemplate.query.filter(
+            TaskTemplate.id.in_(set().union(*template_maps.values()) if template_maps else set())
+        ).all()
+    } if any(template_maps.values()) else {}
     result = []
     for k in keys:
-        permissions, group_scope = parse_api_key_permissions(k.permissions)
+        permissions, legacy_group_scope = parse_api_key_permissions(k.permissions)
+        group_access = group_maps.get(k.id) or {}
+        if not group_access and legacy_group_scope:
+            group_access = {
+                group_id: list(GROUP_ACTION_IDS)
+                for group_id in legacy_group_scope
+            }
+        template_ids = sorted(template_maps.get(k.id, set()))
         result.append({
             "id": k.id, "name": k.name, "prefix": k.prefix, "user": k.user.username if k.user else "Unknown",
             "expires": k.expires_at.strftime('%Y-%m-%d') if k.expires_at else "Never Expires",
@@ -659,7 +754,21 @@ def get_api_keys():
             "created": k.created_at.strftime('%Y-%m-%d'),
             "is_active": k.is_active,
             "permissions": permissions,
-            "group_scope": group_scope,
+            "group_scope": list(group_access.keys()),
+            "group_access": group_access,
+            "allowed_networks": stored_allowed_networks(k),
+            "ip_allowlist_enforced": bool(k.ip_allowlist_enforced),
+            "template_scope_enforced": bool(k.template_scope_enforced),
+            "allowed_template_ids": template_ids,
+            "allowed_templates": [
+                {"id": template_id, "name": template_names.get(template_id, template_id)}
+                for template_id in template_ids
+            ],
+            "max_targets_per_run": int(k.max_targets_per_run or 1),
+            "last_used_at": k.last_used_at.isoformat() if k.last_used_at else None,
+            "last_used_ip": k.last_used_ip or None,
+            "revoked_at": k.revoked_at.isoformat() if k.revoked_at else None,
+            "policy_mode": "enforced" if k.ip_allowlist_enforced and k.template_scope_enforced else "legacy",
         })
     return jsonify({"success": True, "keys": result})
 
@@ -677,8 +786,10 @@ def create_api_key():
     except ValueError as e:
         return jsonify({"success": False, "message": str(e)}), 400
 
-    permissions = sanitize_allowed_modules(data.get('permissions', []))
-    group_scope = sanitize_api_group_scope(data.get('group_scope', []))
+    try:
+        policy = _api_policy_values(data)
+    except ValueError as e:
+        return jsonify({"success": False, "message": str(e)}), 400
 
     new_key = ApiKey(
         user_id=session.get('user_id'),
@@ -686,10 +797,25 @@ def create_api_key():
         key_hash=key_hash,
         prefix=raw_key[:8],
         expires_at=expires,
-        permissions=json.dumps(permissions + api_scope_tokens(group_scope))
+        permissions=json.dumps(policy["permissions"]),
+        allowed_networks=json.dumps(policy["networks"]),
+        ip_allowlist_enforced=policy["ip_enforced"],
+        template_scope_enforced=policy["template_enforced"],
+        max_targets_per_run=policy["max_targets"],
     )
-    db.session.add(new_key)
-    db.session.commit()
+    try:
+        db.session.add(new_key)
+        db.session.flush()
+        groups = replace_api_key_group_permissions(new_key.id, policy["group_entries"])
+        templates = replace_api_key_template_ids(new_key.id, policy["template_ids"])
+        db.session.commit()
+    except ValueError as e:
+        db.session.rollback()
+        return jsonify({"success": False, "message": str(e)}), 400
+    except Exception:
+        db.session.rollback()
+        log.exception("Failed to create API key")
+        return jsonify({"success": False, "message": "Failed to create API key"}), 500
     WinHubCore.audit(
         user_id=session.get('user_id'),
         module="Admin",
@@ -698,8 +824,11 @@ def create_api_key():
             "key_id": new_key.id,
             "name": new_key.name,
             "prefix": new_key.prefix,
-            "permissions_count": len(permissions),
-            "group_scope_count": len(group_scope),
+            "permissions_count": len(policy["permissions"]),
+            "group_scope_count": len(groups),
+            "template_scope_count": len(templates),
+            "allowed_networks": policy["networks"],
+            "max_targets_per_run": policy["max_targets"],
             "expires_at": new_key.expires_at.isoformat() if new_key.expires_at else None,
         },
         status="Success"
@@ -713,12 +842,13 @@ def delete_api_key(kid):
     k = ApiKey.query.get(kid)
     if k:
         audit_details = {"key_id": k.id, "name": k.name, "prefix": k.prefix}
-        db.session.delete(k)
+        k.is_active = False
+        k.revoked_at = datetime.utcnow()
         db.session.commit()
         WinHubCore.audit(
             user_id=session.get('user_id'),
             module="Admin",
-            action="Delete API Key",
+            action="Revoke API Key",
             details=audit_details,
             status="Success"
         )
@@ -731,9 +861,15 @@ def update_api_key_permissions(kid):
     if not key:
         return jsonify({"success": False, "message": "API key not found"}), 404
     data = request.json or {}
-    permissions = sanitize_allowed_modules(data.get('permissions', []))
-    group_scope = sanitize_api_group_scope(data.get('group_scope', []))
-    key.permissions = json.dumps(permissions + api_scope_tokens(group_scope))
+    try:
+        policy = _api_policy_values(data, existing_key=key)
+    except ValueError as e:
+        return jsonify({"success": False, "message": str(e)}), 400
+    key.permissions = json.dumps(policy["permissions"])
+    key.allowed_networks = json.dumps(policy["networks"])
+    key.ip_allowlist_enforced = policy["ip_enforced"]
+    key.template_scope_enforced = policy["template_enforced"]
+    key.max_targets_per_run = policy["max_targets"]
     if 'days' in data:
         try:
             expires = parse_expiration(data.get('days'))
@@ -741,7 +877,17 @@ def update_api_key_permissions(kid):
                 key.expires_at = expires
         except ValueError as e:
             return jsonify({"success": False, "message": str(e)}), 400
-    db.session.commit()
+    try:
+        groups = replace_api_key_group_permissions(key.id, policy["group_entries"])
+        templates = replace_api_key_template_ids(key.id, policy["template_ids"])
+        db.session.commit()
+    except ValueError as e:
+        db.session.rollback()
+        return jsonify({"success": False, "message": str(e)}), 400
+    except Exception:
+        db.session.rollback()
+        log.exception("Failed to update API key")
+        return jsonify({"success": False, "message": "Failed to update API key"}), 500
     WinHubCore.audit(
         user_id=session.get('user_id'),
         module="Admin",
@@ -750,13 +896,57 @@ def update_api_key_permissions(kid):
             "key_id": key.id,
             "name": key.name,
             "prefix": key.prefix,
-            "permissions_count": len(permissions),
-            "group_scope_count": len(group_scope),
+            "permissions_count": len(policy["permissions"]),
+            "group_scope_count": len(groups),
+            "template_scope_count": len(templates),
+            "allowed_networks": policy["networks"],
+            "max_targets_per_run": policy["max_targets"],
             "expires_at": key.expires_at.isoformat() if key.expires_at else None,
         },
         status="Success"
     )
     return jsonify({"success": True})
+
+
+@admin_bp.route('/api/admin/apikeys/<int:kid>/rotate', methods=['POST'])
+def rotate_api_key(kid):
+    key = ApiKey.query.get(kid)
+    if not key:
+        return jsonify({"success": False, "message": "API key not found"}), 404
+    raw_key = f"wh_{secrets.token_urlsafe(40)}"
+    key.key_hash = sec_manager.hash_password(raw_key)
+    key.prefix = raw_key[:8]
+    key.is_active = True
+    key.revoked_at = None
+    key.last_used_at = None
+    key.last_used_ip = None
+    db.session.commit()
+    WinHubCore.audit(
+        user_id=session.get('user_id'),
+        module="Admin",
+        action="Rotate API Key",
+        details={"key_id": key.id, "name": key.name, "prefix": key.prefix},
+        status="Success"
+    )
+    return jsonify({"success": True, "raw_key": raw_key})
+
+
+@admin_bp.route('/api/admin/apikeys/<int:kid>/toggle', methods=['POST'])
+def toggle_api_key(kid):
+    key = ApiKey.query.get(kid)
+    if not key:
+        return jsonify({"success": False, "message": "API key not found"}), 404
+    key.is_active = not bool(key.is_active)
+    key.revoked_at = None if key.is_active else datetime.utcnow()
+    db.session.commit()
+    WinHubCore.audit(
+        user_id=session.get('user_id'),
+        module="Admin",
+        action="Enable API Key" if key.is_active else "Revoke API Key",
+        details={"key_id": key.id, "name": key.name, "prefix": key.prefix},
+        status="Success"
+    )
+    return jsonify({"success": True, "is_active": key.is_active})
 
 
 @admin_bp.route('/api/admin/audit-logs', methods=['GET'])

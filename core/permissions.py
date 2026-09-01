@@ -20,6 +20,8 @@ MODULE_INTERNAL_PERMISSION_CATALOG = {
         {"id": "send_reports", "name": "Send reports by email"},
         {"id": "manage_templates", "name": "Manage templates"},
         {"id": "manage_smtp", "name": "Manage SMTP profiles"},
+        {"id": "use_ai_reports", "name": "Generate reports with AI"},
+        {"id": "manage_ai", "name": "Manage AI provider"},
         {"id": "manage_scheduler", "name": "Manage scheduler"},
         {"id": "manage_triggers", "name": "Manage triggers"},
         {"id": "manage_hosts", "name": "Edit/block hosts"},
@@ -119,6 +121,8 @@ PERMISSION_ALIASES = {
 EXPLICIT_ONLY_PERMISSIONS = {
     "Infrastructure": {
         "view_sensitive_reports",
+        "use_ai_reports",
+        "manage_ai",
         # Legacy tokens remain parseable during upgrades, but route-level hard
         # deletion is reserved for an interactive superadmin.
         "delete_reports",
@@ -134,6 +138,13 @@ EXPLICIT_ONLY_PERMISSIONS = {
 SUPERADMIN_ONLY_PERMISSIONS = {
     "Infrastructure": {"delete_reports", "delete_tasks"},
     "HistoryAudit": {"manage_history"},
+}
+
+# Secrets are delivered by WinHUB's internal workflow (for example email), not
+# returned to automation clients. This remains denied even if a legacy key still
+# contains the old exact token in its JSON permissions.
+API_DENIED_PERMISSIONS = {
+    "Infrastructure": {"view_sensitive_reports"},
 }
 
 
@@ -171,6 +182,22 @@ def request_api_permissions():
     return parsed
 
 
+def request_api_group_permissions():
+    """Return an exact {group_id: actions} matrix for the current API key."""
+    if not has_request_context() or not session.get("api_key_auth"):
+        return None
+    cached = getattr(g, "winhub_api_group_permissions", None)
+    if isinstance(cached, dict):
+        return cached
+    stored = session.get("api_group_permissions")
+    if isinstance(stored, dict):
+        return {
+            str(group_id): frozenset(str(action) for action in (actions or []))
+            for group_id, actions in stored.items()
+        }
+    return None
+
+
 def user_allowed_permissions(user):
     raw = getattr(user, "allowed_modules", None)
     if not has_request_context():
@@ -189,6 +216,9 @@ def request_api_group_scope():
     api_permissions = request_api_permissions()
     if api_permissions is None:
         return None
+    exact_permissions = request_api_group_permissions()
+    if exact_permissions is not None:
+        return list(exact_permissions.keys())
     prefix = "scope:group:"
     return [
         item[len(prefix):]
@@ -214,6 +244,8 @@ def has_permission(user, module_id, permission_id):
         return False
 
     api_permissions = request_api_permissions()
+    if api_permissions is not None and permission_id in API_DENIED_PERMISSIONS.get(module_id, set()):
+        return False
     if permission_id in SUPERADMIN_ONLY_PERMISSIONS.get(module_id, set()):
         return bool(api_permissions is None and getattr(user, "is_admin", False))
     if api_permissions is not None:

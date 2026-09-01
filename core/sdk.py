@@ -50,7 +50,9 @@ class WinHubCore:
             source_type = source_type or ("api" if session.get("api_key_auth") else "web")
             if actor_type == "api_key" and session.get("api_key_id"):
                 username = f"{username or 'API Key'} (key:{session.get('api_key_id')})"
-            ip_address = ip_address or request.headers.get("X-Forwarded-For", request.remote_addr or "").split(",")[0].strip()
+            if not ip_address:
+                from core.api_access import effective_client_ip
+                ip_address = effective_client_ip(request)
             request_id = request_id or getattr(g, "request_id", None)
         else:
             actor_type = actor_type or "system"
@@ -171,11 +173,14 @@ class WinHubCore:
         actor_name=None,
         actor_user_id=None,
         system_actor=False,
+        ai_report=None,
     ) -> str:
         user = WinHubCore.request_user(user_id)
         if not user: raise PermissionError("Invalid user")
 
         report_template_id = payload.get("__report_template_id") if isinstance(payload, dict) else None
+        if report_template_id and ai_report:
+            raise ValueError("Choose either an AI report or a report template, not both")
         if report_template_id:
             report_template = TaskTemplate.query.get(str(report_template_id))
             if not report_template or getattr(report_template, "type", "action") != "report" or not template_approval_valid(report_template):
@@ -232,6 +237,14 @@ class WinHubCore:
         if tasks:
             db.session.add_all(tasks)
             db.session.flush()
+            if ai_report:
+                from core.ai_reports import create_ai_report_request
+                create_ai_report_request(
+                    job_id,
+                    ai_report,
+                    actor_user_id=None if system_actor else (actor_user_id or user.id),
+                    actor_name=actor_name or user.username,
+                )
             from core.history_search import index_agent_task
             for task in tasks:
                 index_agent_task(task)
@@ -329,6 +342,9 @@ class WinHubCore:
             )
         existing_reports = list({row.id: row for row in existing_reports}.values())
         if existing_reports and not force:
+            from core.ai_reports import mark_ai_requests_ready
+            parent_report = next((row for row in existing_reports if row.id == job_id), existing_reports[0])
+            mark_ai_requests_ready(job_id, parent_report.id)
             return
         if existing_reports:
             from core.report_versions import ensure_report_revision
@@ -506,6 +522,9 @@ class WinHubCore:
                 reason="Generated from endpoint results" if revision_kind == "generated" else "Regenerated from updated endpoint results",
             )
         db.session.commit()
+        from core.ai_reports import mark_ai_requests_ready
+        parent_report = next((row for row in created_reports if row.id == job_id), created_reports[0])
+        mark_ai_requests_ready(job_id, parent_report.id)
         for report_row in created_reports:
             WinHubCore.audit(
                 user_id=getattr(tasks[0], "actor_user_id", None),

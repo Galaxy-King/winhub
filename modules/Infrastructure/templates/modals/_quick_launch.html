@@ -414,6 +414,17 @@
                     <p class="mb-2 text-[10px] font-black text-slate-400 uppercase tracking-widest">Template variables</p>
                     <div id="quickLaunchVariables" class="grid grid-cols-1 sm:grid-cols-2 gap-3"></div>
                 </div>
+
+                {% if permissions.use_ai_reports %}
+                <div class="mt-5 rounded-2xl border border-violet-400/30 bg-violet-500/10 p-4">
+                    <label class="flex items-center gap-3 cursor-pointer">
+                        <input id="quickLaunchAiToggle" type="checkbox" onchange="document.getElementById('quickLaunchAiPrompt').classList.toggle('hidden', !this.checked)" class="w-5 h-5 rounded border-slate-500 text-violet-600">
+                        <span class="text-sm font-black text-violet-100">Form report with AI</span>
+                    </label>
+                    <textarea id="quickLaunchAiPrompt" maxlength="4000" class="quick-launch-input hidden mt-3 min-h-28 resize-y" placeholder="Example: This script returns WireGuard settings. Create a short table with Host and endpoint:port."></textarea>
+                    <p class="mt-2 text-[10px] font-bold text-violet-200/70">The script output is masked for common secrets before it is sent to Open WebUI.</p>
+                </div>
+                {% endif %}
             </section>
         </main>
 

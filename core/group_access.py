@@ -11,7 +11,7 @@ from core.database import (
     endpoint_group_m2m,
     user_group_m2m,
 )
-from core.permissions import request_api_group_scope
+from core.permissions import request_api_group_permissions, request_api_group_scope
 
 
 LEGACY_ALL = "*"
@@ -46,7 +46,7 @@ def parse_group_permissions(raw, legacy_default=True):
             parsed = [raw]
     else:
         parsed = raw
-    if not isinstance(parsed, (list, tuple, set)):
+    if not isinstance(parsed, (list, tuple, set, frozenset)):
         return set(GROUP_ACTION_IDS) if legacy_default else set()
     values = {str(item) for item in parsed if item is not None}
     if LEGACY_ALL in values:
@@ -116,17 +116,26 @@ def scoped_group_permission_map(user):
     """Resolve interactive-user or API-key group grants."""
     if not user:
         return {}
+    api_group_permissions = request_api_group_permissions()
     api_group_ids = request_api_group_scope()
     cache = _request_cache("winhub_scoped_group_permission_maps")
     cache_key = (
         getattr(user, "id", None),
+        None if api_group_permissions is None else tuple(
+            sorted((str(group_id), tuple(sorted(actions))) for group_id, actions in api_group_permissions.items())
+        ),
         None if api_group_ids is None else tuple(sorted(str(group_id) for group_id in api_group_ids if group_id)),
         bool(getattr(user, "is_admin", False)),
     )
     if cache is not None and cache_key in cache:
         return cache[cache_key]
 
-    if api_group_ids is not None:
+    if api_group_permissions is not None:
+        result = {
+            str(group_id): frozenset(parse_group_permissions(actions, legacy_default=False))
+            for group_id, actions in api_group_permissions.items()
+        }
+    elif api_group_ids is not None:
         result = {str(group_id): FULL_GROUP_ACTIONS for group_id in api_group_ids if group_id}
     elif getattr(user, "is_admin", False):
         result = {

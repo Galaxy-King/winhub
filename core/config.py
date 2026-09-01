@@ -95,6 +95,9 @@ class Config:
     RATELIMIT_DEFAULT = clean_env_value(os.environ.get('RATELIMIT_DEFAULT')) or ''
     LOGIN_RATE_LIMIT = clean_env_value(os.environ.get('LOGIN_RATE_LIMIT')) or '5 per minute'
     AGENT_ENROLLMENT_RATE_LIMIT = clean_env_value(os.environ.get('AGENT_ENROLLMENT_RATE_LIMIT')) or '10 per minute'
+    # X-Forwarded-For is trusted only when the direct peer belongs to one of
+    # these networks. The Debian deployment terminates HTTP at local Nginx.
+    TRUSTED_PROXY_CIDRS = clean_env_value(os.environ.get('TRUSTED_PROXY_CIDRS')) or '127.0.0.1/32,::1/128'
 
     AGENT_API_KEY = clean_env_value(os.environ.get('AGENT_API_KEY')) or DEFAULT_AGENT_API_KEY
     AGENT_ENROLLMENT_ENABLED = (clean_env_value(os.environ.get('AGENT_ENROLLMENT_ENABLED')) or 'true').lower() in ('1', 'true', 'yes', 'on')
@@ -137,6 +140,13 @@ class Config:
     REPORT_RENDERER_TIMEOUT_SECONDS = env_int('REPORT_RENDERER_TIMEOUT_SECONDS', 10, 1, 120)
     OUTBOUND_POLICY_MODE = (clean_env_value(os.environ.get('OUTBOUND_POLICY_MODE')) or 'audit').lower()
     OUTBOUND_ALLOWED_HOSTS = clean_env_value(os.environ.get('OUTBOUND_ALLOWED_HOSTS')) or ''
+    AI_ALLOW_INSECURE_HTTP = (clean_env_value(os.environ.get('AI_ALLOW_INSECURE_HTTP')) or 'false').lower() in ('1', 'true', 'yes', 'on')
+    AI_REQUEST_TIMEOUT_SECONDS = env_int('AI_REQUEST_TIMEOUT_SECONDS', 120, 5, 600)
+    AI_WORKER_INTERVAL_SECONDS = env_int('AI_WORKER_INTERVAL_SECONDS', 5, 1, 300)
+    AI_RUNNING_TIMEOUT_SECONDS = env_int('AI_RUNNING_TIMEOUT_SECONDS', 600, 60, 3600)
+    AI_MAX_PROMPT_CHARS = env_int('AI_MAX_PROMPT_CHARS', 4000, 100, 20000)
+    AI_MAX_INPUT_BYTES = env_int('AI_MAX_INPUT_BYTES', 1048576, 16384, 10485760)
+    AI_MAX_OUTPUT_BYTES = env_int('AI_MAX_OUTPUT_BYTES', 524288, 4096, 2097152)
     CSP_MODE = (clean_env_value(os.environ.get('CSP_MODE')) or 'report-only').lower()
     CSP_POLICY = clean_env_value(os.environ.get('CSP_POLICY')) or COMPATIBILITY_CSP_POLICY
     CSP_NONCE_MODE = (clean_env_value(os.environ.get('CSP_NONCE_MODE')) or 'report-only').lower()

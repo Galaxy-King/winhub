@@ -18,6 +18,7 @@ let reportPage = 1;
 let reportPagination = { page: 1, total: 0, has_more: false };
 let selectedReportSnapshot = null;
 let selectedReportSnapshotLabel = '';
+let aiProviderSettings = null;
 let selectedReportSnapshotKey = 'current';
 let reportViewerFontSize = 14;
 let reportViewerWrap = true;
@@ -715,6 +716,86 @@ async function fetchConfluenceProfilesGlobally() {
     } catch (e) { console.error("Error fetching Confluence profiles", e); }
 }
 
+async function fetchAiProviderSettings() {
+    if (!infraPermissions.use_ai_reports && !infraPermissions.manage_ai) return null;
+    const response = await fetch('/api/infrastructure/ai-provider');
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok || !data.success) throw new Error(data.message || 'Could not load AI provider settings');
+    aiProviderSettings = data.provider || {};
+    updateAiReportControls();
+    return aiProviderSettings;
+}
+
+function updateAiReportControls() {
+    const available = !!aiProviderSettings?.enabled;
+    ['depAiReportToggle', 'quickLaunchAiToggle'].forEach(id => {
+        const toggle = document.getElementById(id);
+        if (!toggle) return;
+        toggle.disabled = !available;
+        toggle.title = available ? '' : 'The Open WebUI provider is not enabled';
+        if (!available) toggle.checked = false;
+    });
+    if (!available) {
+        document.getElementById('depAiReportSettings')?.classList.add('hidden');
+        document.getElementById('quickLaunchAiPrompt')?.classList.add('hidden');
+    }
+}
+
+async function openAiProviderManager() {
+    try {
+        const provider = await fetchAiProviderSettings() || {};
+        document.getElementById('aiProviderEnabled').checked = !!provider.enabled;
+        document.getElementById('aiProviderBaseUrl').value = provider.base_url || '';
+        document.getElementById('aiProviderModel').value = provider.model || '';
+        document.getElementById('aiProviderApiKey').value = '';
+        document.getElementById('aiProviderApiKey').placeholder = provider.has_api_key ? 'Stored securely — leave blank to keep' : 'Open WebUI API key';
+        document.getElementById('aiProviderStatus').textContent = provider.enabled ? 'Configured' : 'Disabled';
+        openModal('aiProviderModal');
+    } catch (error) {
+        alert(error.message);
+    }
+}
+
+async function saveAiProviderSettings() {
+    const payload = {
+        enabled: document.getElementById('aiProviderEnabled')?.checked || false,
+        base_url: document.getElementById('aiProviderBaseUrl')?.value?.trim() || '',
+        model: document.getElementById('aiProviderModel')?.value?.trim() || '',
+        api_key: document.getElementById('aiProviderApiKey')?.value || '',
+    };
+    const response = await fetch('/api/infrastructure/ai-provider', {
+        method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(payload),
+    });
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok || !data.success) return alert(data.message || 'Could not save AI provider');
+    aiProviderSettings = data.provider;
+    updateAiReportControls();
+    document.getElementById('aiProviderApiKey').value = '';
+    document.getElementById('aiProviderApiKey').placeholder = 'Stored securely — leave blank to keep';
+    document.getElementById('aiProviderStatus').textContent = 'Saved';
+}
+
+async function testAiProviderSettings() {
+    const status = document.getElementById('aiProviderStatus');
+    if (status) status.textContent = 'Testing…';
+    const response = await fetch('/api/infrastructure/ai-provider/test', {
+        method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({
+            base_url: document.getElementById('aiProviderBaseUrl')?.value?.trim() || '',
+            api_key: document.getElementById('aiProviderApiKey')?.value || '',
+            model: document.getElementById('aiProviderModel')?.value?.trim() || '',
+        }),
+    });
+    const data = await response.json().catch(() => ({}));
+    const models = Array.isArray(data.models) ? data.models : [];
+    const datalist = document.getElementById('aiProviderModels');
+    if (datalist) datalist.innerHTML = models.map(model => `<option value="${escapeHtml(model)}"></option>`).join('');
+    const modelInput = document.getElementById('aiProviderModel');
+    if (data.success && modelInput && !modelInput.value && models.length === 1) modelInput.value = models[0];
+    if (status) status.textContent = data.success
+        ? `${data.message}; ${models.length} model(s) found${models.length ? ': ' + models.slice(0, 3).join(', ') : ''}`
+        : (data.message || 'Connection failed');
+}
+
 // Перехоплювач для безпечного збереження розширених налаштувань
 const originalFetch = window.fetch;
 window.fetch = async function() {
@@ -884,7 +965,7 @@ function renderReports() {
                         <span class="text-slate-300">•</span>
                         <span class="text-[10px] text-slate-500 font-bold">Total: ${r.total} | <span class="text-emerald-500">Succ: ${r.success}</span> | <span class="text-rose-500">Err: ${r.error}</span></span>
                     </div>
-                    <div class="text-[10px] text-slate-400 mt-1">By ${escapeHtml(r.created_by || 'System')} · ${escapeHtml(r.source || 'system')} · revision ${escapeHtml(r.revision || 1)}</div>
+                    <div class="text-[10px] text-slate-400 mt-1">By ${escapeHtml(r.created_by || 'System')} · ${escapeHtml(r.source || 'system')} · revision ${escapeHtml(r.revision || 1)}${r.ai_report?.requested ? ` · <span class="font-black text-violet-600">AI: ${escapeHtml(r.ai_report.status || 'Pending')}</span>` : ''}</div>
                 </div>
             </div>
             <div class="shrink-0">
@@ -1021,6 +1102,7 @@ async function viewReport(id) {
     }
 
     const bodyEl = document.getElementById('vrBody');
+    renderReportAiStatus(r.ai_report);
     if(bodyEl) bodyEl.value = r.report_data_loaded ? (r.report_data || "") : "Loading report body...";
     selectedReportSnapshot = null;
     selectedReportSnapshotLabel = '';
@@ -1043,6 +1125,7 @@ async function viewReport(id) {
             const data = await res.json();
             if (!data.success) throw new Error(data.message || 'Report body request failed');
             Object.assign(r, data.data || {}, { report_data_loaded: true });
+            renderReportAiStatus(r.ai_report);
             if (currentReportId === id && bodyEl) {
                 bodyEl.value = r.report_data || "";
                 updateReportBodyStats();
@@ -1059,6 +1142,31 @@ async function viewReport(id) {
         showCurrentReportVersion();
         loadReportTrail();
     }
+}
+
+function renderReportAiStatus(aiReport) {
+    const badge = document.getElementById('vrAiStatus');
+    if (!badge) return;
+    const requested = !!aiReport?.requested;
+    badge.classList.toggle('hidden', !requested);
+    if (requested) {
+        badge.textContent = `AI: ${aiReport.status || 'Pending'}`;
+        badge.title = aiReport.error || '';
+    }
+}
+
+async function regenerateCurrentReportWithAi() {
+    if (!currentReportId) return;
+    const instruction = window.prompt('How should AI format this report?', 'Create a concise report with a table. Use only facts from the endpoint results.');
+    if (instruction === null) return;
+    if (!instruction.trim()) return alert('AI report instruction is required.');
+    const response = await fetch(`/api/infrastructure/reports/${encodeURIComponent(currentReportId)}/ai-regenerate`, {
+        method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({prompt: instruction.trim()}),
+    });
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok || !data.success) return alert(data.message || 'Could not queue AI report');
+    renderReportAiStatus({requested: true, status: data.status});
+    alert('AI regeneration queued. The result will be stored as a new immutable revision.');
 }
 
 function reportLineDiff(snapshot, current) {
@@ -2021,6 +2129,10 @@ document.addEventListener('DOMContentLoaded', () => {
 
         fetchSmtpProfilesGlobally(); // ГЛОБАЛЬНЕ ЗАВАНТАЖЕННЯ ПОШТ
         fetchConfluenceProfilesGlobally();
+        if (infraPermissions.use_ai_reports || infraPermissions.manage_ai) fetchAiProviderSettings().catch(() => {
+            aiProviderSettings = {enabled: false};
+            updateAiReportControls();
+        });
         initAvailableHostsData();
 
         const hostSearchEl = document.getElementById('hostSearch');
@@ -2422,6 +2534,12 @@ function resetWorkspace(clearPersistedState = true) {
     if (autoEmailRecipients) autoEmailRecipients.value = '';
     const autoEmailUseGpg = document.getElementById('depAutoEmailUseGpg');
     if (autoEmailUseGpg) autoEmailUseGpg.checked = true;
+    const aiToggle = document.getElementById('depAiReportToggle');
+    if (aiToggle) aiToggle.checked = false;
+    const aiSettings = document.getElementById('depAiReportSettings');
+    if (aiSettings) aiSettings.classList.add('hidden');
+    const aiPrompt = document.getElementById('depAiReportPrompt');
+    if (aiPrompt) aiPrompt.value = '';
     const autoConfluenceToggle = document.getElementById('depAutoConfluenceToggle');
     if (autoConfluenceToggle) autoConfluenceToggle.checked = false;
     const autoConfluenceSettings = document.getElementById('depAutoConfluenceSettings');
@@ -3960,6 +4078,13 @@ async function runSoftwareInstall() {
     switchView('queue');
 }
 
+function toggleDeploymentAiReport() {
+    const enabled = document.getElementById('depAiReportToggle')?.checked || false;
+    document.getElementById('depAiReportSettings')?.classList.toggle('hidden', !enabled);
+    const reportTemplate = document.getElementById('depReportTemplate');
+    if (enabled && reportTemplate) reportTemplate.value = '';
+}
+
 async function submitDeployment() {
     const btn = document.getElementById('btnDeploy');
     const oldText = btn.innerText;
@@ -3968,6 +4093,13 @@ async function submitDeployment() {
     const action = document.getElementById('depAction').value;
     const targetType = document.getElementById('depType').value;
     const reportTemplateId = document.getElementById('depReportTemplate')?.value || null;
+    const aiEnabled = document.getElementById('depAiReportToggle')?.checked || false;
+    const aiPrompt = document.getElementById('depAiReportPrompt')?.value?.trim() || '';
+    if (aiEnabled && !aiPrompt) {
+        btn.disabled = false; btn.innerText = oldText;
+        document.getElementById('depAiReportPrompt')?.focus();
+        return alert('Describe how AI should format the report.');
+    }
 
     const tplVars = collectVariableInputs('.tpl-var-input');
 
@@ -3978,6 +4110,7 @@ async function submitDeployment() {
         action,
         template_id: selectedTemplateId,
         report_template_id: reportTemplateId,
+        ai_report: {enabled: aiEnabled, prompt: aiPrompt},
         timeout_minutes: parseInt(document.getElementById('depTimeoutMinutes')?.value || '0', 10) || 0,
         variables: tplVars,
         auto_email_toggle: document.getElementById('depAutoEmailToggle')?.checked || false,
@@ -4623,6 +4756,7 @@ function renderQueue() {
                 <td class="px-10 py-5 font-black text-slate-800 text-lg">
                     ${escapeHtml(j.title || 'Untitled')}
                     <div class="text-[10px] text-slate-400 uppercase tracking-widest mt-1">By: ${escapeHtml(j.created_by || 'System')}</div>
+                    ${j.ai_report?.requested ? `<div class="text-[10px] text-violet-600 uppercase tracking-widest mt-1">AI report: ${escapeHtml(j.ai_report.status || 'Pending')}</div>` : ''}
                 </td>
                 <td class="px-10 py-5 font-bold text-slate-500">${escapeHtml(j.target_summary || 'N/A')}</td>
                 <td class="px-10 py-5 text-center"><span class="px-4 py-1.5 rounded-xl text-[10px] font-black uppercase tracking-wider ${cls}">${escapeHtml(statusStr)} ${j.total > 1 ? `(${j.success}/${j.total})` : ''}</span></td>
