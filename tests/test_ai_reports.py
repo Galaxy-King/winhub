@@ -1,3 +1,4 @@
+import contextlib
 import json
 import unittest
 import uuid
@@ -77,6 +78,137 @@ class AiReportTests(unittest.TestCase):
         self.assertNotIn("<script>", rendered)
         self.assertNotIn("href=", rendered)
         self.assertIn("&lt;script&gt;", rendered)
+
+    def test_safe_delivery_html_keeps_formatting_without_active_content(self):
+        from modules.Infrastructure.routes import report_email_bodies, safe_report_html
+
+        source = (
+            '<h1 onclick="alert(1)">Welcome</h1>'
+            '<p style="color:red">Formatted report</p>'
+            '<script>alert(2)</script>'
+            '<table><tr><td onmouseover="alert(3)">WG-01</td></tr></table>'
+            '<img src="x" onerror="alert(4)">'
+            '<a href="javascript:alert(5)">unsafe link</a>'
+        )
+        rendered = safe_report_html(source)
+
+        self.assertIn("<h1>Welcome</h1>", rendered)
+        self.assertIn("<table><tr><td>WG-01</td></tr></table>", rendered)
+        self.assertIn("unsafe link", rendered)
+        for forbidden in ("<script", "<img", "<a ", "onclick", "onmouseover", "onerror", "javascript:", "alert(", "style="):
+            with self.subTest(forbidden=forbidden):
+                self.assertNotIn(forbidden, rendered.lower())
+
+        plain_body, html_body = report_email_bodies(source, "Please review <carefully>.")
+        self.assertIn("Welcome", plain_body)
+        self.assertIn("Formatted report", plain_body)
+        self.assertIn("<h1>Welcome</h1>", html_body)
+        self.assertIn("Please review &lt;carefully&gt;.", html_body)
+        self.assertNotIn("onclick", html_body)
+
+    def test_email_alternative_and_pgp_mime_preserve_formatted_part(self):
+        from modules.Infrastructure.routes import pgp_mime_message, report_email_alternative
+
+        alternative = report_email_alternative("<h1>Report</h1><p>Ready</p>")
+        self.assertEqual(alternative.get_content_type(), "multipart/alternative")
+        self.assertEqual(
+            [part.get_content_type() for part in alternative.get_payload()],
+            ["text/plain", "text/html"],
+        )
+        html_part = alternative.get_payload()[1].get_payload(decode=True).decode("utf-8")
+        self.assertIn("<h1>Report</h1>", html_part)
+
+        encrypted = pgp_mime_message(
+            "-----BEGIN PGP MESSAGE-----\nabc\n-----END PGP MESSAGE-----"
+        )
+        self.assertEqual(encrypted.get_content_type(), "multipart/encrypted")
+        self.assertEqual(encrypted.get_param("protocol"), "application/pgp-encrypted")
+        self.assertEqual(
+            [part.get_content_type() for part in encrypted.get_payload()],
+            ["application/pgp-encrypted", "application/octet-stream"],
+        )
+
+    def test_confluence_safe_mode_formats_and_sanitizes_report(self):
+        from modules.Infrastructure.routes import confluence_report_storage_html
+
+        report = mock.Mock(
+            title="Formatted report",
+            status="Waiting Review",
+            created_at=None,
+            total_count=1,
+            success_count=1,
+            error_count=0,
+        )
+        storage = confluence_report_storage_html(
+            report,
+            '<h1>Summary</h1><table><tr><td onclick="x()">Ready</td></tr></table><script>x()</script>',
+            "Published safely",
+            formatted=True,
+        )
+
+        self.assertIn("<h1>Summary</h1>", storage)
+        self.assertIn("<table><tr><td>Ready</td></tr></table>", storage)
+        self.assertIn("Published safely", storage)
+        self.assertNotIn("onclick", storage)
+        self.assertNotIn("<script", storage)
+
+    def test_smtp_delivery_uses_formatted_mime_with_and_without_gpg(self):
+        from modules.Infrastructure import routes
+
+        smtp = mock.MagicMock()
+        smtp.__enter__.return_value = smtp
+        smtp.__exit__.return_value = False
+        profile = {
+            "reports@example.com": {
+                "host": "smtp.example.com",
+                "port": 465,
+                "password": "encrypted-password",
+            }
+        }
+        common_patches = (
+            mock.patch.object(routes, "load_smtp_profiles", return_value=profile),
+            mock.patch.object(routes.smtplib, "SMTP_SSL", return_value=smtp),
+            mock.patch.object(routes, "pinned_outbound_host", return_value=contextlib.nullcontext()),
+            mock.patch.object(routes.sec_manager, "decrypt_data", return_value="smtp-password"),
+        )
+        with common_patches[0], common_patches[1], common_patches[2], common_patches[3]:
+            success, _, sent = routes.send_report_email(
+                "Formatted report",
+                "<h1>Summary</h1><p>Ready</p>",
+                "reports@example.com",
+                ["user@example.com"],
+                use_gpg=False,
+            )
+        self.assertTrue(success)
+        self.assertEqual(sent, 1)
+        unencrypted_message = smtp.send_message.call_args.args[0]
+        self.assertEqual(unencrypted_message.get_content_type(), "multipart/alternative")
+
+        smtp.send_message.reset_mock()
+        common_patches = (
+            mock.patch.object(routes, "load_smtp_profiles", return_value=profile),
+            mock.patch.object(routes.smtplib, "SMTP_SSL", return_value=smtp),
+            mock.patch.object(routes, "pinned_outbound_host", return_value=contextlib.nullcontext()),
+            mock.patch.object(routes.sec_manager, "decrypt_data", return_value="smtp-password"),
+            mock.patch.object(routes, "encrypt_report_body", return_value=(
+                True,
+                "-----BEGIN PGP MESSAGE-----\nabc\n-----END PGP MESSAGE-----",
+                None,
+            )),
+        )
+        with common_patches[0], common_patches[1], common_patches[2], common_patches[3], common_patches[4] as encrypt:
+            success, _, sent = routes.send_report_email(
+                "Encrypted formatted report",
+                "<h1>Summary</h1><p>Ready</p>",
+                "reports@example.com",
+                ["user@example.com"],
+                use_gpg=True,
+            )
+        self.assertTrue(success)
+        self.assertEqual(sent, 1)
+        self.assertIn("multipart/alternative", encrypt.call_args.args[0])
+        encrypted_message = smtp.send_message.call_args.args[0]
+        self.assertEqual(encrypted_message.get_content_type(), "multipart/encrypted")
 
     def test_ai_input_masks_structured_secrets(self):
         with self.app.app_context():

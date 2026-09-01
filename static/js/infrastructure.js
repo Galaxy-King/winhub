@@ -1691,7 +1691,7 @@ function openReportConfluenceModal(id) {
     const pageInput = document.getElementById('reportConfluencePageId');
     if(pageInput) pageInput.value = '';
     const formatSelect = document.getElementById('reportConfluenceBodyFormat');
-    if(formatSelect) formatSelect.value = 'escaped_pre';
+    if(formatSelect) formatSelect.value = 'safe_html';
     openModal('reportConfluenceModal');
 }
 
@@ -1721,7 +1721,7 @@ function collectAutoConfluenceSettings() {
         profile: document.getElementById('depAutoConfluenceProfile')?.value || '',
         page_id: document.getElementById('depAutoConfluencePageId')?.value || '',
         title: document.getElementById('depAutoConfluenceTitle')?.value || '',
-        body_format: document.getElementById('depAutoConfluenceBodyFormat')?.value || 'storage_html',
+        body_format: document.getElementById('depAutoConfluenceBodyFormat')?.value || 'safe_html',
         note: document.getElementById('depAutoConfluenceNote')?.value || ''
     };
 }
@@ -1752,7 +1752,7 @@ async function publishReportToConfluence() {
     const pageId = document.getElementById('reportConfluencePageId')?.value || '';
     const title = document.getElementById('reportConfluenceTitle')?.value || '';
     const customNote = document.getElementById('reportConfluenceNote')?.value || '';
-    const bodyFormat = document.getElementById('reportConfluenceBodyFormat')?.value || 'escaped_pre';
+    const bodyFormat = document.getElementById('reportConfluenceBodyFormat')?.value || 'safe_html';
 
     if (!reportId || reportId === 'undefined') return alert('Cannot publish this report: report id is missing.');
     if (!profile || !pageId) return alert('Select Confluence profile and page ID.');
@@ -2618,7 +2618,7 @@ function resetWorkspace(clearPersistedState = true) {
         if(el) el.value = '';
     });
     const autoConfluenceFormat = document.getElementById('depAutoConfluenceBodyFormat');
-    if (autoConfluenceFormat) autoConfluenceFormat.value = 'storage_html';
+    if (autoConfluenceFormat) autoConfluenceFormat.value = 'safe_html';
     ['depPolicyHideCode', 'depPolicyLockEdit', 'depPolicyLockDelete', 'depPolicyDisableRun'].forEach(id => {
         const el = document.getElementById(id);
         if(el) el.checked = false;
@@ -2771,7 +2771,7 @@ function loadTemplate(el) {
             if (profile) profile.value = payload.__auto_confluence_profile || '';
             if (pageId) pageId.value = payload.__auto_confluence_page_id || '';
             if (title) title.value = payload.__auto_confluence_title || '';
-            if (format) format.value = payload.__auto_confluence_body_format || 'storage_html';
+            if (format) format.value = payload.__auto_confluence_body_format || 'safe_html';
             if (note) note.value = payload.__auto_confluence_note || '';
         }
     }, 50);
