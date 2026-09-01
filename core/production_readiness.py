@@ -186,6 +186,29 @@ def build_production_readiness(db=None, User=None, Endpoint=None):
         detail=f"OUTBOUND_POLICY_MODE={getattr(Config, 'OUTBOUND_POLICY_MODE', '')}.",
         action="Test integrations, configure OUTBOUND_ALLOWED_HOSTS where required, then set OUTBOUND_POLICY_MODE=enforce.",
     )
+    try:
+        from core.ai_client import load_ai_provider
+        ai_provider = load_ai_provider()
+    except Exception:
+        ai_provider = {"enabled": False, "configuration_error": True}
+    if ai_provider.get("enabled"):
+        ai_url = str(ai_provider.get("base_url") or "")
+        _warn(
+            checks,
+            "ai_provider_https",
+            "AI provider transport",
+            ai_url.lower().startswith("https://"),
+            detail=f"Configured AI provider: {ai_url or 'invalid'}.",
+            action="Terminate TLS at Open WebUI or its reverse proxy; use HTTP only inside a protected private network.",
+        )
+        _check(
+            checks,
+            "ai_provider_credentials",
+            "AI service credential",
+            bool(ai_provider.get("has_api_key") and ai_provider.get("model")),
+            detail="AI provider has a service API key and model ID.",
+            action="Configure a dedicated non-admin Open WebUI service account key and model.",
+        )
     _warn(
         checks,
         "csp_nonce",

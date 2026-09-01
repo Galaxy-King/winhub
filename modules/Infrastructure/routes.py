@@ -28,7 +28,7 @@ from werkzeug.exceptions import HTTPException
 from werkzeug.utils import secure_filename
 from apscheduler.triggers.cron import CronTrigger
 
-from core.database import db, User, Endpoint, EndpointGroup, EndpointDuplicateException, AgentTask, TaskTemplate, TelemetryHistory, ConnectionIpHistory, ScheduledTask, EndpointMetric, AgentUpdateRollout, TriggerRule, AggregatedJob, ApiKey, RegistrationHistory, AuditLog, ReportRevision, ReportDelivery, HistorySearchToken, endpoint_group_m2m
+from core.database import db, User, Endpoint, EndpointGroup, EndpointDuplicateException, AgentTask, TaskTemplate, TelemetryHistory, ConnectionIpHistory, ScheduledTask, EndpointMetric, AgentUpdateRollout, TriggerRule, AggregatedJob, AiReportRequest, ApiKey, RegistrationHistory, AuditLog, ReportRevision, ReportDelivery, HistorySearchToken, endpoint_group_m2m
 from core.sdk import WinHubCore
 from core.admin import send_notification_email
 from core.security import sec_manager
@@ -40,6 +40,8 @@ from core.report_renderer import validate_report_template
 from core.template_security import current_template_hash, template_approval_valid
 from core.outbound_security import normalized_origin, pinned_outbound_host, pinned_outbound_url
 from core.sensitive_data import is_sensitive_name, mask_sensitive_text, masked_variables
+from core.ai_client import OpenWebUIClient, load_ai_provider, save_ai_provider
+from core.ai_reports import create_ai_report_request, latest_ai_request, validate_ai_report_payload
 from core.api_access import (
     api_target_count_allowed,
     api_template_allowed,
@@ -1286,13 +1288,16 @@ def write_infra_audit(action, target_type="", target_id="", details=None, status
 
 
 def dispatch_infrastructure_task(
-    user_id, action_type, target_ids, payload, title, created_by=None, source_type=None
+    user_id, action_type, target_ids, payload, title, created_by=None, source_type=None,
+    ai_report=None,
 ):
     user = current_user() if user_id == session.get("user_id") else User.query.get(user_id)
     if not user:
         raise PermissionError("Invalid user")
 
     report_template_id = payload.get("__report_template_id") if isinstance(payload, dict) else None
+    if report_template_id and ai_report:
+        raise ValueError("Choose either an AI report or a report template, not both")
     if report_template_id and not approved_report_template(report_template_id):
         raise PermissionError("Approved report template not found or approval seal is invalid")
 
@@ -1359,6 +1364,13 @@ def dispatch_infrastructure_task(
 
     db.session.add_all(tasks)
     db.session.flush()
+    if ai_report:
+        create_ai_report_request(
+            job_id,
+            ai_report,
+            actor_user_id=user.id,
+            actor_name=created_by or user.username,
+        )
     from core.history_search import index_agent_task
     for task in tasks:
         index_agent_task(task)
@@ -1776,6 +1788,17 @@ def require_permission(permission_id):
     if not can(permission_id):
         return jsonify({"success": False, "message": "Permission denied"}), 403
     return None
+
+
+def requested_ai_report(data):
+    value = (data or {}).get("ai_report")
+    if not isinstance(value, dict) or not value.get("enabled"):
+        return None
+    if not can("use_ai_reports"):
+        raise PermissionError("AI report permission is required")
+    if (data or {}).get("report_template_id"):
+        raise ValueError("Choose either an AI report or a report template, not both")
+    return validate_ai_report_payload(value)
 
 def require_superadmin():
     if not session.get("is_admin"):
@@ -2383,6 +2406,11 @@ def auto_email_checker_thread(app):
                         if checked_unknown >= AUTO_EMAIL_NEW_CHECK_LIMIT:
                             break
                         checked_unknown += 1
+
+                        ai_request = latest_ai_request(source_job_id)
+                        if ai_request and ai_request.status != "Success":
+                            # Recheck later so a successful retry becomes deliverable.
+                            continue
 
                         task = AgentTask.query.options(
                             load_only(
@@ -3034,6 +3062,56 @@ def test_confluence_profile():
     return jsonify({"success": True, "message": "Confluence connection OK", "data": payload})
 
 
+@infrastructure_bp.route('/api/infrastructure/ai-provider', methods=['GET', 'POST'])
+def manage_ai_provider():
+    if request.method == "GET":
+        denied = require_any_permission("use_ai_reports", "manage_ai")
+        if denied:
+            return denied
+        return jsonify({"success": True, "provider": load_ai_provider()})
+
+    denied = require_permission("manage_ai")
+    if denied:
+        return denied
+    try:
+        provider = save_ai_provider(request.get_json(silent=True) or {})
+        write_infra_audit(
+            "AI Provider Saved",
+            "ai_provider",
+            "open_webui",
+            {"base_url": provider.get("base_url"), "model": provider.get("model"), "enabled": provider.get("enabled")},
+        )
+        db.session.commit()
+        return jsonify({"success": True, "provider": provider})
+    except ValueError as exc:
+        return jsonify({"success": False, "message": str(exc)}), 400
+
+
+@infrastructure_bp.route('/api/infrastructure/ai-provider/test', methods=['POST'])
+def test_ai_provider():
+    denied = require_permission("manage_ai")
+    if denied:
+        return denied
+    try:
+        submitted = request.get_json(silent=True) or {}
+        current = load_ai_provider(include_secret=True)
+        candidate = {
+            "base_url": str(submitted.get("base_url") or current.get("base_url") or ""),
+            "api_key": str(submitted.get("api_key") or current.get("api_key") or ""),
+            "model": str(submitted.get("model") or current.get("model") or ""),
+        }
+        client = OpenWebUIClient(candidate)
+        models = client.models()
+        return jsonify({
+            "success": True,
+            "message": "Open WebUI connection OK",
+            "models": models,
+            "configured_model_available": client.model in models,
+        })
+    except Exception as exc:
+        return jsonify({"success": False, "message": str(exc)}), 400
+
+
 @infrastructure_bp.route('/api/infrastructure/scheduled-reports', methods=['GET', 'POST'])
 def manage_scheduled_reports():
     if request.method == 'GET':
@@ -3258,6 +3336,13 @@ def get_reports():
         query = query.filter(AggregatedJob.id.in_(accessible_reports)) if accessible_reports else query.filter(False)
     total = query.count()
     reports = query.offset((page - 1) * per_page).limit(per_page).all()
+    source_job_ids = {report_source_job_id(report.id) for report in reports}
+    latest_ai_by_job = {}
+    if source_job_ids:
+        for ai_row in AiReportRequest.query.filter(AiReportRequest.job_id.in_(source_job_ids)).order_by(
+            AiReportRequest.created_at
+        ).all():
+            latest_ai_by_job[ai_row.job_id] = ai_row
     data = [{
         "id": r.id, "title": r.title, "status": r.status,
         "total": r.total_count, "success": r.success_count, "error": r.error_count,
@@ -3266,6 +3351,10 @@ def get_reports():
         "source": r.source_type or "system",
         "template_id": r.template_id,
         "revision": int(r.current_revision_number or 0),
+        "ai_report": ({
+            "requested": True,
+            "status": latest_ai_by_job[report_source_job_id(r.id)].status,
+        } if report_source_job_id(r.id) in latest_ai_by_job else {"requested": False, "status": "NotRequested"}),
     } for r in reports]
     return jsonify({
         "success": True,
@@ -3295,6 +3384,7 @@ def get_report(report_id):
     )
     db.session.commit()
     visible_body = report_body_for_current_user(r.report_data, report_id=report_id)
+    ai_request = latest_ai_request(report_source_job_id(report_id))
     if Config.AUDIT_SENSITIVE_READS:
         WinHubCore.audit(
             user_id=session.get("user_id"),
@@ -3320,8 +3410,59 @@ def get_report(report_id):
             "revision": revision.revision_number,
             "content_hash": revision.content_hash,
             "original_content_hash": r.original_content_hash,
+            "ai_report": ({
+                "requested": True,
+                "status": ai_request.status,
+                "attempt": ai_request.attempt,
+                "error": ai_request.error if ai_request.status == "Error" else None,
+                "completed_at": to_kyiv_time(ai_request.completed_at),
+            } if ai_request else {"requested": False, "status": "NotRequested"}),
         }
     })
+
+
+@infrastructure_bp.route('/api/infrastructure/reports/<report_id>/ai-regenerate', methods=['POST'])
+def regenerate_report_with_ai(report_id):
+    denied = require_any_permission("use_ai_reports", "edit_reports")
+    if denied:
+        return denied
+    if not can("use_ai_reports") or not can("edit_reports"):
+        return jsonify({"success": False, "message": "AI report and edit report permissions are required"}), 403
+    report = AggregatedJob.query.get(report_id)
+    if not report:
+        return jsonify({"success": False, "message": "Report not found"}), 404
+    if not can_access_report(report_id, "edit_reports"):
+        return jsonify({"success": False, "message": "Access denied"}), 403
+    if report.status != "Waiting Review":
+        return jsonify({"success": False, "message": "Only a report waiting for review can be regenerated"}), 409
+    if report_source_job_id(report_id) != str(report_id):
+        return jsonify({"success": False, "message": "AI regeneration is available for single aggregated reports"}), 409
+    try:
+        ai_report = validate_ai_report_payload({
+            "enabled": True,
+            "prompt": (request.get_json(silent=True) or {}).get("prompt"),
+        })
+        row = create_ai_report_request(
+            report_source_job_id(report_id),
+            ai_report,
+            actor_user_id=session.get("user_id"),
+            actor_name=current_actor_label(),
+            report_id=report_id,
+        )
+        db.session.commit()
+        WinHubCore.audit(
+            user_id=session.get("user_id"),
+            module="Infrastructure",
+            action="AI Report Regeneration Queued",
+            details={"request_id": row.id, "report_id": report_id},
+            target_type="report",
+            target_id=report_id,
+            status="Success",
+        )
+        return jsonify({"success": True, "request_id": row.id, "status": row.status})
+    except ValueError as exc:
+        db.session.rollback()
+        return jsonify({"success": False, "message": str(exc)}), 400
 
 
 @infrastructure_bp.route('/api/infrastructure/reports/<report_id>/revisions', methods=['GET'])
@@ -5806,6 +5947,11 @@ def create_task():
         payload_dict['__auto_confluence_body_format'] = data.get('auto_confluence_body_format', 'escaped_pre')
         payload_dict['__auto_confluence_note'] = data.get('auto_confluence_note', '')
 
+    try:
+        ai_report = requested_ai_report(data)
+    except (PermissionError, ValueError) as exc:
+        return jsonify({"success": False, "message": str(exc)}), 403 if isinstance(exc, PermissionError) else 400
+
     # ЗАМІНА ДИНАМІЧНИХ ЗМІННИХ (VARIABLES) У СКРИПТІ
     tpl_vars = data.get('variables', {})
     if session.get("api_key_auth") and template:
@@ -5883,8 +6029,11 @@ def create_task():
             return jsonify({"success": False, "message": "Report delivery is denied for one or more target groups"}), 403
 
     try:
-        WinHubCore.dispatch_task(session.get('user_id'), "Infrastructure", action_type, agent_ids, payload_dict, data.get('title', 'Task'))
-        return jsonify({"success": True})
+        job_id = WinHubCore.dispatch_task(
+            session.get('user_id'), "Infrastructure", action_type, agent_ids, payload_dict,
+            data.get('title', 'Task'), ai_report=ai_report,
+        )
+        return jsonify({"success": True, "job_id": job_id})
     except Exception as e:
         return jsonify({"success": False, "message": str(e)}), 400
 
@@ -5937,6 +6086,7 @@ def run_template_api(template_id):
         return jsonify({"success": False, "message": "Variables must be an object"}), 400
 
     try:
+        ai_report = requested_ai_report(data)
         payload_dict = load_template_payload(template)
         payload_dict["__template_id"] = template.id
         if "script" not in payload_dict and "command" in payload_dict:
@@ -5986,7 +6136,8 @@ def run_template_api(template_id):
             target_ids,
             payload_dict,
             title,
-            created_by=current_actor_label()
+            created_by=current_actor_label(),
+            ai_report=ai_report,
         )
 
         WinHubCore.audit(
@@ -6205,6 +6356,11 @@ def get_tasks():
             },
         })
 
+    latest_ai_by_job = {}
+    for ai_row in AiReportRequest.query.filter(AiReportRequest.job_id.in_(job_ids)).order_by(
+        AiReportRequest.created_at
+    ).all():
+        latest_ai_by_job[ai_row.job_id] = ai_row
     task_scope_filter = True if full_admin else or_(
         AgentTask.endpoint_id.in_(allowed_hosts),
         AgentTask.endpoint_id_snapshot.in_(allowed_hosts),
@@ -6221,7 +6377,8 @@ def get_tasks():
     for t, hostname, display_name in tasks:
         jid = t.job_id or t.id
         if jid not in jobs:
-            jobs[jid] = {"job_id": jid, "title": t.title or "Untitled Task", "action": t.action_type, "created_at": to_kyiv_time(t.created_at), "_sort_at": job_sort_at.get(jid) or t.created_at, "created_by": t.created_by, "tasks": [], "total": 0, "success": 0, "error": 0, "pending": 0, "running": 0, "cancelled": 0}
+            ai_row = latest_ai_by_job.get(jid)
+            jobs[jid] = {"job_id": jid, "title": t.title or "Untitled Task", "action": t.action_type, "created_at": to_kyiv_time(t.created_at), "_sort_at": job_sort_at.get(jid) or t.created_at, "created_by": t.created_by, "ai_report": ({"requested": True, "status": ai_row.status} if ai_row else {"requested": False, "status": "NotRequested"}), "tasks": [], "total": 0, "success": 0, "error": 0, "pending": 0, "running": 0, "cancelled": 0}
         if is_agent_updater_prepare_task(t):
             continue
         resolved_hostname = hostname or t.endpoint_hostname_snapshot or ""
@@ -6384,6 +6541,7 @@ def get_job_status_api(job_id):
     if split_prefix:
         delivery_filter = or_(delivery_filter, ReportDelivery.report_id.like(split_prefix))
     deliveries = ReportDelivery.query.filter(delivery_filter).order_by(ReportDelivery.created_at).all()
+    ai_request = latest_ai_request(job_id)
 
     if not expected_channels:
         notification_status = "NotRequested"
@@ -6401,6 +6559,14 @@ def get_job_status_api(job_id):
         "job_id": str(job_id),
         "status": job_status,
         "counts": counters,
+        "ai_report": ({
+            "requested": True,
+            "status": ai_request.status,
+            "attempt": ai_request.attempt,
+            "report_id": ai_request.report_id,
+            "error": ai_request.error if ai_request.status == "Error" else None,
+            "completed_at": to_kyiv_time(ai_request.completed_at),
+        } if ai_request else {"requested": False, "status": "NotRequested"}),
         "notification": {
             "expected_channels": expected_channels,
             "status": notification_status,

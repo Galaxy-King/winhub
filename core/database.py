@@ -389,6 +389,27 @@ class ReportDelivery(db.Model):
     completed_at = db.Column(db.DateTime, nullable=True, index=True)
 
 
+class AiReportRequest(db.Model):
+    """Durable, auditable request to transform endpoint results with AI."""
+    __tablename__ = 'ai_report_requests'
+    id = db.Column(db.String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
+    job_id = db.Column(db.String(36), nullable=False, index=True)
+    report_id = db.Column(db.String(36), db.ForeignKey('aggregated_jobs.id', ondelete="SET NULL"), nullable=True, index=True)
+    actor_user_id = db.Column(db.Integer, db.ForeignKey('users.id', ondelete="SET NULL"), nullable=True, index=True)
+    actor_name = db.Column(db.String(150), nullable=True)
+    prompt = db.Column(EncryptedText, nullable=False)
+    model = db.Column(db.String(150), nullable=True)
+    status = db.Column(db.String(30), nullable=False, default="WaitingForTasks", index=True)
+    attempt = db.Column(db.Integer, nullable=False, default=0)
+    input_hash = db.Column(db.String(64), nullable=True, index=True)
+    prompt_hash = db.Column(db.String(64), nullable=False, index=True)
+    output_revision_id = db.Column(db.String(36), nullable=True, index=True)
+    error = db.Column(EncryptedText, nullable=True)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False, index=True)
+    started_at = db.Column(db.DateTime, nullable=True)
+    completed_at = db.Column(db.DateTime, nullable=True, index=True)
+
+
 class HistorySearchToken(db.Model):
     """Keyed blind-index token for encrypted history content."""
     __tablename__ = 'history_search_tokens'

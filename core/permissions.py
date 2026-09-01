@@ -20,6 +20,8 @@ MODULE_INTERNAL_PERMISSION_CATALOG = {
         {"id": "send_reports", "name": "Send reports by email"},
         {"id": "manage_templates", "name": "Manage templates"},
         {"id": "manage_smtp", "name": "Manage SMTP profiles"},
+        {"id": "use_ai_reports", "name": "Generate reports with AI"},
+        {"id": "manage_ai", "name": "Manage AI provider"},
         {"id": "manage_scheduler", "name": "Manage scheduler"},
         {"id": "manage_triggers", "name": "Manage triggers"},
         {"id": "manage_hosts", "name": "Edit/block hosts"},
@@ -119,6 +121,8 @@ PERMISSION_ALIASES = {
 EXPLICIT_ONLY_PERMISSIONS = {
     "Infrastructure": {
         "view_sensitive_reports",
+        "use_ai_reports",
+        "manage_ai",
         # Legacy tokens remain parseable during upgrades, but route-level hard
         # deletion is reserved for an interactive superadmin.
         "delete_reports",

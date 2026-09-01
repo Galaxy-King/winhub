@@ -394,7 +394,7 @@
                         </div>
                         {% endif %}
 
-                        {% if permissions.manage_smtp or permissions.manage_templates %}
+                        {% if permissions.manage_smtp or permissions.manage_templates or permissions.manage_ai %}
                         <div class="relative infra-nav-menu">
                             <button onclick="toggleInfraMenu('infraMenuAdministration')" class="infra-menu-trigger px-5 py-3 border rounded-xl text-[10px] font-black uppercase flex items-center gap-2 transition-all hover:brightness-110">
                                 Administration
@@ -405,6 +405,9 @@
                                 <button onclick="openSmtpManager(); closeInfraMenus();" class="w-full text-left text-slate-500 hover:text-slate-700 px-4 py-3 rounded-xl font-black text-xs uppercase tracking-wider transition-all">SMTP Settings</button>
                                 <button onclick="openConfluenceManager(); closeInfraMenus();" class="w-full text-left text-slate-500 hover:text-slate-700 px-4 py-3 rounded-xl font-black text-xs uppercase tracking-wider transition-all">Confluence Settings</button>
                                 <button onclick="openScheduledReportsManager(); closeInfraMenus();" class="w-full text-left text-slate-500 hover:text-slate-700 px-4 py-3 rounded-xl font-black text-xs uppercase tracking-wider transition-all">Regular Reports</button>
+                                {% endif %}
+                                {% if permissions.manage_ai %}
+                                <button onclick="openAiProviderManager(); closeInfraMenus();" class="w-full text-left text-violet-600 hover:text-violet-800 px-4 py-3 rounded-xl font-black text-xs uppercase tracking-wider transition-all">AI / Open WebUI</button>
                                 {% endif %}
                                 {% if permissions.manage_templates %}
                                 <button onclick="openSecretsManager(); closeInfraMenus();" class="w-full text-left text-slate-500 hover:text-slate-700 px-4 py-3 rounded-xl font-black text-xs uppercase tracking-wider transition-all">Template Secrets</button>

@@ -26,7 +26,7 @@ from core.database import (
     db, User, Endpoint, AgentTask, AuditLog, TelemetryHistory, ScheduledTask,
     EndpointGroup, ApiKey, TaskTemplate, AggregatedJob, Task,
     RegistrationHistory, ConnectionIpHistory, ReportRevision, ReportDelivery,
-    HistorySearchToken, api_key_group_m2m, api_key_template_m2m,
+    AiReportRequest, HistorySearchToken, api_key_group_m2m, api_key_template_m2m,
 )
 from core.security import sec_manager
 from core.host_security import apply_endpoint_encryption_status
@@ -136,6 +136,7 @@ def _run_history_retention(now):
         if revision_ids:
             ReportDelivery.query.filter(ReportDelivery.revision_id.in_(revision_ids)).delete(synchronize_session=False)
         ReportRevision.query.filter(ReportRevision.report_id.in_(report_ids)).delete(synchronize_session=False)
+        AiReportRequest.query.filter(AiReportRequest.report_id.in_(report_ids)).delete(synchronize_session=False)
         HistorySearchToken.query.filter(
             HistorySearchToken.entity_type == "report",
             HistorySearchToken.entity_id.in_(report_ids),
@@ -357,6 +358,21 @@ def process_agent_update_rollouts_job(*args):
         finally:
             db.session.remove()
 
+
+def process_ai_reports_job(*args):
+    global global_app
+    if not global_app:
+        return
+    with global_app.app_context():
+        try:
+            from core.ai_reports import process_ai_report_queue
+            process_ai_report_queue(global_app)
+        except Exception:
+            db.session.rollback()
+            log.exception("[Scheduler] AI report worker failed")
+        finally:
+            db.session.remove()
+
 def scheduled_task_next_run_utc(task, from_time=None):
     if not task or not task.cron_expr or not task.is_active:
         return None
@@ -494,6 +510,15 @@ def reload_scheduler_jobs(ignored_app=None):
         trigger="interval",
         seconds=Config.AGENT_UPDATE_ROLLOUT_CHECK_SECONDS,
         id="agent_update_rollouts",
+        max_instances=1,
+        coalesce=True,
+        replace_existing=True,
+    )
+    scheduler.add_job(
+        func=process_ai_reports_job,
+        trigger="interval",
+        seconds=Config.AI_WORKER_INTERVAL_SECONDS,
+        id="ai_reports",
         max_instances=1,
         coalesce=True,
         replace_existing=True,
