@@ -494,6 +494,42 @@ class ThemeSurfaceContractTests(unittest.TestCase):
         self.assertNotRegex(history, direct_light_surface)
         self.assertNotIn("bg-white", history)
 
+    def test_report_preview_keeps_light_rows_and_dark_text_inside_neon_theme(self):
+        infrastructure = (
+            ROOT / "modules/Infrastructure/templates/infrastructure_index.html"
+        ).read_text(encoding="utf-8")
+
+        self.assertIn("body #reportViewModal #vrPreview table", infrastructure)
+        self.assertIn(
+            "body #reportViewModal #vrPreview tbody tr:nth-child(odd) td",
+            infrastructure,
+        )
+        self.assertIn(
+            "body #reportViewModal #vrPreview tbody tr:nth-child(even) td",
+            infrastructure,
+        )
+        self.assertIn(
+            "body #reportViewModal #vrPreview tbody tr:hover *",
+            infrastructure,
+        )
+        self.assertIn("color: #0f172a !important;", infrastructure)
+
+    def test_ai_provider_modal_uses_scoped_dark_theme_components(self):
+        modals = (
+            ROOT / "modules/Infrastructure/templates/modals/_modals.html"
+        ).read_text(encoding="utf-8")
+        provider_start = modals.index('id="aiProviderModal"')
+        provider_end = modals.index("{% endif %}", provider_start)
+        provider = modals[provider_start:provider_end]
+
+        self.assertIn("wh-theme-scope", provider)
+        self.assertIn("ai-provider-dialog wh-ui-modal", provider)
+        self.assertIn("ai-provider-form wh-ui-surface", provider)
+        self.assertEqual(provider.count("ai-provider-control wh-ui-control"), 3)
+        self.assertIn("ai-provider-button-secondary wh-ui-button-secondary", provider)
+        self.assertIn("ai-provider-button-primary wh-ui-button-accent", provider)
+        self.assertNotIn('class="bg-white', provider)
+
 
 class SchedulerRegressionTests(unittest.TestCase):
     def test_scheduler_access_can_be_granted_without_system_admin(self):
