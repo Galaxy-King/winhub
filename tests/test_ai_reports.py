@@ -3,7 +3,7 @@ import unittest
 import uuid
 from unittest import mock
 
-from flask import Flask
+from flask import Flask, session
 
 from core.ai_reports import build_ai_input, process_ai_report_queue, render_safe_markdown
 from core.database import AgentTask, AggregatedJob, AiReportRequest, Endpoint, ReportRevision, User, db
@@ -121,6 +121,110 @@ class AiReportTests(unittest.TestCase):
             self.assertIn("provider unavailable", request.error)
             self.assertEqual(report.report_data, "Fallback report")
             self.assertEqual(ReportRevision.query.filter_by(report_id=job_id).count(), 1)
+
+    def test_ai_can_process_retained_report_when_task_results_are_gone(self):
+        with self.app.app_context():
+            report_id = str(uuid.uuid4())
+            user = User(username="retained-operator", email=f"{report_id}@example.com", is_admin=True)
+            report = AggregatedJob(
+                id=report_id,
+                title="Retained WireGuard report",
+                status="Dismissed",
+                report_data=json.dumps({
+                    "endpoint": "vpn.retained.example:51820",
+                    "api_key": "must-not-leave-winhub",
+                }),
+            )
+            db.session.add_all([user, report])
+            db.session.flush()
+            create_report_revision(report, report.report_data, kind="generated", actor_name=user.username)
+            request = AiReportRequest(
+                job_id=report_id,
+                report_id=report_id,
+                actor_user_id=user.id,
+                actor_name=user.username,
+                prompt="Create a short endpoint table",
+                model="local-model",
+                status="Queued",
+                prompt_hash="1" * 64,
+            )
+            db.session.add(request)
+            db.session.commit()
+
+            fake_client = mock.Mock()
+            fake_client.chat_completion.return_value = "# Retained report"
+            with mock.patch("core.ai_reports.load_ai_provider", return_value={"enabled": True}), \
+                    mock.patch("core.ai_reports.OpenWebUIClient", return_value=fake_client):
+                self.assertTrue(process_ai_report_queue(self.app))
+
+            db.session.refresh(report)
+            db.session.refresh(request)
+            self.assertEqual(request.status, "Success")
+            self.assertEqual(report.status, "Dismissed")
+            self.assertEqual(ReportRevision.query.filter_by(report_id=report_id).count(), 2)
+            sent_messages = json.dumps(fake_client.chat_completion.call_args.args[0])
+            self.assertIn("vpn.retained.example:51820", sent_messages)
+            self.assertNotIn("must-not-leave-winhub", sent_messages)
+
+    def test_sent_split_report_can_be_queued_for_ai_as_a_new_version(self):
+        from modules.Infrastructure import routes
+
+        with self.app.app_context():
+            source_job_id = str(uuid.uuid4())
+            report_id = f"{uuid.UUID(source_job_id).hex}.001"
+            user = User(username="split-operator", email=f"{source_job_id}@example.com", is_admin=True)
+            endpoint = Endpoint(
+                id=f"host-{source_job_id}",
+                hostname="SPLIT-01",
+                approval_status="Approved",
+            )
+            task = AgentTask(
+                job_id=source_job_id,
+                endpoint=endpoint,
+                endpoint_id_snapshot=endpoint.id,
+                endpoint_hostname_snapshot=endpoint.hostname,
+                title="Split report source",
+                action_type="run_script",
+                payload="{}",
+                result_log='{"value":"available"}',
+                status="Success",
+                created_by=user.username,
+            )
+            report = AggregatedJob(
+                id=report_id,
+                title="Previously sent split report",
+                status="Sent",
+                report_data="Previously sent content",
+            )
+            db.session.add_all([user, endpoint, task, report])
+            db.session.flush()
+            create_report_revision(report, report.report_data, kind="generated", actor_name=user.username)
+            db.session.commit()
+
+            with self.app.test_request_context(
+                f"/api/infrastructure/reports/{report_id}/ai-regenerate",
+                method="POST",
+                json={"prompt": "Create a concise new version"},
+            ):
+                session.update({"user_id": user.id, "is_admin": True})
+                with mock.patch.object(routes, "require_any_permission", return_value=None), \
+                        mock.patch.object(routes, "can", return_value=True), \
+                        mock.patch.object(routes, "can_access_report", return_value=True), \
+                        mock.patch.object(routes, "current_actor_label", return_value=user.username), \
+                        mock.patch.object(routes, "validate_ai_report_payload", return_value={
+                            "enabled": True,
+                            "prompt": "Create a concise new version",
+                            "model": "local-model",
+                        }), \
+                        mock.patch.object(routes.WinHubCore, "audit"):
+                    response = routes.regenerate_report_with_ai(report_id)
+
+            self.assertEqual(response.status_code, 200)
+            queued = AiReportRequest.query.filter_by(report_id=report_id).one()
+            self.assertEqual(queued.job_id, source_job_id)
+            self.assertEqual(queued.status, "Queued")
+            self.assertEqual(report.status, "Sent")
+            self.assertEqual(ReportRevision.query.filter_by(report_id=report_id).count(), 1)
 
 
 if __name__ == "__main__":

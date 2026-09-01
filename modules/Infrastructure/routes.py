@@ -3336,13 +3336,13 @@ def get_reports():
         query = query.filter(AggregatedJob.id.in_(accessible_reports)) if accessible_reports else query.filter(False)
     total = query.count()
     reports = query.offset((page - 1) * per_page).limit(per_page).all()
-    source_job_ids = {report_source_job_id(report.id) for report in reports}
-    latest_ai_by_job = {}
-    if source_job_ids:
-        for ai_row in AiReportRequest.query.filter(AiReportRequest.job_id.in_(source_job_ids)).order_by(
+    report_ids = {str(report.id) for report in reports}
+    latest_ai_by_report = {}
+    if report_ids:
+        for ai_row in AiReportRequest.query.filter(AiReportRequest.report_id.in_(report_ids)).order_by(
             AiReportRequest.created_at
         ).all():
-            latest_ai_by_job[ai_row.job_id] = ai_row
+            latest_ai_by_report[ai_row.report_id] = ai_row
     data = [{
         "id": r.id, "title": r.title, "status": r.status,
         "total": r.total_count, "success": r.success_count, "error": r.error_count,
@@ -3353,8 +3353,8 @@ def get_reports():
         "revision": int(r.current_revision_number or 0),
         "ai_report": ({
             "requested": True,
-            "status": latest_ai_by_job[report_source_job_id(r.id)].status,
-        } if report_source_job_id(r.id) in latest_ai_by_job else {"requested": False, "status": "NotRequested"}),
+            "status": latest_ai_by_report[str(r.id)].status,
+        } if str(r.id) in latest_ai_by_report else {"requested": False, "status": "NotRequested"}),
     } for r in reports]
     return jsonify({
         "success": True,
@@ -3384,7 +3384,7 @@ def get_report(report_id):
     )
     db.session.commit()
     visible_body = report_body_for_current_user(r.report_data, report_id=report_id)
-    ai_request = latest_ai_request(report_source_job_id(report_id))
+    ai_request = latest_ai_request(report_source_job_id(report_id), report_id=report_id)
     if Config.AUDIT_SENSITIVE_READS:
         WinHubCore.audit(
             user_id=session.get("user_id"),
@@ -3433,11 +3433,15 @@ def regenerate_report_with_ai(report_id):
         return jsonify({"success": False, "message": "Report not found"}), 404
     if not can_access_report(report_id, "edit_reports"):
         return jsonify({"success": False, "message": "Access denied"}), 403
-    if report.status != "Waiting Review":
-        return jsonify({"success": False, "message": "Only a report waiting for review can be regenerated"}), 409
-    if report_source_job_id(report_id) != str(report_id):
-        return jsonify({"success": False, "message": "AI regeneration is available for single aggregated reports"}), 409
     try:
+        # AI processing always appends a revision. Capture a legacy/current body
+        # first so Sent, Dismissed, Superseded and split reports keep their prior
+        # content as an immutable snapshot.
+        ensure_report_revision(
+            report,
+            actor_user_id=session.get("user_id"),
+            actor_name=current_actor_label(),
+        )
         ai_report = validate_ai_report_payload({
             "enabled": True,
             "prompt": (request.get_json(silent=True) or {}).get("prompt"),
@@ -3454,7 +3458,12 @@ def regenerate_report_with_ai(report_id):
             user_id=session.get("user_id"),
             module="Infrastructure",
             action="AI Report Regeneration Queued",
-            details={"request_id": row.id, "report_id": report_id},
+            details={
+                "request_id": row.id,
+                "report_id": report_id,
+                "source_job_id": report_source_job_id(report_id),
+                "report_status": report.status,
+            },
             target_type="report",
             target_id=report_id,
             status="Success",

@@ -1223,7 +1223,7 @@ function renderReportAiStatus(aiReport) {
 
 async function regenerateCurrentReportWithAi() {
     if (!currentReportId) return;
-    const instruction = window.prompt('How should AI format this report?', 'Create a concise report with a table. Use only facts from the endpoint results.');
+    const instruction = window.prompt('How should AI process this report? A new immutable version will be created.', 'Create a concise report with a table. Use only facts from the current report and endpoint results.');
     if (instruction === null) return;
     if (!instruction.trim()) return alert('AI report instruction is required.');
     const response = await fetch(`/api/infrastructure/reports/${encodeURIComponent(currentReportId)}/ai-regenerate`, {
@@ -1232,7 +1232,7 @@ async function regenerateCurrentReportWithAi() {
     const data = await response.json().catch(() => ({}));
     if (!response.ok || !data.success) return alert(data.message || 'Could not queue AI report');
     renderReportAiStatus({requested: true, status: data.status});
-    alert('AI regeneration queued. The result will be stored as a new immutable revision.');
+    alert('AI processing queued. The result will be stored as a new immutable report version.');
 }
 
 function reportLineDiff(snapshot, current) {

@@ -352,7 +352,7 @@
 
             <div class="report-viewer-actions flex flex-wrap gap-3">
                 {% if permissions.use_ai_reports and permissions.edit_reports %}
-                <button onclick="regenerateCurrentReportWithAi()" class="px-6 py-3.5 bg-violet-50 border border-violet-200 text-violet-700 hover:bg-violet-100 rounded-2xl text-xs font-black uppercase transition-all shadow-sm">Regenerate with AI</button>
+                <button onclick="regenerateCurrentReportWithAi()" class="px-6 py-3.5 bg-violet-50 border border-violet-200 text-violet-700 hover:bg-violet-100 rounded-2xl text-xs font-black uppercase transition-all shadow-sm">Process with AI</button>
                 {% endif %}
                 {% if permissions.dismiss_reports %}
                 <button onclick="dismissCurrentReport()" class="px-5 py-3 bg-white border border-slate-200 text-slate-600 hover:bg-slate-100 rounded-2xl text-xs font-black uppercase transition-all shadow-sm">Dismiss</button>
