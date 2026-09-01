@@ -271,64 +271,102 @@
 </div>
 
 <!-- ВІКНО ПЕРЕГЛЯДУ ТА РЕДАГУВАННЯ ЗВІТУ -->
-<div id="reportViewModal" class="fixed inset-0 z-[115] hidden flex items-center justify-center bg-slate-900/60 backdrop-blur-md p-4 animate-in fade-in">
-    <div class="bg-white w-full max-w-7xl rounded-[3rem] shadow-2xl overflow-hidden flex flex-col h-[92vh]">
-        <div class="p-6 sm:p-8 border-b border-slate-100 flex justify-between items-start bg-slate-50/50 shrink-0">
-            <div>
-                <h2 id="vrTitle" class="text-2xl font-black text-slate-800 uppercase tracking-tight">Report Details</h2>
-                <div class="flex items-center gap-3 mt-2">
+<div id="reportViewModal" class="report-view-modal fixed inset-0 z-[115] hidden flex items-center justify-center bg-slate-900/60 backdrop-blur-md p-4 animate-in fade-in" role="dialog" aria-modal="true" aria-labelledby="vrTitle">
+    <div id="reportViewShell" class="report-viewer-shell bg-white rounded-[2rem] shadow-2xl overflow-hidden flex flex-col">
+        <header class="report-viewer-header border-b border-slate-100 flex justify-between items-start bg-slate-50/50 shrink-0">
+            <div class="min-w-0">
+                <h2 id="vrTitle" class="text-2xl font-black text-slate-800 uppercase tracking-tight truncate">Report Details</h2>
+                <div class="flex flex-wrap items-center gap-3 mt-2">
                     <span id="vrStatus" class="px-3 py-1 rounded-lg text-[10px] font-black uppercase tracking-widest border shadow-sm">...</span>
                     <span id="vrAiStatus" class="hidden px-3 py-1 rounded-lg text-[10px] font-black uppercase tracking-widest border border-violet-200 bg-violet-50 text-violet-700">AI</span>
                     <span id="vrVersionLabel" class="text-[10px] font-black uppercase tracking-widest text-slate-400">Current revision</span>
                 </div>
             </div>
-            <div class="flex items-center gap-3">
+            <div class="report-viewer-header-actions">
+                <button id="reportTrailToggle" type="button" onclick="toggleReportTrail()" class="report-viewer-control" aria-controls="reportTrailPanel" aria-expanded="true" title="Show or hide version history">
+                    <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 6h18M3 12h18M3 18h18"/></svg>
+                    <span class="report-control-label">History</span>
+                </button>
+                <button id="reportFullscreenToggle" type="button" onclick="toggleReportFullscreen()" class="report-viewer-control" aria-pressed="false" title="Open report fullscreen">
+                    <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 3H5a2 2 0 00-2 2v3m18 0V5a2 2 0 00-2-2h-3m0 18h3a2 2 0 002-2v-3M3 16v3a2 2 0 002 2h3"/></svg>
+                    <span class="report-control-label">Fullscreen</span>
+                </button>
                 {% if permissions.edit_reports and permissions.view_sensitive_reports %}
-                <button id="btnSaveReportText" onclick="saveReportChanges()" class="px-6 py-3 bg-emerald-50 text-emerald-600 border border-emerald-200 hover:bg-emerald-100 rounded-2xl text-xs font-black uppercase transition-all shadow-sm">Save Changes</button>
+                <button id="btnSaveReportText" onclick="saveReportChanges()" class="report-save-button px-5 py-3 bg-emerald-50 text-emerald-600 border border-emerald-200 hover:bg-emerald-100 rounded-2xl text-xs font-black uppercase transition-all shadow-sm">Save Changes</button>
                 {% endif %}
-                <button onclick="closeModal('reportViewModal')" class="p-3 bg-white border border-slate-200 hover:bg-slate-50 rounded-2xl text-slate-500 hover:text-slate-800 transition-colors shadow-sm"><svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path d="M6 18L18 6M6 6l12 12" stroke-width="2.5"/></svg></button>
+                <button type="button" onclick="closeModal('reportViewModal')" class="report-close-button p-3 bg-white border border-slate-200 hover:bg-slate-50 rounded-2xl text-slate-500 hover:text-slate-800 transition-colors shadow-sm" aria-label="Close report"><svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path d="M6 18L18 6M6 6l12 12" stroke-width="2.5"/></svg></button>
             </div>
-        </div>
+        </header>
 
-        <div class="flex-1 min-h-0 grid grid-cols-1 lg:grid-cols-[19rem_1fr] bg-slate-900 shadow-inner">
-            <aside class="bg-slate-50 border-r border-slate-200 p-4 overflow-y-auto custom-scrollbar">
-                <div class="flex items-center justify-between mb-3"><span class="text-[10px] font-black uppercase tracking-widest text-slate-500">Immutable trail</span><button onclick="loadReportTrail()" class="text-[10px] font-black text-indigo-600">Refresh</button></div>
-                <button id="vrCurrentBtn" onclick="showCurrentReportVersion()" class="w-full text-left p-3 rounded-xl border border-indigo-200 bg-indigo-50 text-indigo-700 text-xs font-black mb-3">Current working copy</button>
-                <div id="vrVersionList" class="space-y-2"><div class="p-4 text-xs text-slate-400">Loading revisions…</div></div>
-                <label class="mt-4 flex items-center gap-2 text-[11px] font-bold text-slate-600"><input id="vrCompareToggle" type="checkbox" onchange="renderSelectedReportVersion()"> Compare selected snapshot to current</label>
-                <p class="text-[10px] text-slate-400 mt-3 leading-relaxed">Generated original, every saved edit, and the exact body sent by email or Confluence remain available until retention cleanup.</p>
+        <div id="reportViewerMain" class="report-viewer-main is-trail-open flex-1 min-h-0 bg-slate-900 shadow-inner">
+            <aside id="reportTrailPanel" class="report-trail-panel bg-slate-50 border-r border-slate-200" aria-label="Report version history">
+                <div class="report-trail-heading flex items-center justify-between gap-3">
+                    <span class="text-[10px] font-black uppercase tracking-widest text-slate-500">Version history</span>
+                    <button type="button" onclick="loadReportTrail()" class="text-[10px] font-black text-indigo-600 hover:text-indigo-800">Refresh</button>
+                </div>
+                <div class="report-trail-scroll custom-scrollbar">
+                    <button id="vrCurrentBtn" type="button" onclick="showCurrentReportVersion()" class="report-snapshot-card is-selected w-full text-left p-3 rounded-xl border border-indigo-200 bg-indigo-50 text-indigo-700 mb-3" data-report-snapshot="current" aria-pressed="true">
+                        <span class="block text-xs font-black">Working copy</span>
+                        <span class="block mt-1 text-[10px] font-semibold opacity-70">Editable current report</span>
+                    </button>
+                    <div id="vrVersionList" class="space-y-2"><div class="p-4 text-xs text-slate-400">Loading revisions…</div></div>
+                </div>
+                <div class="report-trail-footer">
+                    <label class="flex items-start gap-2 text-[11px] font-bold text-slate-600"><input id="vrCompareToggle" class="mt-0.5" type="checkbox" onchange="renderSelectedReportVersion()"> Compare selected snapshot with current</label>
+                    <p class="text-[10px] text-slate-400 mt-3 leading-relaxed">The original, every saved edit and the exact content sent by email or Confluence remain available until retention cleanup.</p>
+                </div>
             </aside>
-            <div class="flex flex-col p-6 sm:p-8 min-h-0">
-                <textarea id="vrBody" spellcheck="false" class="w-full flex-1 bg-transparent text-emerald-400 font-mono text-sm leading-relaxed resize-none outline-none custom-scrollbar border-0 p-0 focus:ring-0" {% if not permissions.edit_reports or not permissions.view_sensitive_reports %}readonly{% endif %}>Loading...</textarea>
-            </div>
+
+            <section class="report-editor-pane min-w-0 min-h-0" aria-label="Report content">
+                <div class="report-editor-toolbar">
+                    <div class="min-w-0">
+                        <span class="text-[10px] font-black uppercase tracking-widest text-slate-400">Report body</span>
+                        <span id="vrEditorMode" class="ml-2 text-[10px] font-semibold text-cyan-400">Working copy</span>
+                    </div>
+                    <div class="report-reading-controls" aria-label="Reading controls">
+                        <button id="reportWrapToggle" type="button" onclick="toggleReportWrap()" class="report-dark-control" aria-pressed="true" title="Toggle line wrapping">Wrap</button>
+                        <button type="button" onclick="changeReportFontSize(-1)" class="report-dark-control report-font-control" aria-label="Decrease text size">A−</button>
+                        <span id="reportFontSizeLabel" class="report-font-size-label" aria-live="polite">14px</span>
+                        <button type="button" onclick="changeReportFontSize(1)" class="report-dark-control report-font-control" aria-label="Increase text size">A+</button>
+                        <button id="reportCopyButton" type="button" onclick="copyVisibleReportBody()" class="report-dark-control" title="Copy visible report body">Copy</button>
+                    </div>
+                </div>
+                <div class="report-body-frame">
+                    <textarea id="vrBody" spellcheck="false" wrap="soft" class="custom-scrollbar" {% if not permissions.edit_reports or not permissions.view_sensitive_reports %}readonly{% endif %}>Loading...</textarea>
+                </div>
+                <div class="report-editor-statusbar">
+                    <span id="vrBodyStats" aria-live="polite">0 lines · 0 characters</span>
+                    <span class="report-editor-hint">Ctrl/Cmd + A selects the whole report</span>
+                </div>
+            </section>
         </div>
 
-        <div class="p-6 sm:p-8 border-t border-slate-100 bg-white flex flex-wrap justify-between items-center gap-4 shrink-0">
+        <footer class="report-viewer-footer border-t border-slate-100 bg-white flex flex-wrap justify-between items-center gap-4 shrink-0">
             {% if is_admin %}
-            <button onclick="deleteCurrentReport()" class="px-6 py-3.5 bg-white border border-rose-200 text-rose-500 hover:bg-rose-50 rounded-2xl text-xs font-black uppercase transition-all shadow-sm">Delete Report</button>
+            <button onclick="deleteCurrentReport()" class="px-5 py-3 bg-white border border-rose-200 text-rose-500 hover:bg-rose-50 rounded-2xl text-xs font-black uppercase transition-all shadow-sm">Delete Report</button>
             {% else %}
-            <div></div> <!-- Spacer -->
+            <div></div>
             {% endif %}
 
-            <div class="flex gap-3">
+            <div class="report-viewer-actions flex flex-wrap gap-3">
                 {% if permissions.use_ai_reports and permissions.edit_reports %}
                 <button onclick="regenerateCurrentReportWithAi()" class="px-6 py-3.5 bg-violet-50 border border-violet-200 text-violet-700 hover:bg-violet-100 rounded-2xl text-xs font-black uppercase transition-all shadow-sm">Regenerate with AI</button>
                 {% endif %}
                 {% if permissions.dismiss_reports %}
-                <button onclick="dismissCurrentReport()" class="px-6 py-3.5 bg-white border border-slate-200 text-slate-600 hover:bg-slate-100 rounded-2xl text-xs font-black uppercase transition-all shadow-sm">Dismiss</button>
+                <button onclick="dismissCurrentReport()" class="px-5 py-3 bg-white border border-slate-200 text-slate-600 hover:bg-slate-100 rounded-2xl text-xs font-black uppercase transition-all shadow-sm">Dismiss</button>
                 {% endif %}
                 {% if permissions.send_reports %}
-                <button onclick="openReportConfluenceModal(currentReportId)" class="px-8 py-3.5 bg-sky-600 hover:bg-sky-700 text-white rounded-2xl text-xs font-black uppercase transition-all shadow-lg flex items-center gap-3">
-                    <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M4 7h16M4 12h10M4 17h16"/></svg>
-                    Publish to Confluence
+                <button onclick="openReportConfluenceModal(currentReportId)" class="px-6 py-3 bg-sky-600 hover:bg-sky-700 text-white rounded-2xl text-xs font-black uppercase transition-all shadow-lg flex items-center gap-3">
+                    <svg class="w-5 h-5 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M4 7h16M4 12h10M4 17h16"/></svg>
+                    <span>Publish to Confluence</span>
                 </button>
-                <button onclick="openReportEmailModal(currentReportId)" class="px-10 py-3.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-2xl text-xs font-black uppercase transition-all shadow-lg flex items-center gap-3">
-                    <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z"/></svg>
-                    Send to Email
+                <button onclick="openReportEmailModal(currentReportId)" class="px-7 py-3 bg-indigo-600 hover:bg-indigo-700 text-white rounded-2xl text-xs font-black uppercase transition-all shadow-lg flex items-center gap-3">
+                    <svg class="w-5 h-5 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z"/></svg>
+                    <span>Send to Email</span>
                 </button>
                 {% endif %}
             </div>
-        </div>
+        </footer>
     </div>
 </div>
 
