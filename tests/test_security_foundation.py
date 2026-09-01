@@ -68,10 +68,14 @@ class ReportRendererTests(unittest.TestCase):
         self.assertEqual(self.renderer.render_report(template, {}), "1")
 
     def test_bounded_range_and_lower_filter_remain_supported(self):
-        template = "{% for value in range(first, last + 1) %}{{ label|lower }}-{{ value }} {% endfor %}"
+        template = (
+            "{% for value in range(first, last + 1) %}"
+            "{{ loop.index0 }}:{{ label|lower }}-{{ value }}{% if not loop.last %}, {% endif %}"
+            "{% endfor %}"
+        )
         self.assertEqual(
             self.renderer.render_report(template, {"first": 1, "last": 3, "label": "HOST"}),
-            "host-1 host-2 host-3 ",
+            "0:host-1, 1:host-2, 2:host-3",
         )
 
     def test_report_range_rejects_excessive_or_non_integer_iterations(self):
@@ -79,6 +83,13 @@ class ReportRendererTests(unittest.TestCase):
             self.renderer.render_report("{% for value in range(0, 5000) %}{{ value }}{% endfor %}", {})
         with self.assertRaises(Exception):
             self.renderer.render_report("{{ range('0', 5)|list }}", {})
+
+    def test_loop_methods_are_not_exposed(self):
+        with self.assertRaises(Exception):
+            self.renderer.render_report(
+                "{% for value in range(0, 2) %}{{ loop.cycle('a', 'b') }}{% endfor %}",
+                {},
+            )
 
 
 class TemplateApprovalTests(unittest.TestCase):
