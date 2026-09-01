@@ -15,8 +15,11 @@ import subprocess
 import tempfile
 import time
 from datetime import datetime, timedelta, timezone
+from email.mime.base import MIMEBase
+from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
 from email.utils import parseaddr
+from html.parser import HTMLParser
 from urllib.error import HTTPError, URLError
 from urllib.parse import quote, urlsplit
 from urllib.request import HTTPRedirectHandler, ProxyHandler, Request, build_opener
@@ -437,7 +440,108 @@ def confluence_request(profile, method, path, payload=None, timeout=20):
     except Exception as exc:
         return False, None, str(exc)
 
-def confluence_report_storage_html(report, report_body, custom_note=""):
+SAFE_REPORT_HTML_TAGS = {
+    "h1", "h2", "h3", "h4", "h5", "h6", "p", "br", "hr", "table", "thead",
+    "tbody", "tr", "th", "td", "ul", "ol", "li", "pre", "code", "strong", "em",
+    "div", "section", "article", "blockquote", "span",
+}
+SAFE_REPORT_VOID_TAGS = {"br", "hr"}
+SUPPRESSED_REPORT_HTML_TAGS = {
+    "script", "style", "noscript", "template", "iframe", "object", "embed", "svg", "math",
+}
+
+
+class _SafeReportHtmlParser(HTMLParser):
+    """Keep inert report structure while discarding every source attribute."""
+
+    def __init__(self):
+        super().__init__(convert_charrefs=True)
+        self.output = []
+        self.open_tags = []
+        self.suppressed_depth = 0
+
+    def handle_starttag(self, tag, attrs):
+        tag = str(tag or "").lower()
+        if self.suppressed_depth:
+            if tag not in SAFE_REPORT_VOID_TAGS:
+                self.suppressed_depth += 1
+            return
+        if tag in SUPPRESSED_REPORT_HTML_TAGS:
+            self.suppressed_depth = 1
+            return
+        if tag not in SAFE_REPORT_HTML_TAGS:
+            return
+        if tag in SAFE_REPORT_VOID_TAGS:
+            self.output.append(f"<{tag} />")
+            return
+        self.output.append(f"<{tag}>")
+        self.open_tags.append(tag)
+
+    def handle_startendtag(self, tag, attrs):
+        if self.suppressed_depth:
+            return
+        tag = str(tag or "").lower()
+        if tag in SAFE_REPORT_VOID_TAGS:
+            self.output.append(f"<{tag} />")
+
+    def handle_endtag(self, tag):
+        tag = str(tag or "").lower()
+        if self.suppressed_depth:
+            self.suppressed_depth = max(0, self.suppressed_depth - 1)
+            return
+        if tag not in self.open_tags:
+            return
+        while self.open_tags:
+            current = self.open_tags.pop()
+            self.output.append(f"</{current}>")
+            if current == tag:
+                break
+
+    def handle_data(self, data):
+        if not self.suppressed_depth:
+            self.output.append(html.escape(str(data or ""), quote=True))
+
+    def close(self):
+        super().close()
+        while self.open_tags:
+            self.output.append(f"</{self.open_tags.pop()}>")
+
+
+def report_body_looks_like_html(value):
+    return bool(re.search(
+        r"<(?:!doctype|html|body|h[1-6]|p|br|hr|table|thead|tbody|tr|th|td|ul|ol|li|pre|code|strong|em|div|section|article|blockquote|span)\b",
+        str(value or ""),
+        re.IGNORECASE,
+    ))
+
+
+def safe_report_html(value):
+    """Return formatted report HTML with a strict tag allowlist and no source attributes."""
+    source = str(value or "")
+    if not report_body_looks_like_html(source):
+        return f"<pre>{html.escape(source, quote=True)}</pre>"
+    parser = _SafeReportHtmlParser()
+    parser.feed(source)
+    parser.close()
+    rendered = "".join(parser.output).strip()
+    return rendered or "<p>No report content.</p>"
+
+
+def report_body_plain_text(value):
+    """Convert a report body to readable inert text for fallbacks and downloads."""
+    source = str(value or "")
+    if not re.search(r"<[a-z][\s\S]*>", source, re.IGNORECASE):
+        return source.strip()
+    source = re.sub(r"<(script|style|noscript|template)\b[^>]*>[\s\S]*?</\1>", "", source, flags=re.IGNORECASE)
+    source = re.sub(r"<br\s*/?>", "\n", source, flags=re.IGNORECASE)
+    source = re.sub(r"</(?:p|div|li|tr|h[1-6]|section|article|blockquote)\s*>", "\n", source, flags=re.IGNORECASE)
+    source = re.sub(r"<[^>]+>", "", source)
+    source = html.unescape(source)
+    source = re.sub(r"\n[ \t]+", "\n", source)
+    return re.sub(r"\n{3,}", "\n\n", source).strip()
+
+
+def confluence_report_storage_html(report, report_body, custom_note="", formatted=False):
     title = html.escape(str(report.title or "WinHUB Report"))
     status = html.escape(str(report.status or ""))
     created_at = html.escape(to_kyiv_time(report.created_at))
@@ -445,9 +549,10 @@ def confluence_report_storage_html(report, report_body, custom_note=""):
     note_html = ""
     if custom_note:
         note_html = f"<p><strong>Note:</strong> {html.escape(str(custom_note))}</p>"
-    body_html = html.escape(str(report_body or ""))
+    body_html = safe_report_html(report_body) if formatted else f"<pre>{html.escape(str(report_body or ''))}</pre>"
+    heading_html = "" if formatted else f"<h1>{title}</h1>"
     return (
-        f"<h1>{title}</h1>"
+        f"{heading_html}"
         f"<p><strong>Generated:</strong> {created_at}<br />"
         f"<strong>Published:</strong> {published_at}<br />"
         f"<strong>Status:</strong> {status}<br />"
@@ -455,10 +560,10 @@ def confluence_report_storage_html(report, report_body, custom_note=""):
         f"<strong>Success:</strong> {int(report.success_count or 0)} / "
         f"<strong>Error:</strong> {int(report.error_count or 0)}</p>"
         f"{note_html}"
-        f"<pre>{body_html}</pre>"
+        f"{body_html}"
     )
 
-def publish_report_to_confluence(profile, report, page_id, title=None, body_format="escaped_pre", custom_note="", report_body=None):
+def publish_report_to_confluence(profile, report, page_id, title=None, body_format="safe_html", custom_note="", report_body=None):
     page_id = str(page_id or "").strip()
     if not page_id:
         return False, "Confluence page ID is required", None
@@ -480,6 +585,8 @@ def publish_report_to_confluence(profile, report, page_id, title=None, body_form
     report_body = report_body or ""
     if body_format == "storage_html":
         storage_value = str(report_body or "")
+    elif body_format == "safe_html":
+        storage_value = confluence_report_storage_html(report, report_body, custom_note, formatted=True)
     else:
         storage_value = confluence_report_storage_html(report, report_body, custom_note)
 
@@ -1983,6 +2090,64 @@ def encrypt_report_body(body, recipient, sender_email, keyserver=None):
             except Exception:
                 pass
 
+
+def report_email_bodies(report_body, custom_message=""):
+    """Build a readable text fallback and a sanitized formatted HTML body."""
+    report_html = safe_report_html(report_body)
+    report_text = report_body_plain_text(report_body)
+    note = str(custom_message or "").strip()
+    note_text = f"{note}\n\n{'=' * 50}\n\n" if note else ""
+    note_html = ""
+    if note:
+        escaped_note = html.escape(note, quote=True).replace("\n", "<br />")
+        note_html = (
+            '<div class="winhub-note">'
+            f"{escaped_note}"
+            "</div><hr />"
+        )
+    html_body = (
+        "<!doctype html><html><head><meta charset=\"utf-8\">"
+        "<meta name=\"viewport\" content=\"width=device-width,initial-scale=1\">"
+        "<style>"
+        "body{margin:0;padding:24px;background:#f8fafc;color:#0f172a;font-family:Arial,sans-serif;line-height:1.55}"
+        ".winhub-report{max-width:960px;margin:0 auto;background:#fff;border:1px solid #cbd5e1;border-radius:12px;padding:28px}"
+        ".winhub-note{margin:0 0 20px;padding:14px 16px;background:#eef2ff;border-left:4px solid #6366f1}"
+        "h1,h2,h3,h4,h5,h6{color:#0f172a;line-height:1.25}"
+        "table{width:100%;border-collapse:collapse;margin:16px 0}"
+        "th,td{border:1px solid #cbd5e1;padding:8px 10px;text-align:left;vertical-align:top}"
+        "th{background:#e2e8f0}tr:nth-child(even) td{background:#f8fafc}"
+        "pre,code{font-family:Consolas,monospace}pre{white-space:pre-wrap;overflow-wrap:anywhere;background:#f1f5f9;padding:14px}"
+        "blockquote{margin:16px 0;padding:10px 16px;border-left:4px solid #6366f1;background:#eef2ff}"
+        "</style></head><body><div class=\"winhub-report\">"
+        f"{note_html}{report_html}"
+        "</div></body></html>"
+    )
+    return f"{note_text}{report_text}", html_body
+
+
+def report_email_alternative(report_body, custom_message=""):
+    plain_body, html_body = report_email_bodies(report_body, custom_message)
+    message = MIMEMultipart("alternative")
+    message.attach(MIMEText(plain_body, "plain", "utf-8"))
+    message.attach(MIMEText(html_body, "html", "utf-8"))
+    return message
+
+
+def pgp_mime_message(encrypted_body):
+    """Wrap an armored encrypted MIME entity using the PGP/MIME wire format."""
+    message = MIMEMultipart("encrypted", protocol="application/pgp-encrypted")
+    version = MIMEBase("application", "pgp-encrypted")
+    version.set_payload("Version: 1\r\n")
+    version["Content-Transfer-Encoding"] = "7bit"
+    encrypted = MIMEBase("application", "octet-stream", name="encrypted.asc")
+    encrypted.set_payload(str(encrypted_body or ""))
+    encrypted["Content-Transfer-Encoding"] = "7bit"
+    encrypted.add_header("Content-Disposition", "inline", filename="encrypted.asc")
+    message.attach(version)
+    message.attach(encrypted)
+    return message
+
+
 def send_report_email(title, report_body, sender_email, recipient_list, custom_message='', use_gpg=True):
     try:
         profiles = load_smtp_profiles()
@@ -1999,10 +2164,6 @@ def send_report_email(title, report_body, sender_email, recipient_list, custom_m
         if not host:
             return False, "SMTP host is empty.", 0
 
-        final_body = report_body or ''
-        if custom_message:
-            final_body = f"{custom_message}\n\n{'=' * 50}\n\n{final_body}"
-
         sent_count = 0
         server_class = smtplib.SMTP_SSL if port == 465 else smtplib.SMTP
         tls_context = ssl.create_default_context() if Config.OUTBOUND_POLICY_MODE == "enforce" else None
@@ -2017,14 +2178,20 @@ def send_report_email(title, report_body, sender_email, recipient_list, custom_m
                 server.login(sender_email, dec_pass)
 
                 for rec in recipients:
-                    body_to_send = final_body
+                    alternative = report_email_alternative(report_body, custom_message)
                     if use_gpg:
-                        encrypted, encrypted_body, error_text = encrypt_report_body(final_body, rec, sender_email, smtp_conf.get("keyserver"))
-                        if not encrypted:
+                        encrypted_ok, encrypted_body, error_text = encrypt_report_body(
+                            alternative.as_string(),
+                            rec,
+                            sender_email,
+                            smtp_conf.get("keyserver"),
+                        )
+                        if not encrypted_ok:
                             return False, f"GPG encryption failed for {rec}: {error_text}", sent_count
-                        body_to_send = encrypted_body
+                        msg = pgp_mime_message(encrypted_body)
+                    else:
+                        msg = alternative
 
-                    msg = MIMEText(body_to_send, 'plain', 'utf-8')
                     msg['Subject'] = str(title or '').strip() or "Report"
                     msg['From'] = sender_email
                     msg['To'] = rec
@@ -2087,7 +2254,7 @@ def update_report_send_status(report_id, success, sent_count=0):
         report.status = 'Send Error'
     db.session.commit()
 
-def perform_auto_confluence_publish(report_id, profile_name, page_id, title=None, body_format="escaped_pre", custom_note=""):
+def perform_auto_confluence_publish(report_id, profile_name, page_id, title=None, body_format="safe_html", custom_note=""):
     profiles = load_confluence_profiles()
     profile_name = str(profile_name or "").strip()
     profile = profiles.get(profile_name)
@@ -2099,14 +2266,19 @@ def perform_auto_confluence_publish(report_id, profile_name, page_id, title=None
         return False, "Report not found.", None
 
     page_id = str(page_id or profile.get("default_page_id") or "").strip()
-    body_format = str(body_format or "escaped_pre").strip()
-    if body_format not in ("escaped_pre", "storage_html"):
-        body_format = "escaped_pre"
+    body_format = str(body_format or "safe_html").strip()
+    if body_format not in ("safe_html", "escaped_pre", "storage_html"):
+        body_format = "safe_html"
 
     outbound_snapshot = (
         report.report_data or ""
         if body_format == "storage_html"
-        else confluence_report_storage_html(report, report.report_data or "", custom_note)
+        else confluence_report_storage_html(
+            report,
+            report.report_data or "",
+            custom_note,
+            formatted=body_format == "safe_html",
+        )
     )
     delivery, _ = record_report_delivery(
         report,
@@ -2438,7 +2610,7 @@ def auto_email_checker_thread(app):
                         confluence_profile = payload.get('__auto_confluence_profile') or payload.get('auto_confluence_profile')
                         confluence_page_id = payload.get('__auto_confluence_page_id') or payload.get('auto_confluence_page_id')
                         confluence_title = payload.get('__auto_confluence_title') or payload.get('auto_confluence_title')
-                        confluence_format = payload.get('__auto_confluence_body_format') or payload.get('auto_confluence_body_format') or 'escaped_pre'
+                        confluence_format = payload.get('__auto_confluence_body_format') or payload.get('auto_confluence_body_format') or 'safe_html'
                         confluence_note = payload.get('__auto_confluence_note') or payload.get('auto_confluence_note') or ''
 
                         if auto_email_enabled and not (sender and recipients):
@@ -3617,16 +3789,7 @@ def get_report_delivery(report_id, delivery_id):
 
 def report_text_download_body(value):
     """Convert a visible report body to readable, inert plain text."""
-    source = str(value or "")
-    if not re.search(r"<[a-z][\s\S]*>", source, re.IGNORECASE):
-        return source.strip()
-    source = re.sub(r"<(script|style|noscript)\b[^>]*>[\s\S]*?</\1>", "", source, flags=re.IGNORECASE)
-    source = re.sub(r"<br\s*/?>", "\n", source, flags=re.IGNORECASE)
-    source = re.sub(r"</(?:p|div|li|tr|h[1-6]|section|article)\s*>", "\n", source, flags=re.IGNORECASE)
-    source = re.sub(r"<[^>]+>", "", source)
-    source = html.unescape(source)
-    source = re.sub(r"\n[ \t]+", "\n", source)
-    return re.sub(r"\n{3,}", "\n\n", source).strip()
+    return report_body_plain_text(value)
 
 
 @infrastructure_bp.route('/api/infrastructure/reports/<report_id>/download', methods=['GET'])
@@ -3841,9 +4004,9 @@ def publish_report_confluence(report_id):
 
     page_id = str(data.get("page_id") or profile.get("default_page_id") or "").strip()
     title = str(data.get("title") or "").strip() or None
-    body_format = str(data.get("body_format") or "escaped_pre").strip()
+    body_format = str(data.get("body_format") or "safe_html").strip()
     custom_note = str(data.get("custom_note") or "").strip()
-    if body_format not in ("escaped_pre", "storage_html"):
+    if body_format not in ("safe_html", "escaped_pre", "storage_html"):
         return jsonify({"success": False, "message": "Invalid Confluence body format."}), 400
     if body_format == "storage_html" and not can_view_sensitive_reports(report_id=report_id):
         return jsonify({"success": False, "message": "Raw Confluence HTML publishing requires sensitive report access."}), 403
@@ -3856,7 +4019,12 @@ def publish_report_confluence(report_id):
     outbound_snapshot = (
         visible_report_body
         if body_format == "storage_html"
-        else confluence_report_storage_html(report, visible_report_body, custom_note)
+        else confluence_report_storage_html(
+            report,
+            visible_report_body,
+            custom_note,
+            formatted=body_format == "safe_html",
+        )
     )
     delivery, revision = record_report_delivery(
         report,
@@ -5953,7 +6121,7 @@ def create_task():
         payload_dict['__auto_confluence_profile'] = data.get('auto_confluence_profile')
         payload_dict['__auto_confluence_page_id'] = data.get('auto_confluence_page_id')
         payload_dict['__auto_confluence_title'] = data.get('auto_confluence_title')
-        payload_dict['__auto_confluence_body_format'] = data.get('auto_confluence_body_format', 'escaped_pre')
+        payload_dict['__auto_confluence_body_format'] = data.get('auto_confluence_body_format', 'safe_html')
         payload_dict['__auto_confluence_note'] = data.get('auto_confluence_note', '')
 
     try:
@@ -6135,7 +6303,7 @@ def run_template_api(template_id):
             payload_dict["__auto_confluence_profile"] = data.get("auto_confluence_profile")
             payload_dict["__auto_confluence_page_id"] = data.get("auto_confluence_page_id")
             payload_dict["__auto_confluence_title"] = data.get("auto_confluence_title")
-            payload_dict["__auto_confluence_body_format"] = data.get("auto_confluence_body_format", "escaped_pre")
+            payload_dict["__auto_confluence_body_format"] = data.get("auto_confluence_body_format", "safe_html")
             payload_dict["__auto_confluence_note"] = data.get("auto_confluence_note", "")
 
         title = data.get("title") or template.name or "API Template Run"

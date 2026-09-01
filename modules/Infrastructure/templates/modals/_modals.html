@@ -460,10 +460,11 @@
             <div>
                 <label class="text-[10px] font-black text-slate-400 uppercase tracking-widest block mb-2 ml-2">Body Format</label>
                 <select id="reportConfluenceBodyFormat" class="w-full p-4 bg-slate-50 border border-slate-200 rounded-2xl text-sm font-bold outline-none focus:ring-2 focus:ring-sky-500">
+                    <option value="safe_html">Safe formatted report (recommended)</option>
                     <option value="escaped_pre">Safe text report in &lt;pre&gt;</option>
                     <option value="storage_html">Raw Confluence storage HTML</option>
                 </select>
-                <p class="text-[10px] text-slate-400 mt-2 ml-2 font-medium">Safe mode escapes agent output. Raw HTML is for trusted templates only.</p>
+                <p class="text-[10px] text-slate-400 mt-2 ml-2 font-medium">Safe formatted mode keeps headings, tables and lists while removing scripts and attributes. Raw HTML is for trusted templates only.</p>
             </div>
             <div>
                 <label class="text-[10px] font-black text-sky-500 uppercase tracking-widest block mb-2 ml-2">Publish Note (Optional)</label>
