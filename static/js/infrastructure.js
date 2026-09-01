@@ -22,6 +22,7 @@ let aiProviderSettings = null;
 let selectedReportSnapshotKey = 'current';
 let reportViewerFontSize = 14;
 let reportViewerWrap = true;
+let reportViewerPreview = false;
 try {
     const storedFontSizeValue = localStorage.getItem('winhub_report_font_size');
     const storedFontSize = Number(storedFontSizeValue);
@@ -1021,6 +1022,67 @@ function applyReportReadingPreferences() {
     if(fontLabel) fontLabel.innerText = `${reportViewerFontSize}px`;
 }
 
+function reportLooksLikeHtml(value) {
+    return /<(?:!doctype|html|body|h[1-6]|p|br|hr|table|thead|tbody|tr|th|td|ul|ol|li|pre|code|strong|em|div|section|article|blockquote|span)\b/i.test(String(value || ''));
+}
+
+function buildSafeReportPreviewFragment(value) {
+    const source = String(value || '');
+    if (!reportLooksLikeHtml(source)) {
+        const fragment = document.createDocumentFragment();
+        const pre = document.createElement('pre');
+        pre.textContent = source;
+        fragment.appendChild(pre);
+        return fragment;
+    }
+    const template = document.createElement('template');
+    template.innerHTML = source;
+    const allowedTags = new Set([
+        'h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'p', 'br', 'hr', 'table', 'thead', 'tbody',
+        'tr', 'th', 'td', 'ul', 'ol', 'li', 'pre', 'code', 'strong', 'em', 'div', 'section',
+        'article', 'blockquote', 'span',
+    ]);
+    Array.from(template.content.querySelectorAll('*')).reverse().forEach(element => {
+        if (!allowedTags.has(element.tagName.toLowerCase())) {
+            element.replaceWith(document.createTextNode(element.textContent || ''));
+            return;
+        }
+        Array.from(element.attributes).forEach(attribute => element.removeAttribute(attribute.name));
+    });
+    if (!template.content.childNodes.length) {
+        const empty = document.createElement('p');
+        empty.textContent = 'No report content.';
+        template.content.appendChild(empty);
+    }
+    return template.content;
+}
+
+function refreshReportPreview() {
+    if (!reportViewerPreview) return;
+    const preview = document.getElementById('vrPreview');
+    const body = document.getElementById('vrBody');
+    if (preview && body) preview.replaceChildren(buildSafeReportPreviewFragment(body.value || ''));
+}
+
+function setReportPreviewEnabled(enabled) {
+    const preview = document.getElementById('vrPreview');
+    const body = document.getElementById('vrBody');
+    const button = document.getElementById('reportPreviewToggle');
+    reportViewerPreview = Boolean(enabled && preview && body);
+    body?.classList.toggle('hidden', reportViewerPreview);
+    preview?.classList.toggle('hidden', !reportViewerPreview);
+    if (button) {
+        button.setAttribute('aria-pressed', reportViewerPreview ? 'true' : 'false');
+        button.innerText = reportViewerPreview ? 'Source' : 'Preview';
+        button.title = reportViewerPreview ? 'Show editable report source' : 'Show safe formatted preview';
+    }
+    refreshReportPreview();
+}
+
+function toggleReportPreview() {
+    setReportPreviewEnabled(!reportViewerPreview);
+}
+
 function toggleReportWrap() {
     reportViewerWrap = !reportViewerWrap;
     try { localStorage.setItem('winhub_report_line_wrap', reportViewerWrap ? 'on' : 'off'); } catch(error) {}
@@ -1079,6 +1141,7 @@ function reportRevisionKindLabel(kind) {
 
 function resetReportViewerLayout() {
     selectedReportSnapshotKey = 'current';
+    setReportPreviewEnabled(false);
     setReportFullscreen(false);
     setReportTrailOpen(!window.matchMedia('(max-width: 960px)').matches);
     applyReportReadingPreferences();
@@ -1116,6 +1179,7 @@ async function viewReport(id) {
     }
 
     resetReportViewerLayout();
+    setReportPreviewEnabled(reportLooksLikeHtml(bodyEl?.value || ''));
     openModal('reportViewModal');
 
     if (!r.report_data_loaded) {
@@ -1129,6 +1193,8 @@ async function viewReport(id) {
             if (currentReportId === id && bodyEl) {
                 bodyEl.value = r.report_data || "";
                 updateReportBodyStats();
+                if (reportLooksLikeHtml(bodyEl.value)) setReportPreviewEnabled(true);
+                else refreshReportPreview();
             }
         } catch(e) {
             console.error("Error loading report body", e);
@@ -1195,6 +1261,7 @@ function renderSelectedReportVersion() {
         if(mode) mode.innerText = body.readOnly ? 'Current report · read only' : 'Working copy · editable';
         markReportSnapshotSelection('current');
         updateReportBodyStats();
+        refreshReportPreview();
         return;
     }
     const compare = document.getElementById('vrCompareToggle')?.checked;
@@ -1203,6 +1270,7 @@ function renderSelectedReportVersion() {
     if(mode) mode.innerText = compare ? 'Comparison · read only' : 'Immutable snapshot · read only';
     markReportSnapshotSelection(selectedReportSnapshotKey);
     updateReportBodyStats();
+    refreshReportPreview();
 }
 
 function showCurrentReportVersion() {
@@ -1294,6 +1362,7 @@ async function saveReportChanges() {
         const label = document.getElementById('vrVersionLabel'); if(label) label.innerText = `Current revision ${data.revision || ''}`;
         markReportSnapshotSelection('current');
         updateReportBodyStats();
+        refreshReportPreview();
         loadReportTrail();
 
         if(btn) {

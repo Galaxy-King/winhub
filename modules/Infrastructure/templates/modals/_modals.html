@@ -324,6 +324,7 @@
                         <span id="vrEditorMode" class="ml-2 text-[10px] font-semibold text-cyan-400">Working copy</span>
                     </div>
                     <div class="report-reading-controls" aria-label="Reading controls">
+                        <button id="reportPreviewToggle" type="button" onclick="toggleReportPreview()" class="report-dark-control" aria-pressed="false" title="Toggle safe formatted preview">Preview</button>
                         <button id="reportWrapToggle" type="button" onclick="toggleReportWrap()" class="report-dark-control" aria-pressed="true" title="Toggle line wrapping">Wrap</button>
                         <button type="button" onclick="changeReportFontSize(-1)" class="report-dark-control report-font-control" aria-label="Decrease text size">A−</button>
                         <span id="reportFontSizeLabel" class="report-font-size-label" aria-live="polite">14px</span>
@@ -333,6 +334,7 @@
                 </div>
                 <div class="report-body-frame">
                     <textarea id="vrBody" spellcheck="false" wrap="soft" class="custom-scrollbar" {% if not permissions.edit_reports or not permissions.view_sensitive_reports %}readonly{% endif %}>Loading...</textarea>
+                    <div id="vrPreview" class="hidden custom-scrollbar" role="document" aria-label="Safe formatted report preview"></div>
                 </div>
                 <div class="report-editor-statusbar">
                     <span id="vrBodyStats" aria-live="polite">0 lines · 0 characters</span>
