@@ -67,6 +67,19 @@ class ReportRendererTests(unittest.TestCase):
         template = "{% set ns = namespace(total=0) %}{% set ns.total = ns.total + 1 %}{{ ns.total }}"
         self.assertEqual(self.renderer.render_report(template, {}), "1")
 
+    def test_bounded_range_and_lower_filter_remain_supported(self):
+        template = "{% for value in range(first, last + 1) %}{{ label|lower }}-{{ value }} {% endfor %}"
+        self.assertEqual(
+            self.renderer.render_report(template, {"first": 1, "last": 3, "label": "HOST"}),
+            "host-1 host-2 host-3 ",
+        )
+
+    def test_report_range_rejects_excessive_or_non_integer_iterations(self):
+        with self.assertRaises(Exception):
+            self.renderer.render_report("{% for value in range(0, 5000) %}{{ value }}{% endfor %}", {})
+        with self.assertRaises(Exception):
+            self.renderer.render_report("{{ range('0', 5)|list }}", {})
+
 
 class TemplateApprovalTests(unittest.TestCase):
     @classmethod

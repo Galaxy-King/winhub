@@ -21,6 +21,7 @@ from jinja2.sandbox import ImmutableSandboxedEnvironment
 MAX_TEMPLATE_BYTES = 512 * 1024
 MAX_CONTEXT_BYTES = 8 * 1024 * 1024
 MAX_OUTPUT_BYTES = 16 * 1024 * 1024
+MAX_RANGE_ITEMS = 4096
 
 ALLOWED_FILTERS = {
     "default",
@@ -29,12 +30,27 @@ ALLOWED_FILTERS = {
     "join",
     "length",
     "list",
+    "lower",
     "rejectattr",
     "round",
     "selectattr",
 }
 ALLOWED_TESTS = {"boolean", "defined", "false", "mapping", "none", "number", "string", "true", "undefined"}
 FORBIDDEN_NODES = (nodes.CallBlock, nodes.Extends, nodes.FromImport, nodes.Import, nodes.Include, nodes.Macro)
+
+
+def report_range(*args: Any) -> range:
+    """Provide integer-only, bounded iteration for tables such as subnet maps."""
+    if not 1 <= len(args) <= 3 or any(type(value) is not int for value in args):
+        raise TypeError("Report range accepts one to three integer arguments")
+    try:
+        values = range(*args)
+        item_count = len(values)
+    except (OverflowError, ValueError) as exc:
+        raise ValueError("Invalid report range") from exc
+    if item_count > MAX_RANGE_ITEMS:
+        raise ValueError(f"Report range cannot contain more than {MAX_RANGE_ITEMS} items")
+    return values
 
 
 class ReportSandbox(ImmutableSandboxedEnvironment):
@@ -54,7 +70,7 @@ class ReportSandbox(ImmutableSandboxedEnvironment):
         owner = getattr(obj, "__self__", None)
         safe_split = isinstance(owner, str) and getattr(obj, "__name__", "") == "split"
         safe_namespace = getattr(obj, "__module__", "") == "jinja2.utils" and getattr(obj, "__name__", "") == "Namespace"
-        return safe_split or safe_namespace
+        return safe_split or safe_namespace or obj is report_range
 
 
 def _environment() -> ReportSandbox:
@@ -71,6 +87,7 @@ def _environment() -> ReportSandbox:
     env.globals.clear()
     if namespace_factory is not None:
         env.globals["namespace"] = namespace_factory
+    env.globals["range"] = report_range
     return env
 
 
@@ -91,8 +108,9 @@ def validate_report_template(template_string: str) -> None:
             raise SecurityError("Private attributes are not allowed")
     for node in tree.find_all(nodes.Call):
         safe_namespace = isinstance(node.node, nodes.Name) and node.node.name == "namespace"
+        safe_range = isinstance(node.node, nodes.Name) and node.node.name == "range"
         safe_split = isinstance(node.node, nodes.Getattr) and node.node.attr == "split"
-        if not (safe_namespace or safe_split):
+        if not (safe_namespace or safe_range or safe_split):
             raise SecurityError("Function calls are not allowed in report templates")
     env.from_string(template_string)
 
