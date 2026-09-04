@@ -1,0 +1,272 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+APP_DIR="${APP_DIR:-/opt/winhub}"
+ENV_FILE="${ENV_FILE:-/etc/winhub/winhub.env}"
+BACKUP_SCRIPT="${APP_DIR}/deploy/debian/backup_winhub.sh"
+HEALTHCHECK_SCRIPT="${APP_DIR}/deploy/debian/healthcheck_winhub.sh"
+MIGRATE_SCRIPT="${APP_DIR}/deploy/debian/migrate_winhub.sh"
+RENDER_NGINX_SCRIPT="${APP_DIR}/deploy/debian/render_nginx_config.sh"
+RELEASE_REF="${1:-}"
+RELEASE_ARCHIVE=""
+RELEASE_SRC=""
+TMP_DIR=""
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)"
+# shellcheck source=sync_server_files.sh
+source "${SCRIPT_DIR}/sync_server_files.sh"
+trap 'if [[ -n "${TMP_DIR}" ]]; then rm -rf -- "${TMP_DIR}"; fi' EXIT
+export APP_DIR ENV_FILE
+UPDATE_LOG_DIR="${UPDATE_LOG_DIR:-/var/log/winhub/updates}"
+
+sync_env_file() {
+  local example_file="${APP_DIR}/deploy/debian/winhub.env.example"
+  if [[ ! -f "${example_file}" ]]; then
+    echo "[WinHUB] Env example not found, skipping env sync: ${example_file}" >&2
+    return
+  fi
+
+  mkdir -p "$(dirname "${ENV_FILE}")"
+  if [[ ! -f "${ENV_FILE}" ]]; then
+    install -m 0640 -o root -g winhub "${example_file}" "${ENV_FILE}"
+    echo "[WinHUB] Created ${ENV_FILE} from winhub.env.example"
+    return
+  fi
+
+  python3 - "${ENV_FILE}" "${example_file}" <<'PY'
+import datetime as _dt
+import re
+import sys
+from pathlib import Path
+
+env_path = Path(sys.argv[1])
+example_path = Path(sys.argv[2])
+key_re = re.compile(r"^\s*([A-Za-z_][A-Za-z0-9_]*)\s*=")
+
+existing = set()
+for line in env_path.read_text(encoding="utf-8", errors="replace").splitlines():
+    match = key_re.match(line)
+    if match:
+        existing.add(match.group(1))
+
+missing = []
+for line in example_path.read_text(encoding="utf-8", errors="replace").splitlines():
+    match = key_re.match(line)
+    if not match:
+        continue
+    key = match.group(1)
+    if key not in existing:
+        # Older servers already indexed history with the task HMAC fallback.
+        # Do not replace that key with a public placeholder or rotate it here.
+        missing.append("HISTORY_SEARCH_KEY=" if key == "HISTORY_SEARCH_KEY" else line)
+        existing.add(key)
+
+if not missing:
+    print("[WinHUB] Env sync: no missing variables")
+    raise SystemExit(0)
+
+stamp = _dt.datetime.now(_dt.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+with env_path.open("a", encoding="utf-8") as f:
+    f.write("\n")
+    f.write(f"# Added by WinHUB update from winhub.env.example at {stamp}\n")
+    for line in missing:
+        f.write(line + "\n")
+
+print("[WinHUB] Env sync: added missing variables: " + ", ".join(line.split("=", 1)[0].strip() for line in missing))
+PY
+}
+
+env_get() {
+  local key="$1"
+  awk -F= -v key="${key}" '
+    $0 ~ "^[[:space:]]*" key "[[:space:]]*=" {
+      value=$2
+      sub(/^[[:space:]]+/, "", value)
+      sub(/[[:space:]]+$/, "", value)
+      gsub(/^["\047]|["\047]$/, "", value)
+      print value
+      found=1
+    }
+    END { if (!found) exit 1 }
+  ' "${ENV_FILE}" 2>/dev/null || true
+}
+
+env_set() {
+  local key="$1"
+  local value="$2"
+  if grep -Eq "^[[:space:]]*${key}[[:space:]]*=" "${ENV_FILE}"; then
+    sed -i -E "s|^[[:space:]]*${key}[[:space:]]*=.*|${key}=${value}|" "${ENV_FILE}"
+  else
+    printf '%s=%s\n' "${key}" "${value}" >> "${ENV_FILE}"
+  fi
+}
+
+enforce_production_security_env() {
+  local mode
+  mode="$(env_get WINHUB_ENV | tr '[:upper:]' '[:lower:]')"
+  if [[ "${mode}" != "prod" && "${mode}" != "production" ]]; then
+    echo "[WinHUB] Production env hardening skipped: WINHUB_ENV=${mode:-unset}"
+    return
+  fi
+
+  echo "[WinHUB] Enforcing production security env defaults"
+  env_set AGENT_REQUIRE_SIGNED_REQUESTS true
+  env_set AGENT_SIGNATURE_MAX_SKEW_SECONDS 900
+  env_set SESSION_COOKIE_SECURE true
+  env_set SESSION_COOKIE_SAMESITE Strict
+  env_set HSTS_ENABLED true
+
+  if [[ -z "$(env_get AGENT_ALLOW_LEGACY_AGENT_SIGNATURES)" ]]; then
+    env_set AGENT_ALLOW_LEGACY_AGENT_SIGNATURES false
+  fi
+
+  if [[ "$(env_get AGENT_ALLOW_LEGACY_AGENT_SIGNATURES | tr '[:upper:]' '[:lower:]')" == "true" ]]; then
+    echo "[WinHUB] Legacy agent signature bridge is enabled for rollout. Disable it after all agents are upgraded."
+  fi
+}
+
+if [[ "${EUID}" -ne 0 ]]; then
+  echo "Run as root: sudo bash deploy/debian/update_winhub.sh <release.tar.gz|source-directory>"
+  exit 1
+fi
+
+if [[ ! -d "${APP_DIR}" ]]; then
+  echo "APP_DIR does not exist: ${APP_DIR}" >&2
+  exit 1
+fi
+
+if [[ -n "${RELEASE_REF}" && -f "${RELEASE_REF}" ]]; then
+  RELEASE_ARCHIVE="$(readlink -f "${RELEASE_REF}")"
+  TMP_DIR="$(mktemp -d)"
+  # Only ordinary files/directories from a trusted release are needed. Reject
+  # paths and links that could write outside the temporary extraction directory.
+  python3 - "${RELEASE_ARCHIVE}" "${TMP_DIR}" <<'PY'
+import sys
+import tarfile
+from pathlib import PurePosixPath
+
+with tarfile.open(sys.argv[1], "r:*") as archive:
+    for member in archive.getmembers():
+        path = PurePosixPath(member.name)
+        if path.is_absolute() or ".." in path.parts or not (member.isfile() or member.isdir()):
+            raise SystemExit("Unsupported or unsafe entry in server release")
+    archive.extractall(sys.argv[2])
+PY
+  RELEASE_SRC="${TMP_DIR}"
+  mapfile -t entries < <(find "${TMP_DIR}" -mindepth 1 -maxdepth 1)
+  if [[ "${#entries[@]}" -eq 1 && -d "${entries[0]}" ]]; then
+    RELEASE_SRC="${entries[0]}"
+  fi
+elif [[ -n "${RELEASE_REF}" && -d "${RELEASE_REF}" ]]; then
+  RELEASE_SRC="${RELEASE_REF}"
+elif [[ -z "${RELEASE_REF}" && "$(readlink -f "${SCRIPT_DIR}/../..")" != "$(readlink -f "${APP_DIR}")" ]]; then
+  RELEASE_SRC="${SCRIPT_DIR}/../.."
+else
+  echo "[WinHUB] Specify a release archive or an updated source directory." >&2
+  echo "Example: sudo bash /opt/winhub/deploy/debian/update_winhub.sh /home/operator/winhub/WinHUB" >&2
+  exit 1
+fi
+RELEASE_SRC="$(winhub_server_source "${RELEASE_SRC}")" || exit 1
+if [[ "${RELEASE_SRC}" == "$(readlink -f "${APP_DIR}")" ]]; then
+  echo "[WinHUB] Prepare the new version outside APP_DIR so backup captures the old version." >&2
+  exit 1
+fi
+
+cd "${APP_DIR}"
+
+echo "[WinHUB] Starting update in ${APP_DIR}"
+mkdir -p "${UPDATE_LOG_DIR}"
+STARTED_AT="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+FROM_VERSION="$(test -f "${APP_DIR}/VERSION" && tr -d '[:space:]' < "${APP_DIR}/VERSION" || echo unknown)"
+
+if [[ -x "${BACKUP_SCRIPT}" ]]; then
+  "${BACKUP_SCRIPT}"
+else
+  bash "${BACKUP_SCRIPT}"
+fi
+
+echo "[WinHUB] Deploying server components from ${RELEASE_SRC}"
+winhub_sync_server_files "${RELEASE_SRC}" "${APP_DIR}"
+
+sync_env_file
+enforce_production_security_env
+
+python3 -m venv "${APP_DIR}/venv"
+"${APP_DIR}/venv/bin/python" -m pip install --upgrade pip wheel
+"${APP_DIR}/venv/bin/pip" install -r "${APP_DIR}/requirements.txt"
+
+if ! id winhub-renderer >/dev/null 2>&1; then
+  useradd --system --home /nonexistent --shell /usr/sbin/nologin winhub-renderer
+fi
+
+if [[ -f "${APP_DIR}/alembic.ini" && -d "${APP_DIR}/migrations/versions" ]]; then
+  echo "[WinHUB] Running database migrations"
+  if [[ -x "${MIGRATE_SCRIPT}" ]]; then
+    "${MIGRATE_SCRIPT}" upgrade
+  else
+    bash "${MIGRATE_SCRIPT}" upgrade
+  fi
+fi
+
+install -m 0644 "${APP_DIR}/deploy/debian/winhub.service" /etc/systemd/system/winhub.service
+install -m 0644 "${APP_DIR}/deploy/debian/winhub-agent.service" /etc/systemd/system/winhub-agent.service
+install -m 0644 "${APP_DIR}/deploy/debian/winhub-renderer.socket" /etc/systemd/system/winhub-renderer.socket
+install -m 0644 "${APP_DIR}/deploy/debian/winhub-renderer@.service" /etc/systemd/system/winhub-renderer@.service
+ENV_FILE="${ENV_FILE}" APP_DIR="${APP_DIR}" bash "${RENDER_NGINX_SCRIPT}" /etc/nginx/sites-available/winhub
+ln -sfn /etc/nginx/sites-available/winhub /etc/nginx/sites-enabled/winhub
+install -m 0644 "${APP_DIR}/deploy/debian/winhub.logrotate" /etc/logrotate.d/winhub
+chmod 0755 "${APP_DIR}/deploy/debian/backup_winhub.sh" "${APP_DIR}/deploy/debian/healthcheck_winhub.sh" "${APP_DIR}/deploy/debian/security_smoke_test.sh" "${APP_DIR}/deploy/debian/migrate_winhub.sh" "${APP_DIR}/deploy/debian/render_nginx_config.sh" "${APP_DIR}/deploy/debian/restore_winhub.sh" "${APP_DIR}/deploy/debian/rollback_winhub.sh" "${APP_DIR}/deploy/debian/update_winhub.sh"
+
+chown -R root:winhub "${APP_DIR}"
+chmod -R u=rwX,g=rX,o= "${APP_DIR}"
+chmod 0751 "${APP_DIR}"
+chmod -R u=rwX,go=rX "${APP_DIR}/static"
+chmod -R u=rwX,go=rX "${APP_DIR}/venv"
+chmod 0751 "${APP_DIR}/core"
+chmod 0644 "${APP_DIR}/core/report_renderer.py"
+chown -R winhub:winhub /var/lib/winhub /var/log/winhub
+chmod 0750 /var/lib/winhub /var/log/winhub
+chown -R root:winhub /etc/winhub
+chmod 0750 /etc/winhub /etc/winhub/certs
+chmod 0640 "${ENV_FILE}"
+chmod 0640 /etc/winhub/certs/*.pem 2>/dev/null || true
+
+systemctl daemon-reload
+APP_DIR="${APP_DIR}" bash "${APP_DIR}/deploy/debian/install_code_validator.sh"
+systemctl enable --now winhub-renderer.socket
+nginx -t
+systemctl restart winhub
+if awk -F= '/^[[:space:]]*AGENT_BACKEND_PORT[[:space:]]*=/{gsub(/[ \047"\r]/, "", $2); if ($2 != "") found=1} END{exit found ? 0 : 1}' "${ENV_FILE}"; then
+  systemctl enable --now winhub-agent
+  systemctl restart winhub-agent
+else
+  if systemctl is-active --quiet winhub-agent; then
+    systemctl stop winhub-agent
+  fi
+fi
+systemctl reload nginx
+
+if [[ -x "${HEALTHCHECK_SCRIPT}" ]]; then
+  "${HEALTHCHECK_SCRIPT}"
+else
+  bash "${HEALTHCHECK_SCRIPT}"
+fi
+
+TO_VERSION="$(test -f "${APP_DIR}/VERSION" && tr -d '[:space:]' < "${APP_DIR}/VERSION" || echo unknown)"
+python3 - "${UPDATE_LOG_DIR}/$(date -u +%Y%m%d_%H%M%S)_update.json" "${STARTED_AT}" "${FROM_VERSION}" "${TO_VERSION}" "${RELEASE_REF:-source-checkout}" <<'PY'
+import datetime
+import json
+import sys
+from pathlib import Path
+
+Path(sys.argv[1]).write_text(json.dumps({
+    "started_at": sys.argv[2],
+    "finished_at": datetime.datetime.now(datetime.timezone.utc).isoformat(),
+    "from_version": sys.argv[3],
+    "to_version": sys.argv[4],
+    "release_ref": sys.argv[5],
+    "status": "success",
+}, indent=2) + "\n", encoding="utf-8")
+PY
+chown -R winhub:winhub "${UPDATE_LOG_DIR}" || true
+
+echo "[WinHUB] Update complete"

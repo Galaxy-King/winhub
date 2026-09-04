@@ -1,6 +1,6 @@
 <Project Sdk="Microsoft.NET.Sdk.Worker">
   <PropertyGroup>
-    <TargetFramework>net8.0</TargetFramework>
+    <TargetFramework>net10.0</TargetFramework>
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
     <PublishAot>true</PublishAot>
@@ -12,21 +12,27 @@
   </PropertyGroup>
   <ItemGroup>
     <Compile Include="../WinHUBLinuxAgent/Worker.cs" Link="Worker.cs" />
-    <PackageReference Include="Microsoft.Extensions.Hosting" Version="8.0.0" />
-    <PackageReference Include="System.Text.Json" Version="8.0.6" />
+    <Compile Include="../WinHUBLinuxAgent/Security/*.cs" Link="Security/%(Filename)%(Extension)" />
+    <PackageReference Include="Microsoft.Extensions.Hosting" Version="10.0.11" />
+  </ItemGroup>
+  <ItemGroup>
+    <Content Update="global.json" CopyToOutputDirectory="Never" CopyToPublishDirectory="Never" />
+    <Content Remove="artifacts/**/*.json;dist-agent/**/*.json" />
   </ItemGroup>
   <ItemGroup>
     <AgentDeployFile Include="winhub_agent.conf.example" />
     <AgentDeployFile Include="winhub_agent.bootstrap.conf.example" />
     <AgentDeployFile Include="com.winhub.agent.plist" />
+    <AgentDeployFile Include="com.winhub.agent.newsyslog.conf" />
     <AgentDeployFile Include="install-macos-agent.sh" />
     <AgentDeployFile Include="setup-macos-agent.sh" />
     <AgentDeployFile Include="uninstall-macos-agent.sh" />
     <AgentDeployFile Include="update-macos-agent.sh" />
+    <AgentDeployFile Include="diagnose-macos-agent.sh" />
     <AgentDeployFile Include="README.md" />
-    <AgentDeployFile Include="BUILD_MAC_M4_UA.md" />
+    <AgentDeployFile Include="docs/BUILD_MAC_M4_UA.md" />
   </ItemGroup>
   <Target Name="CopyAgentDeployFiles" AfterTargets="Publish">
-    <Copy SourceFiles="@(AgentDeployFile)" DestinationFolder="$(PublishDir)" SkipUnchangedFiles="true" />
+    <Copy SourceFiles="@(AgentDeployFile)" DestinationFiles="@(AgentDeployFile->'$(PublishDir)%(Identity)')" SkipUnchangedFiles="true" />
   </Target>
 </Project>

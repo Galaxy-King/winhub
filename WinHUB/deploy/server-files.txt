@@ -1,0 +1,11 @@
+VERSION
+requirements.txt
+alembic.ini
+server_debian.py
+server_prod.py
+core/
+modules/
+templates/
+static/
+migrations/
+deploy/

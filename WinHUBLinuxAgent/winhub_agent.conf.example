@@ -9,6 +9,7 @@
   "MaxResultLogBytes": 262144,
   "IgnoreTlsCertificateErrors": false,
   "ServerCertificateSha256": "SERVER_CERT_SHA256_WITHOUT_COLONS",
+  "ServerCertificateSha256Next": "",
   "RequireTaskSignature": true,
   "TaskSigningPublicKeyPem": "",
   "TaskSigningKeyId": "",

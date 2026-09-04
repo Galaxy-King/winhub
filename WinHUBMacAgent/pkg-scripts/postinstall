@@ -1,0 +1,103 @@
+#!/bin/bash
+set -euo pipefail
+IFS=$'\n\t'
+
+readonly label="com.winhub.agent"
+readonly install_dir="/Library/PrivilegedHelperTools/com.winhub.agent"
+readonly config_dir="/Library/Application Support/WinHUB/Config"
+readonly data_dir="/Library/Application Support/WinHUB/Data"
+readonly log_dir="/Library/Logs/WinHUB"
+readonly plist_path="/Library/LaunchDaemons/${label}.plist"
+readonly newsyslog_path="/etc/newsyslog.d/${label}.conf"
+readonly provisioning_dir="/private/var/tmp/${label}.provisioning"
+readonly manifest_path="${install_dir}/release-files.manifest"
+
+die() { printf 'WinHUB package error: %s\n' "$*" >&2; exit 1; }
+
+valid_root_provisioning_file() {
+  local candidate="$1"
+  [[ -f "${candidate}" && ! -L "${candidate}" ]] || return 1
+  [[ "$(/usr/bin/stat -f '%u' "${candidate}")" == "0" ]] || return 1
+  /usr/bin/plutil -lint "${candidate}" >/dev/null
+}
+
+remove_stale_runtime_files() {
+  [[ -f "${manifest_path}" ]] || die "Release file manifest is missing."
+  local item
+  local name
+  while IFS= read -r -d '' item; do
+    name="${item##*/}"
+    case "${name}" in
+      WinHUBMacAgent|*.dylib|*.json|*.sh|*.plist|*.conf.example|*.md)
+        /usr/bin/grep -Fxq "${name}" "${manifest_path}" || /bin/rm -f "${item}"
+        ;;
+    esac
+  done < <(/usr/bin/find "${install_dir}" -maxdepth 1 -type f -print0)
+}
+
+[[ -f "${install_dir}/WinHUBMacAgent" ]] || die "Agent executable is missing."
+[[ -f "${plist_path}" ]] || die "LaunchDaemon plist is missing."
+[[ -f "${newsyslog_path}" ]] || die "newsyslog policy is missing."
+/usr/bin/plutil -lint "${plist_path}" >/dev/null
+[[ "$(/usr/libexec/PlistBuddy -c 'Print :Label' "${plist_path}")" == "${label}" ]] \
+  || die "LaunchDaemon label is invalid."
+[[ "$(/usr/libexec/PlistBuddy -c 'Print :ProgramArguments:0' "${plist_path}")" == "${install_dir}/WinHUBMacAgent" ]] \
+  || die "LaunchDaemon executable path is invalid."
+/usr/bin/codesign --verify --strict --all-architectures --verbose=2 "${install_dir}/WinHUBMacAgent" \
+  || die "Agent code signature is invalid."
+signature_details="$(/usr/bin/codesign -dvvv "${install_dir}/WinHUBMacAgent" 2>&1)"
+[[ "$(printf '%s\n' "${signature_details}" | /usr/bin/awk -F= '/^Identifier=/{print $2; exit}')" == "${label}" ]] \
+  || die "Agent code-signing identifier is invalid."
+installed_team="$(printf '%s\n' "${signature_details}" | /usr/bin/awk -F= '/^TeamIdentifier=/{print $2; exit}')"
+[[ -n "${installed_team}" && "${installed_team}" != "not set" ]] \
+  || die "Agent Developer Team ID is missing."
+printf '%s\n' "${signature_details}" | /usr/bin/grep -Eq '^CodeDirectory .*flags=.*\(.*runtime.*\)' \
+  || die "Agent Hardened Runtime flag is missing."
+
+remove_stale_runtime_files
+/usr/bin/install -d -o root -g wheel -m 0755 "${install_dir}" "${config_dir}" "${log_dir}"
+/usr/bin/install -d -o root -g wheel -m 0700 "${data_dir}"
+
+if [[ -d "${provisioning_dir}" && ! -L "${provisioning_dir}" && "$(/usr/bin/stat -f '%u' "${provisioning_dir}")" == "0" ]]; then
+  if valid_root_provisioning_file "${provisioning_dir}/winhub_agent.conf"; then
+    /usr/bin/install -o root -g wheel -m 0600 "${provisioning_dir}/winhub_agent.conf" "${config_dir}/winhub_agent.conf"
+  fi
+  if [[ ! -f "${data_dir}/agent.token" ]] && valid_root_provisioning_file "${provisioning_dir}/winhub_agent.bootstrap.conf"; then
+    /usr/bin/install -o root -g wheel -m 0600 "${provisioning_dir}/winhub_agent.bootstrap.conf" "${config_dir}/winhub_agent.bootstrap.conf"
+  fi
+fi
+/bin/rm -rf "${provisioning_dir}"
+
+if [[ ! -f "${config_dir}/winhub_agent.conf" ]]; then
+  /usr/bin/install -o root -g wheel -m 0600 "${install_dir}/winhub_agent.conf.example" "${config_dir}/winhub_agent.conf"
+fi
+
+/usr/sbin/chown -R root:wheel "${install_dir}" "${config_dir}" "${data_dir}" "${log_dir}" "${plist_path}"
+/bin/chmod 0755 "${install_dir}" "${install_dir}/WinHUBMacAgent"
+/bin/chmod 0755 "${install_dir}"/*.sh 2>/dev/null || true
+/bin/chmod 0700 "${data_dir}"
+/bin/chmod 0600 "${config_dir}"/*.conf 2>/dev/null || true
+/bin/chmod 0644 "${plist_path}"
+/bin/chmod 0644 "${newsyslog_path}"
+
+# A package installed over an enrolled endpoint starts immediately. A package installed
+# without provisioning remains intentionally stopped until setup-macos-agent.sh is run.
+if [[ -s "${data_dir}/agent.token" || -s "${config_dir}/winhub_agent.bootstrap.conf" ]]; then
+  /bin/launchctl bootstrap system "${plist_path}"
+  /bin/launchctl enable system/"${label}"
+  /bin/launchctl kickstart -k system/"${label}"
+  service_running=0
+  for _ in 1 2 3 4 5 6 7 8 9 10; do
+    service_state="$(/bin/launchctl print system/"${label}" 2>/dev/null || true)"
+    if [[ "${service_state}" == *"state = running"* ]]; then
+      service_running=1
+      break
+    fi
+    /bin/sleep 1
+  done
+  [[ ${service_running} -eq 1 ]] || die "LaunchDaemon did not stay running. See ${log_dir}/agent-error.log."
+else
+  printf 'WinHUB Agent installed but not started: enrollment configuration is not present.\n'
+fi
+
+exit 0

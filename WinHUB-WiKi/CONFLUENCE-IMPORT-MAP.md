@@ -29,3 +29,7 @@
 6. Перевірте links, tables, code blocks і permissions Confluence space.
 
 Recovery bundle, production env, logs і screenshots із sensitive data не імпортуються.
+
+## Докладні посібники
+
+Додатковий розділ `Докладні посібники` відповідає `guides/README.md`. Файли з `guides/features`, `guides/security` і `guides/agents` імпортуйте під тематичні дочірні сторінки.

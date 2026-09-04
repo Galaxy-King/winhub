@@ -1,0 +1,15 @@
+[Unit]
+Description=WinHUB isolated code validation socket
+
+[Socket]
+ListenStream=/run/winhub-code-validator.sock
+Accept=yes
+SocketMode=0660
+SocketUser=winhub
+SocketGroup=winhub
+RemoveOnStop=true
+Backlog=4
+MaxConnections=4
+
+[Install]
+WantedBy=sockets.target

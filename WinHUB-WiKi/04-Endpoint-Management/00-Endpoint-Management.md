@@ -17,3 +17,5 @@ Endpoint Management — основний модуль для роботи з в�
 - [Готові пакети шаблонів](11-Готові-пакети-шаблонів.md)
 
 Доступні дії залежать від permissions користувача й доступу до груп endpoint-вузлів.
+
+[Докладний посібник Endpoint Management](../guides/features/ENDPOINT_MANAGEMENT_GUIDE_UA.md).

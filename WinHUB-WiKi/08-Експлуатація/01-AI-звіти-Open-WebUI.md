@@ -25,18 +25,18 @@ API_KEYS_ALLOWED_ENDPOINTS=/api/models,/api/chat/completions
 
 ## WinHUB
 
-Для HTTPS Open WebUI додаткові параметри не потрібні. Для поточної приватної адреси `http://10.200.0.188:3000` додайте у `/etc/winhub/winhub.env`:
+Для HTTPS Open WebUI додаткові параметри не потрібні. Для HTTP-сервісу у захищеній приватній мережі, наприклад `http://openwebui.example.net:3000` додайте у `/etc/winhub/winhub.env`:
 
 ```env
 AI_ALLOW_INSECURE_HTTP=true
-OUTBOUND_ALLOWED_HOSTS=10.200.0.188
+OUTBOUND_ALLOWED_HOSTS=openwebui.example.net
 ```
 
 Якщо `OUTBOUND_ALLOWED_HOSTS` уже містить інші інтеграції, додайте адресу через кому, не замінюючи список. HTTP використовуйте лише всередині захищеної мережі/WireGuard; рекомендований фінальний варіант — HTTPS.
 
 Перезапустіть WinHUB, відкрийте **Infrastructure → Administration → AI / Open WebUI** і заповніть:
 
-- URL: `http://10.200.0.188:3000`;
+- URL: `http://openwebui.example.net:3000`;
 - Model ID: точний ID моделі з `/api/models`;
 - Service account API key;
 - **Enable AI reports**.
@@ -49,4 +49,4 @@ PowerShell-скрипт може повернути на кожному хост
 
 > Цей скрипт повертає параметри WireGuard. Сформуй коротку таблицю з колонками Host та endpoint:port. Невідомі значення познач як «немає даних».
 
-У Reports буде звичайна generated revision і наступна `ai_generated` revision. Кнопка **Regenerate with AI** дозволяє створити інший варіант без повторного запуску скрипта, доки збережені його результати.
+У Reports буде звичайна generated revision і наступна `ai_generated` revision. Кнопка **Regenerate with AI** працює для кожного доступного звіту, включно зі `Sent`, `Dismissed`, `Superseded` і split reports. AI отримує поточний текст звіту та наявні результати задач; якщо старі task results уже видалені, використовується сам звіт. Потрібні одночасно `use_ai_reports`, `edit_reports` і доступ до відповідної групи. Попередній текст зберігається як незмінна revision; обробка AI не означає автоматичне повторне надсилання вже доставленого звіту.
