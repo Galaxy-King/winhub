@@ -1,0 +1,8 @@
+#!/bin/bash
+set -euo pipefail
+
+readonly label="com.winhub.agent"
+
+# Stop the old process before Installer atomically lays down the new payload.
+/bin/launchctl bootout system/"${label}" 2>/dev/null || true
+exit 0

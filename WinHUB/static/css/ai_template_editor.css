@@ -1,0 +1,25 @@
+#aiTemplateEditorModal {position:fixed;inset:0;z-index:160;padding:1rem;background:#020617d9;display:flex;align-items:center;justify-content:center;color:#e2e8f0}
+#aiTemplateEditorModal.hidden {display:none}
+#aiTemplateEditorModal,#aiTemplateEditorModal * {box-sizing:border-box}
+#aiTemplateEditorModal .ai-editor-shell {width:min(1400px,100%);max-height:94vh;overflow:auto;background:#0f172a;border:1px solid #475569;border-radius:1.25rem;box-shadow:0 24px 80px #0008}
+#aiTemplateEditorModal header {display:flex;align-items:center;justify-content:space-between;gap:1rem;padding:1rem 1.25rem;border-bottom:1px solid #475569}
+#aiTemplateEditorModal h2 {font-size:1.2rem;font-weight:800;color:#f8fafc}
+#aiTemplateEditorModal header p,#aiTemplateEditorModal .ai-editor-note {font-size:.78rem;color:#cbd5e1;line-height:1.5}
+#aiTemplateEditorModal .ai-editor-grid {display:grid;grid-template-columns:minmax(260px,1fr) minmax(300px,2fr);gap:1.25rem;padding:1.25rem}
+#aiTemplateEditorModal .ai-editor-controls,#aiTemplateEditorModal .ai-editor-result {display:flex;flex-direction:column;gap:.75rem;min-width:0}
+#aiTemplateEditorModal label {font-size:.85rem;font-weight:650;color:#e2e8f0}
+#aiTemplateEditorModal input,#aiTemplateEditorModal select,#aiTemplateEditorModal textarea {color:#f1f5f9;background:#020617;border:1px solid #64748b;border-radius:.5rem;box-shadow:none}
+#aiTemplateEditorModal textarea,#aiTemplateEditorModal select {width:100%;padding:.7rem}
+#aiTemplateEditorModal textarea::placeholder {color:#94a3b8}
+#aiTemplateEditorModal textarea {resize:vertical;font-size:.85rem}
+#aiTemplateEditorModal .ai-editor-check {display:flex;align-items:center;gap:.6rem}
+#aiTemplateEditorModal input[type=checkbox] {width:1rem;height:1rem;accent-color:#818cf8}
+#aiTemplateEditorModal button {padding:.65rem .8rem;border-radius:.5rem;border:1px solid #64748b;background:#1e293b;color:#f8fafc;font-size:.8rem;font-weight:650}
+#aiTemplateEditorModal button:hover:not(:disabled),#aiTemplateEditorModal button[aria-pressed=true] {background:#3730a3;border-color:#a5b4fc}
+#aiTemplateEditorModal button:disabled {opacity:.5;cursor:not-allowed}
+#aiTemplateEditorModal :focus-visible {outline:2px solid #67e8f9;outline-offset:2px}
+#aiTemplateEditorModal .ai-editor-actions {display:flex;flex-wrap:wrap;gap:.5rem}
+#aiTemplateEditorModal #aiEditorOutput {font:13px/1.55 Consolas,monospace;min-height:320px;height:44vh;white-space:pre;tab-size:4}
+#aiTemplateEditorModal #aiEditorDiagnostics {font:12px/1.6 Consolas,monospace;white-space:pre-wrap;overflow-wrap:anywhere;max-height:25vh;overflow:auto;color:#fde68a}
+#aiTemplateEditorModal #aiEditorStatus {font-size:.85rem;line-height:1.5;overflow-wrap:anywhere;color:#bae6fd;min-height:3em}
+@media(max-width:850px){#aiTemplateEditorModal .ai-editor-grid{grid-template-columns:1fr}#aiTemplateEditorModal{padding:.4rem}#aiTemplateEditorModal #aiEditorOutput{min-height:250px}}

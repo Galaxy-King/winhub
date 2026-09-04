@@ -1,6 +1,6 @@
 # macOS Agent
 
-macOS Agent — NativeAOT агент для Apple Silicon `osx-arm64` і macOS 14 або новішої версії.
+macOS Agent — self-contained .NET 10 LTS Native AOT агент для Apple Silicon `osx-arm64` і macOS 14 або новішої версії.
 
 ## Життєвий цикл
 
@@ -12,4 +12,6 @@ macOS Agent — NativeAOT агент для Apple Silicon `osx-arm64` і macOS 1
 6. [Інформація про агент](06-Інформація-про-агент.md)
 7. [Діагностика](07-Діагностика.md)
 
-Production binary має бути підписаний Developer ID. Unsigned mode дозволений лише на ізольованому development Mac.
+Production binary має бути підписаний `Developer ID Application`, а інсталяційний `.pkg` —
+`Developer ID Installer`, пройти Apple notarization і мати stapled ticket. Unsigned mode
+дозволений лише на ізольованому development Mac.

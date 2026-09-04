@@ -1,0 +1,1500 @@
+{% extends "base.html" %}
+
+{% block title %}Endpoint Management - WinHUB{% endblock %}
+
+{% block extra_head %}
+<link rel="stylesheet" href="{{ url_for('static', filename='vendor/codemirror/5.65.16/codemirror.min.css', v=app_version) }}">
+<link rel="stylesheet" href="{{ url_for('static', filename='vendor/codemirror/5.65.16/theme/material-darker.min.css', v=app_version) }}">
+<script nonce="{{ csp_nonce }}" src="{{ url_for('static', filename='vendor/codemirror/5.65.16/codemirror.min.js', v=app_version) }}"></script>
+<script nonce="{{ csp_nonce }}" src="{{ url_for('static', filename='vendor/codemirror/5.65.16/addon/edit/matchbrackets.min.js', v=app_version) }}"></script>
+<script nonce="{{ csp_nonce }}" src="{{ url_for('static', filename='vendor/codemirror/5.65.16/mode/powershell/powershell.min.js', v=app_version) }}"></script>
+<script nonce="{{ csp_nonce }}" src="{{ url_for('static', filename='vendor/codemirror/5.65.16/mode/shell/shell.min.js', v=app_version) }}"></script>
+<script nonce="{{ csp_nonce }}" src="{{ url_for('static', filename='vendor/codemirror/5.65.16/mode/xml/xml.min.js', v=app_version) }}"></script>
+<script nonce="{{ csp_nonce }}" src="{{ url_for('static', filename='vendor/codemirror/5.65.16/mode/javascript/javascript.min.js', v=app_version) }}"></script>
+<script nonce="{{ csp_nonce }}" src="{{ url_for('static', filename='vendor/codemirror/5.65.16/mode/css/css.min.js', v=app_version) }}"></script>
+<script nonce="{{ csp_nonce }}" src="{{ url_for('static', filename='vendor/codemirror/5.65.16/mode/htmlmixed/htmlmixed.min.js', v=app_version) }}"></script>
+	<style nonce="{{ csp_nonce }}">
+		    .cm-s-winhub-neon.CodeMirror {
+		        height: 450px;
+		        border: 1px solid rgba(56, 189, 248, 0.42);
+		        border-radius: 1.25rem;
+		        font-family: Consolas, "Cascadia Code", "Fira Code", monospace;
+		        font-size: 13px;
+		        line-height: 1.65;
+		        background:
+		            radial-gradient(circle at 12% 0%, rgba(34, 211, 238, 0.12), transparent 18rem),
+		            linear-gradient(180deg, #06172d 0%, #08111f 58%, #050b16 100%) !important;
+		        color: #dff7ff !important;
+		        box-shadow: 0 22px 55px rgba(7, 21, 46, 0.35), inset 0 1px 0 rgba(255, 255, 255, 0.06);
+		        overflow: hidden;
+		    }
+		    .cm-s-winhub-neon .CodeMirror-scroll,
+		    .cm-s-winhub-neon .CodeMirror-sizer,
+		    .cm-s-winhub-neon .CodeMirror-lines {
+		        background: transparent !important;
+		    }
+		    .cm-s-winhub-neon .CodeMirror-gutters {
+		        border-right: 1px solid rgba(96, 165, 250, 0.22);
+		        background: rgba(3, 10, 22, 0.82);
+		        min-width: 3.25rem;
+		    }
+		    .cm-s-winhub-neon .CodeMirror-linenumber {
+		        padding: 0 0.75rem 0 0.5rem;
+		        color: #60a5fa;
+		    }
+		    .cm-s-winhub-neon .CodeMirror-lines {
+		        padding: 0.85rem 0;
+		    }
+		    .cm-s-winhub-neon .CodeMirror-cursor {
+		        border-left: 2px solid #67e8f9 !important;
+		    }
+		    .cm-s-winhub-neon div.CodeMirror-selected,
+		    .cm-s-winhub-neon .CodeMirror-selected {
+		        background: rgba(14, 165, 233, 0.42) !important;
+		    }
+		    .cm-s-winhub-neon.CodeMirror-focused div.CodeMirror-selected,
+		    .cm-s-winhub-neon.CodeMirror-focused .CodeMirror-selected {
+		        background: rgba(6, 182, 212, 0.58) !important;
+		    }
+		    .cm-s-winhub-neon .CodeMirror-selectedtext {
+		        color: #f8fafc !important;
+		        text-shadow: 0 1px 1px rgba(0, 0, 0, 0.85);
+		    }
+		    .cm-s-winhub-neon .CodeMirror-line::selection,
+		    .cm-s-winhub-neon .CodeMirror-line > span::selection,
+		    .cm-s-winhub-neon .CodeMirror-line > span > span::selection {
+		        background: rgba(6, 182, 212, 0.62);
+		        color: #f8fafc;
+		        text-shadow: 0 1px 1px rgba(0, 0, 0, 0.85);
+		    }
+		    .cm-s-winhub-neon .CodeMirror-line::-moz-selection,
+		    .cm-s-winhub-neon .CodeMirror-line > span::-moz-selection,
+		    .cm-s-winhub-neon .CodeMirror-line > span > span::-moz-selection {
+		        background: rgba(6, 182, 212, 0.62);
+		        color: #f8fafc;
+		        text-shadow: 0 1px 1px rgba(0, 0, 0, 0.85);
+		    }
+		    .cm-s-winhub-neon .CodeMirror-activeline-background {
+		        background: rgba(30, 64, 175, 0.24) !important;
+		        box-shadow: inset 3px 0 0 rgba(34, 211, 238, 0.82);
+		    }
+		    .cm-s-winhub-neon .CodeMirror-matchingbracket {
+		        color: #fef08a !important;
+		        background: rgba(250, 204, 21, 0.16);
+		        text-decoration: none;
+		    }
+		    .cm-s-winhub-neon span.cm-keyword { color: #f472b6 !important; }
+		    .cm-s-winhub-neon span.cm-atom,
+		    .cm-s-winhub-neon span.cm-number { color: #c084fc !important; }
+		    .cm-s-winhub-neon span.cm-def,
+		    .cm-s-winhub-neon span.cm-variable { color: #e0f2fe !important; }
+		    .cm-s-winhub-neon span.cm-variable-2 { color: #7dd3fc !important; }
+		    .cm-s-winhub-neon span.cm-property { color: #86efac !important; }
+		    .cm-s-winhub-neon span.cm-operator { color: #fb7185 !important; }
+		    .cm-s-winhub-neon span.cm-comment { color: #94a3b8 !important; font-style: italic; }
+		    .cm-s-winhub-neon span.cm-string { color: #bef264 !important; }
+		    .cm-s-winhub-neon span.cm-builtin { color: #22d3ee !important; }
+		    .cm-s-winhub-neon span.cm-tag { color: #fb7185 !important; }
+		    .cm-s-winhub-neon span.cm-attribute { color: #86efac !important; }
+		    .cm-s-winhub-neon span.cm-error { color: #fff7ed !important; background: rgba(244, 63, 94, 0.65) !important; }
+		    #depPayload {
+		        caret-color: #67e8f9;
+		    }
+		    #depPayload::selection {
+		        background: rgba(6, 182, 212, 0.62);
+		        color: #f8fafc;
+		        text-shadow: 0 1px 1px rgba(0, 0, 0, 0.85);
+		    }
+            #payloadArea.payload-editor-expanded {
+                position: fixed;
+                inset: 1.25rem;
+                z-index: 90;
+                display: flex !important;
+                flex-direction: column;
+                padding: 1rem;
+                border: 1px solid rgba(34, 211, 238, 0.42);
+                border-radius: 1.75rem;
+                background:
+                    radial-gradient(circle at 10% 0%, rgba(34, 211, 238, 0.16), transparent 24rem),
+                    linear-gradient(135deg, rgba(2, 8, 23, 0.98), rgba(8, 17, 31, 0.98));
+                box-shadow: 0 30px 90px rgba(0, 0, 0, 0.55), 0 0 45px rgba(34, 211, 238, 0.14);
+            }
+            #payloadArea.payload-editor-expanded .CodeMirror {
+                height: calc(100vh - 8.5rem) !important;
+                flex: 1;
+            }
+            #payloadArea.payload-editor-expanded #depPayload {
+                height: calc(100vh - 8.5rem) !important;
+            }
+            #payloadArea.payload-editor-expanded .editor-expanded-only {
+                display: inline-flex !important;
+            }
+            #payloadArea.payload-editor-expanded .editor-normal-only {
+                display: none !important;
+            }
+    #infraNavScroller {
+        scrollbar-width: none;
+        -ms-overflow-style: none;
+    }
+    #infraNavScroller::-webkit-scrollbar {
+        display: none;
+    }
+    .infra-menu-trigger {
+        background:
+            radial-gradient(circle at 0 0, rgba(110, 168, 255, 0.24), transparent 8rem),
+            linear-gradient(135deg, #07152e 0%, #0f3d8a 58%, #09224c 100%);
+        border-color: rgba(147, 178, 219, 0.42);
+        color: #ffffff;
+        box-shadow: 0 12px 28px rgba(7, 21, 46, 0.20);
+    }
+    .infra-dropdown-blue {
+        background:
+            radial-gradient(circle at 0 0, rgba(110, 168, 255, 0.22), transparent 10rem),
+            linear-gradient(145deg, #07152e 0%, #0f3d8a 58%, #09224c 100%);
+        border-color: rgba(147, 178, 219, 0.42);
+        box-shadow: 0 24px 55px rgba(7, 21, 46, 0.34);
+    }
+    .infra-dropdown-blue :is(a, button) {
+        display: block;
+        width: 100%;
+        text-align: left;
+        margin: 0.25rem 0;
+        border: 1px solid rgba(191, 219, 254, 0.18);
+        background: rgba(255, 255, 255, 0.08);
+        color: #dff7ff !important;
+        box-shadow: inset 0 1px 0 rgba(255,255,255,0.04);
+    }
+    .infra-dropdown-blue :is(a, button):not(.active) {
+        color: #eff6ff !important;
+    }
+    .infra-dropdown-blue :is(a, button):not(.active):hover {
+        background: rgba(255, 255, 255, 0.16);
+        border-color: rgba(191, 219, 254, 0.34);
+        color: #ffffff !important;
+    }
+    .infra-dropdown-blue :is(a, button).active {
+        background: linear-gradient(135deg, rgba(34, 211, 238, 0.28), rgba(59, 130, 246, 0.18)) !important;
+        border-color: rgba(34, 211, 238, 0.72) !important;
+        color: #ecfeff !important;
+        box-shadow: inset 3px 0 0 rgba(34, 211, 238, 0.92), 0 0 18px rgba(34, 211, 238, 0.16) !important;
+    }
+    header.bg-white {
+        background:
+            radial-gradient(circle at 0 0, rgba(34, 211, 238, 0.16), transparent 18rem),
+            linear-gradient(135deg, rgba(12, 20, 38, 0.98), rgba(13, 31, 58, 0.96)) !important;
+        color: #e8f6ff !important;
+        border-color: rgba(34, 211, 238, 0.28) !important;
+    }
+    header.bg-white h2 {
+        color: #f0fbff !important;
+        text-shadow: 0 0 18px rgba(34, 211, 238, 0.14);
+    }
+    header.bg-white p {
+        color: #93e6ff !important;
+    }
+    #infraNavScroller {
+        background:
+            linear-gradient(135deg, rgba(8, 17, 31, 0.86), rgba(12, 28, 52, 0.82)) !important;
+        border-color: rgba(34, 211, 238, 0.24) !important;
+        box-shadow: inset 0 1px 0 rgba(255,255,255,0.04), 0 0 24px rgba(34, 211, 238, 0.08) !important;
+    }
+    .infra-menu-trigger {
+        color: #ecfeff !important;
+        border-width: 1px;
+    }
+    .infra-nav-menu:nth-child(1) .infra-menu-trigger,
+    #infraMenuInfrastructure {
+        background:
+            radial-gradient(circle at 0 0, rgba(34, 211, 238, 0.20), transparent 9rem),
+            linear-gradient(135deg, #082f49, #0f172a) !important;
+        border-color: rgba(34, 211, 238, 0.42) !important;
+    }
+    .infra-nav-menu:nth-child(2) .infra-menu-trigger,
+    #infraMenuOperations {
+        background:
+            radial-gradient(circle at 0 0, rgba(16, 185, 129, 0.18), transparent 9rem),
+            linear-gradient(135deg, #064e3b, #0f172a) !important;
+        border-color: rgba(52, 211, 153, 0.42) !important;
+    }
+    .infra-nav-menu:nth-child(3) .infra-menu-trigger,
+    #infraMenuAutomation {
+        background:
+            radial-gradient(circle at 0 0, rgba(245, 158, 11, 0.18), transparent 9rem),
+            linear-gradient(135deg, #78350f, #0f172a) !important;
+        border-color: rgba(251, 191, 36, 0.42) !important;
+    }
+    .infra-nav-menu:nth-child(4) .infra-menu-trigger,
+    #infraMenuAdministration {
+        background:
+            radial-gradient(circle at 0 0, rgba(168, 85, 247, 0.18), transparent 9rem),
+            linear-gradient(135deg, #4c1d95, #0f172a) !important;
+        border-color: rgba(196, 181, 253, 0.42) !important;
+    }
+    .infra-dropdown-blue :is(a, button) {
+        color: #dff7ff !important;
+        border-color: rgba(34, 211, 238, 0.16) !important;
+    }
+    .infra-dropdown-blue :is(a, button):nth-child(1) {
+        background: rgba(14, 165, 233, 0.13) !important;
+        border-color: rgba(56, 189, 248, 0.34) !important;
+    }
+    .infra-dropdown-blue :is(a, button):nth-child(2) {
+        background: rgba(16, 185, 129, 0.12) !important;
+        border-color: rgba(52, 211, 153, 0.30) !important;
+    }
+    .infra-dropdown-blue :is(a, button):nth-child(3) {
+        background: rgba(245, 158, 11, 0.13) !important;
+        border-color: rgba(251, 191, 36, 0.30) !important;
+    }
+    .infra-dropdown-blue :is(a, button):nth-child(4) {
+        background: rgba(168, 85, 247, 0.13) !important;
+        border-color: rgba(196, 181, 253, 0.30) !important;
+    }
+    .infra-dropdown-blue :is(a, button):nth-child(5),
+    .infra-dropdown-blue :is(a, button):nth-child(6) {
+        background: rgba(236, 72, 153, 0.12) !important;
+        border-color: rgba(244, 114, 182, 0.30) !important;
+    }
+    .infra-dropdown-blue :is(a, button):hover {
+        background: rgba(34, 211, 238, 0.18) !important;
+        color: #ffffff !important;
+        box-shadow: inset 3px 0 0 rgba(34, 211, 238, 0.75) !important;
+    }
+    body main > div > div > header.bg-white {
+        background:
+            radial-gradient(circle at 0 0, rgba(34, 211, 238, 0.18), transparent 20rem),
+            linear-gradient(135deg, rgba(8, 17, 31, 0.99), rgba(13, 31, 58, 0.97)) !important;
+        color: #e8f6ff !important;
+        border-color: rgba(34, 211, 238, 0.34) !important;
+        box-shadow: 0 18px 48px rgba(0, 0, 0, 0.32), 0 0 28px rgba(34, 211, 238, 0.10) !important;
+    }
+    body main > div > div > header.bg-white .bg-indigo-600 {
+        background:
+            linear-gradient(135deg, rgba(14, 165, 233, 0.94), rgba(37, 99, 235, 0.82)) !important;
+        border: 1px solid rgba(125, 211, 252, 0.55) !important;
+        box-shadow: 0 0 24px rgba(34, 211, 238, 0.18) !important;
+    }
+    body main > div > div > header.bg-white h2 {
+        color: #f6fdff !important;
+    }
+    body main > div > div > header.bg-white p {
+        color: #8eeaff !important;
+    }
+    body #infraNavScroller {
+        background:
+            radial-gradient(circle at 0 0, rgba(34, 211, 238, 0.10), transparent 12rem),
+            linear-gradient(135deg, rgba(3, 10, 23, 0.94), rgba(8, 17, 31, 0.90)) !important;
+        border-color: rgba(34, 211, 238, 0.32) !important;
+    }
+    body .infra-menu-trigger:hover,
+    body .infra-dropdown-blue :is(a, button):hover,
+    body .infra-dropdown-blue :is(a, button).active {
+        color: #ffffff !important;
+        text-shadow: 0 0 12px rgba(34, 211, 238, 0.20);
+    }
+    body .infra-dropdown-blue {
+        background:
+            radial-gradient(circle at 0 0, rgba(34, 211, 238, 0.16), transparent 12rem),
+            linear-gradient(145deg, rgba(7, 18, 35, 0.98), rgba(5, 10, 22, 0.98)) !important;
+        border-color: rgba(34, 211, 238, 0.34) !important;
+    }
+    body .infra-dropdown-blue :is(a, button) {
+        margin-bottom: 0.4rem !important;
+        color: #dff7ff !important;
+        box-shadow: inset 0 1px 0 rgba(255,255,255,0.04);
+    }
+</style>
+{% endblock %}
+
+{% block content %}
+    <script nonce="{{ csp_nonce }}" src="{{ url_for('static', filename='vendor/chart.js/chart.umd.js', v=app_version) }}"></script>
+
+    {% include "sidebar.html" %}
+
+    <main class="flex-1 flex flex-col min-w-0 bg-slate-100 relative z-10" style="font-family: 'Inter', sans-serif;">
+        <div class="flex-1 overflow-y-auto custom-scrollbar">
+            <div class="max-w-[1600px] mx-auto w-full p-6 md:p-10 flex flex-col gap-8">
+
+                <!-- HEADER ISLAND -->
+                <header class="infra-shell-header rounded-[2.5rem] shadow-sm border border-slate-200 p-6 flex flex-col lg:flex-row items-center justify-between gap-6 shrink-0 transition-all">
+                    <div class="flex items-center gap-5 shrink-0">
+                        <div class="w-14 h-14 bg-indigo-600 rounded-2xl flex items-center justify-center text-white shadow-lg shadow-indigo-200">
+                            <svg class="w-8 h-8" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H7a2 2 0 01-2-2v-6a2 2 0 012-2m5-3v8m0-8a2 2 0 100 4 2 2 0 000-4z"/></svg>
+                        </div>
+                        <div>
+                            <h2 class="text-2xl font-black text-slate-800 tracking-tight">Endpoint Management</h2>
+                            <p class="text-[11px] font-bold text-slate-400 uppercase tracking-widest mt-1">Nodes, Software & Operations Center</p>
+                        </div>
+                    </div>
+
+                    {% if permissions.run_tasks %}
+                    <button type="button" onclick="openQuickLaunch()" class="quick-launch-header-button" aria-label="Quickly launch a task from a template">
+                        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M12 5v14m-7-7h14"/>
+                        </svg>
+                        <span>New Task</span>
+                    </button>
+                    {% endif %}
+
+                    <div id="infraNavScroller" class="flex flex-wrap items-center gap-3 bg-slate-50 p-2 rounded-2xl border border-slate-200/60 shadow-inner">
+                        {% if permissions.view_hosts or permissions.view_groups %}
+                        <div class="relative infra-nav-menu">
+                            <button onclick="toggleInfraMenu('infraMenuInfrastructure')" class="infra-menu-trigger px-5 py-3 border rounded-xl text-[10px] font-black uppercase flex items-center gap-2 transition-all hover:brightness-110">
+                                Infrastructure
+                                <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path d="m6 9 6 6 6-6" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
+                            </button>
+                            <div id="infraMenuInfrastructure" class="infra-dropdown infra-dropdown-blue hidden absolute right-0 lg:left-0 lg:right-auto top-full mt-2 w-56 border rounded-2xl p-2 z-30">
+                                {% if permissions.view_hosts %}
+                                <a id="nav-hosts" href="?view=hosts" onclick="handleInfraNavClick(event, 'hosts')" class="active block w-full text-left px-4 py-3 rounded-xl font-black text-xs uppercase tracking-wider transition-all bg-white text-indigo-600 shadow-sm border border-slate-200/50">Nodes</a>
+                                {% endif %}
+                                {% if permissions.view_groups %}
+                                <a id="nav-groups" href="?view=groups" onclick="handleInfraNavClick(event, 'groups')" class="block w-full text-left text-slate-500 hover:text-slate-700 px-4 py-3 rounded-xl font-black text-xs uppercase tracking-wider transition-all">Groups</a>
+                                {% endif %}
+                            </div>
+                        </div>
+                        {% endif %}
+
+                        {% if permissions.run_tasks or permissions.manage_templates or permissions.manage_software or permissions.view_queue or permissions.view_reports %}
+                        <div class="relative infra-nav-menu">
+                            <button onclick="toggleInfraMenu('infraMenuOperations')" class="infra-menu-trigger px-5 py-3 border rounded-xl text-[10px] font-black uppercase flex items-center gap-2 transition-all hover:brightness-110">
+                                Operations
+                                <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path d="m6 9 6 6 6-6" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
+                            </button>
+                            <div id="infraMenuOperations" class="infra-dropdown infra-dropdown-blue hidden absolute right-0 lg:left-0 lg:right-auto top-full mt-2 w-56 border rounded-2xl p-2 z-30">
+                                {% if permissions.run_tasks or permissions.manage_templates %}
+                                <a id="nav-deploy" href="?view=deploy" onclick="handleInfraNavClick(event, 'deploy')" class="block w-full text-left text-slate-500 hover:text-slate-700 px-4 py-3 rounded-xl font-black text-xs uppercase tracking-wider transition-all">Workspace</a>
+                                {% endif %}
+                                {% if permissions.run_tasks or permissions.manage_software %}
+                                <a id="nav-software" href="?view=software" onclick="handleInfraNavClick(event, 'software')" class="block w-full text-left text-slate-500 hover:text-slate-700 px-4 py-3 rounded-xl font-black text-xs uppercase tracking-wider transition-all">Software</a>
+                                {% endif %}
+                                {% if permissions.view_queue %}
+                                <a id="nav-queue" href="?view=queue" onclick="handleInfraNavClick(event, 'queue')" class="block w-full text-left text-slate-500 hover:text-slate-700 px-4 py-3 rounded-xl font-black text-xs uppercase tracking-wider transition-all">Queue</a>
+                                {% endif %}
+                                {% if permissions.view_reports %}
+                                <a id="nav-reports" href="?view=reports" onclick="handleInfraNavClick(event, 'reports')" class="block w-full text-left text-slate-500 hover:text-slate-700 px-4 py-3 rounded-xl font-black text-xs uppercase tracking-wider transition-all">Reports</a>
+                                {% endif %}
+                            </div>
+                        </div>
+                        {% endif %}
+
+                        {% if permissions.manage_scheduler or permissions.manage_triggers %}
+                        <div class="relative infra-nav-menu">
+                            <button onclick="toggleInfraMenu('infraMenuAutomation')" class="infra-menu-trigger px-5 py-3 border rounded-xl text-[10px] font-black uppercase flex items-center gap-2 transition-all hover:brightness-110">
+                                Automation
+                                <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path d="m6 9 6 6 6-6" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
+                            </button>
+                            <div id="infraMenuAutomation" class="infra-dropdown infra-dropdown-blue hidden absolute right-0 lg:left-0 lg:right-auto top-full mt-2 w-56 border rounded-2xl p-2 z-30">
+                                {% if permissions.manage_scheduler %}
+                                <a id="nav-scheduler" href="?view=scheduler" onclick="handleInfraNavClick(event, 'scheduler')" class="block w-full text-left text-slate-500 hover:text-slate-700 px-4 py-3 rounded-xl font-black text-xs uppercase tracking-wider transition-all">Scheduler</a>
+                                {% endif %}
+                                {% if permissions.manage_triggers %}
+                                <a id="nav-triggers" href="?view=triggers" onclick="handleInfraNavClick(event, 'triggers')" class="block w-full text-left text-slate-500 hover:text-slate-700 px-4 py-3 rounded-xl font-black text-xs uppercase tracking-wider transition-all">Triggers</a>
+                                {% endif %}
+                            </div>
+                        </div>
+                        {% endif %}
+
+                        {% if permissions.manage_smtp or permissions.manage_templates or permissions.manage_ai %}
+                        <div class="relative infra-nav-menu">
+                            <button onclick="toggleInfraMenu('infraMenuAdministration')" class="infra-menu-trigger px-5 py-3 border rounded-xl text-[10px] font-black uppercase flex items-center gap-2 transition-all hover:brightness-110">
+                                Administration
+                                <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path d="m6 9 6 6 6-6" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
+                            </button>
+                            <div id="infraMenuAdministration" class="infra-dropdown infra-dropdown-blue hidden absolute right-0 top-full mt-2 w-60 border rounded-2xl p-2 z-30">
+                                {% if permissions.manage_smtp %}
+                                <button onclick="openSmtpManager(); closeInfraMenus();" class="w-full text-left text-slate-500 hover:text-slate-700 px-4 py-3 rounded-xl font-black text-xs uppercase tracking-wider transition-all">SMTP Settings</button>
+                                <button onclick="openConfluenceManager(); closeInfraMenus();" class="w-full text-left text-slate-500 hover:text-slate-700 px-4 py-3 rounded-xl font-black text-xs uppercase tracking-wider transition-all">Confluence Settings</button>
+                                <button onclick="openScheduledReportsManager(); closeInfraMenus();" class="w-full text-left text-slate-500 hover:text-slate-700 px-4 py-3 rounded-xl font-black text-xs uppercase tracking-wider transition-all">Regular Reports</button>
+                                {% endif %}
+                                {% if permissions.manage_ai %}
+                                <button onclick="openAiProviderManager(); closeInfraMenus();" class="w-full text-left text-violet-600 hover:text-violet-800 px-4 py-3 rounded-xl font-black text-xs uppercase tracking-wider transition-all">AI / Open WebUI</button>
+                                {% endif %}
+                                {% if permissions.manage_templates %}
+                                <button onclick="openSecretsManager(); closeInfraMenus();" class="w-full text-left text-slate-500 hover:text-slate-700 px-4 py-3 rounded-xl font-black text-xs uppercase tracking-wider transition-all">Template Secrets</button>
+                                <button onclick="exportTemplates(); closeInfraMenus();" class="w-full text-left text-slate-500 hover:text-slate-700 px-4 py-3 rounded-xl font-black text-xs uppercase tracking-wider transition-all">Export Templates</button>
+                                <button onclick="document.getElementById('templateImportFile')?.click(); closeInfraMenus();" class="w-full text-left text-slate-500 hover:text-slate-700 px-4 py-3 rounded-xl font-black text-xs uppercase tracking-wider transition-all">Import Templates</button>
+                                {% endif %}
+                            </div>
+                        </div>
+                        {% endif %}
+                    </div>
+                </header>
+
+                <!-- DYNAMIC VIEWS -->
+                <div class="relative">
+                    {% if permissions.view_hosts %}
+                        {% include "tabs/_hosts.html" %}
+                    {% endif %}
+                    {% if permissions.view_groups %}
+                        {% include "tabs/_groups.html" %}
+                    {% endif %}
+                    {% if permissions.run_tasks or permissions.manage_templates %}
+                        {% include "tabs/_deploy.html" %}
+                    {% endif %}
+                    {% if permissions.run_tasks or permissions.manage_software %}
+                        {% include "tabs/_software.html" %}
+                    {% endif %}
+                    {% if permissions.view_queue %}
+                        {% include "tabs/_queue.html" %}
+                    {% endif %}
+                    {% if permissions.view_reports %}
+                        {% include "tabs/_reports.html" %}
+                    {% endif %}
+
+                    {% if permissions.manage_scheduler %}
+                        {% include "tabs/_scheduler.html" %}
+                    {% endif %}
+                    {% if permissions.manage_triggers %}
+                        {% include "tabs/_triggers.html" %}
+                    {% endif %}
+                </div>
+            </div>
+        </div>
+    </main>
+
+    <!-- ПІДКЛЮЧЕННЯ ВСІХ МОДАЛОК З ОДНОГО ФАЙЛУ -->
+    {% include "modals/_modals.html" %}
+    {% if permissions.run_tasks %}
+        {% include "modals/_quick_launch.html" %}
+    {% endif %}
+
+<style nonce="{{ csp_nonce }}">
+    /* Кастомні скролбари */
+    .custom-scrollbar::-webkit-scrollbar { width: 8px; }
+    .custom-scrollbar::-webkit-scrollbar-track { background: transparent; }
+    .custom-scrollbar::-webkit-scrollbar-thumb { background: #e2e8f0; border-radius: 10px; }
+    .custom-scrollbar::-webkit-scrollbar-thumb:hover { background: #cbd5e1; }
+
+    /* Report reader: keep the document usable at every viewport and browser zoom. */
+    #reportViewModal .report-viewer-shell {
+        width: min(96vw, 1500px);
+        height: min(94vh, 1000px);
+        max-width: none;
+    }
+    #reportViewModal .report-viewer-header {
+        gap: 1rem;
+        padding: 1.15rem 1.5rem;
+    }
+    #reportViewModal .report-viewer-header-actions {
+        display: flex;
+        flex: 0 0 auto;
+        align-items: center;
+        gap: 0.65rem;
+    }
+    #reportViewModal .report-viewer-control {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        gap: 0.5rem;
+        min-height: 2.75rem;
+        padding: 0.65rem 0.85rem;
+        border: 1px solid #cbd5e1;
+        border-radius: 0.9rem;
+        background: #fff;
+        color: #475569;
+        font-size: 0.7rem;
+        font-weight: 900;
+        text-transform: uppercase;
+        transition: border-color 160ms ease, background 160ms ease, color 160ms ease;
+    }
+    #reportViewModal .report-viewer-control:hover,
+    #reportViewModal .report-viewer-control[aria-pressed="true"] {
+        border-color: #818cf8;
+        background: #eef2ff;
+        color: #4338ca;
+    }
+    #reportViewModal .report-viewer-main {
+        position: relative;
+        display: grid;
+        grid-template-columns: 0 minmax(0, 1fr);
+        overflow: hidden;
+        transition: grid-template-columns 180ms ease;
+    }
+    #reportViewModal .report-viewer-main.is-trail-open {
+        grid-template-columns: 19rem minmax(0, 1fr);
+    }
+    #reportViewModal .report-trail-panel {
+        display: flex;
+        min-width: 0;
+        min-height: 0;
+        flex-direction: column;
+        overflow: hidden;
+        opacity: 0;
+        visibility: hidden;
+        transition: opacity 140ms ease;
+    }
+    #reportViewModal .report-viewer-main.is-trail-open .report-trail-panel {
+        opacity: 1;
+        visibility: visible;
+    }
+    #reportViewModal .report-trail-heading {
+        flex: 0 0 auto;
+        padding: 1rem 1rem 0.7rem;
+    }
+    #reportViewModal .report-trail-scroll {
+        flex: 1 1 auto;
+        min-height: 0;
+        overflow-y: auto;
+        padding: 0.25rem 1rem 1rem;
+    }
+    #reportViewModal .report-trail-footer {
+        flex: 0 0 auto;
+        border-top: 1px solid #e2e8f0;
+        padding: 0.85rem 1rem 1rem;
+    }
+    #reportViewModal .report-snapshot-card {
+        transition: border-color 140ms ease, box-shadow 140ms ease, transform 140ms ease;
+    }
+    #reportViewModal .report-snapshot-card:hover {
+        border-color: #a5b4fc;
+        transform: translateY(-1px);
+    }
+    #reportViewModal .report-snapshot-card.is-selected {
+        border-color: #6366f1 !important;
+        box-shadow: 0 0 0 2px rgba(99, 102, 241, 0.14);
+    }
+    #reportViewModal .report-editor-pane {
+        display: flex;
+        flex-direction: column;
+        overflow: hidden;
+        background: #07101f;
+    }
+    #reportViewModal .report-editor-toolbar,
+    #reportViewModal .report-editor-statusbar {
+        display: flex;
+        flex: 0 0 auto;
+        align-items: center;
+        justify-content: space-between;
+        gap: 1rem;
+        border-color: rgba(148, 163, 184, 0.2);
+        background: #0d1a2f;
+        color: #94a3b8;
+    }
+    #reportViewModal .report-editor-toolbar {
+        min-height: 3.25rem;
+        border-bottom-width: 1px;
+        padding: 0.55rem 1rem;
+    }
+    #reportViewModal .report-editor-statusbar {
+        min-height: 2rem;
+        border-top-width: 1px;
+        padding: 0.35rem 1rem;
+        font-size: 0.68rem;
+        font-weight: 700;
+    }
+    #reportViewModal .report-reading-controls {
+        display: flex;
+        flex: 0 0 auto;
+        align-items: center;
+        gap: 0.35rem;
+    }
+    #reportViewModal .report-dark-control {
+        min-height: 2rem;
+        padding: 0.35rem 0.65rem;
+        border: 1px solid rgba(148, 163, 184, 0.3);
+        border-radius: 0.55rem;
+        background: rgba(15, 23, 42, 0.85);
+        color: #cbd5e1;
+        font-size: 0.68rem;
+        font-weight: 800;
+    }
+    #reportViewModal .report-dark-control:hover,
+    #reportViewModal .report-dark-control[aria-pressed="true"] {
+        border-color: rgba(34, 211, 238, 0.7);
+        color: #67e8f9;
+    }
+    #reportViewModal .report-font-control {
+        min-width: 2.1rem;
+        padding-inline: 0.35rem;
+    }
+    #reportViewModal .report-font-size-label {
+        min-width: 2.4rem;
+        color: #94a3b8;
+        font-size: 0.65rem;
+        font-weight: 700;
+        text-align: center;
+    }
+    #reportViewModal .report-body-frame {
+        flex: 1 1 auto;
+        min-height: 18rem;
+        overflow: hidden;
+        padding: 1rem 1.35rem;
+    }
+    #reportViewModal #vrBody {
+        width: 100%;
+        height: 100%;
+        min-height: 18rem;
+        margin: 0;
+        padding: 0;
+        resize: none;
+        overflow: auto;
+        border: 0;
+        outline: 0;
+        background: transparent !important;
+        color: #67e8f9 !important;
+        font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
+        font-size: 14px;
+        line-height: 1.65;
+        white-space: pre-wrap;
+        overflow-wrap: anywhere;
+        tab-size: 4;
+    }
+    #reportViewModal #vrPreview {
+        width: 100%;
+        height: 100%;
+        min-height: 18rem;
+        padding: 1.75rem;
+        overflow: auto;
+        border-radius: 0.75rem;
+        background: #f8fafc !important;
+        color: #0f172a !important;
+        font: 14px/1.6 Inter, "Segoe UI", system-ui, sans-serif;
+    }
+    #reportViewModal #vrPreview h1,
+    #reportViewModal #vrPreview h2,
+    #reportViewModal #vrPreview h3,
+    #reportViewModal #vrPreview h4 {
+        margin: 0 0 0.875rem;
+        color: #0f172a !important;
+        line-height: 1.25;
+    }
+    #reportViewModal #vrPreview h1 { font-size: 1.625rem; }
+    #reportViewModal #vrPreview h2 { margin-top: 1.5rem; font-size: 1.25rem; }
+    #reportViewModal #vrPreview h3 { margin-top: 1.25rem; font-size: 1.0625rem; }
+    body #reportViewModal #vrPreview p,
+    body #reportViewModal #vrPreview li,
+    body #reportViewModal #vrPreview strong,
+    body #reportViewModal #vrPreview em,
+    body #reportViewModal #vrPreview blockquote {
+        color: #0f172a !important;
+    }
+    #reportViewModal #vrPreview p { margin: 0 0 0.875rem; }
+    body #reportViewModal #vrPreview table {
+        width: 100%;
+        margin: 1rem 0 1.375rem;
+        border-collapse: collapse;
+        background: #fff !important;
+        color: #0f172a !important;
+        box-shadow: 0 1px 3px rgba(15, 23, 42, 0.08);
+    }
+    body #reportViewModal #vrPreview th,
+    body #reportViewModal #vrPreview td {
+        padding: 0.625rem 0.75rem;
+        border: 1px solid #cbd5e1;
+        color: #0f172a !important;
+        text-align: left;
+        vertical-align: top;
+    }
+    body #reportViewModal #vrPreview thead,
+    body #reportViewModal #vrPreview thead tr,
+    body #reportViewModal #vrPreview th {
+        background: #e2e8f0 !important;
+        color: #0f172a !important;
+        font-weight: 800;
+    }
+    body #reportViewModal #vrPreview tbody,
+    body #reportViewModal #vrPreview tbody tr,
+    body #reportViewModal #vrPreview tbody tr:nth-child(odd),
+    body #reportViewModal #vrPreview tbody tr:nth-child(odd) td {
+        background: #fff !important;
+        color: #0f172a !important;
+        box-shadow: none !important;
+    }
+    body #reportViewModal #vrPreview tbody tr:nth-child(even),
+    body #reportViewModal #vrPreview tbody tr:nth-child(even) td {
+        background: #f1f5f9 !important;
+        color: #0f172a !important;
+    }
+    body #reportViewModal #vrPreview tbody tr:hover,
+    body #reportViewModal #vrPreview tbody tr:hover td,
+    body #reportViewModal #vrPreview tbody tr:hover * {
+        color: #0f172a !important;
+    }
+    #reportViewModal #vrPreview ul,
+    #reportViewModal #vrPreview ol { margin: 0 0 1rem; padding-left: 1.5rem; }
+    #reportViewModal #vrPreview pre {
+        margin: 0;
+        white-space: pre-wrap;
+        overflow-wrap: anywhere;
+        color: #0f172a !important;
+        font: 13px/1.6 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    }
+    #reportViewModal #vrPreview code {
+        padding: 1px 4px;
+        border-radius: 4px;
+        background: #e2e8f0 !important;
+        color: #0f172a !important;
+        font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    }
+    #reportViewModal #vrPreview blockquote {
+        margin: 1rem 0;
+        padding: 0.625rem 1rem;
+        border-left: 4px solid #6366f1;
+        background: #eef2ff !important;
+    }
+
+    /* The provider dialog is intentionally scoped so legacy utility recolouring
+       cannot produce pale text on a light modal surface. */
+    body #aiProviderModal {
+        background: rgba(2, 6, 23, 0.78) !important;
+    }
+    body #aiProviderModal > .ai-provider-dialog {
+        background:
+            radial-gradient(circle at 0 0, rgba(34, 211, 238, 0.14), transparent 22rem),
+            linear-gradient(180deg, rgba(10, 18, 33, 0.995), rgba(5, 10, 20, 0.995)) !important;
+        color: #eaf8ff !important;
+        border-color: rgba(125, 211, 252, 0.62) !important;
+    }
+    body #aiProviderModal .ai-provider-heading {
+        color: #f7fdff !important;
+    }
+    body #aiProviderModal .ai-provider-copy,
+    body #aiProviderModal .ai-provider-status {
+        color: #b4c8df !important;
+    }
+    body #aiProviderModal .ai-provider-form {
+        background: linear-gradient(145deg, rgba(12, 23, 41, 0.99), rgba(7, 15, 29, 0.98)) !important;
+        color: #eaf8ff !important;
+        border-color: rgba(34, 211, 238, 0.30) !important;
+    }
+    body #aiProviderModal .ai-provider-label {
+        color: #a5f3fc !important;
+    }
+    body #aiProviderModal .ai-provider-control {
+        background: rgba(3, 10, 23, 0.94) !important;
+        color: #eaf8ff !important;
+        border-color: rgba(34, 211, 238, 0.38) !important;
+    }
+    body #aiProviderModal .ai-provider-control::placeholder {
+        color: #8ea9c6 !important;
+        opacity: 1;
+    }
+    body #aiProviderModal .ai-provider-copy code {
+        display: inline-block;
+        padding: 0.05rem 0.3rem;
+        border-radius: 0.25rem;
+        background: rgba(34, 211, 238, 0.10) !important;
+        color: #67e8f9 !important;
+    }
+    body #aiProviderModal .ai-provider-button-secondary {
+        background: rgba(3, 10, 23, 0.94) !important;
+        color: #b4c8df !important;
+        border-color: rgba(34, 211, 238, 0.38) !important;
+    }
+    body #aiProviderModal .ai-provider-button-primary {
+        background: linear-gradient(135deg, rgba(8, 145, 178, 0.72), rgba(8, 47, 73, 0.98)) !important;
+        color: #ecfeff !important;
+        border: 1px solid rgba(103, 232, 249, 0.64) !important;
+    }
+    body #aiProviderModal .ai-provider-close {
+        background: rgba(8, 47, 73, 0.58) !important;
+        color: #dffaff !important;
+    }
+    #reportViewModal #vrBody:focus {
+        box-shadow: none;
+    }
+    #reportViewModal #vrBody.report-no-wrap {
+        white-space: pre;
+        overflow-wrap: normal;
+    }
+    #reportViewModal .report-viewer-footer {
+        padding: 0.9rem 1.5rem;
+    }
+    #reportViewModal.is-fullscreen {
+        padding: 0;
+    }
+    #reportViewModal.is-fullscreen .report-viewer-shell {
+        width: 100vw;
+        height: 100dvh;
+        max-width: none;
+        border-radius: 0 !important;
+    }
+
+    @media (max-width: 960px) {
+        #reportViewModal {
+            padding: 0.5rem;
+        }
+        #reportViewModal .report-viewer-shell {
+            width: calc(100vw - 1rem);
+            height: calc(100dvh - 1rem);
+            border-radius: 1.25rem;
+        }
+        #reportViewModal .report-viewer-header {
+            padding: 0.85rem 1rem;
+        }
+        #reportViewModal #vrTitle {
+            max-width: 50vw;
+            font-size: 1.1rem;
+        }
+        #reportViewModal .report-control-label {
+            display: none;
+        }
+        #reportViewModal .report-viewer-control,
+        #reportViewModal .report-close-button {
+            min-width: 2.55rem;
+            min-height: 2.55rem;
+            padding: 0.55rem;
+        }
+        #reportViewModal .report-viewer-main,
+        #reportViewModal .report-viewer-main.is-trail-open {
+            grid-template-columns: minmax(0, 1fr);
+        }
+        #reportViewModal .report-trail-panel {
+            position: absolute;
+            z-index: 20;
+            top: 0;
+            bottom: 0;
+            left: 0;
+            width: min(88vw, 22rem);
+            opacity: 1;
+            visibility: visible;
+            transform: translateX(-105%);
+            transition: transform 180ms ease;
+            box-shadow: 18px 0 40px rgba(2, 6, 23, 0.45);
+        }
+        #reportViewModal .report-viewer-main.is-trail-open .report-trail-panel {
+            transform: translateX(0);
+        }
+        #reportViewModal .report-body-frame,
+        #reportViewModal #vrBody,
+        #reportViewModal #vrPreview {
+            min-height: 16rem;
+        }
+        #reportViewModal .report-viewer-footer {
+            padding: 0.65rem 1rem;
+        }
+        #reportViewModal .report-viewer-actions {
+            margin-left: auto;
+        }
+    }
+
+    @media (max-width: 640px) {
+        #reportViewModal .report-viewer-header {
+            align-items: stretch;
+            flex-direction: column;
+            gap: 0.65rem;
+        }
+        #reportViewModal .report-viewer-header > div:first-child {
+            width: 100%;
+        }
+        #reportViewModal #vrTitle {
+            max-width: none;
+            font-size: 1rem;
+        }
+        #reportViewModal .report-viewer-header-actions {
+            width: 100%;
+        }
+        #reportViewModal .report-save-button {
+            flex: 1 1 auto;
+            padding: 0.65rem 0.75rem;
+            font-size: 0.62rem;
+        }
+        #reportViewModal .report-editor-toolbar {
+            align-items: flex-start;
+            flex-direction: column;
+            gap: 0.45rem;
+        }
+        #reportViewModal .report-reading-controls {
+            width: 100%;
+            overflow-x: auto;
+        }
+        #reportViewModal .report-editor-hint {
+            display: none;
+        }
+        #reportViewModal .report-viewer-footer {
+            max-height: 8rem;
+            overflow-y: auto;
+        }
+        #reportViewModal .report-viewer-actions {
+            width: 100%;
+        }
+        #reportViewModal .report-viewer-actions > button {
+            flex: 1 1 auto;
+            justify-content: center;
+            padding-inline: 0.75rem;
+        }
+    }
+
+    /* Активний стан картки шаблону у Workspace */
+    .template-card.active {
+        border-color: rgba(125, 211, 252, 0.68) !important;
+        background:
+            radial-gradient(circle at top left, rgba(34, 211, 238, 0.28), transparent 12rem),
+            linear-gradient(135deg, rgba(8, 47, 73, 0.96) 0%, rgba(15, 23, 42, 0.96) 100%) !important;
+        box-shadow: inset 4px 0 0 rgba(34, 211, 238, 0.88), 0 0 28px rgba(34, 211, 238, 0.14);
+        transform: translateX(4px);
+    }
+    .template-card.active h4 {
+        color: #f6fdff !important;
+    }
+	    .template-card:hover {
+	        background:
+	            radial-gradient(circle at top left, rgba(34, 211, 238, 0.20), transparent 10rem),
+	            linear-gradient(135deg, rgba(8, 145, 178, 0.22), rgba(15, 23, 42, 0.97)) !important;
+	    }
+	    #view-hosts,
+	    #view-queue,
+	    #view-reports {
+	        color: #e8f6ff;
+	    }
+	    #view-hosts .text-slate-400,
+	    #view-queue .text-slate-400,
+	    #view-reports .text-slate-400 {
+	        color: #a8bfd8 !important;
+	    }
+	    #view-hosts .text-slate-500,
+	    #view-queue .text-slate-500,
+	    #view-reports .text-slate-500 {
+	        color: #b4c8df !important;
+	    }
+	    .infra-separated-table {
+	        border-collapse: separate;
+	        border-spacing: 0 0.55rem;
+	    }
+	    .infra-separated-table tbody tr {
+	        background: linear-gradient(90deg, rgba(12, 21, 38, 0.98), rgba(13, 31, 58, 0.92));
+	        box-shadow: 0 12px 28px rgba(0, 0, 0, 0.24), 0 0 18px rgba(34, 211, 238, 0.045);
+	    }
+	    .infra-separated-table tbody tr:hover {
+	        background:
+	            radial-gradient(circle at top left, rgba(34, 211, 238, 0.18), transparent 18rem),
+	            linear-gradient(90deg, rgba(8, 145, 178, 0.28), rgba(15, 23, 42, 0.94)) !important;
+	        box-shadow: inset 4px 0 0 rgba(34, 211, 238, 0.86), 0 0 30px rgba(34, 211, 238, 0.13);
+	    }
+	    .infra-separated-table tbody td:first-child {
+	        border-top-left-radius: 0.9rem;
+	        border-bottom-left-radius: 0.9rem;
+	    }
+	    .infra-separated-table tbody td:last-child {
+	        border-top-right-radius: 0.9rem;
+	        border-bottom-right-radius: 0.9rem;
+	    }
+	    .infra-separated-table tbody td {
+	        border-top: 1px solid rgba(34, 211, 238, 0.24);
+	        border-bottom: 1px solid rgba(34, 211, 238, 0.16);
+	    }
+	    .infra-separated-table tbody td:first-child {
+	        border-left: 1px solid rgba(34, 211, 238, 0.24);
+	    }
+	    .infra-separated-table tbody td:last-child {
+	        border-right: 1px solid rgba(34, 211, 238, 0.24);
+	    }
+
+    /* Навігація */
+    #nav-hosts.active, #nav-groups.active, #nav-queue.active, #nav-deploy.active, #nav-software.active, #nav-scheduler.active, #nav-triggers.active, #nav-reports.active {
+        background: linear-gradient(135deg, #1554b7, #07152e) !important;
+        color: white !important;
+        box-shadow: 0 12px 24px rgba(15, 61, 138, 0.18);
+        border-color: rgba(117, 167, 247, 0.45);
+    }
+
+    /* Final Endpoint Management dark pass. Keep this after legacy light rules. */
+    .infra-shell-header {
+        background:
+            radial-gradient(circle at 0 0, rgba(34, 211, 238, 0.20), transparent 22rem),
+            radial-gradient(circle at 100% 0, rgba(59, 130, 246, 0.12), transparent 18rem),
+            linear-gradient(135deg, rgba(8, 17, 31, 0.99), rgba(13, 31, 58, 0.97)) !important;
+        color: #e8f6ff !important;
+        border-color: rgba(34, 211, 238, 0.38) !important;
+        box-shadow: 0 22px 58px rgba(0, 0, 0, 0.34), 0 0 30px rgba(34, 211, 238, 0.10) !important;
+    }
+    .infra-shell-header h2 {
+        color: #f6fdff !important;
+        text-shadow: 0 0 16px rgba(34, 211, 238, 0.18);
+    }
+    .infra-shell-header p {
+        color: #93e6ff !important;
+    }
+    .infra-shell-header .bg-indigo-600 {
+        background: linear-gradient(135deg, rgba(14, 165, 233, 0.95), rgba(37, 99, 235, 0.82)) !important;
+        border: 1px solid rgba(125, 211, 252, 0.55) !important;
+        box-shadow: 0 0 26px rgba(34, 211, 238, 0.18) !important;
+    }
+
+    #view-hosts,
+    #view-queue,
+    #view-reports,
+    #view-groups,
+    #view-software,
+    #view-scheduler,
+    #view-triggers,
+    #view-deploy {
+        color: #e8f6ff !important;
+    }
+    #view-hosts .text-slate-400,
+    #view-queue .text-slate-400,
+    #view-reports .text-slate-400,
+    #view-hosts .text-slate-500,
+    #view-queue .text-slate-500,
+    #view-reports .text-slate-500 {
+        color: #a8bfd8 !important;
+    }
+
+    #view-queue .wh-soft-panel,
+    #view-reports .wh-soft-panel,
+    #view-hosts .wh-soft-panel,
+    #view-software .wh-soft-panel,
+    #view-groups .wh-soft-panel,
+    #view-scheduler .bg-white,
+    #view-triggers .bg-white,
+    #view-deploy .bg-white,
+    #view-deploy .bg-slate-50,
+    #view-deploy .bg-slate-50\/50 {
+        background:
+            radial-gradient(circle at top left, rgba(34, 211, 238, 0.09), transparent 17rem),
+            linear-gradient(180deg, rgba(14, 24, 43, 0.98), rgba(6, 12, 24, 0.97)) !important;
+        color: #e8f6ff !important;
+        border-color: rgba(34, 211, 238, 0.28) !important;
+    }
+
+    .infra-report-card,
+    #reportsList > div,
+    #queueBody tr,
+    .infra-separated-table tbody tr,
+    .template-card,
+    .template-card.active {
+        background:
+            linear-gradient(90deg, rgba(15, 23, 42, 0.98), rgba(16, 35, 61, 0.94)) !important;
+        color: #e8f6ff !important;
+        border-color: rgba(34, 211, 238, 0.26) !important;
+        box-shadow: 0 14px 34px rgba(0, 0, 0, 0.28), 0 0 20px rgba(34, 211, 238, 0.06) !important;
+    }
+    .infra-report-card:hover,
+    #reportsList > div:hover,
+    #queueBody tr:hover,
+    .infra-separated-table tbody tr:hover,
+    .template-card:hover,
+    .template-card.active:hover {
+        background:
+            linear-gradient(90deg, rgba(8, 145, 178, 0.24), rgba(15, 23, 42, 0.97)) !important;
+        color: #f6fdff !important;
+        border-color: rgba(34, 211, 238, 0.58) !important;
+        box-shadow: inset 4px 0 0 rgba(34, 211, 238, 0.86), 0 0 28px rgba(34, 211, 238, 0.12) !important;
+    }
+    .infra-report-card *,
+    #reportsList > div *,
+    #queueBody tr *,
+    .infra-separated-table tbody tr *,
+    .template-card * {
+        color: inherit;
+    }
+    #view-deploy .template-card {
+        background: rgba(3, 10, 23, 0.94) !important;
+        box-shadow: 0 14px 34px rgba(2, 6, 23, 0.28) !important;
+    }
+    #view-deploy .template-card:hover,
+    #view-deploy .template-card.active,
+    #view-deploy .template-card.active:hover {
+        background: rgba(3, 10, 23, 0.98) !important;
+        border-color: rgba(34, 211, 238, 0.58) !important;
+        box-shadow: 0 0 24px rgba(34, 211, 238, 0.14), 0 18px 38px rgba(2, 6, 23, 0.32) !important;
+        filter: brightness(1.08) saturate(1.06);
+        transform: translateX(4px);
+    }
+    #view-deploy .workspace-template-action .template-card-header {
+        background: linear-gradient(135deg, rgba(8, 145, 178, 0.92), rgba(15, 118, 110, 0.74)) !important;
+    }
+    #view-deploy .workspace-template-report .template-card-header {
+        background: linear-gradient(135deg, rgba(109, 40, 217, 0.94), rgba(30, 64, 175, 0.74)) !important;
+    }
+    #view-deploy .workspace-template-metric .template-card-header {
+        background: linear-gradient(135deg, rgba(147, 51, 234, 0.92), rgba(88, 28, 135, 0.76)) !important;
+    }
+    #view-deploy .workspace-template-agent-update .template-card-header {
+        background: linear-gradient(135deg, rgba(217, 119, 6, 0.92), rgba(146, 64, 14, 0.76)) !important;
+    }
+    #view-deploy .template-card-header h4 {
+        color: #ffffff !important;
+    }
+    #view-deploy .workspace-pill-action {
+        background: rgba(8, 145, 178, 0.34) !important;
+        color: #cffafe !important;
+        border-color: rgba(103, 232, 249, 0.45) !important;
+    }
+    #view-deploy .workspace-pill-report {
+        background: rgba(109, 40, 217, 0.36) !important;
+        color: #ede9fe !important;
+        border-color: rgba(196, 181, 253, 0.46) !important;
+    }
+    #view-deploy .workspace-pill-metric {
+        background: rgba(168, 85, 247, 0.16) !important;
+        color: #d8b4fe !important;
+        border-color: rgba(192, 132, 252, 0.34) !important;
+    }
+    #view-deploy .template-card .bg-emerald-50 {
+        background: rgba(16, 185, 129, 0.18) !important;
+        color: #bbf7d0 !important;
+        border-color: rgba(74, 222, 128, 0.34) !important;
+    }
+    #view-deploy .template-card .bg-amber-50 {
+        background: rgba(245, 158, 11, 0.18) !important;
+        color: #fde68a !important;
+        border-color: rgba(251, 191, 36, 0.34) !important;
+    }
+    #view-deploy .template-card .bg-slate-50 {
+        background: rgba(100, 116, 139, 0.18) !important;
+        color: #cbd5e1 !important;
+        border-color: rgba(148, 163, 184, 0.34) !important;
+    }
+    #view-deploy .template-card .bg-rose-50 {
+        background: rgba(244, 63, 94, 0.18) !important;
+        color: #fecdd3 !important;
+        border-color: rgba(251, 113, 133, 0.34) !important;
+    }
+    #queueBody tr td,
+    .infra-separated-table tbody td {
+        border-top-color: rgba(34, 211, 238, 0.20) !important;
+        border-bottom-color: rgba(34, 211, 238, 0.14) !important;
+    }
+    .infra-separated-table tbody td:first-child {
+        border-left-color: rgba(34, 211, 238, 0.20) !important;
+    }
+    .infra-separated-table tbody td:last-child {
+        border-right-color: rgba(34, 211, 238, 0.20) !important;
+    }
+
+    .node-tab-btn,
+    .review-tab-btn,
+    .q-type-btn,
+    .fleet-status-tab,
+    .tel-filter-btn,
+    .workspace-tab-btn {
+        background:
+            linear-gradient(135deg, rgba(8, 17, 31, 0.94), rgba(15, 23, 42, 0.88)) !important;
+        color: #bfefff !important;
+        border: 1px solid rgba(34, 211, 238, 0.30) !important;
+    }
+    .node-tab-btn.bg-slate-900,
+    .review-tab-btn.bg-slate-900,
+    .review-tab-btn.bg-amber-600,
+    .q-type-btn.bg-white,
+    .fleet-status-tab.bg-\[\#0f3d8a\],
+    .tel-filter-btn.bg-white,
+    .workspace-tab-btn.bg-white {
+        background:
+            radial-gradient(circle at 0 0, rgba(34, 211, 238, 0.30), transparent 7rem),
+            linear-gradient(135deg, rgba(14, 165, 233, 0.42), rgba(30, 64, 175, 0.30)) !important;
+        color: #ffffff !important;
+        border-color: rgba(125, 211, 252, 0.72) !important;
+        box-shadow: 0 0 22px rgba(34, 211, 238, 0.16) !important;
+    }
+    .review-tab-btn {
+        box-shadow: inset 0 0 0 1px rgba(34, 211, 238, 0.10), 0 0 18px rgba(34, 211, 238, 0.04) !important;
+    }
+    #reviewTab-pending {
+        color: #fde68a !important;
+        border-color: rgba(251, 191, 36, 0.34) !important;
+    }
+    #reviewTab-duplicates {
+        color: #ddd6fe !important;
+        border-color: rgba(167, 139, 250, 0.34) !important;
+    }
+    #reviewTab-rejected {
+        color: #fecdd3 !important;
+        border-color: rgba(251, 113, 133, 0.36) !important;
+    }
+    #reviewTab-pending.is-active {
+        background:
+            radial-gradient(circle at 0 0, rgba(251, 191, 36, 0.30), transparent 7rem),
+            linear-gradient(135deg, rgba(180, 83, 9, 0.54), rgba(15, 23, 42, 0.92)) !important;
+        color: #fff7ed !important;
+        border-color: rgba(251, 191, 36, 0.76) !important;
+        box-shadow: 0 0 24px rgba(251, 191, 36, 0.16) !important;
+    }
+    #reviewTab-duplicates.is-active {
+        background:
+            radial-gradient(circle at 0 0, rgba(167, 139, 250, 0.34), transparent 7rem),
+            linear-gradient(135deg, rgba(91, 33, 182, 0.58), rgba(15, 23, 42, 0.92)) !important;
+        color: #f5f3ff !important;
+        border-color: rgba(196, 181, 253, 0.78) !important;
+        box-shadow: 0 0 24px rgba(167, 139, 250, 0.16) !important;
+    }
+    #reviewTab-rejected.is-active {
+        background:
+            radial-gradient(circle at 0 0, rgba(244, 63, 94, 0.34), transparent 7rem),
+            linear-gradient(135deg, rgba(159, 18, 57, 0.58), rgba(15, 23, 42, 0.92)) !important;
+        color: #fff1f2 !important;
+        border-color: rgba(251, 113, 133, 0.78) !important;
+        box-shadow: 0 0 24px rgba(244, 63, 94, 0.16) !important;
+    }
+    .review-tab-btn .review-tab-count,
+    .node-tab-btn span {
+        background: transparent !important;
+        border: 0 !important;
+        padding: 0 !important;
+        box-shadow: none !important;
+        font-weight: 900 !important;
+    }
+    #reviewTab-pending .review-tab-count {
+        color: #fbbf24 !important;
+    }
+    #reviewTab-duplicates .review-tab-count {
+        color: #c4b5fd !important;
+    }
+    #reviewTab-rejected .review-tab-count {
+        color: #fb7185 !important;
+    }
+    #reviewTab-pending.is-active .review-tab-count,
+    #reviewTab-duplicates.is-active .review-tab-count,
+    #reviewTab-rejected.is-active .review-tab-count,
+    .node-tab-btn.bg-slate-900 span {
+        color: #ffffff !important;
+    }
+    .queue-action-btn,
+    #view-queue button.bg-white,
+    #view-reports button.bg-white {
+        background: rgba(7, 13, 26, 0.88) !important;
+        color: #bfefff !important;
+        border-color: rgba(34, 211, 238, 0.28) !important;
+    }
+    .queue-action-btn:hover,
+    #view-queue button.bg-white:hover,
+    #view-reports button.bg-white:hover {
+        background: rgba(8, 145, 178, 0.22) !important;
+        color: #ffffff !important;
+        border-color: rgba(34, 211, 238, 0.52) !important;
+    }
+    #view-queue input,
+    #view-queue select,
+    #view-reports input,
+    #view-reports select,
+    #view-deploy input,
+    #view-deploy select,
+    #view-deploy textarea {
+        background-color: rgba(3, 10, 23, 0.92) !important;
+        color: #e8f6ff !important;
+        border-color: rgba(34, 211, 238, 0.30) !important;
+    }
+    #view-queue input::placeholder,
+    #view-deploy input::placeholder,
+    #view-deploy textarea::placeholder {
+        color: rgba(168, 191, 216, 0.78) !important;
+    }
+    #secretsManagerModal > div,
+    #smtpManagerModal > div,
+    #confluenceManagerModal > div,
+    #reportConfluenceModal > div,
+    #scheduledReportsModal > div,
+    #triggerModal > div,
+    #scheduleModal > div,
+    #categoryModal > div {
+        background:
+            radial-gradient(circle at top left, rgba(34, 211, 238, 0.15), transparent 20rem),
+            radial-gradient(circle at bottom right, rgba(16, 185, 129, 0.10), transparent 18rem),
+            linear-gradient(180deg, rgba(8, 17, 31, 0.98), rgba(3, 7, 18, 0.98)) !important;
+        color: #e8f6ff !important;
+        border-color: rgba(34, 211, 238, 0.34) !important;
+        box-shadow: 0 26px 70px rgba(0, 0, 0, 0.56), 0 0 34px rgba(34, 211, 238, 0.12) !important;
+    }
+    #secretsManagerModal h2,
+    #smtpManagerModal h2,
+    #confluenceManagerModal h2,
+    #reportConfluenceModal h2,
+    #scheduledReportsModal h2,
+    #triggerModal h2,
+    #scheduleModal h2,
+    #categoryModal h2,
+    #secretsManagerModal h3,
+    #smtpManagerModal h3,
+    #confluenceManagerModal h3,
+    #reportConfluenceModal h3,
+    #scheduledReportsModal h3,
+    #triggerModal h3,
+    #scheduleModal h3,
+    #categoryModal h3 {
+        color: #f4fbff !important;
+    }
+    #secretsManagerModal p,
+    #smtpManagerModal p,
+    #confluenceManagerModal p,
+    #reportConfluenceModal p,
+    #scheduledReportsModal p,
+    #triggerModal p,
+    #scheduleModal p,
+    #categoryModal p,
+    #secretsManagerModal label,
+    #smtpManagerModal label,
+    #confluenceManagerModal label,
+    #reportConfluenceModal label,
+    #scheduledReportsModal label,
+    #triggerModal label,
+    #scheduleModal label,
+    #categoryModal label {
+        color: #a9c7dc !important;
+    }
+    #secretsManagerModal .bg-slate-50,
+    #secretsManagerModal .bg-amber-50,
+    #smtpManagerModal .bg-slate-50,
+    #confluenceManagerModal .bg-slate-50,
+    #reportConfluenceModal .bg-slate-50,
+    #reportConfluenceModal .bg-sky-50\/50,
+    #scheduledReportsModal .bg-slate-50,
+    #scheduledReportsModal .bg-slate-50\/70,
+    #triggerModal .bg-slate-50,
+    #scheduleModal .bg-slate-50,
+    #categoryModal .bg-slate-50 {
+        background:
+            linear-gradient(135deg, rgba(15, 23, 42, 0.94), rgba(8, 47, 73, 0.58)) !important;
+        color: #dff7ff !important;
+        border-color: rgba(34, 211, 238, 0.24) !important;
+    }
+    #secretsManagerModal input,
+    #smtpManagerModal input,
+    #confluenceManagerModal input,
+    #confluenceManagerModal select,
+    #reportConfluenceModal input,
+    #reportConfluenceModal select,
+    #reportConfluenceModal textarea,
+    #scheduledReportsModal input,
+    #scheduledReportsModal select,
+    #triggerModal input,
+    #triggerModal select,
+    #scheduleModal input,
+    #scheduleModal select,
+    #categoryModal input {
+        background-color: rgba(3, 10, 23, 0.92) !important;
+        color: #e8f6ff !important;
+        border-color: rgba(34, 211, 238, 0.34) !important;
+        box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.04), 0 0 18px rgba(34, 211, 238, 0.06) !important;
+    }
+    #secretsManagerModal input::placeholder,
+    #smtpManagerModal input::placeholder,
+    #confluenceManagerModal input::placeholder,
+    #reportConfluenceModal input::placeholder,
+    #reportConfluenceModal textarea::placeholder,
+    #scheduledReportsModal input::placeholder,
+    #triggerModal input::placeholder,
+    #scheduleModal input::placeholder,
+    #categoryModal input::placeholder {
+        color: rgba(169, 199, 220, 0.72) !important;
+    }
+    #secretsManagerModal button.bg-slate-50,
+    #smtpManagerModal button.bg-slate-50,
+    #confluenceManagerModal button.bg-slate-50,
+    #reportConfluenceModal button.bg-slate-50,
+    #triggerModal button.bg-slate-50,
+    #scheduleModal button.bg-slate-50,
+    #categoryModal button.bg-slate-50,
+    #secretsManagerModal button.bg-white,
+    #smtpManagerModal button.bg-white,
+    #confluenceManagerModal button.bg-white,
+    #reportConfluenceModal button.bg-white,
+    #scheduledReportsModal button.bg-white,
+    #triggerModal button.bg-white,
+    #scheduleModal button.bg-white,
+    #categoryModal button.bg-white {
+        background: rgba(7, 13, 26, 0.88) !important;
+        color: #bfefff !important;
+        border-color: rgba(34, 211, 238, 0.28) !important;
+    }
+    #secretsManagerModal button.bg-slate-50:hover,
+    #smtpManagerModal button.bg-slate-50:hover,
+    #confluenceManagerModal button.bg-slate-50:hover,
+    #reportConfluenceModal button.bg-slate-50:hover,
+    #triggerModal button.bg-slate-50:hover,
+    #scheduleModal button.bg-slate-50:hover,
+    #categoryModal button.bg-slate-50:hover,
+    #secretsManagerModal button.bg-white:hover,
+    #smtpManagerModal button.bg-white:hover,
+    #confluenceManagerModal button.bg-white:hover,
+    #reportConfluenceModal button.bg-white:hover,
+    #scheduledReportsModal button.bg-white:hover,
+    #triggerModal button.bg-white:hover,
+    #scheduleModal button.bg-white:hover,
+    #categoryModal button.bg-white:hover {
+        background: rgba(8, 145, 178, 0.24) !important;
+        color: #ffffff !important;
+        border-color: rgba(34, 211, 238, 0.55) !important;
+    }
+    #scheduleModal .schedule-timing-panel {
+        background:
+            radial-gradient(circle at top left, rgba(99, 102, 241, 0.18), transparent 16rem),
+            linear-gradient(135deg, rgba(15, 23, 42, 0.96), rgba(8, 47, 73, 0.70)) !important;
+        border-color: rgba(34, 211, 238, 0.30) !important;
+        box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.06), 0 18px 42px rgba(2, 6, 23, 0.28);
+    }
+    #scheduleModal .schedule-type-card,
+    #scheduleModal .schedule-day-chip {
+        background: rgba(3, 10, 23, 0.82) !important;
+        color: #bfefff !important;
+        border-color: rgba(34, 211, 238, 0.30) !important;
+    }
+    #scheduleModal .schedule-type-input:checked + .schedule-type-card,
+    #scheduleModal .sch-day:checked + .schedule-day-chip {
+        background: linear-gradient(135deg, rgba(14, 165, 233, 0.88), rgba(16, 185, 129, 0.70)) !important;
+        color: #ffffff !important;
+        border-color: rgba(125, 211, 252, 0.90) !important;
+        box-shadow: 0 0 22px rgba(34, 211, 238, 0.22);
+    }
+    #scheduleModal .sch-day[value="0"]:checked + .schedule-day-chip {
+        background: linear-gradient(135deg, rgba(244, 63, 94, 0.88), rgba(249, 115, 22, 0.70)) !important;
+        border-color: rgba(253, 164, 175, 0.90) !important;
+    }
+    #scheduleModal .schedule-type-card:hover,
+    #scheduleModal .schedule-day-chip:hover {
+        background: rgba(8, 145, 178, 0.24) !important;
+        color: #ffffff !important;
+        border-color: rgba(34, 211, 238, 0.58) !important;
+    }
+    .fleet-pagination {
+        background:
+            radial-gradient(circle at top left, rgba(34, 211, 238, 0.16), transparent 18rem),
+            linear-gradient(135deg, rgba(8, 17, 31, 0.98), rgba(8, 47, 73, 0.72)) !important;
+        border-color: rgba(34, 211, 238, 0.28) !important;
+        color: #dff7ff !important;
+        box-shadow: inset 0 1px 0 rgba(255,255,255,0.06), 0 12px 32px rgba(2, 6, 23, 0.18);
+    }
+    .fleet-pagination select,
+    .fleet-pagination button {
+        background: rgba(3, 10, 23, 0.86) !important;
+        color: #dff7ff !important;
+        border-color: rgba(34, 211, 238, 0.30) !important;
+    }
+    .fleet-pagination button:hover:not(:disabled),
+    .fleet-pagination select:hover {
+        background: rgba(8, 145, 178, 0.24) !important;
+        color: #ffffff !important;
+        border-color: rgba(34, 211, 238, 0.58) !important;
+    }
+    .fleet-pagination .fleet-page-active {
+        background: linear-gradient(135deg, #0ea5e9, #10b981) !important;
+        color: #ffffff !important;
+        border-color: rgba(125, 211, 252, 0.95) !important;
+        box-shadow: 0 0 18px rgba(34, 211, 238, 0.22);
+    }
+    #secretsManagerModal .template-secret-row {
+        background:
+            linear-gradient(90deg, rgba(15, 23, 42, 0.96), rgba(8, 47, 73, 0.58)) !important;
+        border-color: rgba(34, 211, 238, 0.24) !important;
+        color: #e8f6ff !important;
+    }
+    #secretsManagerModal .template-secret-row p:first-child {
+        color: #f4fbff !important;
+    }
+    #secretsManagerModal .template-secret-row p:nth-child(2),
+    #secretsManagerModal .font-mono {
+        color: #67e8f9 !important;
+    }
+    #secretsManagerModal .template-secret-empty {
+        color: #a9c7dc !important;
+        background: rgba(15, 23, 42, 0.72) !important;
+        border: 1px dashed rgba(34, 211, 238, 0.28) !important;
+        border-radius: 1rem !important;
+    }
+</style>
+
+<script nonce="{{ csp_nonce }}">
+    window.WinhubHosts = {{ available_hosts | tojson }};
+    window.WinhubPermissions = {{ permissions | tojson }};
+    window.WinhubIsAdmin = {{ 'true' if is_admin else 'false' }};
+    window.WinhubCanManageSoftware = {{ 'true' if permissions.manage_software else 'false' }};
+</script>
+<script nonce="{{ csp_nonce }}" src="{{ url_for('static', filename='js/infrastructure.js', v=app_version ~ '-ai-editor-1') }}"></script>
+{% if permissions.use_ai_templates and permissions.manage_templates %}
+<link rel="stylesheet" href="{{ url_for('static', filename='css/ai_template_editor.css', v=app_version) }}">
+<script nonce="{{ csp_nonce }}" src="{{ url_for('static', filename='js/ai_template_editor.js', v=app_version) }}"></script>
+{% endif %}
+{% if permissions.run_tasks %}
+<script nonce="{{ csp_nonce }}" src="{{ url_for('static', filename='js/infrastructure_quick_launch.js', v=app_version) }}"></script>
+{% endif %}
+{% endblock %}

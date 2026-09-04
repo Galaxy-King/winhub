@@ -1,3 +1,18 @@
+# Only these project components belong in this repository. The workspace may
+# also contain private backups, old checkouts and archives: never stage them.
+/*
+!/.gitattributes
+!/.gitignore
+!/.github/
+!/README.md
+!/AGENTS.md
+!/global.json
+!/WinHUB/
+!/WinHUBAgentWindows/
+!/WinHUBLinuxAgent/
+!/WinHUBMacAgent/
+!/WinHUB-WiKi/
+
 # Python
 __pycache__/
 *.py[cod]
@@ -21,12 +36,37 @@ dist/
 *.dump
 *.bak
 *.sqlite
+*.sqlite3
+*.sqlite-*
+*.sqlite3-*
 *.db
+*.db-*
+*.enc
+*.pem
 *.pfx
 *.p12
 *.key
 **/winhub_agent.conf
 **/winhub_agent.bootstrap.conf
+**/winhub.env
+**/admin_recovery.txt
+**/MASTER_KEY_BACKUP.txt
+**/linux_hosts.txt
+**/*recovery*.tar.gz
+
+# Archives and installers belong in release storage, not source control.
+*.zip
+*.tar
+*.tar.gz
+*.tgz
+*.rar
+*.7z
+*.pkg
+*.msi
+*.exe
+*.dll
+*.pdb
+*.sha256
 
 # .NET build and test output
 **/bin/
@@ -38,11 +78,15 @@ dist/
 *.suo
 
 # Generated agent release packages
-WinHUBAgent/dist-agent/
+WinHUBAgentWindows/dist-agent/
 WinHUBLinuxAgent/dist-agent/
 WinHUBMacAgent/dist-agent/
 WinHUBMacAgent/WinHUBMacAgent-v*-macos-*.tar.gz
 WinHUBMacAgent/WinHUBMacAgent-v*-macos-*.tar.gz.sha256
+WinHUBMacAgent/WinHUBMacAgent-v*-macos-*.pkg
+WinHUBMacAgent/WinHUBMacAgent-v*-macos-*.pkg.sha256
+WinHUBMacAgent/WinHUBMacAgent-v*-macos-*-installer.zip
+WinHUBMacAgent/WinHUBMacAgent-v*-macos-*-installer.zip.sha256
 
 # Node
 node_modules/

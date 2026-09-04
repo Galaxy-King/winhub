@@ -11,6 +11,7 @@ using System.Text.Json;
 using System.Text.Json.Serialization;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
+using WinHUB.Security;
 
 namespace WinHUBLinuxAgent;
 
@@ -39,6 +40,7 @@ public class AgentConfig
     public int MaxResultLogBytes { get; set; } = 262144;
     public bool IgnoreTlsCertificateErrors { get; set; } = false;
     public string ServerCertificateSha256 { get; set; } = "";
+    public string ServerCertificateSha256Next { get; set; } = "";
     public bool RequireTaskSignature { get; set; } = true;
     public string TaskSigningPublicKeyPem { get; set; } = "";
     public string TaskSigningKeyId { get; set; } = "";
@@ -131,6 +133,8 @@ public class Worker : BackgroundService
     private string HardwareIdFilePath => Path.Combine(DataDirectory, "agent.hwid");
     private string AgentIdentityKeyFilePath => Path.Combine(DataDirectory, "agent_identity.key");
     private string TaskSigningStateFilePath => Path.Combine(DataDirectory, "task-signing-state.json");
+    private ExecutionJournal? _executionJournal;
+    private bool _executionPersistenceFault;
     private string HardwareId = "";
     private string AuthToken = "";
     private string FriendlyOsName = "";
@@ -149,25 +153,46 @@ public class Worker : BackgroundService
         _logger = logger;
         var handler = new HttpClientHandler
         {
+            SslProtocols = System.Security.Authentication.SslProtocols.Tls12 | System.Security.Authentication.SslProtocols.Tls13,
+            AllowAutoRedirect = false,
+            UseProxy = false,
+            UseCookies = false,
             ServerCertificateCustomValidationCallback = ValidateServerCertificate
         };
-        _httpClient = new HttpClient(handler) { Timeout = TimeSpan.FromSeconds(30) };
+        _httpClient = new HttpClient(handler) { Timeout = TimeSpan.FromSeconds(30), MaxResponseContentBufferSize = ProductionSecurity.MaxApiResponseBytes };
     }
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
         _logger.LogInformation("WinHUB {Platform} Agent starting...", OperatingSystem.IsMacOS() ? "macOS" : "Linux");
-        LoadConfig();
-        ValidateStartupSecurity();
+        ProductionSecurity.RejectLinks(DataDirectory);
         Directory.CreateDirectory(DataDirectory);
+        RestrictPath(DataDirectory, UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute);
         Directory.CreateDirectory(UpdatesDirectory);
         Directory.CreateDirectory(PendingResultsDirectory);
-        RestrictPath(DataDirectory, UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute);
         RestrictPath(UpdatesDirectory, UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute);
         RestrictPath(PendingResultsDirectory, UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute);
+        ProductionSecurity.RejectLinks(ConfigDirectory);
+        Directory.CreateDirectory(ConfigDirectory);
+        RestrictPath(ConfigDirectory, UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute);
+        foreach (string file in new[] { ConfigFilePath, BootstrapConfigFilePath, TokenFilePath, SecretsFilePath, HardwareIdFilePath, AgentIdentityKeyFilePath, TaskSigningStateFilePath })
+        {
+            ProductionSecurity.RejectLinks(file);
+            if (File.Exists(file)) RestrictPath(file, UnixFileMode.UserRead | UnixFileMode.UserWrite);
+        }
+        LoadConfig();
+        ValidateStartupSecurity();
+        if (!OperatingSystem.IsMacOS()) RemoveProtectedSecret("TaskHmacSecret");
 
         HardwareId = GetOrCreateHardwareId();
         EnsureAgentIdentityKey();
+        if (!OperatingSystem.IsMacOS())
+        {
+            _executionJournal = new ExecutionJournal(Path.Combine(DataDirectory, "execution-journal"), HardwareId,
+                path => RestrictPath(path, UnixFileMode.UserRead | UnixFileMode.UserWrite),
+                path => RestrictPath(path, UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute));
+            _executionJournal.RecoverInterrupted();
+        }
         FriendlyOsName = GetFriendlyOsName();
         _logger.LogInformation("Hardware ID: {HardwareId}", HardwareId);
         _logger.LogInformation("OS Detected: {Os}", FriendlyOsName);
@@ -186,6 +211,7 @@ public class Worker : BackgroundService
         bool tokenLoaded = LoadToken();
         if (tokenLoaded)
         {
+            RemoveProtectedSecret("GlobalApiKey");
             _logger.LogInformation("Existing agent token loaded. Polling starts immediately.");
         }
         else if (startupDelaySeconds > 0)
@@ -204,6 +230,7 @@ public class Worker : BackgroundService
         DateTime lastTelemetrySent = DateTime.UtcNow - TimeSpan.FromMinutes(5) + TimeSpan.FromSeconds(telemetryDelaySeconds);
         while (!stoppingToken.IsCancellationRequested)
         {
+            await FlushJournalResultsAsync(stoppingToken);
             await FlushPendingResultsAsync(stoppingToken);
             if ((DateTime.UtcNow - lastTelemetrySent).TotalSeconds >= telemetryIntervalSeconds)
             {
@@ -243,31 +270,49 @@ public class Worker : BackgroundService
 
     private bool ValidateServerCertificate(HttpRequestMessage message, System.Security.Cryptography.X509Certificates.X509Certificate2? cert, System.Security.Cryptography.X509Certificates.X509Chain? chain, SslPolicyErrors errors)
     {
-        if (_config.IgnoreTlsCertificateErrors && !OperatingSystem.IsMacOS()) return true;
+        if (!OperatingSystem.IsMacOS())
+            return ProductionSecurity.CertificateMatches(cert, _config.ServerCertificateSha256, _config.ServerCertificateSha256Next);
         string pinned = NormalizeThumbprint(_config.ServerCertificateSha256);
         if (!string.IsNullOrWhiteSpace(pinned) && cert != null)
         {
             string actual = NormalizeThumbprint(cert.GetCertHashString(HashAlgorithmName.SHA256));
-            return CryptographicOperations.FixedTimeEquals(Encoding.ASCII.GetBytes(actual), Encoding.ASCII.GetBytes(pinned));
+            bool pinMatches = CryptographicOperations.FixedTimeEquals(Encoding.ASCII.GetBytes(actual), Encoding.ASCII.GetBytes(pinned));
+            return pinMatches && (!OperatingSystem.IsMacOS() || errors == SslPolicyErrors.None);
         }
         return errors == SslPolicyErrors.None;
     }
 
     private void ValidateStartupSecurity()
     {
+        if (!OperatingSystem.IsMacOS())
+        {
+            ProductionSecurity.ValidateConfiguration(_config.ServerUrl, _config.ServerCertificateSha256,
+                _config.ServerCertificateSha256Next, _config.IgnoreTlsCertificateErrors, _config.RequireTaskSignature);
+            if (_config.AllowCrossHostUpdateDownloads)
+                throw new InvalidDataException("Cross-host update downloads are forbidden in production.");
+        }
         if (!Uri.TryCreate(_config.ServerUrl, UriKind.Absolute, out Uri? serverUri))
             throw new InvalidOperationException("ServerUrl must be an absolute URL.");
         if (OperatingSystem.IsMacOS() && !serverUri.Scheme.Equals(Uri.UriSchemeHttps, StringComparison.OrdinalIgnoreCase))
             throw new InvalidOperationException("The macOS agent requires an HTTPS ServerUrl.");
+        if (OperatingSystem.IsMacOS() && (!string.IsNullOrEmpty(serverUri.UserInfo) || !string.IsNullOrEmpty(serverUri.Query) || !string.IsNullOrEmpty(serverUri.Fragment)))
+            throw new InvalidOperationException("The macOS ServerUrl must not contain credentials, query parameters, or a fragment.");
         if (OperatingSystem.IsMacOS() && _config.IgnoreTlsCertificateErrors)
         {
             _config.IgnoreTlsCertificateErrors = false;
+            SaveConfig();
             _logger.LogWarning("IgnoreTlsCertificateErrors is forbidden on macOS and was ignored.");
         }
+        if (OperatingSystem.IsMacOS() && !_config.RequireTaskSignature)
+            throw new InvalidOperationException("RequireTaskSignature=false is forbidden on the production macOS agent.");
+        string certificatePin = NormalizeThumbprint(_config.ServerCertificateSha256);
+        if (OperatingSystem.IsMacOS() && !string.IsNullOrWhiteSpace(certificatePin) && certificatePin.Length != 64)
+            throw new InvalidOperationException("ServerCertificateSha256 must be empty or contain exactly 64 hexadecimal characters.");
     }
 
     private void LoadConfig()
     {
+        if (!OperatingSystem.IsMacOS()) ValidateConfigFile(ConfigFilePath);
         Directory.CreateDirectory(ConfigDirectory);
         if (!File.Exists(ConfigFilePath))
         {
@@ -277,7 +322,7 @@ public class Worker : BackgroundService
 
         try
         {
-            string json = File.ReadAllText(ConfigFilePath);
+            string json = ProductionSecurity.ReadText(ConfigFilePath);
             bool needsBackfill = ConfigNeedsBackfill(json);
             var loaded = JsonSerializer.Deserialize(json, AppJsonSerializerContext.Default.AgentConfig);
             if (loaded != null) _config = loaded;
@@ -291,7 +336,7 @@ public class Worker : BackgroundService
         }
         catch (Exception ex)
         {
-            _logger.LogError("Failed to read config file. Using defaults. Error: {Message}", ex.Message);
+            throw new InvalidDataException("Could not load secure agent configuration. Execution is disabled.", ex);
         }
 
         MigratePlaintextSecretsFromConfig();
@@ -302,8 +347,19 @@ public class Worker : BackgroundService
     private void SaveConfig()
     {
         Directory.CreateDirectory(ConfigDirectory);
-        File.WriteAllText(ConfigFilePath, JsonSerializer.Serialize(_config, AppJsonSerializerContext.Default.AgentConfig));
-        RestrictPath(ConfigFilePath, UnixFileMode.UserRead | UnixFileMode.UserWrite);
+        ProductionSecurity.AtomicWrite(ConfigFilePath,
+            JsonSerializer.SerializeToUtf8Bytes(_config, AppJsonSerializerContext.Default.AgentConfig),
+            path => RestrictPath(path, UnixFileMode.UserRead | UnixFileMode.UserWrite));
+    }
+
+    public static void ValidateConfigFile(string path)
+    {
+        AgentConfig config = JsonSerializer.Deserialize(ProductionSecurity.ReadText(path), AppJsonSerializerContext.Default.AgentConfig)
+            ?? throw new InvalidDataException("Agent configuration is empty.");
+        ProductionSecurity.ValidateConfiguration(config.ServerUrl, config.ServerCertificateSha256,
+            config.ServerCertificateSha256Next, config.IgnoreTlsCertificateErrors, config.RequireTaskSignature);
+        if (config.AllowCrossHostUpdateDownloads)
+            throw new InvalidDataException("Cross-host update downloads are forbidden in production.");
     }
 
     private void LoadTaskSigningState()
@@ -313,10 +369,13 @@ public class Worker : BackgroundService
             if (File.Exists(TaskSigningStateFilePath))
             {
                 TaskSigningState? state = JsonSerializer.Deserialize(
-                    File.ReadAllText(TaskSigningStateFilePath),
+                    ProductionSecurity.ReadText(TaskSigningStateFilePath, 65536),
                     AppJsonSerializerContext.Default.TaskSigningState);
                 if (state == null || !ValidateTaskSigningState(state))
                     throw new InvalidDataException("Task signing state is invalid or does not match its public key.");
+                if (!string.IsNullOrWhiteSpace(_config.TaskSigningKeyId) && _config.TaskSigningKeyId != state.TaskSigningKeyId)
+                    throw new InvalidDataException("Configuration conflicts with the pinned task signing identity.");
+                state.TaskSigningLastSequence = Math.Max(state.TaskSigningLastSequence, _config.TaskSigningLastSequence);
 
                 bool configChanged = _config.TaskSigningPublicKeyPem != state.TaskSigningPublicKeyPem
                     || _config.TaskSigningKeyId != state.TaskSigningKeyId
@@ -324,6 +383,7 @@ public class Worker : BackgroundService
                 _config.TaskSigningPublicKeyPem = state.TaskSigningPublicKeyPem;
                 _config.TaskSigningKeyId = state.TaskSigningKeyId;
                 _config.TaskSigningLastSequence = state.TaskSigningLastSequence;
+                SaveTaskSigningState();
                 if (configChanged)
                 {
                     SaveConfig();
@@ -342,7 +402,7 @@ public class Worker : BackgroundService
         }
         catch (Exception ex)
         {
-            _logger.LogError("Failed to load task signing state: {Message}", ex.Message);
+            throw new InvalidDataException("Could not load protected task signing state. Administrator recovery is required.", ex);
         }
     }
 
@@ -385,6 +445,14 @@ public class Worker : BackgroundService
         string? directory = Path.GetDirectoryName(statePath);
         if (string.IsNullOrWhiteSpace(directory)) throw new InvalidOperationException("Task signing state path has no directory.");
         Directory.CreateDirectory(directory);
+        if (!OperatingSystem.IsMacOS())
+        {
+            RestrictPath(directory, UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute);
+            ProductionSecurity.AtomicWrite(statePath,
+                JsonSerializer.SerializeToUtf8Bytes(state, AppJsonSerializerContext.Default.TaskSigningState),
+                path => RestrictPath(path, UnixFileMode.UserRead | UnixFileMode.UserWrite));
+            return;
+        }
         string temporaryPath = statePath + $".{Guid.NewGuid():N}.tmp";
         try
         {
@@ -498,6 +566,8 @@ public class Worker : BackgroundService
                         SaveToken(newToken);
                         AuthToken = newToken;
                     }
+                    RemoveProtectedSecret("GlobalApiKey");
+                    _logger.LogInformation("Enrollment key removed from local secret state after successful enrollment.");
                     _logger.LogInformation("Enrollment successful. Approval status: {Status}", approvalStatus);
                     return;
                 }
@@ -517,6 +587,7 @@ public class Worker : BackgroundService
     {
         try
         {
+            if (_executionPersistenceFault) throw new IOException("Execution journal persistence failed. No more tasks will run until administrator recovery and service restart.");
             var unsignedPayload = new PollPayload(HardwareId, AuthToken, AgentBuildInfo.Version, AgentPublicKeyPem, AgentKeyFingerprint, "rsa-pss-sha256-v2", "", "", "", "");
             var payload = SignPayload(unsignedPayload, "/api/agent/poll", AuthToken, AppJsonSerializerContext.Default.PollPayload);
             using var response = await _httpClient.PostAsync($"{_config.ServerUrl}/api/agent/poll", JsonContent(payload), stoppingToken);
@@ -561,7 +632,8 @@ public class Worker : BackgroundService
             if (!ValidateTaskSignature(root))
             {
                 _logger.LogError("Task signature verification failed. TaskId={TaskId}, Action={Action}", taskId, action);
-                await ReportResultAsync(taskId, "Error", "Task signature verification failed. Task was not executed.", stoppingToken);
+                if (OperatingSystem.IsMacOS())
+                    await ReportResultAsync(taskId, "Error", "Task signature verification failed. Task was not executed.", stoppingToken);
                 return timing;
             }
 
@@ -590,6 +662,11 @@ public class Worker : BackgroundService
             }
 
             string script = "";
+            if (!OperatingSystem.IsMacOS() && action is not ("run_script" or "metric" or "inventory" or "audit"))
+            {
+                await ReportResultAsync(taskId, "Error", "Unknown action is forbidden by the local agent.", stoppingToken);
+                return timing;
+            }
             if (root.TryGetProperty("payload", out var pl) && pl.TryGetProperty("script", out var s))
                 script = s.GetString() ?? "";
             (string executionStatus, string logOutput) = await ExecuteShellAsync(script, timeoutSeconds, stoppingToken);
@@ -719,41 +796,58 @@ public class Worker : BackgroundService
 
     private async Task<(string Status, string Log)> ExecuteShellAsync(string scriptContent, int timeoutSeconds, CancellationToken stoppingToken)
     {
+        if (!OperatingSystem.IsMacOS()) return await ExecuteLinuxShellAsync(scriptContent, timeoutSeconds, stoppingToken);
         if (string.IsNullOrWhiteSpace(scriptContent)) return ("Error", "Empty script provided.");
         timeoutSeconds = Math.Clamp(timeoutSeconds, 30, 86400);
         string tempScriptFile = Path.Combine(Path.GetTempPath(), $"winhub_task_{Guid.NewGuid():N}.sh");
+        string stdoutFile = tempScriptFile + ".stdout";
+        string stderrFile = tempScriptFile + ".stderr";
+        string launcherFile = tempScriptFile + ".launcher";
         try
         {
             await File.WriteAllTextAsync(tempScriptFile, "#!/usr/bin/env bash\nset -o pipefail\nexport LANG=C.UTF-8\n" + scriptContent, new UTF8Encoding(false), stoppingToken);
             RestrictPath(tempScriptFile, UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute);
 
-            var psi = new ProcessStartInfo("/bin/bash", tempScriptFile)
-            {
-                RedirectStandardOutput = true,
-                RedirectStandardError = true,
-                UseShellExecute = false,
-                StandardOutputEncoding = Encoding.UTF8,
-                StandardErrorEncoding = Encoding.UTF8
-            };
+            // File-backed capture avoids the macOS NativeAOT PipeStream failure mode and
+            // lets the agent stop a runaway task before its output consumes all memory.
+            await File.WriteAllTextAsync(
+                launcherFile,
+                $"#!/usr/bin/env bash\nexec /bin/bash {ShellQuote(tempScriptFile)} > {ShellQuote(stdoutFile)} 2> {ShellQuote(stderrFile)}\n",
+                new UTF8Encoding(false),
+                stoppingToken);
+            RestrictPath(launcherFile, UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute);
+            var psi = new ProcessStartInfo("/bin/bash", launcherFile) { UseShellExecute = false };
             using var process = Process.Start(psi) ?? throw new InvalidOperationException("Process start failed.");
             using var timeoutCts = CancellationTokenSource.CreateLinkedTokenSource(stoppingToken);
             timeoutCts.CancelAfter(TimeSpan.FromSeconds(timeoutSeconds));
-            Task<string> stdoutTask = process.StandardOutput.ReadToEndAsync(timeoutCts.Token);
-            Task<string> stderrTask = process.StandardError.ReadToEndAsync(timeoutCts.Token);
+            long captureLimitBytes = Math.Clamp((long)Math.Max(4096, _config.MaxResultLogBytes) * 4, 1024 * 1024, 64L * 1024 * 1024);
+            bool outputLimitExceeded = false;
             try
             {
-                await process.WaitForExitAsync(timeoutCts.Token);
+                while (!process.HasExited)
+                {
+                    await Task.Delay(TimeSpan.FromMilliseconds(200), timeoutCts.Token);
+                    long capturedBytes = GetFileLength(stdoutFile) + GetFileLength(stderrFile);
+                    if (capturedBytes <= captureLimitBytes) continue;
+                    outputLimitExceeded = true;
+                    TryKill(process);
+                    break;
+                }
+                if (!process.HasExited)
+                    await process.WaitForExitAsync(timeoutCts.Token);
             }
-            catch (OperationCanceledException) when (!stoppingToken.IsCancellationRequested)
+            catch (OperationCanceledException)
             {
                 TryKill(process);
                 return ("Error", $"Task timeout after {timeoutSeconds} seconds. Process was terminated.");
             }
 
-            string output = await stdoutTask;
-            string error = await stderrTask;
+            string output = ReadCapturedOutput(stdoutFile, captureLimitBytes);
+            string error = ReadCapturedOutput(stderrFile, captureLimitBytes);
             string log = string.IsNullOrWhiteSpace(error) ? output : $"{output}\n[ERRORS]\n{error}";
-            return (process.ExitCode == 0 && string.IsNullOrWhiteSpace(error) ? "Success" : "Error", TrimResultLog(log));
+            if (outputLimitExceeded)
+                return ("Error", TrimResultLog(log + $"\n\n[WinHUB Agent] Task output exceeded {captureLimitBytes} bytes and the process was terminated."));
+            return (process.ExitCode == 0 ? "Success" : "Error", TrimResultLog(log));
         }
         catch (Exception ex)
         {
@@ -761,8 +855,37 @@ public class Worker : BackgroundService
         }
         finally
         {
-            try { File.Delete(tempScriptFile); } catch { }
+            foreach (string path in new[] { tempScriptFile, stdoutFile, stderrFile, launcherFile })
+            {
+                try { File.Delete(path); } catch { }
+            }
         }
+    }
+
+    private async Task<(string Status, string Log)> ExecuteLinuxShellAsync(string scriptContent, int timeoutSeconds, CancellationToken stoppingToken)
+    {
+        if (string.IsNullOrWhiteSpace(scriptContent)) return ("Error", "Empty script provided.");
+        string taskDirectory = Path.Combine(DataDirectory, "tasks");
+        ProductionSecurity.RejectLinks(taskDirectory);
+        Directory.CreateDirectory(taskDirectory);
+        RestrictPath(taskDirectory, UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute);
+        string path = Path.Combine(taskDirectory, "task-" + Guid.NewGuid().ToString("N") + ".sh");
+        try
+        {
+            ProductionSecurity.AtomicWrite(path,
+                Encoding.UTF8.GetBytes("#!/bin/bash\nset -o pipefail\nexport LANG=C.UTF-8\n" + scriptContent),
+                file => RestrictPath(file, UnixFileMode.UserRead | UnixFileMode.UserWrite));
+            var start = new ProcessStartInfo("/bin/bash") { UseShellExecute = false,
+                RedirectStandardOutput = true, RedirectStandardError = true, WorkingDirectory = taskDirectory };
+            start.ArgumentList.Add(path);
+            var capture = await ProductionSecurity.RunCapturedAsync(start, Math.Clamp(timeoutSeconds, 1, 86400),
+                Math.Clamp(_config.MaxResultLogBytes, 4096, 1024 * 1024), stoppingToken);
+            string log = string.IsNullOrWhiteSpace(capture.Error) ? capture.Output : capture.Output + "\n[ERRORS]\n" + capture.Error;
+            return (capture.ExitCode == 0 ? "Success" : "Error", TrimResultLog(log));
+        }
+        catch (OperationCanceledException) { return ("Error", "Task execution interrupted or timed out. Inspect any partial effects before retrying."); }
+        catch (Exception ex) { return ("Error", $"Task execution failed: {ex.Message}"); }
+        finally { if (File.Exists(path)) File.Delete(path); }
     }
 
     private async Task<(string Status, string Log)> StageAndLaunchAgentUpdateAsync(string taskId, JsonElement payload, CancellationToken stoppingToken)
@@ -771,6 +894,7 @@ public class Worker : BackgroundService
         {
             string packageUrl = GetPayloadString(payload, "package_url");
             string expectedSha256 = NormalizeThumbprint(GetPayloadString(payload, "sha256"));
+            string expectedVersion = GetPayloadString(payload, "target_version").Trim();
             if (string.IsNullOrWhiteSpace(packageUrl)) return ("Error", "agent_update requires payload.package_url.");
             if (string.IsNullOrWhiteSpace(expectedSha256))
                 return ("Error", "Secure agent update requires payload.sha256.");
@@ -781,18 +905,20 @@ public class Worker : BackgroundService
             string safeTaskId = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(taskId ?? ""))).ToLowerInvariant()[..24];
             string packagePath = Path.Combine(UpdatesDirectory, $"{(OperatingSystem.IsMacOS() ? "WinHUBMacAgent" : "WinHUBLinuxAgent")}_{safeTaskId}.tar.gz");
             const long maxUpdateBytes = 512L * 1024 * 1024;
-            using (var response = await _httpClient.GetAsync(downloadUri, HttpCompletionOption.ResponseHeadersRead, stoppingToken))
+            using var downloadDeadline = CancellationTokenSource.CreateLinkedTokenSource(stoppingToken);
+            downloadDeadline.CancelAfter(TimeSpan.FromMinutes(10));
+            using (var response = await _httpClient.GetAsync(downloadUri, HttpCompletionOption.ResponseHeadersRead, downloadDeadline.Token))
             {
                 UpdateServerClockOffset(response);
                 response.EnsureSuccessStatusCode();
                 if (response.Content.Headers.ContentLength is long contentLength && contentLength > maxUpdateBytes)
                     return ("Error", $"Agent update package exceeds the {maxUpdateBytes / 1024 / 1024} MB limit.");
-                await using var source = await response.Content.ReadAsStreamAsync(stoppingToken);
+                await using var source = await response.Content.ReadAsStreamAsync(downloadDeadline.Token);
                 await using var destination = new FileStream(packagePath, FileMode.Create, FileAccess.Write, FileShare.None, 81920, FileOptions.Asynchronous | FileOptions.SequentialScan);
                 byte[] buffer = new byte[81920];
                 long total = 0;
                 int read;
-                while ((read = await source.ReadAsync(buffer, stoppingToken)) > 0)
+                while ((read = await source.ReadAsync(buffer, downloadDeadline.Token)) > 0)
                 {
                     total += read;
                     if (total > maxUpdateBytes)
@@ -801,7 +927,7 @@ public class Worker : BackgroundService
                         File.Delete(packagePath);
                         return ("Error", $"Agent update package exceeds the {maxUpdateBytes / 1024 / 1024} MB limit.");
                     }
-                    await destination.WriteAsync(buffer.AsMemory(0, read), stoppingToken);
+                    await destination.WriteAsync(buffer.AsMemory(0, read), downloadDeadline.Token);
                 }
             }
             if (!string.IsNullOrWhiteSpace(expectedSha256))
@@ -819,7 +945,11 @@ public class Worker : BackgroundService
                 : "/opt/winhub-linux-agent/update-linux-agent.sh";
             if (!File.Exists(updateScript)) return ("Error", $"{updateScript} was not found.");
             string launcherPath = Path.Combine(UpdatesDirectory, $"launch_update_{safeTaskId}.sh");
-            await File.WriteAllTextAsync(launcherPath, $"#!/usr/bin/env bash\nset -euo pipefail\ntrap '/bin/rm -f \"$0\"' EXIT\nsleep 10\n{ShellQuote(updateScript)} --package {ShellQuote(packagePath)}\n", new UTF8Encoding(false), stoppingToken);
+            string versionArgument = !OperatingSystem.IsMacOS() || string.IsNullOrWhiteSpace(expectedVersion)
+                ? ""
+                : $" --expected-version {ShellQuote(expectedVersion)}";
+            if (!OperatingSystem.IsMacOS()) versionArgument = $" --expected-sha256 {ShellQuote(expectedSha256)}";
+            await File.WriteAllTextAsync(launcherPath, $"#!/usr/bin/env bash\nset -euo pipefail\ntrap '/bin/rm -f \"$0\"' EXIT\nsleep 10\n{ShellQuote(updateScript)} --package {ShellQuote(packagePath)}{versionArgument}\n", new UTF8Encoding(false), stoppingToken);
             RestrictPath(launcherPath, UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute);
             ProcessStartInfo updateLauncher;
             if (OperatingSystem.IsMacOS())
@@ -871,6 +1001,14 @@ public class Worker : BackgroundService
 
     private async Task ReportResultAsync(string taskId, string status, string log, CancellationToken stoppingToken)
     {
+        if (_executionJournal != null)
+        {
+            ExecutionRecord result;
+            try { result = _executionJournal.Complete(taskId, status, TrimResultLog(log)); }
+            catch { _executionPersistenceFault = true; throw; }
+            await SendJournalResultAsync(result, stoppingToken);
+            return;
+        }
         var pending = new PendingResult(
             taskId,
             status,
@@ -888,6 +1026,37 @@ public class Worker : BackgroundService
             _logger.LogError("Could not persist task result {TaskId} before delivery: {Message}", taskId, ex.Message);
         }
         await SendPendingResultAsync(pending, pendingPath, 3, stoppingToken);
+    }
+
+    private async Task FlushJournalResultsAsync(CancellationToken stoppingToken)
+    {
+        if (_executionJournal == null || string.IsNullOrWhiteSpace(AuthToken)) return;
+        foreach (var pending in _executionJournal.Pending())
+        {
+            if (stoppingToken.IsCancellationRequested) return;
+            if (!await SendJournalResultAsync(pending, stoppingToken)) break;
+        }
+    }
+
+    private async Task<bool> SendJournalResultAsync(ExecutionRecord pending, CancellationToken stoppingToken)
+    {
+        try
+        {
+            var unsignedPayload = new ResultPayload(HardwareId, AuthToken, AgentBuildInfo.Version,
+                pending.TaskId, pending.Status, pending.Log, AgentPublicKeyPem, AgentKeyFingerprint,
+                pending.KeyId, pending.Sequence, "", "", "", "");
+            var payload = SignPayload(unsignedPayload, "/api/agent/result", AuthToken, AppJsonSerializerContext.Default.ResultPayload);
+            using var response = await _httpClient.PostAsync($"{_config.ServerUrl}/api/agent/result", JsonContent(payload), stoppingToken);
+            UpdateServerClockOffset(response);
+            if (response.IsSuccessStatusCode && ExecutionJournal.IsSuccessAcknowledgement(await response.Content.ReadAsStringAsync(stoppingToken)))
+            {
+                _executionJournal!.Acknowledge(pending.TaskId);
+                return true;
+            }
+            _logger.LogWarning("Task result was not acknowledged (HTTP {Status}); retained for retry. TaskId={TaskId}", response.StatusCode, pending.TaskId);
+        }
+        catch (Exception ex) { _logger.LogWarning("Task result retained for retry: {Message}", ex.Message); }
+        return false;
     }
 
     private string PendingResultPath(string taskId)
@@ -923,7 +1092,7 @@ public class Worker : BackgroundService
             if (stoppingToken.IsCancellationRequested) return;
             try
             {
-                string json = await File.ReadAllTextAsync(path, stoppingToken);
+                string json = ProductionSecurity.ReadText(path, 8 * 1024 * 1024);
                 PendingResult? pending = JsonSerializer.Deserialize(json, AppJsonSerializerContext.Default.PendingResult);
                 if (pending == null || string.IsNullOrWhiteSpace(pending.task_id))
                     throw new InvalidDataException("Pending result has no task_id.");
@@ -935,8 +1104,8 @@ public class Worker : BackgroundService
             }
             catch (Exception ex)
             {
-                _logger.LogError("Invalid pending result file {Path}: {Message}. Removing it.", path, ex.Message);
-                try { File.Delete(path); } catch { }
+                _logger.LogError("Invalid legacy pending result file {Path}: {Message}. Preserved for administrator recovery.", path, ex.Message);
+                if (!OperatingSystem.IsMacOS()) _executionPersistenceFault = true;
             }
         }
     }
@@ -966,7 +1135,7 @@ public class Worker : BackgroundService
                 var payload = SignPayload(unsignedPayload, "/api/agent/result", AuthToken, AppJsonSerializerContext.Default.ResultPayload);
                 using var response = await _httpClient.PostAsync($"{_config.ServerUrl}/api/agent/result", JsonContent(payload), stoppingToken);
                 UpdateServerClockOffset(response);
-                if (response.IsSuccessStatusCode)
+                if (response.IsSuccessStatusCode && ExecutionJournal.IsSuccessAcknowledgement(await response.Content.ReadAsStringAsync(stoppingToken)))
                 {
                     try { File.Delete(pendingPath); } catch { }
                     _logger.LogInformation("Task result delivered. TaskId={TaskId}, Status={Status}", pending.task_id, pending.status);
@@ -984,8 +1153,7 @@ public class Worker : BackgroundService
 
                 if (response.StatusCode is System.Net.HttpStatusCode.BadRequest or System.Net.HttpStatusCode.NotFound)
                 {
-                    _logger.LogError("Server permanently rejected task result {TaskId}; removing the pending result.", pending.task_id);
-                    try { File.Delete(pendingPath); } catch { }
+                    _logger.LogError("Server rejected task result {TaskId}; preserved locally for administrator recovery.", pending.task_id);
                     return false;
                 }
             }
@@ -1033,6 +1201,15 @@ public class Worker : BackgroundService
 
     private bool ValidateTaskSignature(JsonElement taskResponse)
     {
+        if (!OperatingSystem.IsMacOS())
+        {
+            if (!taskResponse.TryGetProperty("task_signature_v2", out var productionSignature))
+            {
+                _logger.LogError("Production requires a per-agent v2 signature. Legacy/unsigned tasks are refused.");
+                return false;
+            }
+            return CanBootstrapTaskSigningKey() && ValidateTaskSignatureV2(taskResponse, productionSignature);
+        }
         if (taskResponse.TryGetProperty("task_signature_v2", out var signatureV2))
         {
             if (CanBootstrapTaskSigningKey() || !string.IsNullOrWhiteSpace(_config.TaskSigningPublicKeyPem))
@@ -1081,70 +1258,20 @@ public class Worker : BackgroundService
     {
         try
         {
-            JsonElement fields = envelope.GetProperty("fields");
-            string algorithm = envelope.GetProperty("signature_alg").GetString() ?? "";
-            string providedKey = envelope.GetProperty("public_key_pem").GetString() ?? "";
-            string providedSignature = envelope.GetProperty("signature").GetString() ?? "";
-            if (!algorithm.Equals("rsa-pss-sha256", StringComparison.OrdinalIgnoreCase)) return false;
-
-            string taskId = taskResponse.GetProperty("task_id").GetString() ?? "";
-            string action = taskResponse.GetProperty("action").GetString() ?? "";
-            JsonElement payload = taskResponse.GetProperty("payload");
-            int timeoutSeconds = taskResponse.GetProperty("timeout_seconds").GetInt32();
-            string payloadHash = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(CanonicalJson(payload)))).ToLowerInvariant();
-            long now = GetServerAdjustedUnixTimeSeconds();
-            long issuedAt = fields.GetProperty("issued_at").GetInt64();
-            long expiresAt = fields.GetProperty("expires_at").GetInt64();
-            long sequence = fields.GetProperty("sequence").GetInt64();
-            string keyId = fields.GetProperty("key_id").GetString() ?? "";
-
-            bool fieldsMatch = fields.GetProperty("protocol_version").GetInt32() == 2
-                && fields.GetProperty("endpoint_id").GetString() == HardwareId
-                && fields.GetProperty("task_id").GetString() == taskId
-                && fields.GetProperty("action").GetString() == action
-                && fields.GetProperty("payload_hash").GetString() == payloadHash
-                && fields.GetProperty("timeout_seconds").GetInt32() == timeoutSeconds
-                && issuedAt <= now + 300
-                && expiresAt >= now
-                && sequence > _config.TaskSigningLastSequence;
-            if (!fieldsMatch)
-            {
-                _logger.LogError("Per-agent task signature fields, expiry, or sequence are invalid.");
-                return false;
-            }
-
-            bool firstPin = string.IsNullOrWhiteSpace(_config.TaskSigningPublicKeyPem);
-            string publicKey = firstPin ? providedKey : _config.TaskSigningPublicKeyPem;
-            using RSA rsa = RSA.Create();
-            rsa.ImportFromPem(publicKey);
-            string actualKeyId = Convert.ToHexString(SHA256.HashData(rsa.ExportSubjectPublicKeyInfo())).ToLowerInvariant();
-            if (actualKeyId != keyId || (!string.IsNullOrWhiteSpace(_config.TaskSigningKeyId) && _config.TaskSigningKeyId != keyId))
-            {
-                _logger.LogError("Per-agent task signing key does not match the pinned key.");
-                return false;
-            }
-            bool valid = rsa.VerifyData(Encoding.UTF8.GetBytes(CanonicalJson(fields)), Convert.FromBase64String(providedSignature), HashAlgorithmName.SHA256, RSASignaturePadding.Pss);
-            if (!valid)
-            {
-                _logger.LogError("Invalid per-agent RSA-PSS task signature.");
-                return false;
-            }
-
-            _config.TaskSigningPublicKeyPem = publicKey;
-            _config.TaskSigningKeyId = keyId;
-            _config.TaskSigningLastSequence = sequence;
+            var verified = TaskEnvelope.Verify(taskResponse, HardwareId, _config.TaskSigningPublicKeyPem,
+                _config.TaskSigningKeyId, _config.TaskSigningLastSequence, GetServerAdjustedUnixTimeSeconds(), CanonicalJson);
+            _executionJournal?.Claim(taskResponse.GetProperty("task_id").GetString()!, verified.KeyId, verified.Sequence);
+            _config.TaskSigningPublicKeyPem = verified.PublicKey;
+            _config.TaskSigningKeyId = verified.KeyId;
+            _config.TaskSigningLastSequence = verified.Sequence;
             SaveTaskSigningState();
             SaveConfig();
             RemoveProtectedSecret("TaskHmacSecret");
-            if (firstPin)
-                _logger.LogInformation("Pinned per-agent RSA-PSS task signing key {KeyId} at sequence {Sequence}.", keyId, sequence);
-            else
-                _logger.LogDebug("Verified RSA-PSS task signature. KeyId={KeyId}, Sequence={Sequence}.", keyId, sequence);
             return true;
         }
         catch (Exception ex)
         {
-            _logger.LogError("Per-agent task signature validation failed: {Message}", ex.Message);
+            _logger.LogError("Task signature or durable-state validation failed: {Message}", ex.Message);
             return false;
         }
     }
@@ -1154,6 +1281,8 @@ public class Worker : BackgroundService
         string payloadJson = payload.ValueKind == JsonValueKind.Undefined ? "{}" : CanonicalJson(payload);
         return $"{{\"action\":\"{EscapeJson(action)}\",\"payload\":{payloadJson},\"task_id\":\"{EscapeJson(taskId)}\"}}";
     }
+
+    public static void RunProductionSelfTest() => ProductionSecurityTests.Run(CanonicalJson);
 
     private static string CanonicalJson(JsonElement element)
     {
@@ -1473,16 +1602,20 @@ public class Worker : BackgroundService
             AgentIdentityKey = RSA.Create(3072);
             if (File.Exists(AgentIdentityKeyFilePath))
             {
-                AgentIdentityKey.ImportPkcs8PrivateKey(File.ReadAllBytes(AgentIdentityKeyFilePath), out _);
+                AgentIdentityKey.ImportPkcs8PrivateKey(ProductionSecurity.ReadBytes(AgentIdentityKeyFilePath, 65536), out _);
             }
             else
             {
-                File.WriteAllBytes(AgentIdentityKeyFilePath, AgentIdentityKey.ExportPkcs8PrivateKey());
-                RestrictPath(AgentIdentityKeyFilePath, UnixFileMode.UserRead | UnixFileMode.UserWrite);
+                if (File.Exists(TokenFilePath) || File.Exists(TaskSigningStateFilePath))
+                    throw new InvalidDataException("Enrolled agent identity key is missing; administrator recovery is required.");
+                ProductionSecurity.AtomicWrite(AgentIdentityKeyFilePath, AgentIdentityKey.ExportPkcs8PrivateKey(),
+                    path => RestrictPath(path, UnixFileMode.UserRead | UnixFileMode.UserWrite));
                 _logger.LogInformation("Generated agent identity key.");
             }
 
             byte[] publicKey = AgentIdentityKey.ExportSubjectPublicKeyInfo();
+            if (!OperatingSystem.IsMacOS() && AgentIdentityKey.KeySize < 3072)
+                throw new InvalidDataException("Production agent identity requires RSA >= 3072 bits; explicit key rotation is required.");
             AgentPublicKeyPem = ToPem("PUBLIC KEY", publicKey);
             AgentKeyFingerprint = Convert.ToHexString(SHA256.HashData(publicKey)).ToLowerInvariant();
             _logger.LogInformation("Agent identity key fingerprint: {Fingerprint}", AgentKeyFingerprint);
@@ -1492,7 +1625,7 @@ public class Worker : BackgroundService
             AgentIdentityKey = null;
             AgentPublicKeyPem = "";
             AgentKeyFingerprint = "";
-            _logger.LogError("Failed to load or create agent identity key: {Message}", ex.Message);
+            throw new InvalidDataException("Agent identity key could not be loaded or persisted. Refusing unsigned requests.", ex);
         }
     }
 
@@ -1655,7 +1788,7 @@ public class Worker : BackgroundService
     {
         string signedAt = GetServerAdjustedUnixTimeSeconds().ToString();
         string nonce = Guid.NewGuid().ToString("N");
-        if (AgentIdentityKey == null) return (signedAt, nonce, "");
+        if (AgentIdentityKey == null) throw new CryptographicException("Agent identity key is unavailable.");
         string canonical = string.Join("\n", new[] { path ?? "", HardwareId ?? "", authToken ?? "", agentVersion ?? "", bodyHash ?? "", signedAt, nonce });
         byte[] signature = AgentIdentityKey.SignData(Encoding.UTF8.GetBytes(canonical), HashAlgorithmName.SHA256, RSASignaturePadding.Pkcs1);
         return (signedAt, nonce, Convert.ToBase64String(signature));
@@ -1663,24 +1796,9 @@ public class Worker : BackgroundService
 
     private string GetOrCreateHardwareId()
     {
-        try
-        {
-            if (File.Exists(HardwareIdFilePath))
-            {
-                string saved = File.ReadAllText(HardwareIdFilePath).Trim();
-                if (saved.StartsWith("WINHUB-", StringComparison.OrdinalIgnoreCase) || saved.StartsWith("HWID-FALLBACK-", StringComparison.OrdinalIgnoreCase))
-                    return saved;
-            }
-        }
-        catch (Exception ex)
-        {
-            _logger.LogWarning("Failed to read persisted hardware ID: {Message}", ex.Message);
-        }
-
-        string generated = GeneratePersistentHardwareId();
-        File.WriteAllText(HardwareIdFilePath, generated, Encoding.UTF8);
-        RestrictPath(HardwareIdFilePath, UnixFileMode.UserRead | UnixFileMode.UserWrite);
-        return generated;
+        return ProductionSecurity.HardwareIdentity(HardwareIdFilePath,
+            File.Exists(TokenFilePath) || File.Exists(AgentIdentityKeyFilePath) || File.Exists(TaskSigningStateFilePath),
+            GeneratePersistentHardwareId, path => RestrictPath(path, UnixFileMode.UserRead | UnixFileMode.UserWrite));
     }
 
     private static string GeneratePersistentHardwareId()
@@ -1694,9 +1812,10 @@ public class Worker : BackgroundService
 
     private void SaveToken(string token)
     {
+        if (string.IsNullOrWhiteSpace(token)) throw new InvalidDataException("Server returned an empty enrollment token.");
         if (string.IsNullOrWhiteSpace(token)) return;
-        File.WriteAllText(TokenFilePath, token, Encoding.UTF8);
-        RestrictPath(TokenFilePath, UnixFileMode.UserRead | UnixFileMode.UserWrite);
+        ProductionSecurity.AtomicWrite(TokenFilePath, Encoding.UTF8.GetBytes(token),
+            path => RestrictPath(path, UnixFileMode.UserRead | UnixFileMode.UserWrite));
     }
 
     private bool LoadToken()
@@ -1704,10 +1823,11 @@ public class Worker : BackgroundService
         if (!File.Exists(TokenFilePath)) return false;
         try
         {
-            AuthToken = File.ReadAllText(TokenFilePath).Trim();
-            return !string.IsNullOrWhiteSpace(AuthToken);
+            AuthToken = ProductionSecurity.ReadText(TokenFilePath, 65536).Trim();
+            if (string.IsNullOrWhiteSpace(AuthToken)) throw new InvalidDataException("Saved enrollment token is empty.");
+            return true;
         }
-        catch { return false; }
+        catch (Exception ex) { throw new InvalidDataException("Saved enrollment token is unreadable; administrator recovery is required.", ex); }
     }
 
     private void MigratePlaintextSecretsFromConfig()
@@ -1721,7 +1841,7 @@ public class Worker : BackgroundService
         }
         if (!string.IsNullOrWhiteSpace(_config.TaskHmacSecret))
         {
-            SaveProtectedSecret("TaskHmacSecret", _config.TaskHmacSecret);
+            if (OperatingSystem.IsMacOS()) SaveProtectedSecret("TaskHmacSecret", _config.TaskHmacSecret);
             _config.TaskHmacSecret = "";
             changed = true;
         }
@@ -1733,7 +1853,7 @@ public class Worker : BackgroundService
         if (!File.Exists(BootstrapConfigFilePath)) return;
         try
         {
-            var bootstrap = JsonSerializer.Deserialize(File.ReadAllText(BootstrapConfigFilePath), AppJsonSerializerContext.Default.AgentConfig);
+            var bootstrap = JsonSerializer.Deserialize(ProductionSecurity.ReadText(BootstrapConfigFilePath, 65536), AppJsonSerializerContext.Default.AgentConfig);
             bool migrated = false;
             if (!string.IsNullOrWhiteSpace(bootstrap?.GlobalApiKey))
             {
@@ -1742,14 +1862,14 @@ public class Worker : BackgroundService
             }
             if (!string.IsNullOrWhiteSpace(bootstrap?.TaskHmacSecret))
             {
-                SaveProtectedSecret("TaskHmacSecret", bootstrap.TaskHmacSecret);
+                if (OperatingSystem.IsMacOS()) SaveProtectedSecret("TaskHmacSecret", bootstrap.TaskHmacSecret);
                 migrated = true;
             }
             if (migrated) File.Delete(BootstrapConfigFilePath);
         }
         catch (Exception ex)
         {
-            _logger.LogError("Failed to read bootstrap config: {Message}", ex.Message);
+            throw new InvalidDataException("Bootstrap migration failed. Preserve the files and recover with the administrator.", ex);
         }
     }
 
@@ -1758,12 +1878,12 @@ public class Worker : BackgroundService
         if (!File.Exists(SecretsFilePath)) return new AgentSecrets();
         try
         {
-            return JsonSerializer.Deserialize(File.ReadAllText(SecretsFilePath), AppJsonSerializerContext.Default.AgentSecrets) ?? new AgentSecrets();
+            return JsonSerializer.Deserialize(ProductionSecurity.ReadText(SecretsFilePath, 65536), AppJsonSerializerContext.Default.AgentSecrets)
+                ?? throw new InvalidDataException("Secret store is empty.");
         }
         catch (Exception ex)
         {
-            _logger.LogError("Failed to read secret store: {Message}", ex.Message);
-            return new AgentSecrets();
+            throw new InvalidDataException("Secret store is unreadable; refusing to replace it with an empty store.", ex);
         }
     }
 
@@ -1774,8 +1894,8 @@ public class Worker : BackgroundService
         if (name == "GlobalApiKey") store.GlobalApiKey = encoded;
         else if (name == "TaskHmacSecret") store.TaskHmacSecret = encoded;
         else return;
-        File.WriteAllText(SecretsFilePath, JsonSerializer.Serialize(store, AppJsonSerializerContext.Default.AgentSecrets));
-        RestrictPath(SecretsFilePath, UnixFileMode.UserRead | UnixFileMode.UserWrite);
+        ProductionSecurity.AtomicWrite(SecretsFilePath, JsonSerializer.SerializeToUtf8Bytes(store, AppJsonSerializerContext.Default.AgentSecrets),
+            path => RestrictPath(path, UnixFileMode.UserRead | UnixFileMode.UserWrite));
     }
 
     private void RemoveProtectedSecret(string name)
@@ -1793,8 +1913,8 @@ public class Worker : BackgroundService
             changed = true;
         }
         if (!changed) return;
-        File.WriteAllText(SecretsFilePath, JsonSerializer.Serialize(store, AppJsonSerializerContext.Default.AgentSecrets));
-        RestrictPath(SecretsFilePath, UnixFileMode.UserRead | UnixFileMode.UserWrite);
+        ProductionSecurity.AtomicWrite(SecretsFilePath, JsonSerializer.SerializeToUtf8Bytes(store, AppJsonSerializerContext.Default.AgentSecrets),
+            path => RestrictPath(path, UnixFileMode.UserRead | UnixFileMode.UserWrite));
     }
 
     private string GetProtectedSecret(string name)
@@ -2107,6 +2227,7 @@ public class Worker : BackgroundService
     }
     private Uri BuildUpdatePackageUri(string packageUrl)
     {
+        if (!OperatingSystem.IsMacOS()) return ProductionSecurity.UpdateUri(_config.ServerUrl, packageUrl);
         if (!Uri.TryCreate(_config.ServerUrl.TrimEnd('/') + "/", UriKind.Absolute, out var baseUri) || !IsHttpUri(baseUri))
             throw new InvalidOperationException("ServerUrl must use http or https for agent updates.");
         Uri result;
@@ -2137,9 +2258,36 @@ public class Worker : BackgroundService
         using var stream = File.OpenRead(path);
         return Convert.ToHexString(SHA256.HashData(stream)).ToUpperInvariant();
     }
+    private static long GetFileLength(string path)
+    {
+        try { return File.Exists(path) ? new FileInfo(path).Length : 0; }
+        catch { return 0; }
+    }
+    private static string ReadCapturedOutput(string path, long maxBytes)
+    {
+        try
+        {
+            if (!File.Exists(path)) return "";
+            using var stream = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite);
+            int length = (int)Math.Min(Math.Min(stream.Length, maxBytes), int.MaxValue);
+            byte[] buffer = new byte[length];
+            int offset = 0;
+            while (offset < length)
+            {
+                int read = stream.Read(buffer, offset, length - offset);
+                if (read <= 0) break;
+                offset += read;
+            }
+            return Encoding.UTF8.GetString(buffer, 0, offset);
+        }
+        catch (Exception ex)
+        {
+            return $"[WinHUB Agent] Could not read captured task output: {ex.Message}";
+        }
+    }
     private string TrimResultLog(string log)
     {
-        int maxBytes = Math.Max(4096, _config.MaxResultLogBytes);
+        int maxBytes = Math.Clamp(_config.MaxResultLogBytes, 4096, 1024 * 1024);
         byte[] raw = Encoding.UTF8.GetBytes(log ?? "");
         if (raw.Length <= maxBytes) return log ?? "";
         return Encoding.UTF8.GetString(raw.Take(maxBytes).ToArray()) + $"\n\n[WinHUB Agent] Result log truncated to {maxBytes} bytes.";
@@ -2163,10 +2311,13 @@ public class Worker : BackgroundService
     }
     private static void RestrictPath(string path, UnixFileMode mode)
     {
-        try
+        if (!OperatingSystem.IsWindows())
         {
-            if (!OperatingSystem.IsWindows()) File.SetUnixFileMode(path, mode);
+            ProductionSecurity.RejectLinks(path);
+            ProductionSecurity.SecureUnixOwner(path);
+            File.SetUnixFileMode(path, mode);
+            if (File.GetUnixFileMode(path) != mode)
+                throw new IOException("Agent security file permissions could not be enforced.");
         }
-        catch { }
     }
 }

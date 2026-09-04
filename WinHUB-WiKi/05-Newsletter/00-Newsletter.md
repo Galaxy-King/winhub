@@ -11,3 +11,5 @@ Newsletter керує SMTP-профілями, списками отримува
 - [Аудит і діагностика](05-Аудит-та-діагностика.md)
 
 Mail credentials і private keys не зберігаються у WiKi.
+
+[Докладний посібник Newsletter](../guides/features/NEWSLETTER_GUIDE_UA.md).

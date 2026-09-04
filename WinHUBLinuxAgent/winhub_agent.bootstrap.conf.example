@@ -1,4 +1,3 @@
 {
-  "GlobalApiKey": "same-value-as-server-AGENT_API_KEY",
-  "TaskHmacSecret": "same-value-as-server-AGENT_TASK_HMAC_SECRET"
+  "GlobalApiKey": "same-value-as-server-AGENT_API_KEY"
 }

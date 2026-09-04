@@ -1,0 +1,1177 @@
+<!-- HOST DETAILS MODAL -->
+<div id="hostModal" class="fixed inset-0 z-[100] hidden flex items-center justify-center bg-slate-900/60 backdrop-blur-md p-4 animate-in fade-in">
+    <div class="bg-white w-full max-w-5xl rounded-[3rem] shadow-2xl overflow-hidden flex flex-col max-h-[92vh]">
+        <div class="p-6 sm:p-10 border-b border-slate-100 flex justify-between items-start shrink-0 bg-slate-50/50">
+            <div class="flex items-center gap-4 sm:gap-6">
+                <div id="mOsIcon" class="w-12 h-12 sm:w-16 sm:h-16 bg-white rounded-2xl sm:rounded-3xl shadow-sm border border-slate-100 flex items-center justify-center text-slate-500 shrink-0">
+                    <svg class="w-6 h-6 sm:w-8 sm:h-8" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9.75 17L9 20l-1 1h8l-1-1-.75-3M3 13h18M5 17h14a2 2 0 002-2V5a2 2 0 00-2 2v10a2 2 0 002 2z"></path></svg>
+                </div>
+                <div class="overflow-hidden">
+                    <div class="flex items-center gap-3 min-w-0">
+                        <h2 id="mName" class="text-xl sm:text-3xl font-black text-slate-900 mb-1 truncate">Loading...</h2>
+                        {% if permissions.manage_hosts %}
+                        <button onclick="editCurrentHostDisplayName()" class="shrink-0 px-3 py-1.5 rounded-xl border border-slate-200 bg-white text-[10px] font-black uppercase text-slate-500 hover:text-indigo-600 hover:bg-indigo-50 transition-all">Edit Name</button>
+                        {% endif %}
+                    </div>
+                    <p id="mHostname" class="text-[10px] sm:text-xs font-mono text-slate-500 truncate hidden">HOSTNAME: ...</p>
+                    <p id="mId" class="text-[10px] sm:text-xs font-mono text-slate-400 truncate">ID: ...</p>
+                </div>
+            </div>
+            <button onclick="closeModal('hostModal')" class="p-2 sm:p-3 bg-white border border-slate-200 hover:bg-slate-50 rounded-xl sm:rounded-2xl text-slate-500 hover:text-slate-800 transition-colors shadow-sm"><svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path d="M6 18L18 6M6 6l12 12" stroke-width="2.5"/></svg></button>
+        </div>
+
+        <div class="flex border-b border-slate-200 px-6 sm:px-10 shrink-0 bg-white overflow-x-auto no-scrollbar">
+            <button onclick="switchHostTab('info')" id="htabBtn_info" class="px-4 py-3 font-bold text-sm text-indigo-600 border-b-2 border-indigo-600 transition-colors whitespace-nowrap">Information & Actions</button>
+            <button onclick="switchHostTab('items')" id="htabBtn_items" class="px-4 py-3 font-bold text-sm text-slate-500 border-b-2 border-transparent hover:text-slate-800 transition-colors flex items-center gap-2 whitespace-nowrap">
+                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2"></path></svg>
+                Custom Items
+            </button>
+            <button onclick="switchHostTab('history')" id="htabBtn_history" class="px-4 py-3 font-bold text-sm text-slate-500 border-b-2 border-transparent hover:text-slate-800 transition-colors flex items-center gap-2 whitespace-nowrap">
+                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>
+                Task History
+            </button>
+            <button onclick="switchHostTab('telemetry')" id="htabBtn_telemetry" class="px-4 py-3 font-bold text-sm text-slate-500 border-b-2 border-transparent hover:text-slate-800 transition-colors flex items-center gap-2 whitespace-nowrap">
+                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 12l3-3 3 3 4-4M8 21l4-4 4 4M3 4h18M4 4h16v12a1 1 0 01-1 1H5a1 1 0 01-1-1V4z"></path></svg>
+                Telemetry (RMM)
+            </button>
+        </div>
+
+        <div id="htab_info" class="flex-1 overflow-y-auto p-6 sm:p-10 block">
+            <div class="grid grid-cols-1 lg:grid-cols-2 gap-8 text-sm">
+                <div class="bg-slate-50 rounded-[2rem] p-6 space-y-4 border border-slate-100">
+                    <label class="text-[10px] font-black text-slate-400 uppercase tracking-widest block">Specifications</label>
+                    <div class="space-y-3">
+                        <div class="flex justify-between font-bold items-center gap-4"><span class="text-slate-400">Hostname:</span><span id="mHostNameSpec" class="text-slate-700 font-mono text-right">...</span></div>
+	                        <div class="flex justify-between font-bold items-center gap-4"><span class="text-slate-400">Connection IP:</span><span id="mIp" class="text-slate-700 font-mono text-right">...</span></div>
+                        <div class="flex flex-col gap-1"><span class="text-slate-400 font-bold">OS:</span><span id="mOs" class="text-slate-700 text-xs break-words leading-relaxed">...</span></div>
+                        <div class="flex justify-between font-bold items-center"><span class="text-slate-400">Agent:</span><span id="mAgentVersion" class="text-slate-700 text-[10px]">...</span></div>
+                        <div class="flex justify-between font-bold items-center"><span class="text-slate-400">Agent Key:</span><span id="mAgentKeyStatus" class="text-[10px]">...</span></div>
+                        <div class="flex justify-between font-bold items-center"><span class="text-slate-400">Last Pulse:</span><span id="mSeen" class="text-slate-700 text-[10px]">...</span></div>
+                        <div class="flex justify-between font-bold items-center"><span class="text-slate-400">Approval:</span><span id="mApprovalStatus">...</span></div>
+                        <div class="flex justify-between font-bold items-center"><span class="text-slate-400">Access:</span><span id="mAccessStatus">...</span></div>
+                    </div>
+                </div>
+	                <div class="bg-slate-50 rounded-[2rem] p-6 space-y-4 border border-slate-100">
+	                    <label class="text-[10px] font-black text-slate-400 uppercase tracking-widest block">Network Interfaces</label>
+	                    <p class="text-[11px] font-bold text-slate-500 leading-relaxed">Connection IP is the address WinHUB currently sees. Interface IPv4 values below are reported by the agent from inside the operating system and can differ behind NAT, VPN, proxy or cloud networks.</p>
+	                    <div id="mNetworkInfo" class="space-y-3 text-xs"></div>
+	                </div>
+                <div class="bg-slate-50 rounded-[2rem] p-6 space-y-4 border border-slate-100">
+                    <label class="text-[10px] font-black text-slate-400 uppercase tracking-widest block">Host Inventory</label>
+                    <div id="mHostInfo" class="space-y-3 text-xs"></div>
+                </div>
+                <div class="bg-slate-50 rounded-[2rem] p-6 space-y-4 border border-slate-100">
+                    <label class="text-[10px] font-black text-slate-400 uppercase tracking-widest block">Security State</label>
+                    <div id="mSecurityInfo" class="space-y-3 text-xs"></div>
+                </div>
+                <div class="bg-slate-50 rounded-[2rem] p-6 space-y-4 border border-slate-100"><label class="text-[10px] font-black text-slate-400 uppercase tracking-widest block">Groups</label><div id="mGroups" class="flex flex-wrap gap-2"></div></div>
+
+                {% if permissions.manage_hosts or permissions.delete_hosts %}
+                <div class="pt-6 border-t border-slate-100 flex flex-col gap-3">
+                    {% if permissions.manage_hosts %}
+                    <button onclick="setHostApproval('Approved')" id="btnApproveHost" class="w-full py-4 bg-emerald-50 text-emerald-600 rounded-2xl text-xs font-black uppercase tracking-wider hover:bg-emerald-100 transition-all border border-emerald-100">Approve Host</button>
+                    <button onclick="setHostApproval('Rejected')" id="btnRejectHost" class="w-full py-4 bg-amber-50 text-amber-600 rounded-2xl text-xs font-black uppercase tracking-wider hover:bg-amber-100 transition-all border border-amber-100">Reject Host</button>
+                    <button onclick="allowCurrentHostReenroll()" id="btnAllowReenroll" class="hidden w-full py-4 bg-violet-50 text-violet-600 rounded-2xl text-xs font-black uppercase tracking-wider hover:bg-violet-100 transition-all border border-violet-100">Allow Re-enroll</button>
+                    <div id="mReenrollRecovery" class="hidden text-[11px] font-bold text-violet-600 bg-violet-50 border border-violet-100 rounded-2xl p-3"></div>
+                    <button onclick="toggleBlockHost()" id="btnBlockHost" class="w-full py-4 bg-slate-100 text-slate-600 rounded-2xl text-xs font-black uppercase tracking-wider hover:bg-slate-200 transition-all border border-slate-200">Block Host</button>
+                    {% endif %}
+                    {% if permissions.delete_hosts %}
+                    <button onclick="confirmDeleteHost()" class="w-full py-4 bg-rose-50 text-rose-600 rounded-2xl text-xs font-black uppercase tracking-wider hover:bg-rose-100 transition-all border border-rose-100">Delete Record</button>
+                    {% endif %}
+                </div>
+                {% endif %}
+            </div>
+        </div>
+
+        <div id="htab_items" class="hidden flex-1 overflow-y-auto p-6 sm:p-10 flex-col gap-6 bg-slate-50/30">
+            <div class="flex justify-between items-center bg-white p-5 rounded-[2rem] border border-slate-200 shadow-sm shrink-0">
+                <div>
+                    <h3 class="text-lg font-black text-slate-800 uppercase tracking-tight">Latest Data</h3>
+                    <p class="text-[10px] font-bold text-slate-400 uppercase tracking-widest mt-1">Results from Metric Collection Scripts</p>
+                </div>
+                <button onclick="loadHostMetrics()" class="p-3 bg-slate-100 hover:bg-slate-200 rounded-xl text-slate-500 transition-colors">
+                    <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"></path></svg>
+                </button>
+            </div>
+
+            <div class="bg-white rounded-[2.5rem] border border-slate-200 shadow-sm overflow-hidden flex-1">
+                <table class="w-full text-left">
+                    <thead class="bg-slate-50/50 border-b border-slate-100 text-[10px] font-black text-slate-400 uppercase tracking-widest">
+                        <tr>
+                            <th class="px-8 py-5">Item Name</th>
+                            <th class="px-8 py-5">Last Value</th>
+                            <th class="px-8 py-5 text-right">Last Updated</th>
+                        </tr>
+                    </thead>
+                    <tbody id="mItemsBody" class="divide-y divide-slate-50"></tbody>
+                </table>
+            </div>
+        </div>
+
+        <div id="htab_history" class="hidden flex-1 overflow-y-auto p-6 sm:p-10 flex-col gap-6 bg-slate-50/30">
+            <div class="bg-white p-5 rounded-[2rem] border border-slate-200 shadow-sm shrink-0">
+                <h3 class="text-lg font-black text-slate-800 uppercase tracking-tight">Task History</h3>
+                <p class="text-[10px] font-bold text-slate-400 uppercase tracking-widest mt-1">Click a row to view execution log</p>
+            </div>
+            <div id="mHistory" class="space-y-3"></div>
+        </div>
+
+        <div id="htab_telemetry" class="hidden flex-1 overflow-y-auto p-6 sm:p-10 flex-col gap-8">
+            <div class="flex justify-between items-center shrink-0 bg-slate-50 p-2 rounded-2xl border border-slate-100 w-fit">
+                <button onclick="loadTelemetry(currentViewedHostId, 1)" id="telFilter1" class="px-6 py-2 rounded-xl text-xs font-black uppercase bg-white text-indigo-600 shadow-sm transition-all tel-filter-btn">1 Day</button>
+                <button onclick="loadTelemetry(currentViewedHostId, 7)" id="telFilter7" class="px-6 py-2 rounded-xl text-xs font-black uppercase text-slate-500 hover:text-slate-800 transition-all tel-filter-btn">7 Days</button>
+                <button onclick="loadTelemetry(currentViewedHostId, 30)" id="telFilter30" class="px-6 py-2 rounded-xl text-xs font-black uppercase text-slate-500 hover:text-slate-800 transition-all tel-filter-btn">30 Days</button>
+            </div>
+
+            <div class="shrink-0">
+                <label class="text-[10px] font-black text-slate-400 uppercase tracking-widest block mb-4">Resource Usage Trends</label>
+                <div class="bg-slate-50 rounded-[2rem] p-6 border border-slate-100 h-[300px] flex items-center justify-center relative shadow-inner">
+                    <canvas id="telemetryChart"></canvas>
+                    <div id="telemetryLoading" class="absolute inset-0 flex items-center justify-center bg-white/80 font-bold text-slate-400 rounded-[2rem]">Loading metrics...</div>
+                </div>
+            </div>
+
+            <div class="shrink-0">
+                <label class="text-[10px] font-black text-slate-400 uppercase tracking-widest block mb-4">Disk C: Free Space (GB)</label>
+                <div class="bg-slate-50 rounded-[2rem] p-6 border border-slate-100 h-[300px] flex items-center justify-center relative shadow-inner">
+                    <canvas id="diskChart"></canvas>
+                    <div id="diskLoading" class="absolute inset-0 flex items-center justify-center bg-white/80 font-bold text-slate-400 rounded-[2rem]">Loading disk metrics...</div>
+                </div>
+            </div>
+
+            <div class="shrink-0">
+                <label class="text-[10px] font-black text-slate-400 uppercase tracking-widest block mb-4">Agent Activity Timeline</label>
+                <div class="bg-slate-50 rounded-[2rem] p-6 border border-slate-100 h-[220px] flex items-center justify-center relative shadow-inner">
+                    <canvas id="activityChart"></canvas>
+                    <div id="activityLoading" class="absolute inset-0 flex items-center justify-center bg-white/80 font-bold text-slate-400 rounded-[2rem]">Loading activity timeline...</div>
+                </div>
+                <p class="text-[11px] font-bold text-slate-500 mt-3">Online/offline periods are inferred from telemetry heartbeats and split by recorded Connection IP changes.</p>
+                <div id="activitySegmentsList" class="mt-4 bg-white border border-slate-200 rounded-2xl max-h-72 overflow-y-auto shadow-sm"></div>
+            </div>
+
+            <div class="shrink-0">
+                <label class="text-[10px] font-black text-slate-400 uppercase tracking-widest block mb-4">Connection IP History</label>
+                <div class="bg-white rounded-[2rem] border border-slate-200 shadow-sm overflow-hidden">
+                    <div id="ipHistoryList" class="divide-y divide-slate-100 text-xs">
+                        <div class="p-6 text-center text-slate-400 font-bold">Loading connection history...</div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- CREATE GROUP MODAL -->
+<div id="createGroupModal" class="fixed inset-0 z-[120] hidden flex items-center justify-center bg-slate-900/60 backdrop-blur-md p-4 animate-in fade-in">
+    <div class="bg-white w-full max-w-md rounded-[3rem] shadow-2xl p-10 space-y-6">
+        <h2 class="text-2xl font-black text-slate-800 uppercase tracking-tight text-center">New Group</h2>
+        <div class="space-y-4">
+            <input type="text" id="cgName" placeholder="Group Name (e.g. Accounting)" class="w-full p-4 bg-slate-50 border border-slate-200 rounded-2xl text-sm font-bold outline-none focus:bg-white focus:ring-4 focus:ring-indigo-500/10 transition-all">
+            <input type="text" id="cgDesc" placeholder="Description (Optional)" class="w-full p-4 bg-slate-50 border border-slate-200 rounded-2xl text-sm font-medium outline-none focus:bg-white focus:ring-4 focus:ring-indigo-500/10 transition-all">
+        </div>
+        <div class="flex gap-4 pt-2">
+            <button onclick="closeModal('createGroupModal')" class="flex-1 py-4 bg-slate-100 hover:bg-slate-200 text-slate-600 rounded-2xl text-xs font-black uppercase transition-all">Cancel</button>
+            <button onclick="submitCreateGroup()" class="flex-1 py-4 bg-slate-800 hover:bg-slate-900 text-white rounded-2xl text-xs font-black uppercase shadow-lg transition-all">Create</button>
+        </div>
+    </div>
+</div>
+
+<!-- ADD HOST TO GROUP MODAL -->
+<div id="groupAddHostModal" class="fixed inset-0 z-[120] hidden flex items-center justify-center bg-slate-900/60 backdrop-blur-md p-4 animate-in fade-in">
+    <div class="bg-white w-full max-w-2xl rounded-[3rem] shadow-2xl overflow-hidden flex flex-col max-h-[85vh]">
+        <div class="p-8 sm:p-10 border-b border-slate-100 flex justify-between items-center shrink-0">
+            <h2 class="text-2xl font-black text-slate-800 uppercase tracking-tight">Add Hosts</h2>
+            <button onclick="closeModal('groupAddHostModal')" class="p-3 bg-white border border-slate-200 hover:bg-slate-50 rounded-2xl text-slate-500 hover:text-slate-800 transition-colors shadow-sm"><svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path d="M6 18L18 6M6 6l12 12" stroke-width="2.5"/></svg></button>
+        </div>
+        <div class="p-6 sm:p-8 shrink-0 border-b border-slate-50 bg-slate-50/50">
+            <input type="text" id="addHostSearch" onkeyup="filterAddHostList()" placeholder="Search available hosts..." class="w-full px-6 py-4 bg-white border border-slate-200 rounded-2xl text-sm font-medium outline-none focus:ring-4 focus:ring-indigo-500/10 transition-all shadow-sm">
+        </div>
+        <div class="flex-1 overflow-y-auto p-4 sm:p-6 custom-scrollbar" id="availableHostsList"></div>
+        <div class="p-6 sm:p-8 border-t border-slate-100 flex justify-between items-center bg-slate-50/50 shrink-0">
+            <span class="text-xs font-black text-indigo-600 uppercase tracking-widest bg-indigo-50 px-4 py-2 rounded-xl border border-indigo-100">Selected: <span id="selCount" class="text-indigo-800 text-sm">0</span></span>
+            <button onclick="submitAddHostsToGroup()" class="px-10 py-4 bg-indigo-600 text-white font-black uppercase text-xs rounded-2xl shadow-lg hover:bg-indigo-700 transition-colors">Add Selected</button>
+        </div>
+    </div>
+</div>
+
+<!-- CONFIRM DELETE MODAL -->
+<div id="confirmModal" class="fixed inset-0 z-[130] hidden flex items-center justify-center bg-slate-900/60 backdrop-blur-md p-4 animate-in zoom-in-95">
+    <div class="bg-white p-10 rounded-[3rem] shadow-2xl max-w-sm w-full text-center border border-rose-100">
+        <div class="w-20 h-20 bg-rose-100 text-rose-500 rounded-full flex items-center justify-center mx-auto mb-6">
+            <svg class="w-10 h-10" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"></path></svg>
+        </div>
+        <h3 class="text-2xl font-black text-slate-900 mb-3 tracking-tight">Warning!</h3>
+        <p class="text-sm text-slate-500 mb-8 font-medium leading-relaxed">Are you sure you want to permanently delete <br><span id="confName" class="font-black text-slate-800 bg-slate-100 px-2 py-0.5 rounded"></span>?</p>
+        <div class="grid grid-cols-2 gap-4">
+            <button onclick="closeModal('confirmModal')" class="py-4 bg-slate-100 text-slate-600 rounded-2xl text-xs font-black uppercase hover:bg-slate-200 transition-colors">Cancel</button>
+            <button id="finalDelBtn" class="py-4 bg-rose-600 text-white rounded-2xl text-xs font-black uppercase shadow-lg shadow-rose-200 hover:bg-rose-700 transition-colors">Delete</button>
+        </div>
+    </div>
+</div>
+
+<!-- JOB MODAL -->
+<div id="jobModal" class="fixed inset-0 z-[100] hidden flex items-center justify-center bg-slate-900/60 backdrop-blur-md p-4 animate-in fade-in">
+    <div class="bg-white w-full max-w-5xl rounded-[3rem] shadow-2xl overflow-hidden flex flex-col max-h-[90vh]">
+        <div class="p-6 sm:p-8 border-b border-slate-100 bg-slate-50/50 shrink-0">
+            <div class="flex justify-between items-start gap-6">
+                <div>
+                <h2 id="jTitle" class="text-2xl font-black text-slate-800 uppercase tracking-tight">Job Details</h2>
+                <p id="jInfo" class="text-xs text-slate-400 font-bold mt-2 tracking-widest uppercase">...</p>
+                </div>
+                <div class="flex items-center gap-2 shrink-0">
+                    {% if permissions.run_tasks %}
+                    <button onclick="if(currentViewedJobId) finalizeJobReport(currentViewedJobId)" class="px-4 py-3 bg-emerald-50 border border-emerald-100 text-emerald-700 hover:bg-emerald-100 rounded-2xl text-[10px] font-black uppercase transition-colors shadow-sm">Finalize Report</button>
+                    {% endif %}
+                    <button onclick="closeModal('jobModal')" class="p-3 bg-white border border-slate-200 hover:bg-slate-50 rounded-2xl text-slate-500 hover:text-slate-800 transition-colors shadow-sm"><svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path d="M6 18L18 6M6 6l12 12" stroke-width="2.5"/></svg></button>
+                </div>
+            </div>
+            <div id="jobStatusFilters" class="mt-6 flex flex-wrap gap-2"></div>
+        </div>
+        <div class="flex-1 overflow-auto">
+            <table class="w-full text-left min-w-[560px]">
+                <thead class="sticky top-0 z-10 bg-white shadow-[0_1px_0_0_rgba(226,232,240,1)]">
+                    <tr class="text-[10px] font-black text-slate-400 uppercase tracking-widest">
+                        <th class="py-4 px-4">Hostname</th>
+                        <th class="py-4 px-4 text-center">Status</th>
+                        <th class="py-4 px-4 text-right">Action</th>
+                    </tr>
+                </thead>
+                <tbody id="jobHostsBody" class="divide-y divide-slate-50"></tbody>
+            </table>
+        </div>
+    </div>
+</div>
+
+<!-- TASK MODAL -->
+<div id="taskModal" class="fixed inset-0 z-[110] hidden flex items-center justify-center bg-slate-900/80 backdrop-blur-md p-4 animate-in fade-in">
+    <div class="bg-white w-full max-w-5xl rounded-[3rem] shadow-2xl overflow-hidden flex flex-col max-h-[95vh] h-full">
+        <div class="p-6 sm:p-8 border-b border-slate-100 flex justify-between items-center bg-slate-50/50 shrink-0">
+            <div>
+                <h2 id="tTitle" class="text-xl font-black text-slate-800 uppercase tracking-tight">Terminal Log</h2>
+                <p id="tId" class="text-[10px] text-slate-400 font-mono mt-1.5 uppercase tracking-widest">...</p>
+            </div>
+            <button onclick="closeModal('taskModal')" class="p-3 bg-white border border-slate-200 hover:bg-slate-50 rounded-2xl text-slate-500 hover:text-slate-800 transition-colors shadow-sm"><svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path d="M6 18L18 6M6 6l12 12" stroke-width="2.5"/></svg></button>
+        </div>
+        <div class="p-6 sm:p-8 flex flex-col flex-1 overflow-hidden gap-6">
+            <div class="grid grid-cols-1 sm:grid-cols-2 gap-4 shrink-0">
+                <div class="bg-slate-50 p-5 rounded-[2rem] border border-slate-100">
+                    <p class="text-[10px] text-slate-400 font-black uppercase tracking-widest mb-1.5">Node</p>
+                    <p id="tHost" class="font-bold text-slate-800 text-lg">...</p>
+                </div>
+                <div class="bg-slate-50 p-5 rounded-[2rem] border border-slate-100">
+                    <p class="text-[10px] text-slate-400 font-black uppercase tracking-widest mb-1.5">Status</p>
+                    <p id="tStatus" class="font-bold text-lg">...</p>
+                </div>
+            </div>
+            <div class="bg-slate-900 rounded-[2.5rem] p-6 sm:p-8 border border-slate-800 flex-1 overflow-hidden shadow-inner flex flex-col">
+                <pre id="tLog" class="text-emerald-400 font-mono text-xs whitespace-pre-wrap overflow-y-auto custom-scrollbar flex-1">Loading...</pre>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- ВІКНО ПЕРЕГЛЯДУ ТА РЕДАГУВАННЯ ЗВІТУ -->
+<div id="reportViewModal" class="report-view-modal fixed inset-0 z-[115] hidden flex items-center justify-center bg-slate-900/60 backdrop-blur-md p-4 animate-in fade-in" role="dialog" aria-modal="true" aria-labelledby="vrTitle">
+    <div id="reportViewShell" class="report-viewer-shell bg-white rounded-[2rem] shadow-2xl overflow-hidden flex flex-col">
+        <header class="report-viewer-header border-b border-slate-100 flex justify-between items-start bg-slate-50/50 shrink-0">
+            <div class="min-w-0">
+                <h2 id="vrTitle" class="text-2xl font-black text-slate-800 uppercase tracking-tight truncate">Report Details</h2>
+                <div class="flex flex-wrap items-center gap-3 mt-2">
+                    <span id="vrStatus" class="px-3 py-1 rounded-lg text-[10px] font-black uppercase tracking-widest border shadow-sm">...</span>
+                    <span id="vrAiStatus" class="hidden px-3 py-1 rounded-lg text-[10px] font-black uppercase tracking-widest border border-violet-200 bg-violet-50 text-violet-700">AI</span>
+                    <span id="vrVersionLabel" class="text-[10px] font-black uppercase tracking-widest text-slate-400">Current revision</span>
+                </div>
+            </div>
+            <div class="report-viewer-header-actions">
+                <button id="reportTrailToggle" type="button" onclick="toggleReportTrail()" class="report-viewer-control" aria-controls="reportTrailPanel" aria-expanded="true" title="Show or hide version history">
+                    <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 6h18M3 12h18M3 18h18"/></svg>
+                    <span class="report-control-label">History</span>
+                </button>
+                <button id="reportFullscreenToggle" type="button" onclick="toggleReportFullscreen()" class="report-viewer-control" aria-pressed="false" title="Open report fullscreen">
+                    <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 3H5a2 2 0 00-2 2v3m18 0V5a2 2 0 00-2-2h-3m0 18h3a2 2 0 002-2v-3M3 16v3a2 2 0 002 2h3"/></svg>
+                    <span class="report-control-label">Fullscreen</span>
+                </button>
+                {% if permissions.edit_reports and permissions.view_sensitive_reports %}
+                <button id="btnSaveReportText" onclick="saveReportChanges()" class="report-save-button px-5 py-3 bg-emerald-50 text-emerald-600 border border-emerald-200 hover:bg-emerald-100 rounded-2xl text-xs font-black uppercase transition-all shadow-sm">Save Changes</button>
+                {% endif %}
+                <button type="button" onclick="closeModal('reportViewModal')" class="report-close-button p-3 bg-white border border-slate-200 hover:bg-slate-50 rounded-2xl text-slate-500 hover:text-slate-800 transition-colors shadow-sm" aria-label="Close report"><svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path d="M6 18L18 6M6 6l12 12" stroke-width="2.5"/></svg></button>
+            </div>
+        </header>
+
+        <div id="reportViewerMain" class="report-viewer-main is-trail-open flex-1 min-h-0 bg-slate-900 shadow-inner">
+            <aside id="reportTrailPanel" class="report-trail-panel bg-slate-50 border-r border-slate-200" aria-label="Report version history">
+                <div class="report-trail-heading flex items-center justify-between gap-3">
+                    <span class="text-[10px] font-black uppercase tracking-widest text-slate-500">Version history</span>
+                    <button type="button" onclick="loadReportTrail()" class="text-[10px] font-black text-indigo-600 hover:text-indigo-800">Refresh</button>
+                </div>
+                <div class="report-trail-scroll custom-scrollbar">
+                    <button id="vrCurrentBtn" type="button" onclick="showCurrentReportVersion()" class="report-snapshot-card is-selected w-full text-left p-3 rounded-xl border border-indigo-200 bg-indigo-50 text-indigo-700 mb-3" data-report-snapshot="current" aria-pressed="true">
+                        <span class="block text-xs font-black">Working copy</span>
+                        <span class="block mt-1 text-[10px] font-semibold opacity-70">Editable current report</span>
+                    </button>
+                    <div id="vrVersionList" class="space-y-2"><div class="p-4 text-xs text-slate-400">Loading revisions…</div></div>
+                </div>
+                <div class="report-trail-footer">
+                    <label class="flex items-start gap-2 text-[11px] font-bold text-slate-600"><input id="vrCompareToggle" class="mt-0.5" type="checkbox" onchange="renderSelectedReportVersion()"> Compare selected snapshot with current</label>
+                    <p class="text-[10px] text-slate-400 mt-3 leading-relaxed">The original, every saved edit and the exact content sent by email or Confluence remain available until retention cleanup.</p>
+                </div>
+            </aside>
+
+            <section class="report-editor-pane min-w-0 min-h-0" aria-label="Report content">
+                <div class="report-editor-toolbar">
+                    <div class="min-w-0">
+                        <span class="text-[10px] font-black uppercase tracking-widest text-slate-400">Report body</span>
+                        <span id="vrEditorMode" class="ml-2 text-[10px] font-semibold text-cyan-400">Working copy</span>
+                    </div>
+                    <div class="report-reading-controls" aria-label="Reading controls">
+                        <button id="reportPreviewToggle" type="button" onclick="toggleReportPreview()" class="report-dark-control" aria-pressed="false" title="Toggle safe formatted preview">Preview</button>
+                        <button id="reportWrapToggle" type="button" onclick="toggleReportWrap()" class="report-dark-control" aria-pressed="true" title="Toggle line wrapping">Wrap</button>
+                        <button type="button" onclick="changeReportFontSize(-1)" class="report-dark-control report-font-control" aria-label="Decrease text size">A−</button>
+                        <span id="reportFontSizeLabel" class="report-font-size-label" aria-live="polite">14px</span>
+                        <button type="button" onclick="changeReportFontSize(1)" class="report-dark-control report-font-control" aria-label="Increase text size">A+</button>
+                        <button id="reportCopyButton" type="button" onclick="copyVisibleReportBody()" class="report-dark-control" title="Copy visible report body">Copy</button>
+                    </div>
+                </div>
+                <div class="report-body-frame">
+                    <textarea id="vrBody" spellcheck="false" wrap="soft" class="custom-scrollbar" {% if not permissions.edit_reports or not permissions.view_sensitive_reports %}readonly{% endif %}>Loading...</textarea>
+                    <div id="vrPreview" class="hidden custom-scrollbar" role="document" aria-label="Safe formatted report preview"></div>
+                </div>
+                <div class="report-editor-statusbar">
+                    <span id="vrBodyStats" aria-live="polite">0 lines · 0 characters</span>
+                    <span class="report-editor-hint">Ctrl/Cmd + A selects the whole report</span>
+                </div>
+            </section>
+        </div>
+
+        <footer class="report-viewer-footer border-t border-slate-100 bg-white flex flex-wrap justify-between items-center gap-4 shrink-0">
+            {% if is_admin %}
+            <button onclick="deleteCurrentReport()" class="px-5 py-3 bg-white border border-rose-200 text-rose-500 hover:bg-rose-50 rounded-2xl text-xs font-black uppercase transition-all shadow-sm">Delete Report</button>
+            {% else %}
+            <div></div>
+            {% endif %}
+
+            <div class="report-viewer-actions flex flex-wrap gap-3">
+                {% if permissions.use_ai_reports and permissions.edit_reports %}
+                <button onclick="regenerateCurrentReportWithAi()" class="px-6 py-3.5 bg-violet-50 border border-violet-200 text-violet-700 hover:bg-violet-100 rounded-2xl text-xs font-black uppercase transition-all shadow-sm">Process with AI</button>
+                {% endif %}
+                {% if permissions.dismiss_reports %}
+                <button onclick="dismissCurrentReport()" class="px-5 py-3 bg-white border border-slate-200 text-slate-600 hover:bg-slate-100 rounded-2xl text-xs font-black uppercase transition-all shadow-sm">Dismiss</button>
+                {% endif %}
+                {% if permissions.send_reports %}
+                <button onclick="openReportConfluenceModal(currentReportId)" class="px-6 py-3 bg-sky-600 hover:bg-sky-700 text-white rounded-2xl text-xs font-black uppercase transition-all shadow-lg flex items-center gap-3">
+                    <svg class="w-5 h-5 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M4 7h16M4 12h10M4 17h16"/></svg>
+                    <span>Publish to Confluence</span>
+                </button>
+                <button onclick="openReportEmailModal(currentReportId)" class="px-7 py-3 bg-indigo-600 hover:bg-indigo-700 text-white rounded-2xl text-xs font-black uppercase transition-all shadow-lg flex items-center gap-3">
+                    <svg class="w-5 h-5 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z"/></svg>
+                    <span>Send to Email</span>
+                </button>
+                {% endif %}
+            </div>
+        </footer>
+    </div>
+</div>
+
+<!-- ВІКНО ВІДПРАВКИ EMAIL (ДОСТУПНО ВСІМ, АЛЕ КЕРУВАННЯ ТІЛЬКИ ДЛЯ АДМІНІВ) -->
+<div id="reportEmailModal" class="fixed inset-0 z-[120] hidden flex items-center justify-center bg-slate-900/60 backdrop-blur-md p-4 animate-in fade-in">
+    <div class="bg-white w-full max-w-xl rounded-[3rem] shadow-2xl p-8 sm:p-10 flex flex-col max-h-[90vh]">
+        <div class="flex justify-between items-center mb-6 shrink-0">
+            <h2 class="text-2xl font-black text-slate-800 uppercase tracking-tight">Send Secure Report</h2>
+            <button onclick="closeModal('reportEmailModal')" class="text-slate-400 hover:text-slate-700 bg-slate-50 p-2 rounded-xl"><svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path></svg></button>
+        </div>
+
+        <div class="overflow-y-auto custom-scrollbar flex-1 pr-2 space-y-5">
+            <div>
+                <label class="text-[10px] font-black text-slate-400 uppercase tracking-widest block mb-2 ml-2">Sender Profile (From)</label>
+                <div class="flex gap-2">
+                    <select id="reportSenderEmail" class="flex-1 p-4 bg-slate-50 border border-slate-200 rounded-2xl text-sm font-bold outline-none focus:ring-2 focus:ring-indigo-500">
+                        <!-- Заповнюється через JS -->
+                    </select>
+                    {% if permissions.manage_smtp %}
+                    <button type="button" onclick="openSmtpManager()" class="p-4 bg-slate-100 hover:bg-slate-200 text-slate-600 rounded-2xl transition-colors shadow-sm" title="Manage SMTP Accounts">
+                        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z"></path><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"></path></svg>
+                    </button>
+                    {% endif %}
+                </div>
+            </div>
+
+            <div>
+                <label class="text-[10px] font-black text-slate-400 uppercase tracking-widest block mb-2 ml-2">Email Subject</label>
+                <input type="text" id="reportEmailSubject" placeholder="e.g. Weekly Server Check" class="w-full p-4 bg-slate-50 border border-slate-200 rounded-2xl text-sm font-bold outline-none focus:bg-white focus:ring-4 focus:ring-indigo-500/10 transition-all">
+            </div>
+
+            <div>
+                <label class="text-[10px] font-black text-slate-400 uppercase tracking-widest block mb-2 ml-2">Recipients (To)</label>
+                <input type="text" id="reportEmailInput" placeholder="manager@company.com, admin@company.com" class="w-full p-4 bg-slate-50 border border-slate-200 rounded-2xl text-sm font-bold outline-none focus:bg-white focus:ring-4 focus:ring-indigo-500/10 transition-all">
+                <p class="text-[10px] text-slate-400 mt-2 ml-2 font-medium">Use commas for multiple addresses.</p>
+            </div>
+
+            <!-- ПОЛЕ ДЛЯ ПРИМІТКИ -->
+            <div>
+                <label class="text-[10px] font-black text-indigo-500 uppercase tracking-widest block mb-2 ml-2">Custom Note (Optional)</label>
+                <textarea id="reportCustomMessage" placeholder="Add a personal message, greeting, or instructions that will appear at the top of the email..." class="w-full h-24 p-4 bg-indigo-50/50 border border-indigo-100 rounded-2xl text-sm font-medium outline-none focus:bg-white focus:ring-2 focus:ring-indigo-500 transition-all resize-none custom-scrollbar"></textarea>
+            </div>
+
+            <label class="flex items-center gap-3 cursor-pointer bg-emerald-50 p-4 rounded-2xl border border-emerald-100">
+                <input type="checkbox" id="reportUseGpg" checked class="w-5 h-5 text-emerald-600 rounded border-slate-300 focus:ring-emerald-500">
+                <div>
+                    <span class="text-sm font-bold text-emerald-800 block">Encrypt Email (PGP/GPG)</span>
+                    <span class="text-[10px] font-bold text-emerald-600">Ensure keys exist for recipients.</span>
+                </div>
+            </label>
+        </div>
+
+        <div class="pt-6 shrink-0 border-t border-slate-100 mt-2">
+            <button id="btnSendReport" onclick="sendReportEmail()" class="w-full py-4 bg-indigo-600 hover:bg-indigo-700 text-white rounded-2xl text-sm font-black uppercase shadow-lg transition-all flex justify-center items-center gap-2">
+                <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z"/></svg>
+                Send Securely
+            </button>
+        </div>
+    </div>
+</div>
+
+<!-- PUBLISH REPORT TO CONFLUENCE -->
+<div id="reportConfluenceModal" class="fixed inset-0 z-[120] hidden flex items-center justify-center bg-slate-900/60 backdrop-blur-md p-4 animate-in fade-in">
+    <div class="bg-white w-full max-w-xl rounded-[3rem] shadow-2xl p-8 sm:p-10 flex flex-col max-h-[90vh]">
+        <div class="flex justify-between items-center mb-6 shrink-0">
+            <h2 class="text-2xl font-black text-slate-800 uppercase tracking-tight">Publish to Confluence</h2>
+            <button onclick="closeModal('reportConfluenceModal')" class="text-slate-400 hover:text-slate-700 bg-slate-50 p-2 rounded-xl"><svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path></svg></button>
+        </div>
+        <div class="overflow-y-auto custom-scrollbar flex-1 pr-2 space-y-5">
+            <div>
+                <label class="text-[10px] font-black text-slate-400 uppercase tracking-widest block mb-2 ml-2">Confluence Profile</label>
+                <div class="flex gap-2">
+                    <select id="reportConfluenceProfile" onchange="updateConfluencePublishDefaults(true)" class="flex-1 p-4 bg-slate-50 border border-slate-200 rounded-2xl text-sm font-bold outline-none focus:ring-2 focus:ring-sky-500"></select>
+                    {% if permissions.manage_smtp %}
+                    <button type="button" onclick="openConfluenceManager()" class="p-4 bg-sky-100 hover:bg-sky-200 text-sky-700 rounded-2xl transition-colors shadow-sm" title="Manage Confluence Profiles">
+                        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z"></path><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"></path></svg>
+                    </button>
+                    {% endif %}
+                </div>
+            </div>
+            <div>
+                <label class="text-[10px] font-black text-slate-400 uppercase tracking-widest block mb-2 ml-2">Page ID</label>
+                <input type="text" id="reportConfluencePageId" placeholder="Confluence page ID" class="w-full p-4 bg-slate-50 border border-slate-200 rounded-2xl text-sm font-bold outline-none focus:bg-white focus:ring-4 focus:ring-sky-500/10 transition-all">
+            </div>
+            <div>
+                <label class="text-[10px] font-black text-slate-400 uppercase tracking-widest block mb-2 ml-2">Page Title</label>
+                <input type="text" id="reportConfluenceTitle" placeholder="Page title" class="w-full p-4 bg-slate-50 border border-slate-200 rounded-2xl text-sm font-bold outline-none focus:bg-white focus:ring-4 focus:ring-sky-500/10 transition-all">
+            </div>
+            <div>
+                <label class="text-[10px] font-black text-slate-400 uppercase tracking-widest block mb-2 ml-2">Body Format</label>
+                <select id="reportConfluenceBodyFormat" class="w-full p-4 bg-slate-50 border border-slate-200 rounded-2xl text-sm font-bold outline-none focus:ring-2 focus:ring-sky-500">
+                    <option value="safe_html">Safe formatted report (recommended)</option>
+                    <option value="escaped_pre">Safe text report in &lt;pre&gt;</option>
+                    <option value="storage_html">Raw Confluence storage HTML</option>
+                </select>
+                <p class="text-[10px] text-slate-400 mt-2 ml-2 font-medium">Safe formatted mode keeps headings, tables and lists while removing scripts and attributes. Raw HTML is for trusted templates only.</p>
+            </div>
+            <div>
+                <label class="text-[10px] font-black text-sky-500 uppercase tracking-widest block mb-2 ml-2">Publish Note (Optional)</label>
+                <textarea id="reportConfluenceNote" placeholder="Short note shown above the report..." class="w-full h-20 p-4 bg-sky-50/50 border border-sky-100 rounded-2xl text-sm font-medium outline-none focus:bg-white focus:ring-2 focus:ring-sky-500 transition-all resize-none custom-scrollbar"></textarea>
+            </div>
+        </div>
+        <div class="pt-6 shrink-0 border-t border-slate-100 mt-2">
+            <button id="btnPublishConfluence" onclick="publishReportToConfluence()" class="w-full py-4 bg-sky-600 hover:bg-sky-700 text-white rounded-2xl text-sm font-black uppercase shadow-lg transition-all flex justify-center items-center gap-2">
+                Publish Page
+            </button>
+        </div>
+    </div>
+</div>
+
+<!-- MULTI HOST SELECTION MODAL -->
+<div id="selectMultipleHostsModal" class="fixed inset-0 z-[120] hidden flex items-center justify-center bg-slate-900/60 backdrop-blur-md p-4 animate-in fade-in">
+    <div class="bg-white w-full max-w-7xl rounded-[3rem] shadow-2xl overflow-hidden flex flex-col max-h-[90vh]">
+        <div class="p-6 sm:p-8 border-b border-slate-100 flex justify-between items-center shrink-0 bg-slate-50/50">
+            <div>
+                <h2 class="text-2xl font-black text-slate-800 uppercase tracking-tight">Select Endpoints</h2>
+                <p class="text-[10px] text-slate-400 font-bold mt-2 uppercase tracking-widest">Choose allowed hosts manually or paste hostnames/IPs in bulk</p>
+            </div>
+            <button onclick="closeModal('selectMultipleHostsModal')" class="p-3 bg-white border border-slate-200 hover:bg-slate-50 rounded-2xl text-slate-500 hover:text-slate-800 transition-colors shadow-sm">
+                <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path d="M6 18L18 6M6 6l12 12" stroke-width="2.5"/></svg>
+            </button>
+        </div>
+        <div class="grid grid-cols-1 xl:grid-cols-[1.25fr_0.9fr_1fr] gap-0 min-h-0 flex-1 bg-slate-50/40">
+            <section class="flex flex-col min-h-0 bg-white border-r border-slate-100">
+                <div class="p-5 shrink-0 border-b border-slate-100">
+                    <div class="mb-4">
+                        <h3 class="text-sm font-black text-slate-800 uppercase tracking-tight">Endpoint List</h3>
+                        <p class="text-[10px] font-bold text-slate-400 uppercase tracking-widest mt-1">Search and select allowed endpoints</p>
+                    </div>
+                    <div class="flex flex-col sm:flex-row gap-3">
+                        <input type="text" id="multiHostSearch" oninput="filterMultiHostList()" placeholder="Search endpoints..." class="flex-1 px-5 py-3 bg-slate-50 border border-slate-200 rounded-2xl text-sm font-bold outline-none focus:bg-white focus:ring-4 focus:ring-indigo-500/10 transition-all shadow-inner">
+                        <button onclick="toggleAllMultiHosts()" class="px-5 py-3 bg-slate-800 hover:bg-slate-900 text-white rounded-2xl text-xs font-black uppercase transition-all shadow-sm">Toggle Visible</button>
+                    </div>
+                </div>
+                <div id="multiHostListContainer" class="flex-1 overflow-y-auto custom-scrollbar p-4"></div>
+            </section>
+            <section class="flex flex-col min-h-0 bg-white border-r border-slate-100">
+                <div class="p-5 border-b border-slate-100 space-y-3">
+                    <div>
+                        <h3 class="text-sm font-black text-slate-800 uppercase tracking-tight">Bulk Add</h3>
+                        <p class="text-[10px] font-bold text-slate-400 uppercase tracking-widest mt-1">Paste IPs or hostnames, comma/newline separated</p>
+                    </div>
+                    <textarea id="multiHostBulkInput" rows="10" placeholder="192.168.10.79&#10;TERMINAL-01&#10;server02, 192.168.10.80" class="w-full min-h-[260px] p-4 bg-slate-50 border border-slate-200 rounded-2xl text-xs font-mono outline-none focus:bg-white focus:ring-4 focus:ring-indigo-500/10 resize-none"></textarea>
+                    <button onclick="addBulkMultiHosts()" class="w-full px-5 py-3 bg-indigo-600 hover:bg-indigo-700 text-white rounded-2xl text-xs font-black uppercase transition-all shadow-lg shadow-indigo-100">Add Matching Endpoints</button>
+                    <p id="multiHostBulkStatus" class="text-[11px] font-bold text-slate-500 min-h-[1rem]"></p>
+                </div>
+                <div class="flex-1 hidden xl:flex items-center justify-center p-6 text-center text-xs font-bold text-slate-400 leading-relaxed">
+                    Bulk values are matched against endpoint ID, hostname, connection IP and reported interface IPs.
+                </div>
+            </section>
+            <section class="flex flex-col min-h-0 bg-slate-50/70">
+                <div class="p-5 border-b border-slate-200 flex items-center justify-between gap-3 bg-white/80">
+                    <div>
+                        <h3 class="text-sm font-black text-slate-800 uppercase tracking-tight">Selected</h3>
+                        <p class="text-[10px] font-bold text-indigo-600 uppercase tracking-widest"><span id="multiHostSelCount" class="text-indigo-800">0</span> endpoints</p>
+                    </div>
+                    <button onclick="clearMultiHostSelection()" class="px-4 py-2 bg-white border border-slate-200 text-slate-500 hover:text-rose-600 hover:border-rose-200 rounded-xl text-[10px] font-black uppercase shadow-sm">Clear</button>
+                </div>
+                <div id="multiHostSelectedContainer" class="flex-1 overflow-y-auto custom-scrollbar p-4 space-y-2"></div>
+            </section>
+        </div>
+        <div class="p-6 sm:p-8 border-t border-slate-100 flex flex-col sm:flex-row justify-end items-center gap-4 bg-slate-50/50 shrink-0">
+            <div class="flex gap-3 w-full sm:w-auto">
+                <button onclick="closeModal('selectMultipleHostsModal')" class="flex-1 sm:flex-none px-8 py-4 bg-white border border-slate-200 text-slate-600 rounded-2xl text-xs font-black uppercase hover:bg-slate-50 transition-all shadow-sm">Cancel</button>
+                <button onclick="confirmMultiHostSelection()" class="flex-1 sm:flex-none px-8 py-4 bg-indigo-600 text-white rounded-2xl text-xs font-black uppercase hover:bg-indigo-700 transition-all shadow-lg">Use Selected</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+{% if permissions.manage_smtp or permissions.manage_scheduler or permissions.manage_triggers or permissions.manage_templates or permissions.manage_ai %}
+<!-- ВІКНО МЕНЕДЖМЕНТУ SMTP ПРОФІЛІВ -->
+<div id="smtpManagerModal" class="fixed inset-0 z-[130] hidden flex items-center justify-center bg-slate-900/60 backdrop-blur-md p-4 animate-in fade-in">
+    <div class="bg-white w-full max-w-2xl rounded-[3rem] shadow-2xl p-8 sm:p-10 border border-slate-200 flex flex-col max-h-[90vh]">
+        <div class="flex justify-between items-center mb-6 shrink-0">
+            <h2 class="text-2xl font-black text-slate-800 uppercase tracking-tight">SMTP Profiles</h2>
+            <button onclick="closeModal('smtpManagerModal')" class="text-slate-400 hover:text-slate-700 bg-slate-50 hover:bg-slate-100 p-2 rounded-xl transition-colors"><svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path></svg></button>
+        </div>
+
+        <div class="bg-slate-50 p-6 rounded-[2rem] border border-slate-200 mb-6 shrink-0 grid grid-cols-2 gap-4">
+            <div class="col-span-2 sm:col-span-1">
+                <input type="text" id="smtpEmail" placeholder="Email (e.g. alert@domain.com)" class="w-full p-3 bg-white border border-slate-200 rounded-xl text-sm font-bold outline-none focus:ring-2 focus:ring-indigo-500 shadow-sm">
+            </div>
+            <div class="col-span-2 sm:col-span-1">
+                <input type="text" id="smtpHost" placeholder="SMTP Host (e.g. smtp.gmail.com)" class="w-full p-3 bg-white border border-slate-200 rounded-xl text-sm font-bold outline-none focus:ring-2 focus:ring-indigo-500 shadow-sm">
+            </div>
+	            <div class="col-span-2 sm:col-span-1">
+	                <input type="password" id="smtpPass" placeholder="App Password" class="w-full p-3 bg-white border border-slate-200 rounded-xl text-sm font-bold outline-none focus:ring-2 focus:ring-indigo-500 shadow-sm">
+	            </div>
+	            <div class="col-span-2 sm:col-span-1">
+	                <input type="text" id="smtpKeyserver" placeholder="GPG Keyserver URL (optional)" class="w-full p-3 bg-white border border-slate-200 rounded-xl text-sm font-bold outline-none focus:ring-2 focus:ring-indigo-500 shadow-sm">
+	            </div>
+	            <div class="col-span-2 flex gap-2">
+	                <input type="number" id="smtpPort" value="587" placeholder="Port" class="w-24 p-3 bg-white border border-slate-200 rounded-xl text-sm font-bold outline-none focus:ring-2 focus:ring-indigo-500 shadow-sm text-center">
+	                <button onclick="saveSmtpProfile()" class="flex-1 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-xs font-black uppercase shadow-sm transition-all">Add Profile</button>
+	            </div>
+        </div>
+
+        <div class="overflow-y-auto custom-scrollbar flex-1 pr-2 space-y-3" id="smtpListContainer">
+            <!-- Заповнюється через JS -->
+        </div>
+    </div>
+</div>
+
+{% if permissions.manage_ai %}
+<!-- OPEN WEBUI PROVIDER -->
+<div id="aiProviderModal" class="wh-theme-scope fixed inset-0 z-[130] hidden flex items-center justify-center bg-slate-900/60 backdrop-blur-md p-4 animate-in fade-in">
+    <div class="ai-provider-dialog wh-ui-modal w-full max-w-2xl rounded-[3rem] shadow-2xl p-8 sm:p-10 border">
+        <div class="flex justify-between items-start mb-6">
+            <div>
+                <h2 class="ai-provider-heading text-2xl font-black uppercase tracking-tight">AI / Open WebUI</h2>
+                <p class="ai-provider-copy text-[10px] font-bold uppercase tracking-widest mt-1">The API key is encrypted and never returned to the browser</p>
+            </div>
+            <button onclick="closeModal('aiProviderModal')" class="ai-provider-close p-2 rounded-xl"><svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path d="M6 18L18 6M6 6l12 12" stroke-width="2.5"/></svg></button>
+        </div>
+        <div class="ai-provider-form wh-ui-surface space-y-4 border rounded-[2rem] p-6">
+            <label class="ai-provider-label flex items-center gap-3 text-sm font-black"><input id="aiProviderEnabled" type="checkbox" class="w-5 h-5 rounded text-violet-600"> Enable AI reports</label>
+            <div><label class="ai-provider-label text-[10px] font-black uppercase tracking-widest block mb-2">Open WebUI URL</label><input id="aiProviderBaseUrl" type="url" placeholder="https://ai.internal.example" class="ai-provider-control wh-ui-control w-full p-3 border rounded-xl text-sm font-bold outline-none focus:ring-2 focus:ring-violet-500"></div>
+            <div><label class="ai-provider-label text-[10px] font-black uppercase tracking-widest block mb-2">Model ID</label><input id="aiProviderModel" type="text" list="aiProviderModels" placeholder="Test connection, then select a model" class="ai-provider-control wh-ui-control w-full p-3 border rounded-xl text-sm font-bold outline-none focus:ring-2 focus:ring-violet-500"><datalist id="aiProviderModels"></datalist></div>
+            <div><label class="ai-provider-label text-[10px] font-black uppercase tracking-widest block mb-2">Service account API key</label><input id="aiProviderApiKey" type="password" autocomplete="new-password" class="ai-provider-control wh-ui-control w-full p-3 border rounded-xl text-sm font-bold outline-none focus:ring-2 focus:ring-violet-500"></div>
+            <p class="ai-provider-copy text-xs font-bold">For your current HTTP address, WinHUB also requires <code class="font-mono">AI_ALLOW_INSECURE_HTTP=true</code> and the host in <code class="font-mono">OUTBOUND_ALLOWED_HOSTS</code>.</p>
+        </div>
+        <div class="mt-5 flex flex-wrap items-center justify-between gap-3">
+            <span id="aiProviderStatus" class="ai-provider-status text-xs font-black">Not tested</span>
+            <div class="flex gap-3"><button onclick="testAiProviderSettings()" class="ai-provider-button-secondary wh-ui-button-secondary px-5 py-3 border rounded-xl text-xs font-black uppercase">Test saved config</button><button onclick="saveAiProviderSettings()" class="ai-provider-button-primary wh-ui-button-accent px-6 py-3 rounded-xl text-xs font-black uppercase shadow-lg">Save</button></div>
+        </div>
+    </div>
+</div>
+{% endif %}
+
+<!-- CONFLUENCE PROFILE MANAGER -->
+<div id="confluenceManagerModal" class="fixed inset-0 z-[130] hidden flex items-center justify-center bg-slate-900/60 backdrop-blur-md p-4 animate-in fade-in">
+    <div class="bg-white w-full max-w-3xl rounded-[3rem] shadow-2xl p-8 sm:p-10 border border-slate-200 flex flex-col max-h-[90vh]">
+        <div class="flex justify-between items-center mb-6 shrink-0">
+            <div>
+                <h2 class="text-2xl font-black text-slate-800 uppercase tracking-tight">Confluence Profiles</h2>
+                <p class="text-[10px] font-bold text-slate-400 uppercase tracking-widest mt-1">Tokens stay encrypted on the WinHUB server</p>
+            </div>
+            <button onclick="closeModal('confluenceManagerModal')" class="text-slate-400 hover:text-slate-700 bg-slate-50 hover:bg-slate-100 p-2 rounded-xl transition-colors"><svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path></svg></button>
+        </div>
+
+        <div class="bg-slate-50 p-6 rounded-[2rem] border border-slate-200 mb-6 shrink-0 grid grid-cols-2 gap-4">
+            <div class="col-span-2 sm:col-span-1">
+                <input type="text" id="confluenceName" placeholder="Profile Name (e.g. Wiki Main)" class="w-full p-3 bg-white border border-slate-200 rounded-xl text-sm font-bold outline-none focus:ring-2 focus:ring-sky-500 shadow-sm">
+            </div>
+            <div class="col-span-2 sm:col-span-1">
+                <input type="text" id="confluenceBaseUrl" placeholder="https://wiki.example.com" class="w-full p-3 bg-white border border-slate-200 rounded-xl text-sm font-bold outline-none focus:ring-2 focus:ring-sky-500 shadow-sm">
+            </div>
+            <div class="col-span-2 sm:col-span-1">
+                <select id="confluenceAuthType" class="w-full p-3 bg-white border border-slate-200 rounded-xl text-sm font-bold outline-none focus:ring-2 focus:ring-sky-500 shadow-sm">
+                    <option value="bearer">Bearer token</option>
+                    <option value="basic">Basic email + API token</option>
+                </select>
+            </div>
+            <div class="col-span-2 sm:col-span-1">
+                <input type="text" id="confluenceUsername" placeholder="Email/username for Basic auth" class="w-full p-3 bg-white border border-slate-200 rounded-xl text-sm font-bold outline-none focus:ring-2 focus:ring-sky-500 shadow-sm">
+            </div>
+            <div class="col-span-2 sm:col-span-1">
+                <input type="password" id="confluenceToken" placeholder="Token / API token" class="w-full p-3 bg-white border border-slate-200 rounded-xl text-sm font-bold outline-none focus:ring-2 focus:ring-sky-500 shadow-sm">
+            </div>
+            <div class="col-span-2 sm:col-span-1">
+                <input type="text" id="confluenceDefaultPageId" placeholder="Default Page ID" class="w-full p-3 bg-white border border-slate-200 rounded-xl text-sm font-bold outline-none focus:ring-2 focus:ring-sky-500 shadow-sm">
+            </div>
+            <div class="col-span-2">
+                <button onclick="saveConfluenceProfile()" class="w-full bg-sky-600 hover:bg-sky-700 text-white rounded-xl text-xs font-black uppercase shadow-sm transition-all py-3">Save Profile</button>
+            </div>
+        </div>
+
+        <div class="overflow-y-auto custom-scrollbar flex-1 pr-2 space-y-3" id="confluenceListContainer"></div>
+    </div>
+</div>
+
+<!-- REGULAR REPORTS MODAL -->
+<div id="scheduledReportsModal" class="fixed inset-0 z-[130] hidden flex items-center justify-center bg-slate-900/60 backdrop-blur-md p-4 animate-in fade-in">
+    <div class="bg-white w-full max-w-6xl rounded-[3rem] shadow-2xl border border-slate-200 flex flex-col max-h-[92vh] overflow-hidden">
+        <div class="p-7 border-b border-slate-100 bg-gradient-to-r from-blue-700 via-blue-600 to-indigo-600 text-white flex items-start justify-between gap-6 shrink-0">
+            <div>
+                <h2 class="text-2xl font-black uppercase tracking-tight">Regular Reports</h2>
+                <p class="text-xs font-bold text-blue-100 mt-2 uppercase tracking-widest">Daily, weekly, and manual log delivery</p>
+            </div>
+            <button onclick="closeModal('scheduledReportsModal')" class="p-3 bg-white/10 hover:bg-white/20 rounded-2xl text-white transition-colors"><svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path d="M6 18L18 6M6 6l12 12" stroke-width="2.5" stroke-linecap="round"/></svg></button>
+        </div>
+
+        <div class="grid grid-cols-1 lg:grid-cols-[0.9fr_1.2fr] min-h-0 flex-1">
+            <div class="border-r border-slate-100 bg-slate-50/70 p-5 overflow-y-auto custom-scrollbar">
+                <div id="scheduledReportsList" class="space-y-3"></div>
+            </div>
+            <div class="p-6 overflow-y-auto custom-scrollbar">
+                <input type="hidden" id="scheduledReportId">
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div class="md:col-span-2">
+                        <label class="text-[10px] font-black text-slate-700 uppercase tracking-widest block mb-2">Report Name</label>
+                        <input id="scheduledReportName" type="text" placeholder="Daily Endpoint Summary" class="w-full p-4 bg-slate-50 border border-slate-200 rounded-2xl text-sm font-bold outline-none focus:bg-white focus:ring-4 focus:ring-blue-500/10">
+                    </div>
+                    <div>
+                        <label class="text-[10px] font-black text-slate-700 uppercase tracking-widest block mb-2">SMTP Sender</label>
+                        <select id="scheduledReportSender" class="w-full p-4 bg-white border border-slate-200 rounded-2xl text-sm font-bold outline-none focus:ring-2 focus:ring-blue-500"></select>
+                    </div>
+                    <div>
+                        <label class="text-[10px] font-black text-slate-700 uppercase tracking-widest block mb-2">Recipients</label>
+                        <input id="scheduledReportRecipients" type="text" placeholder="ops@example.com, audit@example.com" class="w-full p-4 bg-slate-50 border border-slate-200 rounded-2xl text-sm font-bold outline-none focus:bg-white focus:ring-4 focus:ring-blue-500/10">
+                    </div>
+                    <div>
+                        <label class="text-[10px] font-black text-slate-700 uppercase tracking-widest block mb-2">Frequency</label>
+                        <select id="scheduledReportFrequency" onchange="toggleScheduledReportWeekday()" class="w-full p-4 bg-white border border-slate-200 rounded-2xl text-sm font-bold outline-none focus:ring-2 focus:ring-blue-500">
+                            <option value="daily">Daily</option>
+                            <option value="weekly">Weekly</option>
+                        </select>
+                    </div>
+                    <div>
+                        <label class="text-[10px] font-black text-slate-700 uppercase tracking-widest block mb-2">Report Period</label>
+                        <select id="scheduledReportPeriod" class="w-full p-4 bg-white border border-slate-200 rounded-2xl text-sm font-bold outline-none focus:ring-2 focus:ring-blue-500">
+                            <option value="day">Last 24 hours</option>
+                            <option value="week">Last 7 days</option>
+                        </select>
+                    </div>
+                    <div>
+                        <label class="text-[10px] font-black text-slate-700 uppercase tracking-widest block mb-2">Send Hour (Kyiv)</label>
+                        <input id="scheduledReportHour" type="number" min="0" max="23" value="8" class="w-full p-4 bg-slate-50 border border-slate-200 rounded-2xl text-sm font-bold outline-none focus:bg-white focus:ring-4 focus:ring-blue-500/10">
+                    </div>
+                    <div id="scheduledReportWeekdayWrap" class="hidden">
+                        <label class="text-[10px] font-black text-slate-700 uppercase tracking-widest block mb-2">Weekday</label>
+                        <select id="scheduledReportWeekday" class="w-full p-4 bg-white border border-slate-200 rounded-2xl text-sm font-bold outline-none focus:ring-2 focus:ring-blue-500">
+                            <option value="0">Monday</option>
+                            <option value="1">Tuesday</option>
+                            <option value="2">Wednesday</option>
+                            <option value="3">Thursday</option>
+                            <option value="4">Friday</option>
+                            <option value="5">Saturday</option>
+                            <option value="6">Sunday</option>
+                        </select>
+                    </div>
+                    <div class="md:col-span-2 bg-slate-50 border border-slate-200 rounded-3xl p-5">
+                        <label class="text-[10px] font-black text-slate-700 uppercase tracking-widest block mb-4">Included Sections</label>
+                        <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+                            <label class="flex items-center gap-3 p-3 bg-white rounded-2xl border border-slate-200 text-sm font-bold text-slate-700"><input type="checkbox" class="scheduled-report-type w-4 h-4 text-blue-600" value="summary" checked> Endpoint Summary</label>
+                            <label class="flex items-center gap-3 p-3 bg-white rounded-2xl border border-slate-200 text-sm font-bold text-slate-700"><input type="checkbox" class="scheduled-report-type w-4 h-4 text-blue-600" value="tasks" checked> Execution Tasks</label>
+                            <label class="flex items-center gap-3 p-3 bg-white rounded-2xl border border-slate-200 text-sm font-bold text-slate-700"><input type="checkbox" class="scheduled-report-type w-4 h-4 text-blue-600" value="agent_updates"> Agent Updates</label>
+                            <label class="flex items-center gap-3 p-3 bg-white rounded-2xl border border-slate-200 text-sm font-bold text-slate-700"><input type="checkbox" class="scheduled-report-type w-4 h-4 text-blue-600" value="enrollments"> Enrollments</label>
+                            <label class="flex items-center gap-3 p-3 bg-white rounded-2xl border border-slate-200 text-sm font-bold text-slate-700"><input type="checkbox" class="scheduled-report-type w-4 h-4 text-blue-600" value="audit" checked> Audit Logs</label>
+                        </div>
+                    </div>
+                    <div class="md:col-span-2 flex flex-wrap gap-3">
+                        <label class="flex items-center gap-3 px-4 py-3 bg-blue-50 border border-blue-100 rounded-2xl text-sm font-black text-blue-700"><input id="scheduledReportEnabled" type="checkbox" checked class="w-4 h-4 text-blue-600"> Enabled</label>
+                        <label class="flex items-center gap-3 px-4 py-3 bg-violet-50 border border-violet-100 rounded-2xl text-sm font-black text-violet-700"><input id="scheduledReportUseGpg" type="checkbox" class="w-4 h-4 text-violet-600"> Encrypt with GPG</label>
+                    </div>
+                </div>
+                <div class="flex flex-wrap justify-end gap-3 mt-6 pt-5 border-t border-slate-100">
+                    <button onclick="resetScheduledReportForm()" class="px-5 py-3 bg-slate-100 text-slate-700 rounded-2xl text-xs font-black uppercase">New</button>
+                    <button onclick="sendScheduledReportNow()" class="px-5 py-3 bg-white border border-blue-200 text-blue-700 rounded-2xl text-xs font-black uppercase">Send Once</button>
+                    <button onclick="saveScheduledReport()" class="px-6 py-3 bg-blue-600 hover:bg-blue-700 text-white rounded-2xl text-xs font-black uppercase shadow-lg shadow-blue-200">Save Report</button>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- TEMPLATE SECRETS MODAL -->
+<div id="secretsManagerModal" class="fixed inset-0 z-[130] hidden flex items-center justify-center bg-slate-900/60 backdrop-blur-md p-4 animate-in fade-in">
+    <div class="bg-white w-full max-w-2xl rounded-[3rem] shadow-2xl p-8 sm:p-10 border border-slate-200 flex flex-col max-h-[90vh]">
+        <div class="flex justify-between items-center mb-6 shrink-0">
+            <div>
+                <h2 class="text-2xl font-black text-slate-800 uppercase tracking-tight">Template Secrets</h2>
+                <p class="text-xs font-bold text-slate-400 mt-1">Use placeholders like <span class="font-mono text-slate-700">{{ "{{secret:local_admin_password}}" }}</span> in action templates.</p>
+            </div>
+            <button onclick="closeModal('secretsManagerModal')" class="text-slate-400 hover:text-slate-700 bg-slate-50 hover:bg-slate-100 p-2 rounded-xl transition-colors"><svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path></svg></button>
+        </div>
+
+        <div class="bg-slate-50 p-6 rounded-[2rem] border border-slate-200 mb-6 shrink-0 grid grid-cols-2 gap-4">
+            <div class="col-span-2 sm:col-span-1">
+                <input type="text" id="secretName" placeholder="Secret name, e.g. local_admin_password" class="w-full p-3 bg-white border border-slate-200 rounded-xl text-sm font-bold outline-none focus:ring-2 focus:ring-indigo-500 shadow-sm">
+            </div>
+            <div class="col-span-2 sm:col-span-1">
+                <input type="password" id="secretValue" placeholder="Secret value" class="w-full p-3 bg-white border border-slate-200 rounded-xl text-sm font-bold outline-none focus:ring-2 focus:ring-indigo-500 shadow-sm">
+            </div>
+            <div class="col-span-2">
+                <button onclick="saveTemplateSecret()" class="w-full bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-xs font-black uppercase shadow-sm transition-all py-3">Save Secret</button>
+            </div>
+        </div>
+
+        <div class="text-xs font-bold text-amber-700 bg-amber-50 border border-amber-200 rounded-2xl p-4 mb-4">
+            Secret values are encrypted at rest and are never returned to the browser. They are inserted only when WinHUB dispatches a task to an agent.
+        </div>
+
+        <div class="overflow-y-auto custom-scrollbar flex-1 pr-2 space-y-3" id="secretsListContainer">
+            <!-- Filled by JS -->
+        </div>
+    </div>
+</div>
+
+<!-- TRIGGER MODAL -->
+<div id="triggerModal" class="fixed inset-0 z-[120] hidden flex items-center justify-center bg-slate-900/60 backdrop-blur-md p-4 animate-in fade-in">
+    <div class="bg-white w-full max-w-xl rounded-[3rem] shadow-2xl p-8 sm:p-10 border border-slate-200 flex flex-col max-h-[90vh]">
+        <div class="flex justify-between items-center mb-6 shrink-0">
+            <h2 class="text-2xl font-black text-slate-800 uppercase tracking-tight" id="trgModalTitle">New Trigger</h2>
+            <button onclick="closeModal('triggerModal')" class="text-slate-400 hover:text-slate-700 bg-slate-50 hover:bg-slate-100 p-2 rounded-xl transition-colors"><svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path></svg></button>
+        </div>
+
+        <div class="overflow-y-auto custom-scrollbar flex-1 pr-2 space-y-6">
+            <input type="hidden" id="trgId">
+
+            <div class="grid grid-cols-2 gap-4">
+                <div>
+                    <label class="text-[10px] font-black text-slate-400 uppercase tracking-widest block mb-2 ml-2">Trigger Name</label>
+                    <input type="text" id="trgName" placeholder="e.g. Auto-start Spooler" class="w-full p-4 bg-slate-50 border border-slate-200 rounded-2xl text-sm font-bold outline-none focus:bg-white focus:ring-4 focus:ring-indigo-500/10 transition-all shadow-inner">
+                </div>
+                <div>
+                    <label class="text-[10px] font-black text-slate-400 uppercase tracking-widest block mb-2 ml-2">Target Group</label>
+                    <select id="trgGroup" class="w-full p-4 bg-slate-50 border border-slate-200 rounded-2xl text-sm font-bold outline-none focus:bg-white focus:ring-4 focus:ring-indigo-500/10 transition-all shadow-inner">
+                        <option value="all">All Groups / Global</option>
+                        {% for g in groups %}
+                        <option value="{{ g.id }}">{{ g.name }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+            </div>
+
+            <div class="bg-slate-50 p-6 rounded-3xl border border-slate-200 space-y-4">
+                <label class="text-[10px] font-black text-slate-500 uppercase tracking-widest block mb-2">Condition (IF)</label>
+
+                <div>
+                    <label class="text-[10px] font-black text-slate-400 uppercase tracking-widest block mb-1 ml-1">Metric / Item Name</label>
+                    <select id="trgMetric" class="w-full p-4 bg-white border border-slate-200 rounded-2xl text-sm font-bold shadow-sm outline-none focus:ring-2 focus:ring-indigo-500">
+                        {% for t in templates if t.type == 'metric' %}
+                        <option value="{{ t.name }}">{{ t.name }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+
+                <div class="grid grid-cols-3 gap-4">
+                    <div class="col-span-1">
+                        <label class="text-[10px] font-black text-slate-400 uppercase tracking-widest block mb-1 ml-1">Operator</label>
+                        <select id="trgOperator" class="w-full p-4 bg-white border border-slate-200 rounded-2xl text-sm font-bold shadow-sm outline-none focus:ring-2 focus:ring-indigo-500">
+                            <option value="==">== (Equals)</option>
+                            <option value="!=">!= (Not Eq)</option>
+                            <option value=">">> (Greater)</option>
+                            <option value="<">< (Less)</option>
+                            <option value="contains">Contains</option>
+                        </select>
+                    </div>
+                    <div class="col-span-2">
+                        <label class="text-[10px] font-black text-slate-400 uppercase tracking-widest block mb-1 ml-1">Value</label>
+                        <input type="text" id="trgValue" placeholder="e.g. Stopped or 90" class="w-full p-4 bg-white border border-slate-200 rounded-2xl text-sm font-bold shadow-sm outline-none focus:ring-2 focus:ring-indigo-500">
+                    </div>
+                </div>
+            </div>
+
+            <div class="bg-indigo-50 p-6 rounded-3xl border border-indigo-100 space-y-4">
+                <label class="text-[10px] font-black text-indigo-500 uppercase tracking-widest block mb-2">Reaction (THEN)</label>
+                <div>
+                    <label class="text-[10px] font-black text-indigo-400 uppercase tracking-widest block mb-1 ml-1">Run Action Script</label>
+                    <select id="trgAction" class="w-full p-4 bg-white border border-slate-200 rounded-2xl text-sm font-bold shadow-sm outline-none focus:ring-2 focus:ring-indigo-500">
+                        {% for t in templates if t.type == 'action' %}
+                        <option value="{{ t.id }}">{{ t.name }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+            </div>
+
+            <label class="flex items-center gap-3 cursor-pointer bg-white p-4 rounded-2xl border border-slate-200">
+                <input type="checkbox" id="trgActive" checked class="w-5 h-5 text-indigo-600 rounded border-slate-300 focus:ring-indigo-500">
+                <span class="text-sm font-bold text-slate-700">Enable this trigger</span>
+            </label>
+        </div>
+
+        <div class="pt-6 shrink-0 border-t border-slate-100 mt-2">
+            <button onclick="saveTrigger()" class="w-full bg-indigo-600 hover:bg-indigo-700 text-white rounded-2xl font-black uppercase text-sm py-4 shadow-lg transition-all">Save Trigger</button>
+        </div>
+    </div>
+</div>
+
+<!-- SCHEDULER MODAL -->
+<div id="scheduleModal" role="dialog" aria-modal="true" aria-labelledby="schModalTitle" class="fixed inset-0 hidden flex items-center justify-center bg-slate-900/60 backdrop-blur-md p-4 animate-in fade-in">
+    <div class="schedule-modal-shell w-full max-w-4xl rounded-[2.5rem] shadow-2xl border border-indigo-200 flex flex-col overflow-hidden">
+        <div class="schedule-modal-header p-6 border-b border-indigo-200 bg-gradient-to-r from-slate-900 via-indigo-950 to-slate-900 text-white flex justify-between items-center shrink-0">
+            <div class="flex items-center gap-4">
+                <div class="w-11 h-11 rounded-2xl bg-indigo-500/20 border border-indigo-300/25 text-indigo-100 flex items-center justify-center">
+                    <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 6v6l4 2m5-2a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>
+                </div>
+                <div>
+                    <h2 class="text-2xl font-black uppercase tracking-tight" id="schModalTitle">New Schedule</h2>
+                    <p class="text-[10px] font-black text-indigo-200/70 uppercase tracking-widest mt-1">Kyiv time · 24-hour format</p>
+                </div>
+            </div>
+            <button type="button" onclick="closeModal('scheduleModal')" class="text-slate-300 hover:text-white bg-white/10 hover:bg-white/20 p-3 rounded-2xl transition-colors" aria-label="Close schedule editor"><svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path></svg></button>
+        </div>
+
+        <div class="schedule-modal-body custom-scrollbar flex-1 min-h-0 p-6 space-y-5" role="region" aria-label="Schedule form fields" tabindex="0">
+            <input type="hidden" id="schId">
+
+            <div class="schedule-modal-section schedule-section-blue rounded-3xl p-5 space-y-4">
+                <div class="flex items-center gap-2 text-blue-700">
+                    <span class="w-2 h-2 rounded-full bg-blue-500"></span>
+                    <h3 class="text-[10px] font-black uppercase tracking-widest">Schedule identity</h3>
+                </div>
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div>
+                        <label class="text-[10px] font-black text-slate-600 uppercase tracking-widest block mb-2">Job Name</label>
+                        <input type="text" id="schName" maxlength="150" placeholder="e.g. Nightly Reboot" class="w-full p-4 bg-white border border-blue-200 rounded-2xl text-sm font-bold outline-none focus:ring-4 focus:ring-blue-500/10 transition-all shadow-sm">
+                    </div>
+                    <div>
+                        <label class="text-[10px] font-black text-slate-600 uppercase tracking-widest block mb-2">Category</label>
+                        <input type="text" id="schCategory" maxlength="100" placeholder="e.g. Maintenance" class="w-full p-4 bg-white border border-blue-200 rounded-2xl text-sm font-bold outline-none focus:ring-4 focus:ring-blue-500/10 transition-all shadow-sm">
+                    </div>
+                    <div class="md:col-span-2">
+                        <label class="text-[10px] font-black text-slate-600 uppercase tracking-widest block mb-2">Runnable Template</label>
+                        <select id="schTemplate" onchange="updateScheduleVariablesUI(collectScheduleVariables())" class="w-full p-4 bg-white border border-blue-200 rounded-2xl text-sm font-bold shadow-sm outline-none focus:ring-2 focus:ring-blue-500">
+                            {% for t in templates if t.type != 'report' and t.can_run %}
+                            <option value="{{ t.id }}" data-vars="{{ t.variables | tojson | forceescape }}" data-var-schema="{{ t.variable_schema | tojson | forceescape }}">
+                                {{ t.name }} ({{ t.category }}){% if t.type == 'metric' %} [ITEM]{% endif %}
+                            </option>
+                            {% endfor %}
+                        </select>
+                    </div>
+                </div>
+            </div>
+
+            <div id="scheduleVariablesArea" class="hidden schedule-modal-section schedule-section-blue p-5 rounded-3xl space-y-4">
+                <label class="text-[10px] font-black text-blue-700 uppercase tracking-widest block">Template Fields</label>
+                <div id="scheduleVariablesContainer" class="grid grid-cols-1 md:grid-cols-2 gap-4"></div>
+            </div>
+
+            <div class="schedule-modal-section schedule-section-teal rounded-3xl p-5 space-y-4">
+                <div class="flex items-center gap-2 text-teal-700">
+                    <span class="w-2 h-2 rounded-full bg-teal-500"></span>
+                    <h3 class="text-[10px] font-black uppercase tracking-widest">Target and execution limits</h3>
+                </div>
+                <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+                    <div>
+                        <label class="text-[10px] font-black text-slate-600 uppercase tracking-widest block mb-2">Target Type</label>
+                        <select id="schTargetType" onchange="toggleScheduleTargetType()" class="w-full p-4 bg-white border border-teal-200 rounded-2xl text-sm font-bold shadow-sm outline-none focus:ring-2 focus:ring-teal-500">
+                            <option value="group">Target Group</option>
+                            <option value="host">Specific Endpoint</option>
+                        </select>
+                    </div>
+                    <div>
+                        <label class="text-[10px] font-black text-slate-600 uppercase tracking-widest block mb-2">Select Target</label>
+                        <select id="schTargetGroup" class="hidden" aria-hidden="true" tabindex="-1">
+                            {% for g in groups %}<option value="{{ g.id }}" data-details="{{ (g.description or '') | forceescape }}">{{ g.name }}</option>{% endfor %}
+                        </select>
+                        <select id="schTargetHost" class="hidden" aria-hidden="true" tabindex="-1">
+                            {% for a in agents %}<option value="{{ a.id }}" data-hostname="{{ (a.hostname or a.id) | forceescape }}" data-ip="{{ (a.connection_ip or '') | forceescape }}" data-os="{{ (a.os_type or '') | forceescape }}">{{ a.display_name or a.hostname or a.id }}</option>{% endfor %}
+                        </select>
+                        <button type="button" id="scheduleTargetPickerButton" onclick="openScheduleTargetPicker()" class="schedule-target-picker w-full min-h-[3.5rem] px-4 py-3 border rounded-2xl flex items-center justify-between gap-3 text-left transition-all shadow-sm focus:outline-none focus:ring-2 focus:ring-teal-400/40" aria-haspopup="dialog" aria-controls="scheduleTargetPickerModal">
+                            <span class="min-w-0">
+                                <span id="scheduleTargetPickerLabel" class="block truncate text-sm font-black">Select a target...</span>
+                                <span id="scheduleTargetPickerMeta" class="block truncate text-[10px] font-bold text-teal-200/60 mt-1">Click to search allowed targets</span>
+                            </span>
+                            <svg class="w-5 h-5 shrink-0 text-teal-300" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.2" d="m21 21-4.35-4.35m1.35-5.15a6.5 6.5 0 1 1-13 0 6.5 6.5 0 0 1 13 0Z"></path></svg>
+                        </button>
+                    </div>
+                    <div>
+                        <label class="text-[10px] font-black text-slate-600 uppercase tracking-widest block mb-2">Time Limit</label>
+                        <div class="grid grid-cols-[1fr_auto] gap-2 items-center">
+                            <input type="number" id="schTimeoutMinutes" min="0" max="10080" step="1" placeholder="0 = default" class="w-full p-4 bg-white border border-teal-200 rounded-2xl text-sm font-bold outline-none focus:ring-2 focus:ring-teal-500 shadow-sm">
+                            <span class="text-[10px] font-black text-teal-700 uppercase">min</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="schedule-modal-section schedule-section-violet rounded-3xl p-5">
+                <div class="flex items-center justify-between gap-4 mb-5">
+                    <div class="flex items-center gap-2 text-violet-700">
+                        <span class="w-2 h-2 rounded-full bg-violet-500"></span>
+                        <h3 class="text-[10px] font-black uppercase tracking-widest">Execution timing</h3>
+                    </div>
+                    <span class="text-[9px] font-black text-violet-600 bg-white border border-violet-200 px-3 py-1.5 rounded-xl uppercase tracking-widest">Kyiv · 24h</span>
+                </div>
+
+                <div class="flex gap-3 mb-5">
+                    <label class="flex-1 cursor-pointer">
+                        <input type="radio" name="schType" value="once" onchange="toggleSchType()" class="schedule-type-input peer hidden" checked>
+                        <div class="schedule-type-card p-4 border rounded-2xl text-center font-bold transition-all shadow-sm">Execute Once</div>
+                    </label>
+                    <label class="flex-1 cursor-pointer">
+                        <input type="radio" name="schType" value="recurring" onchange="toggleSchType()" class="schedule-type-input peer hidden">
+                        <div class="schedule-type-card p-4 border rounded-2xl text-center font-bold transition-all shadow-sm">Recurring Weekly</div>
+                    </label>
+                </div>
+
+                <div id="schUiOnce" class="grid grid-cols-1 md:grid-cols-[1fr_1.15fr] gap-5 items-center">
+                    <div>
+                        <label class="text-[10px] font-bold text-slate-600 uppercase tracking-widest block mb-2">Execution Date</label>
+                        <input type="date" id="schDate" class="w-full p-4 bg-white border border-violet-200 rounded-2xl text-sm font-bold shadow-sm outline-none focus:ring-2 focus:ring-violet-500">
+                    </div>
+                    <div>
+                        <label class="text-[10px] font-bold text-slate-600 uppercase tracking-widest block mb-2 text-center">Time (24-hour wheel)</label>
+                        <div class="schedule-time-picker" data-time-target="schTimeOnce">
+                            <div class="schedule-wheel-wrap"><span class="block text-center text-[9px] font-black text-slate-400 uppercase mb-1">Hour</span><div class="schedule-wheel" data-unit="hour" role="listbox" tabindex="0" aria-label="Execution hour, 00 to 23"></div></div>
+                            <span class="text-2xl font-black text-violet-700 mt-5">:</span>
+                            <div class="schedule-wheel-wrap"><span class="block text-center text-[9px] font-black text-slate-400 uppercase mb-1">Minute</span><div class="schedule-wheel" data-unit="minute" role="listbox" tabindex="0" aria-label="Execution minute, 00 to 59"></div></div>
+                            <input type="hidden" id="schTimeOnce" value="00:00">
+                        </div>
+                    </div>
+                </div>
+
+                <div id="schUiRecurring" class="hidden grid grid-cols-1 md:grid-cols-[1.15fr_1fr] gap-5 items-center">
+                    <div>
+                        <label class="text-[10px] font-bold text-slate-600 uppercase tracking-widest block mb-2 text-center">Time (24-hour wheel)</label>
+                        <div class="schedule-time-picker" data-time-target="schTimeRec">
+                            <div class="schedule-wheel-wrap"><span class="block text-center text-[9px] font-black text-slate-400 uppercase mb-1">Hour</span><div class="schedule-wheel" data-unit="hour" role="listbox" tabindex="0" aria-label="Recurring hour, 00 to 23"></div></div>
+                            <span class="text-2xl font-black text-violet-700 mt-5">:</span>
+                            <div class="schedule-wheel-wrap"><span class="block text-center text-[9px] font-black text-slate-400 uppercase mb-1">Minute</span><div class="schedule-wheel" data-unit="minute" role="listbox" tabindex="0" aria-label="Recurring minute, 00 to 59"></div></div>
+                            <input type="hidden" id="schTimeRec" value="00:00">
+                        </div>
+                    </div>
+                    <div>
+                        <label class="text-[10px] font-bold text-slate-600 uppercase tracking-widest block mb-3">Days of Week</label>
+                        <div class="flex flex-wrap gap-2">
+                            <label onclick="handleScheduleDayClick(event)"><input type="checkbox" aria-label="Monday" class="sch-day peer hidden" value="0"><div class="schedule-day-chip w-11 h-11 flex items-center justify-center rounded-xl border font-black cursor-pointer transition-colors shadow-sm text-xs">Mon</div></label>
+                            <label onclick="handleScheduleDayClick(event)"><input type="checkbox" aria-label="Tuesday" class="sch-day peer hidden" value="1"><div class="schedule-day-chip w-11 h-11 flex items-center justify-center rounded-xl border font-black cursor-pointer transition-colors shadow-sm text-xs">Tue</div></label>
+                            <label onclick="handleScheduleDayClick(event)"><input type="checkbox" aria-label="Wednesday" class="sch-day peer hidden" value="2"><div class="schedule-day-chip w-11 h-11 flex items-center justify-center rounded-xl border font-black cursor-pointer transition-colors shadow-sm text-xs">Wed</div></label>
+                            <label onclick="handleScheduleDayClick(event)"><input type="checkbox" aria-label="Thursday" class="sch-day peer hidden" value="3"><div class="schedule-day-chip w-11 h-11 flex items-center justify-center rounded-xl border font-black cursor-pointer transition-colors shadow-sm text-xs">Thu</div></label>
+                            <label onclick="handleScheduleDayClick(event)"><input type="checkbox" aria-label="Friday" class="sch-day peer hidden" value="4"><div class="schedule-day-chip w-11 h-11 flex items-center justify-center rounded-xl border font-black cursor-pointer transition-colors shadow-sm text-xs">Fri</div></label>
+                            <label onclick="handleScheduleDayClick(event)"><input type="checkbox" aria-label="Saturday" class="sch-day peer hidden" value="5"><div class="schedule-day-chip w-11 h-11 flex items-center justify-center rounded-xl border font-black cursor-pointer transition-colors shadow-sm text-xs">Sat</div></label>
+                            <label onclick="handleScheduleDayClick(event)"><input type="checkbox" aria-label="Sunday" class="sch-day peer hidden" value="6"><div class="schedule-day-chip w-11 h-11 flex items-center justify-center rounded-xl border font-black cursor-pointer transition-colors shadow-sm text-xs">Sun</div></label>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <label class="schedule-active-row flex items-center gap-3 cursor-pointer p-4 rounded-2xl border">
+                <input type="checkbox" id="schActive" checked class="w-5 h-5 text-emerald-600 rounded border-emerald-300 focus:ring-emerald-500">
+                <span class="text-sm font-bold text-emerald-800">Enable this schedule immediately</span>
+            </label>
+        </div>
+
+        <div class="schedule-modal-footer p-5 shrink-0 border-t border-slate-200 flex justify-end">
+            <button id="btnSaveSchedule" onclick="saveSchedule()" class="min-w-[15rem] bg-indigo-600 hover:bg-indigo-700 text-white rounded-2xl font-black uppercase text-sm py-4 px-8 shadow-lg transition-all">Save Schedule</button>
+        </div>
+    </div>
+</div>
+
+<!-- SEARCHABLE SINGLE TARGET PICKER FOR SCHEDULER -->
+<div id="scheduleTargetPickerModal" role="dialog" aria-modal="true" aria-labelledby="scheduleTargetPickerTitle" class="fixed inset-0 z-[180] hidden flex items-center justify-center bg-slate-950/75 backdrop-blur-md p-4 animate-in fade-in">
+    <div class="schedule-target-dialog rounded-[2rem] shadow-2xl border">
+        <div class="schedule-target-header p-5 sm:p-6 border-b border-teal-400/20 flex items-center justify-between gap-4">
+            <div>
+                <h2 id="scheduleTargetPickerTitle" class="text-lg font-black uppercase tracking-tight text-teal-50">Select target</h2>
+                <p id="scheduleTargetPickerSubtitle" class="text-[10px] font-black uppercase tracking-widest text-teal-200/55 mt-1">Search allowed targets</p>
+            </div>
+            <button type="button" onclick="closeScheduleTargetPicker()" class="p-3 rounded-2xl bg-white/5 hover:bg-white/10 text-slate-400 hover:text-white border border-white/10 transition-colors" aria-label="Close target selector">
+                <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M6 18 18 6M6 6l12 12"></path></svg>
+            </button>
+        </div>
+        <div class="schedule-target-search-panel p-5 sm:p-6 border-b border-teal-400/15">
+            <div class="relative">
+                <svg class="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-teal-300/60" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.2" d="m21 21-4.35-4.35m1.35-5.15a6.5 6.5 0 1 1-13 0 6.5 6.5 0 0 1 13 0Z"></path></svg>
+                <input type="search" id="scheduleTargetSearch" oninput="filterScheduleTargetPicker()" placeholder="Search by name, hostname, IP or OS..." autocomplete="off" class="w-full pl-12 pr-4 py-4 bg-slate-950/70 border border-teal-400/25 rounded-2xl text-sm font-bold text-slate-100 placeholder:text-slate-500 outline-none focus:ring-4 focus:ring-teal-500/15 focus:border-teal-400/60 transition-all">
+            </div>
+            <p id="scheduleTargetResultCount" class="mt-3 text-[10px] font-black uppercase tracking-widest text-teal-200/50">0 targets</p>
+        </div>
+        <div id="scheduleTargetResults" class="schedule-target-results custom-scrollbar p-4 sm:p-5 space-y-2" aria-label="Available schedule targets"></div>
+        <div class="schedule-target-footer p-4 sm:p-5 border-t border-teal-400/15 flex justify-end">
+            <button type="button" onclick="closeScheduleTargetPicker()" class="px-7 py-3 bg-white/5 hover:bg-white/10 border border-white/10 text-slate-200 rounded-2xl text-xs font-black uppercase transition-colors">Cancel</button>
+        </div>
+    </div>
+</div>
+
+{% if permissions.manage_templates %}
+<!-- REUSABLE SCRIPT / REPORT / VARIABLE SCHEMA EDITOR -->
+<div id="templateCodeEditorModal" role="dialog" aria-modal="true" aria-labelledby="templateCodeEditorTitle" class="fixed inset-0 z-[140] hidden flex items-center justify-center bg-slate-900/60 backdrop-blur-md p-4 animate-in fade-in">
+    <div class="bg-white w-full max-w-6xl rounded-[2.5rem] shadow-2xl overflow-hidden border border-indigo-200 flex flex-col max-h-[94vh]">
+        <div class="p-5 border-b border-slate-200 bg-slate-50 flex items-start justify-between gap-6 shrink-0">
+            <div class="flex items-center gap-4 min-w-0">
+                <div class="w-11 h-11 shrink-0 rounded-2xl bg-indigo-600 text-white flex items-center justify-center shadow-lg">
+                    <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 9l-3 3 3 3m8-6l3 3-3 3m-3-9l-2 12"></path></svg>
+                </div>
+                <div class="min-w-0">
+                    <div class="flex flex-wrap items-center gap-2">
+                        <h2 id="templateCodeEditorTitle" class="text-lg font-black text-slate-900 uppercase tracking-tight">Code Editor</h2>
+                        <span id="templateCodeEditorLanguage" class="px-2.5 py-1 rounded-lg bg-indigo-100 text-indigo-700 text-[9px] font-black uppercase">PowerShell</span>
+                        <span class="px-2.5 py-1 rounded-lg bg-emerald-100 text-emerald-700 text-[9px] font-black uppercase">UTF-8</span>
+                    </div>
+                    <p id="templateCodeEditorDescription" class="text-xs font-bold text-slate-500 mt-1">Edit template content and apply it when ready.</p>
+                </div>
+            </div>
+            <button type="button" onclick="closeTemplateCodeEditor()" class="p-3 bg-white border border-slate-200 hover:bg-slate-100 rounded-2xl text-slate-500 transition-colors shadow-sm" aria-label="Close code editor">
+                <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true"><path d="M6 18L18 6M6 6l12 12" stroke-width="2.5"></path></svg>
+            </button>
+        </div>
+
+        <div class="p-5 bg-slate-100 flex-1 min-h-0 overflow-hidden">
+            <textarea id="templateCodeEditorTextarea" spellcheck="false"></textarea>
+            <div class="mt-3 flex items-center justify-between gap-4">
+                <p id="templateCodeEditorError" class="hidden text-xs font-bold text-rose-700" role="alert"></p>
+                <p id="templateCodeEditorStats" class="ml-auto text-[10px] font-black text-slate-500 uppercase tracking-widest">0 lines · 0 characters</p>
+            </div>
+        </div>
+
+        <div class="p-5 border-t border-slate-200 bg-white flex justify-end gap-3 shrink-0">
+            <button type="button" onclick="closeTemplateCodeEditor()" class="px-5 py-3 bg-white text-slate-600 border border-slate-200 rounded-2xl text-[10px] font-black uppercase hover:bg-slate-100 transition-all">Cancel</button>
+            <button type="button" id="btnApplyTemplateCodeEditor" onclick="applyTemplateCodeEditor()" class="px-6 py-3 bg-indigo-600 text-white rounded-2xl text-[10px] font-black uppercase shadow-lg hover:bg-indigo-700 transition-all">Apply changes</button>
+            {% if permissions.use_ai_templates %}
+            <button type="button" id="btnOpenAiTemplateEditor" onclick="openAiTemplateEditor()" class="px-6 py-3 bg-indigo-600 text-white rounded-2xl text-[10px] font-black uppercase">AI-редактор</button>
+            {% endif %}
+        </div>
+    </div>
+</div>
+
+<!-- TEMPLATE DELETE CONFIRMATION MODAL -->
+{% include 'modals/_ai_editor.html' %}
+<div id="templateDeleteModal" role="dialog" aria-modal="true" aria-labelledby="templateDeleteTitle" class="fixed inset-0 z-[130] hidden flex items-center justify-center bg-slate-900/60 backdrop-blur-md p-4 animate-in fade-in">
+    <div class="bg-white w-full max-w-lg rounded-[3rem] shadow-2xl overflow-hidden border border-rose-200">
+        <div class="p-6 border-b border-rose-100 bg-rose-50 flex items-start justify-between gap-6">
+            <div class="flex items-center gap-4 min-w-0">
+                <div class="w-12 h-12 shrink-0 rounded-2xl bg-rose-600 text-white flex items-center justify-center shadow-lg">
+                    <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v4m0 4h.01M10.3 3.7L2.6 17a2 2 0 001.7 3h15.4a2 2 0 001.7-3L13.7 3.7a2 2 0 00-3.4 0z"></path></svg>
+                </div>
+                <div class="min-w-0">
+                    <h2 id="templateDeleteTitle" class="text-xl font-black text-rose-700 uppercase tracking-tight">Delete Template</h2>
+                    <p class="text-xs font-bold text-rose-700 mt-1">This action cannot be undone.</p>
+                </div>
+            </div>
+            <button type="button" onclick="closeTemplateDeleteModal()" class="p-3 bg-white border border-rose-200 hover:bg-rose-100 rounded-2xl text-rose-500 transition-colors shadow-sm" aria-label="Close delete template dialog">
+                <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true"><path d="M6 18L18 6M6 6l12 12" stroke-width="2.5"></path></svg>
+            </button>
+        </div>
+
+        <div class="p-6 space-y-5">
+            <div class="rounded-2xl border border-slate-200 bg-slate-50 p-4">
+                <p class="text-[10px] font-black text-slate-400 uppercase tracking-widest">Selected template</p>
+                <p id="templateDeleteName" class="mt-2 text-sm font-black text-slate-900 break-words"></p>
+            </div>
+
+            <div id="templateDeleteImpactLoading" class="rounded-2xl border border-sky-200 bg-sky-50 p-4 text-sm font-bold text-sky-700" aria-live="polite">
+                Checking Scheduler and Trigger Rules dependencies...
+            </div>
+            <div id="templateDeleteImpactError" class="hidden rounded-2xl border border-rose-200 bg-rose-50 p-4 text-sm font-bold text-rose-700" role="alert"></div>
+
+            <div id="templateDeleteImpact" class="hidden grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div class="rounded-2xl border border-amber-200 bg-amber-50 p-4">
+                    <p class="text-[10px] font-black text-amber-700 uppercase tracking-widest">Scheduler jobs</p>
+                    <p class="mt-2 text-2xl font-black text-amber-700" id="templateDeleteSchedulesCount">0</p>
+                    <p class="mt-1 text-xs font-bold text-amber-800">These jobs will be permanently removed.</p>
+                    <p id="templateDeleteSchedulesNames" class="mt-2 text-[10px] font-bold text-amber-700 break-words"></p>
+                </div>
+                <div class="rounded-2xl border border-violet-200 bg-violet-50 p-4">
+                    <p class="text-[10px] font-black text-violet-700 uppercase tracking-widest">Trigger rules</p>
+                    <p class="mt-2 text-2xl font-black text-violet-700" id="templateDeleteTriggersCount">0</p>
+                    <p class="mt-1 text-xs font-bold text-violet-700">Rules remain, but their action template will be cleared.</p>
+                    <p id="templateDeleteTriggersNames" class="mt-2 text-[10px] font-bold text-violet-700 break-words"></p>
+                </div>
+            </div>
+
+            <div>
+                <label for="templateDeleteConfirmation" class="text-[10px] font-black text-slate-500 uppercase tracking-widest block mb-2">
+                    Type the exact template name to confirm
+                </label>
+                <input id="templateDeleteConfirmation" type="text" autocomplete="off" oninput="updateTemplateDeleteConfirmation()" class="w-full p-4 bg-white border border-slate-300 rounded-2xl text-sm font-bold outline-none focus:ring-2 focus:ring-rose-500 transition-all" placeholder="Template name">
+            </div>
+        </div>
+
+        <div class="p-6 border-t border-slate-100 bg-slate-50 flex justify-end gap-3">
+            <button type="button" onclick="closeTemplateDeleteModal()" class="px-5 py-3 bg-white text-slate-600 border border-slate-200 rounded-2xl text-[10px] font-black uppercase hover:bg-slate-100 transition-all">Cancel</button>
+            <button type="button" id="btnConfirmTemplateDelete" onclick="confirmTemplateDelete()" class="px-6 py-3 bg-rose-600 text-white rounded-2xl text-[10px] font-black uppercase shadow-lg hover:bg-rose-700 transition-all disabled:opacity-50" disabled>Delete permanently</button>
+        </div>
+    </div>
+</div>
+{% endif %}
+
+<!-- TEMPLATE IMPORT MODAL -->
+<div id="templateImportModal" class="workspace-import-modal fixed inset-0 z-[130] hidden flex items-center justify-center bg-slate-950/80 backdrop-blur-md p-4 animate-in fade-in">
+    <div class="bg-slate-950 w-full max-w-3xl rounded-[3rem] shadow-2xl overflow-hidden border border-cyan-400/30 flex flex-col max-h-[88vh]">
+        <div class="p-6 border-b border-cyan-400/20 bg-gradient-to-br from-slate-950 via-sky-950/80 to-slate-900 flex items-start justify-between gap-6 shrink-0">
+            <div>
+                <h2 class="text-xl font-black text-cyan-50 uppercase tracking-tight">Import Templates</h2>
+                <p class="text-xs text-cyan-200/70 font-bold mt-2 uppercase tracking-widest"><span id="templateImportSelectedCount">0</span> selected / <span id="templateImportCount">0</span> found</p>
+            </div>
+            <button onclick="closeModal('templateImportModal')" class="p-3 bg-cyan-400/10 border border-cyan-300/25 hover:bg-cyan-400/20 rounded-2xl text-cyan-100 hover:text-white transition-colors shadow-sm"><svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path d="M6 18L18 6M6 6l12 12" stroke-width="2.5"/></svg></button>
+        </div>
+        <div class="p-5 border-b border-cyan-400/20 bg-slate-900/80 flex flex-wrap gap-2 shrink-0">
+            <button onclick="toggleAllTemplateImports(true)" class="px-4 py-2 bg-cyan-500/20 border border-cyan-300/30 text-cyan-50 rounded-xl text-[10px] font-black uppercase hover:bg-cyan-500/30 transition-all">Select All</button>
+            <button onclick="toggleAllTemplateImports(false)" class="px-4 py-2 bg-rose-500/10 border border-rose-300/30 text-rose-100 rounded-xl text-[10px] font-black uppercase hover:bg-rose-500/20 transition-all">Clear</button>
+        </div>
+        <div id="templateImportList" class="flex-1 overflow-y-auto custom-scrollbar p-5 space-y-3 bg-slate-950/95"></div>
+        <div class="p-5 border-t border-cyan-400/20 bg-slate-900/90 shrink-0 flex justify-end gap-3">
+            <button onclick="closeModal('templateImportModal')" class="px-5 py-3 bg-slate-800 text-slate-200 border border-slate-600 rounded-2xl text-[10px] font-black uppercase hover:bg-slate-700 transition-all">Cancel</button>
+            <button onclick="confirmTemplateImport()" class="px-6 py-3 bg-cyan-500 text-slate-950 rounded-2xl text-[10px] font-black uppercase shadow-lg shadow-cyan-500/20 hover:bg-cyan-300 transition-all">Import Selected</button>
+        </div>
+    </div>
+</div>
+
+<!-- CATEGORY MANAGER MODAL -->
+<div id="categoryModal" class="fixed inset-0 z-[120] hidden flex items-center justify-center bg-slate-900/60 backdrop-blur-md p-4 animate-in fade-in">
+    <div class="bg-white w-full max-w-md rounded-[3rem] shadow-2xl p-8 space-y-6 border border-slate-200">
+        <div class="flex justify-between items-center mb-2">
+            <h2 class="text-xl font-black text-slate-800 uppercase tracking-tight">Manage Categories</h2>
+            <button onclick="closeModal('categoryModal')" class="text-slate-400 hover:text-slate-700 bg-slate-50 hover:bg-slate-100 p-2 rounded-xl transition-colors"><svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path></svg></button>
+        </div>
+
+        <div class="flex gap-2">
+            <input type="text" id="newCategoryName" placeholder="New category name..." class="w-full p-4 bg-slate-50 border border-slate-200 rounded-2xl text-sm font-bold outline-none focus:bg-white focus:ring-4 focus:ring-indigo-500/10 transition-all">
+            <button onclick="addCategoryUI()" class="px-6 bg-indigo-600 hover:bg-indigo-700 text-white rounded-2xl font-black text-xl shadow-lg transition-all">+</button>
+        </div>
+
+        <div class="bg-slate-50 border border-slate-200 rounded-2xl p-4">
+            <p class="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-3 px-2">Available Categories</p>
+            <div id="categoryListUI" class="max-h-[250px] overflow-y-auto space-y-2 custom-scrollbar pr-2">
+                <!-- Заповнюється через JS -->
+            </div>
+        </div>
+    </div>
+</div>
+{% endif %}

@@ -1,0 +1,39 @@
+{% if permissions.use_ai_templates and permissions.manage_templates %}
+<div id="aiTemplateEditorModal" class="hidden" role="dialog" aria-modal="true" aria-labelledby="aiEditorTitle">
+  <section class="ai-editor-shell">
+    <header><div><h2 id="aiEditorTitle">AI-редактор шаблонів</h2><p>Open WebUI · PowerShell / Bash / Jinja · без запуску на хостах</p></div><button type="button" onclick="closeAiTemplateEditor()" aria-label="Закрити AI-редактор">✕</button></header>
+    <div class="ai-editor-grid">
+      <section class="ai-editor-controls">
+        <label for="aiEditorPrompt">Що потрібно створити або змінити?</label>
+        <textarea id="aiEditorPrompt" rows="7" maxlength="4000" placeholder="Збери WireGuard endpoints. Поверни JSON і створи короткий табличний звіт Host / endpoint:port."></textarea>
+        <label for="aiEditorLanguage">Мова</label>
+        <select id="aiEditorLanguage"><option value="powershell">PowerShell 5.1 (Windows)</option><option value="bash">Bash (Linux/macOS)</option><option value="jinja">Jinja / HTML report</option></select>
+        <label class="ai-editor-check"><input id="aiEditorReport" type="checkbox"> Також створити шаблон звіту</label>
+        <label class="ai-editor-check"><input id="aiEditorSource" type="checkbox"> Додати поточний код як контекст</label>
+        <p class="ai-editor-note">Контекст передається тільки після вибору галочки. Видаліть секрети: автоматичне маскування не знаходить усіх значень. Генератор використовує конфігураційні константи, не {{ '{{variables}}' }}.</p>
+        <div class="ai-editor-actions"><button type="button" id="aiEditorGenerate" onclick="generateAiTemplate()">Створити чернетку</button><button type="button" id="aiEditorCancel" onclick="cancelAiEditorDraft()" disabled>Скасувати запит</button></div>
+        <label for="aiEditorHistory">Історія моїх чернеток</label>
+        <select id="aiEditorHistory" onchange="loadAiEditorHistory()"><option value="">Завантаження…</option></select>
+        <button type="button" onclick="refreshAiEditorHistory()">Оновити історію</button>
+        <button type="button" onclick="checkCurrentAiEditorCode()">Перевірити код редактора без ШІ</button>
+        <pre id="aiEditorDiagnostics" aria-label="Пояснення й діагностика"></pre>
+      </section>
+      <section class="ai-editor-result">
+        <div class="ai-editor-actions" aria-label="Перегляд результату">
+          <button type="button" data-ai-editor-view="code" aria-pressed="true" onclick="showAiEditorView('code')">Код</button>
+          <button type="button" data-ai-editor-view="report" aria-pressed="false" onclick="showAiEditorView('report')">Шаблон звіту</button>
+          <button type="button" data-ai-editor-view="diff" aria-pressed="false" onclick="showAiEditorView('diff')">Зміни</button>
+        </div>
+        <textarea id="aiEditorOutput" readonly spellcheck="false" aria-label="Код AI-чернетки"></textarea>
+        <p id="aiEditorStatus" role="status" aria-live="polite"></p>
+        <div class="ai-editor-actions">
+          <button type="button" id="aiEditorValidate" onclick="validateAiEditorDraft()" disabled>Перевірити ще раз</button>
+          <button type="button" id="aiEditorApply" onclick="applyAiEditorDraft()" disabled>Застосувати код у редакторі</button>
+          <button type="button" id="aiEditorSave" onclick="saveAiEditorDraft()" disabled>Зберегти нові шаблони</button>
+        </div>
+        <p class="ai-editor-note">Діагностика перевіряє синтаксис і тестові дані звіту, не поведінку на реальному хості. Згенеровані шаблони потребують окремого затвердження.</p>
+      </section>
+    </div>
+  </section>
+</div>
+{% endif %}

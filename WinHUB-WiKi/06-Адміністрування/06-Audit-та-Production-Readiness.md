@@ -26,3 +26,5 @@ System Logs допомагають діагностувати backend, integrati
 - активного адміністратора та agent identities.
 
 Critical failures виправляйте до production rollout. Warning не ігноруйте без зафіксованого risk acceptance.
+
+[Докладний посібник пошуку історії](../guides/features/AUDIT_SEARCH_GUIDE_UA.md).

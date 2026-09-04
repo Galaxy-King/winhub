@@ -48,3 +48,5 @@ Computer Configuration
 3. Розширення групи невеликими хвилями.
 4. Після завершення припиніть повторне розповсюдження bootstrap config.
 5. Закрийте enrollment window на сервері.
+
+[Повна інструкція GPO](../../guides/agents/GPO_AGENT_DEPLOYMENT.md).

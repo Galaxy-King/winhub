@@ -20,3 +20,5 @@ Smoke test перевіряє production health, strict env values, renderer iso
 6. Запустіть smoke test.
 
 Rollback має стосуватися лише проблемного control і бути обмеженим у часі.
+
+[Hardening v3](../guides/security/SECURITY_HARDENING_V3_UA.md) · [Security rollout](../guides/security/SECURITY_ROLLOUT_UA.md).

@@ -1,8 +1,8 @@
 # WinHUBLinuxAgent
 
-Безпечний системний агент WinHUB для Debian 12/13, Ubuntu Server 22.04/24.04 та Proxmox VE 8/9. Він використовує актуальний протокол сервера enrollment/poll/telemetry/result, підписані RSA-запити агента та per-agent RSA-PSS v2 підпис задач.
+Системний агент WinHUB для Debian 12/13, Ubuntu Server 22.04/24.04 та Proxmox VE 8/9. Він використовує протокол сервера enrollment/poll/telemetry/result, підписані RSA-запити агента та per-agent RSA-PSS v2 підпис задач. Поточні strict-pin зміни — **кандидат релізу**, а не завершення всього production-плану: [стан, перехід та release gates](../WinHUB-WiKi/guides/agents/PRODUCTION_PIN_AGENTS_UA.md).
 
-Агент працює лише через вихідні HTTPS-з'єднання до WinHUB: відкривати вхідний порт на Linux-сервері не потрібно. TLS-перевірка увімкнена, а для приватного CA можна задати SHA-256 pin сертифіката. Токени, ключ і стан мають права `0600/0700` та належать root.
+Агент працює через вихідні HTTPS-з'єднання до WinHUB: вхідний порт не потрібен. Обов'язковий SHA-256 pin leaf-сертифіката, отриманий адміністратором із довіреного джерела. `ServerCertificateSha256Next` дозволяє заздалегідь додати майбутній pin. TLS bypass, HTTP, redirects і cross-host update downloads заборонені. Токени, ключ і стан захищаються правами `0600/0700`.
 
 ## Build
 
@@ -20,6 +20,8 @@ For ARM servers or SBC endpoints:
 ```
 
 ## Install
+
+До запуску інсталятора підготуйте `/etc/winhub-agent/winhub_agent.conf` із довіреним pin. Новий installer перевіряє конфігурацію до зміни наявної служби; приклад із placeholder не є готовим конфігом. Перший перехід зі старого updater має окремі вимоги в [посібнику](../WinHUB-WiKi/guides/agents/PRODUCTION_PIN_AGENTS_UA.md).
 
 Copy the release archive to the endpoint:
 
@@ -110,7 +112,9 @@ After successful migration the agent deletes `winhub_agent.bootstrap.conf`. Runt
 /var/lib/winhub-agent
 ```
 
-Невідправлені результати задач надійно зберігаються у `/var/lib/winhub-agent/pending-results` з правами `0600` і повторно надсилаються після відновлення мережі або перезапуску агента. `RestartAfterConsecutivePollFailures` задає кількість послідовних невдалих poll-запитів, після якої агент завершується з помилкою та дозволяє systemd перезапустити процес; `0` вимикає цю поведінку.
+Нові задачі та невідправлені результати зберігаються у `/var/lib/winhub-agent/execution-journal` з правами `0600/0700`. Повторюється доставка, не виконання. Після аварії перервана задача повертає `UNKNOWN` у журналі помилки: можливі часткові зміни на хості. Старий `/var/lib/winhub-agent/pending-results` також читається для доставки результатів попередньої версії. Межі місткості, архівація та rollback описані в release gates. `RestartAfterConsecutivePollFailures` задає кількість невдалих poll перед перезапуском через systemd; `0` вимикає цю поведінку.
+
+Enrollment key видаляється після збереження токена, а shared TaskHmacSecret — при старті strict-v2 агента. Після відкликання доступу потрібне відновлення адміністратором. Для виконання та прибирання дочірніх процесів потрібен `/usr/bin/setsid` із `util-linux`.
 
 ## Підпис задач і запитів
 
