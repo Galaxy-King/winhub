@@ -90,6 +90,24 @@ internal static class ProductionSecurityTests
         {
             string state = Path.Combine(temporary, "state.json");
             Action<string> protect = path => { if (!OperatingSystem.IsWindows()) File.SetUnixFileMode(path, UnixFileMode.UserRead | UnixFileMode.UserWrite); };
+            string releaseState = Path.Combine(temporary, "release-state.json");
+            var release = new VerifiedRelease(20, "2.0.0-rc.3", new string('a', 64), "linux", "x64");
+            SignedRelease.Reserve(release, releaseState, protect);
+            SignedRelease.CheckFloor(release, releaseState);
+            Check(true, "identical signed release retry preserves anti-rollback floor");
+            Reject(() => SignedRelease.CheckFloor(release with { Serial = 19 }, releaseState), "older release serial rejected");
+            Reject(() => SignedRelease.CheckFloor(release with { ManifestHash = new string('b', 64) }, releaseState), "serial reuse for different package rejected");
+            Reject(() => SignedRelease.CheckFloor(release with { Serial = 21, Version = "2.0.0-rc.2" }, releaseState), "higher serial cannot downgrade semantic version");
+            Reject(() => SignedRelease.CheckFloor(release with { Platform = "windows" }, releaseState), "anti-rollback state cannot move between platforms");
+            Reject(() => SignedRelease.Reserve(release with { Serial = 21 }, releaseState, _ => throw new IOException("simulated disk full")), "failed release floor write blocks update");
+            SignedRelease.CheckFloor(release, releaseState);
+            Check(true, "failed release floor write preserves previous state");
+            Check(SignedRelease.CompareVersions("2.0.0", "2.0.0-rc.3") > 0, "stable release sorts after prerelease");
+            Check(SignedRelease.CompareVersions("2.0.0-rc.10", "2.0.0-rc.9") > 0, "prerelease identifiers compare numerically");
+            Check(SignedRelease.CompareVersions("2.0.0+build1", "2.0.0+build2") == 0, "build metadata does not bypass version floor");
+            Reject(() => SignedRelease.CompareVersions("2.0.0-rc.01", "2.0.0"), "invalid prerelease leading zero rejected");
+            File.WriteAllText(releaseState, "{\"Serial\":20,\"ManifestHash\":null}");
+            Reject(() => SignedRelease.CheckFloor(release, releaseState), "corrupt release floor fails closed");
             ProductionSecurity.AtomicWrite(state, Encoding.UTF8.GetBytes("old"), protect);
             Reject(() => ProductionSecurity.AtomicWrite(state, Encoding.UTF8.GetBytes("new"), _ => throw new IOException("simulated ACL failure")), "write/ACL failure propagates");
             Check(ProductionSecurity.ReadText(state) == "old", "failed write preserves previous state");
@@ -129,8 +147,35 @@ internal static class ProductionSecurityTests
             Check(ExecutionJournal.IsSuccessAcknowledgement("{\"status\":\"success\"}"), "server JSON success acknowledges result");
             Check(!ExecutionJournal.IsSuccessAcknowledgement("{\"status\":\"error\"}"), "HTTP 200 with error does not acknowledge result");
             string failedJournalPath = Path.Combine(temporary, "journal-write-failure");
-            using (var failedJournal = new ExecutionJournal(failedJournalPath, "agent-a", path => { if (path.EndsWith(".tmp")) throw new IOException("simulated disk failure"); }, _ => { }))
+            bool failWrite = false;
+            using (var failedJournal = new ExecutionJournal(failedJournalPath, "agent-a", path => { if (failWrite && path.EndsWith(".tmp")) throw new IOException("simulated disk failure"); }, _ => { }))
+            {
+                failWrite = true;
                 Reject(() => failedJournal.Claim("never-started", journalKey, 1), "failed durable claim prevents task execution");
+            }
+            using (var recovered = new ExecutionJournal(journalPath, "agent-a", protect, _ => { }))
+                Reject(() => recovered.Claim("task-one", journalKey, 4), "archived task cannot execute after process restart");
+            Check(!Directory.EnumerateFiles(journalPath, "*.json").Any(p => File.ReadAllText(p).Contains("task-one")), "acknowledged records leave bounded active journal");
+            string archiveFailurePath = Path.Combine(temporary, "journal-archive-failure");
+            bool failArchive = false;
+            using (var journal = new ExecutionJournal(archiveFailurePath, "agent-a", path =>
+                { if (failArchive && path.Contains("acknowledged")) throw new IOException("simulated archive disk full"); protect(path); }, _ => { }))
+            {
+                journal.Claim("retry-delivery", journalKey, 1);
+                journal.Complete("retry-delivery", "Success", "durable output");
+                failArchive = true;
+                Reject(() => journal.Acknowledge("retry-delivery"), "archive write failure preserves active result");
+                Check(journal.Pending().Single().Log == "durable output", "disk-full archive does not lose undelivered result");
+            }
+            // Simulate the old acknowledged flat file and a crash after committing journal identity.
+            string legacyPath = Path.Combine(temporary, "journal-legacy");
+            Directory.CreateDirectory(legacyPath);
+            string legacyRecordPath = Path.Combine(legacyPath, Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes("old-task"))).ToLowerInvariant() + ".json");
+            File.WriteAllText(legacyRecordPath, JsonSerializer.Serialize(new ExecutionRecord("agent-a", "old-task", journalKey, 1, "acknowledged", "Success", ""), JournalJsonContext.Default.ExecutionRecord));
+            File.WriteAllText(Path.Combine(legacyPath, ".endpoint"), "agent-a");
+            using (var migrated = new ExecutionJournal(legacyPath, "agent-a", protect, _ => { }))
+                Reject(() => migrated.Claim("old-task", journalKey, 2), "interrupted flat journal migration retains deduplication");
+            Check(!File.Exists(legacyRecordPath), "legacy tombstone moves out of active journal");
             if (!OperatingSystem.IsWindows())
             {
                 string link = Path.Combine(temporary, "link");
@@ -190,6 +235,51 @@ internal static class ProductionSecurityTests
             try { ProductionSecurity.RunCapturedAsync(child, 10, 1024, CancellationToken.None).GetAwaiter().GetResult(); }
             catch (Exception ex) when (ex is InvalidDataException or OperationCanceledException) { limited = true; }
             Check(limited, "real child process output is bounded");
+            new TaskResourceLimits().Validate();
+            Reject(() => new TaskResourceLimits(0, 0, 0).Validate(), "unbounded task resource configuration rejected");
+            var linuxTask = new ProcessStartInfo("/bin/bash") { WorkingDirectory = "/var/lib/winhub-agent/tasks" };
+            linuxTask.ArgumentList.Add("/var/lib/winhub-agent/tasks/test.sh");
+            var systemd = LinuxTaskProcess.Command(linuxTask, new TaskResourceLimits(), 60, "winhub-task-test.service");
+            Check(systemd.ArgumentList.Contains("--property=MemoryMax=2048M")
+                && systemd.ArgumentList.Contains("--property=TasksMax=32")
+                && systemd.ArgumentList.Contains("--property=RuntimeMaxSec=60")
+                && systemd.ArgumentList.Contains("--property=BindsTo=winhub-linux-agent.service"), "Linux transient task has resource limits and service lifetime binding");
+            if (OperatingSystem.IsWindows() && !AppDomain.CurrentDomain.FriendlyName.Contains("Mac", StringComparison.OrdinalIgnoreCase))
+            {
+                var bounded = new ProcessStartInfo(Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.Windows), "System32", "WindowsPowerShell", "v1.0", "powershell.exe"))
+                    { UseShellExecute = false, RedirectStandardOutput = true, RedirectStandardError = true };
+                foreach (string arg in new[] { "-NoProfile", "-NonInteractive", "-Command", "[Console]::Write('bounded task'); exit 7" }) bounded.ArgumentList.Add(arg);
+                var result = WindowsTaskProcess.RunAsync(bounded, 20, 1024, new TaskResourceLimits(), CancellationToken.None).GetAwaiter().GetResult();
+                Check(result.Output == "bounded task" && result.ExitCode == 7, "Windows Job Object task preserves output and exit code");
+                bounded.ArgumentList.Clear();
+                foreach (string arg in new[] { "-NoProfile", "-NonInteractive", "-Command", "[Console]::Write('x' * 8192)" }) bounded.ArgumentList.Add(arg);
+                bool jobLimited = false;
+                try { WindowsTaskProcess.RunAsync(bounded, 10, 1024, new TaskResourceLimits(), CancellationToken.None).GetAwaiter().GetResult(); }
+                catch (Exception ex) when (ex is InvalidDataException or OperationCanceledException) { jobLimited = true; }
+                Check(jobLimited, "Windows bounded task cancels excessive output");
+                string childPidPath = Path.Combine(temporary, "windows-child.pid");
+                bounded.ArgumentList.Clear();
+                string spawn = "$p = Start-Process -FilePath '" + bounded.FileName.Replace("'", "''")
+                    + "' -ArgumentList '-NoProfile -NonInteractive -Command Start-Sleep 120' -WindowStyle Hidden -PassThru; [IO.File]::WriteAllText('"
+                    + childPidPath.Replace("'", "''") + "', [string]$p.Id); exit 0";
+                foreach (string arg in new[] { "-NoProfile", "-NonInteractive", "-Command", spawn }) bounded.ArgumentList.Add(arg);
+                try { WindowsTaskProcess.RunAsync(bounded, 3, 1024, new TaskResourceLimits(), CancellationToken.None).GetAwaiter().GetResult(); }
+                catch (OperationCanceledException) { }
+                int childPid = int.Parse(File.ReadAllText(childPidPath));
+                bool stillRunning;
+                try
+                {
+                    using var orphan = Process.GetProcessById(childPid);
+                    stillRunning = !orphan.WaitForExit(3000);
+                    if (stillRunning) orphan.Kill(); // Test cleanup only; production must rely on the job.
+                }
+                catch (ArgumentException) { stillRunning = false; }
+                Check(!stillRunning, "Windows job kills descendant after script exits");
+                bounded.ArgumentList.Clear();
+                foreach (string arg in new[] { "-NoProfile", "-NonInteractive", "-Command", "$ErrorActionPreference='Stop'; try { $a = [byte[]]::new(536870912); exit 0 } catch { exit 92 }" }) bounded.ArgumentList.Add(arg);
+                var memoryLimited = WindowsTaskProcess.RunAsync(bounded, 20, 4096, new TaskResourceLimits(256), CancellationToken.None).GetAwaiter().GetResult();
+                Check(memoryLimited.ExitCode != 0, "Windows job rejects allocation above memory limit");
+            }
             if (OperatingSystem.IsLinux())
             {
                 string descendantPidPath = Path.Combine(temporary, "descendant.pid");

@@ -174,9 +174,12 @@ class WinHubCore:
         actor_user_id=None,
         system_actor=False,
         ai_report=None,
+        launch_reason=None,
     ) -> str:
         user = WinHubCore.request_user(user_id)
         if not user: raise PermissionError("Invalid user")
+        from core.task_reason import validate_launch_reason
+        launch_reason = validate_launch_reason(launch_reason)
 
         report_template_id = payload.get("__report_template_id") if isinstance(payload, dict) else None
         if report_template_id and ai_report:
@@ -221,6 +224,7 @@ class WinHubCore:
                     for group in getattr(hosts_by_id.get(hid), "groups", [])
                 ], ensure_ascii=False),
                 title=title,
+                launch_reason=launch_reason,
                 module_source=module_name,
                 action_type=action,
                 source_type=resolved_source,
@@ -257,6 +261,7 @@ class WinHubCore:
                 details={
                     "job_id": job_id,
                     "title": title,
+                    "launch_reason": launch_reason,
                     "action_type": action,
                     "target_count": len(tasks),
                     "template_id": template_id,

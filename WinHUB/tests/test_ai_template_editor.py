@@ -216,7 +216,7 @@ class AiEditorApiTests(unittest.TestCase):
         self.assertTrue(all(not t.is_approved for t in TaskTemplate.query.all()))
         action = TaskTemplate.query.filter_by(type='action').first()
         from modules.Infrastructure import routes
-        with self.app.test_request_context('/api/infrastructure/tasks/create', method='POST', json={'template_id': action.id}):
+        with self.app.test_request_context('/api/infrastructure/tasks/create', method='POST', json={'template_id': action.id, 'launch_reason': 'Test approval policy'}):
             session.update(user_id=self.user.id, username=self.user.username, is_admin=False)
             with mock.patch.object(routes, 'require_permission', return_value=None), mock.patch.object(routes, 'can', return_value=True):
                 self.assertEqual(routes.create_task()[1], 403)

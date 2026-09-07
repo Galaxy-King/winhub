@@ -208,6 +208,7 @@ class AgentTask(db.Model):
     endpoint_groups_snapshot = db.Column(db.Text)
 
     title = db.Column(db.String(150), default="Untitled Task")
+    launch_reason = db.Column(EncryptedText, nullable=True)
     module_source = db.Column(db.String(50))
     action_type = db.Column(db.String(50))
     source_type = db.Column(db.String(30), default="manual", index=True)
@@ -264,6 +265,7 @@ class ScheduledTask(db.Model):
     __tablename__ = 'scheduled_tasks'
     id = db.Column(db.String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
     name = db.Column(db.String(150), nullable=False)
+    launch_reason = db.Column(EncryptedText, nullable=True)
     category = db.Column(db.String(100), default="Scheduled")
 
     template_id = db.Column(db.String(36), db.ForeignKey('task_templates.id', ondelete="CASCADE"))
@@ -299,6 +301,7 @@ class AgentUpdateRollout(db.Model):
     __tablename__ = 'agent_update_rollouts'
     id = db.Column(db.String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
     package_id = db.Column(db.String(100), index=True)
+    launch_reason = db.Column(EncryptedText, nullable=True)
     package_url = db.Column(db.Text)
     package_version = db.Column(db.String(50))
     target_ids = db.Column(db.Text)
@@ -316,6 +319,7 @@ class TriggerRule(db.Model):
     __tablename__ = 'trigger_rules'
     id = db.Column(db.String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
     name = db.Column(db.String(150), nullable=False)
+    launch_reason = db.Column(EncryptedText, nullable=True)
 
     target_group_id = db.Column(db.String(100), default="all")
 

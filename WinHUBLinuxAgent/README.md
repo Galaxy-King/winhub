@@ -4,19 +4,28 @@
 
 Агент працює через вихідні HTTPS-з'єднання до WinHUB: вхідний порт не потрібен. Обов'язковий SHA-256 pin leaf-сертифіката, отриманий адміністратором із довіреного джерела. `ServerCertificateSha256Next` дозволяє заздалегідь додати майбутній pin. TLS bypass, HTTP, redirects і cross-host update downloads заборонені. Токени, ключ і стан захищаються правами `0600/0700`.
 
+RC3 потребує systemd + cgroup v2 (`cpu`, `memory`, `pids`), `systemd-run`, `python3`, `util-linux`. Bash-задачі виконуються в transient service із CPU/RAM/process limits; defaults `TaskMemoryLimitMb=2048`, `TaskProcessLimit=32` (включає threads), `TaskCpuPercent=50`. Для великих бекапів підберіть ліміти до rollout. Завантажені update-пакети потребують publisher signature і окремо доставленого public `/var/lib/winhub-agent/release-signing-public.pem`. Build-архіви ще **не підписані**; private key не належить агенту. [Підписування та ручне приймання](../WinHUB-WiKi/guides/agents/AGENT_RELEASE_ACCEPTANCE_UA.md).
+
 ## Build
+
+Для RC2 self-update спочатку оновіть WinHUB server. Канонічний updater із `../WinHUB/deploy/agent-updaters/`
+копіюється під час publish, тому потрібен повний checkout. На endpoint потрібні `python3` та `util-linux`.
+Fleet Center спершу надсилає підписану підготовку updater: локальна політика має дозволяти `run_script`.
+Якщо дія заборонена, update блокується без заміни служби; автоматично `ExecutionMode` не послаблюється.
+Перед зупинкою служби новий бінарник перевіряє config та pinned HTTPS `/api/health`.
+[Перехід, rollback і обмеження RC2](../WinHUB-WiKi/guides/agents/PRODUCTION_PIN_AGENTS_UA.md#сумісне-оновлення-rc2).
 
 Install the .NET 8 SDK, then build a self-contained package:
 
 ```bash
 cd WinHUBLinuxAgent
-./create-linux-agent-release.sh 1.3.0 linux-x64
+./create-linux-agent-release.sh 2.0.0-rc.3 linux-x64
 ```
 
 For ARM servers or SBC endpoints:
 
 ```bash
-./create-linux-agent-release.sh 1.3.0 linux-arm64
+./create-linux-agent-release.sh 2.0.0-rc.3 linux-arm64
 ```
 
 ## Install
@@ -152,7 +161,7 @@ Enrollment key видаляється після збереження токен
 Supported built-in actions:
 
 - `reboot`: calls `systemctl reboot`.
-- `agent_update`: перевіряє обов'язковий SHA-256 пакета та запускає `update-linux-agent.sh` в окремому transient systemd unit, щоб updater не був завершений разом зі старим процесом агента.
+- `agent_update`: перевіряє обов'язкові SHA-256, publisher signature/inventory/serial/version та запускає `update-linux-agent.sh` в окремому transient systemd unit, щоб updater не був завершений разом зі старим процесом агента. Незалежний public trust доставляє адміністратор; `release-state.json` не видаляють і не відмотують при code rollback.
 
 ## Logs
 

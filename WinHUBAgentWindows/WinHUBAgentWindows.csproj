@@ -27,7 +27,8 @@
     <AgentDeployFile Include="winhub_agent.bootstrap.conf.example" />
     <AgentDeployFile Include="install-service.ps1" />
     <AgentDeployFile Include="uninstall-service.ps1" />
-    <AgentDeployFile Include="update-service.ps1" />
+    <AgentDeployFile Include="../WinHUB/deploy/agent-updaters/update-service.ps1" />
+    <AgentDeployFile Include="update-protocol.json" />
     <AgentDeployFile Include="README.md" />
   </ItemGroup>
 

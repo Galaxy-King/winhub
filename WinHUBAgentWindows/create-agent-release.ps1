@@ -1,5 +1,5 @@
 param(
-    [string]$Version = "1.2.0",
+    [Parameter(Mandatory = $true)][string]$Version,
     [string]$OutputDir = ".\dist-agent",
     [switch]$Aot,
     [switch]$ManagedSingleFile,
@@ -7,6 +7,9 @@ param(
 )
 
 $ErrorActionPreference = "Stop"
+
+if ($Version -notmatch '^(\d+)\.(\d+)\.(\d+)(-[0-9A-Za-z.-]+)?$') { throw 'Use a semantic release version.' }
+$binaryVersion = "$($Matches[1]).$($Matches[2]).$($Matches[3]).0"
 
 if ($Aot -and $ManagedSingleFile) {
     throw "Use either -Aot or -ManagedSingleFile, not both."
@@ -52,13 +55,11 @@ if (-not $ManagedSingleFile -and -not $VsDevReady) {
 }
 
 New-Item -ItemType Directory -Path $OutputDir -Force | Out-Null
-$publishDir = Join-Path $OutputDir "publish"
+$publishDir = Join-Path $OutputDir ("publish-" + [Guid]::NewGuid().ToString('N'))
 $zipPath = Join-Path $OutputDir "WinHUBAgent-v$Version-win-x64.zip"
 $manifestPath = Join-Path $OutputDir "WinHUBAgent-v$Version-win-x64.manifest.json"
 
-if (Test-Path -LiteralPath $publishDir) {
-    Remove-Item -LiteralPath $publishDir -Recurse -Force
-}
+if ((Test-Path -LiteralPath $zipPath) -or (Test-Path -LiteralPath $manifestPath)) { throw 'Release already exists; choose a new version or output directory.' }
 
 $publishArgs = @(
     "publish", ".\WinHUBAgentWindows.csproj",
@@ -67,8 +68,8 @@ $publishArgs = @(
     "--self-contained", "true",
     "-o", $publishDir,
     "-p:Version=$Version",
-    "-p:AssemblyVersion=$Version.0",
-    "-p:FileVersion=$Version.0",
+    "-p:AssemblyVersion=$binaryVersion",
+    "-p:FileVersion=$binaryVersion",
     "-p:InformationalVersion=$Version"
 )
 
@@ -94,9 +95,9 @@ foreach ($runtimeConfigName in @("winhub_agent.conf", "winhub_agent.bootstrap.co
 }
 
 if (Test-Path -LiteralPath $zipPath) {
-    Remove-Item -LiteralPath $zipPath -Force
+    throw 'Another build created this release while publishing; nothing was overwritten.'
 }
-Compress-Archive -Path (Join-Path $publishDir "*") -DestinationPath $zipPath -Force
+Compress-Archive -Path (Join-Path $publishDir "*") -DestinationPath $zipPath
 
 $hash = (Get-FileHash -LiteralPath $zipPath -Algorithm SHA256).Hash
 $manifest = [ordered]@{
@@ -107,9 +108,13 @@ $manifest = [ordered]@{
     publish_mode = $(if ($ManagedSingleFile) { "self-contained-single-file" } else { "self-contained-aot" })
     aot = -not [bool]$ManagedSingleFile
     pdb_included = $false
+    release_signature = "NOT_SIGNED_USE_OFFLINE_PUBLISHER"
+    publish_directory = $publishDir
 }
 $manifest | ConvertTo-Json | Set-Content -LiteralPath $manifestPath -Encoding UTF8
 
 Write-Host $zipPath
 Write-Host $manifestPath
 Write-Host "SHA256: $hash"
+Write-Host "Publish directory for offline signing: $publishDir"
+Write-Warning 'This build archive is unsigned. Strict agents require a package made by WinHUBLinuxAgent/tools/sign-release.py.'

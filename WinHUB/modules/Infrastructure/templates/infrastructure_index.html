@@ -1489,12 +1489,15 @@
     window.WinhubIsAdmin = {{ 'true' if is_admin else 'false' }};
     window.WinhubCanManageSoftware = {{ 'true' if permissions.manage_software else 'false' }};
 </script>
-<script nonce="{{ csp_nonce }}" src="{{ url_for('static', filename='js/infrastructure.js', v=app_version ~ '-ai-editor-1') }}"></script>
+{% include 'modals/_launch_reason.html' %}
+<link rel="stylesheet" href="{{ url_for('static', filename='css/task_launch_reason.css', v=app_version ~ '-reason-1') }}">
+<script nonce="{{ csp_nonce }}" src="{{ url_for('static', filename='js/task_launch_reason.js', v=app_version ~ '-reason-1') }}"></script>
+<script nonce="{{ csp_nonce }}" src="{{ url_for('static', filename='js/infrastructure.js', v=app_version ~ '-reason-1') }}"></script>
 {% if permissions.use_ai_templates and permissions.manage_templates %}
 <link rel="stylesheet" href="{{ url_for('static', filename='css/ai_template_editor.css', v=app_version) }}">
 <script nonce="{{ csp_nonce }}" src="{{ url_for('static', filename='js/ai_template_editor.js', v=app_version) }}"></script>
 {% endif %}
 {% if permissions.run_tasks %}
-<script nonce="{{ csp_nonce }}" src="{{ url_for('static', filename='js/infrastructure_quick_launch.js', v=app_version) }}"></script>
+<script nonce="{{ csp_nonce }}" src="{{ url_for('static', filename='js/infrastructure_quick_launch.js', v=app_version ~ '-reason-1') }}"></script>
 {% endif %}
 {% endblock %}

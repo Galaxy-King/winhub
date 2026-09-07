@@ -38,6 +38,9 @@ public class AgentConfig
     public string TaskHmacSecret { get; set; } = "";
     public int DefaultTaskTimeoutSeconds { get; set; } = 1800;
     public int MaxResultLogBytes { get; set; } = 262144;
+    public int TaskMemoryLimitMb { get; set; } = 2048;
+    public int TaskProcessLimit { get; set; } = 32;
+    public int TaskCpuPercent { get; set; } = 50;
     public bool IgnoreTlsCertificateErrors { get; set; } = false;
     public string ServerCertificateSha256 { get; set; } = "";
     public string ServerCertificateSha256Next { get; set; } = "";
@@ -358,6 +361,7 @@ public class Worker : BackgroundService
             ?? throw new InvalidDataException("Agent configuration is empty.");
         ProductionSecurity.ValidateConfiguration(config.ServerUrl, config.ServerCertificateSha256,
             config.ServerCertificateSha256Next, config.IgnoreTlsCertificateErrors, config.RequireTaskSignature);
+        new TaskResourceLimits(config.TaskMemoryLimitMb, config.TaskProcessLimit, config.TaskCpuPercent).Validate();
         if (config.AllowCrossHostUpdateDownloads)
             throw new InvalidDataException("Cross-host update downloads are forbidden in production.");
     }
@@ -518,6 +522,9 @@ public class Worker : BackgroundService
                 nameof(AgentConfig.TaskHmacSecret),
                 nameof(AgentConfig.DefaultTaskTimeoutSeconds),
                 nameof(AgentConfig.MaxResultLogBytes),
+                nameof(AgentConfig.TaskMemoryLimitMb),
+                nameof(AgentConfig.TaskProcessLimit),
+                nameof(AgentConfig.TaskCpuPercent),
                 nameof(AgentConfig.IgnoreTlsCertificateErrors),
                 nameof(AgentConfig.ServerCertificateSha256),
                 nameof(AgentConfig.RequireTaskSignature),
@@ -878,8 +885,9 @@ public class Worker : BackgroundService
             var start = new ProcessStartInfo("/bin/bash") { UseShellExecute = false,
                 RedirectStandardOutput = true, RedirectStandardError = true, WorkingDirectory = taskDirectory };
             start.ArgumentList.Add(path);
-            var capture = await ProductionSecurity.RunCapturedAsync(start, Math.Clamp(timeoutSeconds, 1, 86400),
-                Math.Clamp(_config.MaxResultLogBytes, 4096, 1024 * 1024), stoppingToken);
+            var capture = await LinuxTaskProcess.RunAsync(start, Math.Clamp(timeoutSeconds, 1, 86400),
+                Math.Clamp(_config.MaxResultLogBytes, 4096, 1024 * 1024),
+                new TaskResourceLimits(_config.TaskMemoryLimitMb, _config.TaskProcessLimit, _config.TaskCpuPercent), stoppingToken);
             string log = string.IsNullOrWhiteSpace(capture.Error) ? capture.Output : capture.Output + "\n[ERRORS]\n" + capture.Error;
             return (capture.ExitCode == 0 ? "Success" : "Error", TrimResultLog(log));
         }
@@ -940,6 +948,11 @@ public class Worker : BackgroundService
                 }
             }
 
+            if (!OperatingSystem.IsMacOS())
+                SignedRelease.VerifyPackage(packagePath, DataDirectory, "linux", RuntimeInformation.ProcessArchitecture.ToString().ToLowerInvariant(),
+                    AgentBuildInfo.Version, expectedVersion,
+                    path => RestrictPath(path, UnixFileMode.UserRead | UnixFileMode.UserWrite),
+                    path => RestrictPath(path, UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute));
             string updateScript = OperatingSystem.IsMacOS()
                 ? "/Library/PrivilegedHelperTools/com.winhub.agent/update-macos-agent.sh"
                 : "/opt/winhub-linux-agent/update-linux-agent.sh";

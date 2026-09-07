@@ -6,6 +6,8 @@ Windows endpoint agent for WinHUB.
 
 Current strict-pin changes are a **release candidate**, not completion of the full production hardening plan. [Implemented controls, migration requirements and remaining release gates](../WinHUB-WiKi/guides/agents/PRODUCTION_PIN_AGENTS_UA.md). Build from the full repository: this project links `../WinHUBLinuxAgent/Security/*.cs`.
 
+RC3 adds mandatory publisher-signature verification for incoming updates, archived execution tombstones and per-task Windows Job Objects. Default local limits are `TaskMemoryLimitMb=2048`, `TaskProcessLimit=32`, `TaskCpuPercent=50`; assess larger backup workloads before rollout. Build archives are **unsigned** until processed by the offline publisher; no private release key belongs on an agent. [Signing, public trust provisioning and manual acceptance](../WinHUB-WiKi/guides/agents/AGENT_RELEASE_ACCEPTANCE_UA.md).
+
 ## Production build
 
 Build on a machine with the .NET 8 SDK installed:
@@ -46,13 +48,13 @@ Do not deploy `WinHUBAgent.pdb` to production endpoints. Keep it on the build se
 Package a release build:
 
 ```powershell
-.\create-agent-release.ps1 -Version 1.2.0
+.\create-agent-release.ps1 -Version 2.0.0-rc.3
 ```
 
 The release script builds NativeAOT by default. Use `-ManagedSingleFile` only when you explicitly need a non-AOT managed single-file package:
 
 ```powershell
-.\create-agent-release.ps1 -Version 1.2.0 -ManagedSingleFile
+.\create-agent-release.ps1 -Version 2.0.0-rc.3 -ManagedSingleFile
 ```
 
 ## Agent configs
@@ -197,6 +199,13 @@ Get-EventLog -LogName Application -Source WinHUBAgent -Newest 30 |
 
 ## Update service
 
+RC2 packages use the canonical updater in `../WinHUB/deploy/agent-updaters/` (copied by publish).
+Update WinHUB server first. Its signed prepare task supplies the expected hash for Windows 1.2.21,
+whose launcher passes only `PackagePath`. The updater never calls new CLI modes on the old executable.
+Archive, offline config and pinned HTTPS health checks precede service stop. Failed preparation blocks
+dispatch; failed replacement attempts code rollback without rewinding live config or protected state.
+See the [canary procedure and limits](../WinHUB-WiKi/guides/agents/PRODUCTION_PIN_AGENTS_UA.md#сумісне-оновлення-rc2).
+
 Copy a versioned agent package to the endpoint and run PowerShell as Administrator:
 
 ```powershell
@@ -231,7 +240,7 @@ Task payload:
 }
 ```
 
-`package_url` may be relative or use the same HTTPS origin as `ServerUrl`. `sha256` is mandatory. Redirects, cross-host downloads, packages above 512 MiB and mismatching hashes are refused. SHA-256 from a signed task is not an independent publisher signature; see the remaining release gates before deployment.
+`package_url` may be relative or use the same HTTPS origin as `ServerUrl`. `sha256` is mandatory. Redirects, cross-host downloads, packages above 512 MiB and mismatching hashes are refused. RC3 also requires `release-manifest.json` verified against the administrator-provisioned `C:\ProgramData\WinHUB\release-signing-public.pem`, and preserves `release-state.json` against downgrade. Missing public trust blocks updates, not regular tasks. Old agents do not enforce this retroactively during the first transition.
 
 The agent downloads the package to:
 

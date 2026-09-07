@@ -1,0 +1,13 @@
+.launch-reason-field { display: block; margin: 1rem 0; }
+.launch-reason-field > span { display: block; margin-bottom: .5rem; font-size: .8rem; font-weight: 700; }
+textarea[data-launch-reason] { display: block; width: 100%; min-height: 6rem; padding: .8rem; resize: vertical; border: 1px solid #526880; border-radius: .8rem; background: #0f1c2e; color: #eaf5ff; font: inherit; font-size: .9rem; }
+textarea[data-launch-reason]::placeholder { color: #a8bbce; opacity: 1; }
+textarea[data-launch-reason]:focus { outline: 2px solid #38bdf8; outline-offset: 2px; }
+.launch-reason-display { margin-top: .7rem; max-height: 9rem; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere; font-size: .9rem; line-height: 1.5; text-transform: none; letter-spacing: normal; }
+#taskLaunchReasonDialog { width: min(34rem, calc(100vw - 2rem)); max-height: 85vh; overflow: auto; padding: 1.5rem; border: 1px solid #526880; border-radius: 1.25rem; background: #101c2d; color: #eaf5ff; box-shadow: 0 20px 70px #0008; }
+#taskLaunchReasonDialog::backdrop { background: #020817b8; }
+#taskLaunchReasonDialog h2 { font-size: 1.2rem; font-weight: 800; }
+#taskLaunchReasonDialog p { margin: .7rem 0; color: #b6c9dd; font-size: .9rem; }
+.launch-reason-actions { display: flex; justify-content: flex-end; gap: .7rem; margin-top: 1rem; }
+.launch-reason-actions button { padding: .7rem 1rem; border-radius: .7rem; border: 1px solid #526880; background: #24364d; color: #fff; font-weight: 700; cursor: pointer; }
+.launch-reason-actions button[type=submit] { background: #075985; }

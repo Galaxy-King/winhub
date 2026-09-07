@@ -47,6 +47,9 @@ namespace WinHUBAgent
         public string TaskHmacSecret { get; set; } = "";
         public int DefaultTaskTimeoutSeconds { get; set; } = 1800;
         public int MaxResultLogBytes { get; set; } = 262144;
+        public int TaskMemoryLimitMb { get; set; } = 2048;
+        public int TaskProcessLimit { get; set; } = 32;
+        public int TaskCpuPercent { get; set; } = 50;
         public bool IgnoreTlsCertificateErrors { get; set; } = false;
         public string ServerCertificateSha256 { get; set; } = "";
         public string ServerCertificateSha256Next { get; set; } = "";
@@ -236,6 +239,7 @@ namespace WinHUBAgent
                 ?? throw new InvalidDataException("Agent configuration is empty.");
             ProductionSecurity.ValidateConfiguration(config.ServerUrl, config.ServerCertificateSha256,
                 config.ServerCertificateSha256Next, config.IgnoreTlsCertificateErrors, config.RequireTaskSignature);
+            new TaskResourceLimits(config.TaskMemoryLimitMb, config.TaskProcessLimit, config.TaskCpuPercent).Validate();
         }
 
         private void LoadTaskSigningState()
@@ -795,6 +799,8 @@ namespace WinHUBAgent
                     }
                 }
 
+                SignedRelease.VerifyPackage(packagePath, DataDirectory, "windows", RuntimeInformation.ProcessArchitecture.ToString().ToLowerInvariant(),
+                    AgentBuildInfo.Version, GetPayloadString(payload, "target_version"), HardenFileAcl, HardenDirectoryAcl);
                 string updateScript = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "update-service.ps1");
                 if (!File.Exists(updateScript))
                 {
@@ -997,7 +1003,6 @@ namespace WinHUBAgent
                 var psi = new ProcessStartInfo
                 {
                     FileName = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.Windows), "System32", "WindowsPowerShell", "v1.0", "powershell.exe"),
-                    Arguments = $"-ExecutionPolicy Bypass -NoProfile -NonInteractive -File \"{tempScriptFile}\"",
                     RedirectStandardOutput = true,
                     RedirectStandardError = true,
                     UseShellExecute = false,
@@ -1006,8 +1011,11 @@ namespace WinHUBAgent
                     StandardErrorEncoding = Encoding.UTF8
                 };
 
-                var capture = await ProductionSecurity.RunCapturedAsync(psi, timeoutSeconds,
-                    Math.Clamp(_config.MaxResultLogBytes, 4096, 4 * 1024 * 1024), stoppingToken);
+                foreach (string argument in new[] { "-ExecutionPolicy", "Bypass", "-NoProfile", "-NonInteractive", "-File", tempScriptFile })
+                    psi.ArgumentList.Add(argument);
+                var capture = await WindowsTaskProcess.RunAsync(psi, timeoutSeconds,
+                    Math.Clamp(_config.MaxResultLogBytes, 4096, 4 * 1024 * 1024),
+                    new TaskResourceLimits(_config.TaskMemoryLimitMb, _config.TaskProcessLimit, _config.TaskCpuPercent), stoppingToken);
                 outputLog = capture.Output;
                 if (!string.IsNullOrWhiteSpace(capture.Error))
                 {

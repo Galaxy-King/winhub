@@ -410,6 +410,10 @@
                     <input id="quickLaunchTaskTitle" type="text" class="quick-launch-input" maxlength="180" autocomplete="off">
                 </div>
 
+                <label class="launch-reason-field">
+                    <span>Причина запуску *</span>
+                    <textarea id="quickLaunchReason" data-launch-reason required maxlength="2000" rows="3" placeholder="Навіщо запускається ця задача? Не вказуйте паролі чи токени."></textarea>
+                </label>
                 <div id="quickLaunchVariablesBlock">
                     <p class="mb-2 text-[10px] font-black text-slate-400 uppercase tracking-widest">Template variables</p>
                     <div id="quickLaunchVariables" class="grid grid-cols-1 sm:grid-cols-2 gap-3"></div>

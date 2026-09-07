@@ -120,7 +120,7 @@ internal static class ProductionSecurity
         finally { if (File.Exists(temporary)) File.Delete(temporary); }
     }
 
-    private static void FlushDirectory(string directory)
+    internal static void FlushDirectory(string directory)
     {
         int fd = open(directory, 0x10000 /* O_DIRECTORY */);
         if (fd < 0) throw new IOException("Could not open state directory for durability check.");

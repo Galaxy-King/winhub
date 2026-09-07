@@ -33,6 +33,7 @@ from apscheduler.triggers.cron import CronTrigger
 
 from core.database import db, User, Endpoint, EndpointGroup, EndpointDuplicateException, AgentTask, TaskTemplate, TelemetryHistory, ConnectionIpHistory, ScheduledTask, EndpointMetric, AgentUpdateRollout, TriggerRule, AggregatedJob, AiReportRequest, ApiKey, RegistrationHistory, AuditLog, ReportRevision, ReportDelivery, HistorySearchToken, endpoint_group_m2m
 from core.sdk import WinHubCore
+from core.task_reason import validate_launch_reason
 from core.admin import send_notification_email
 from core.security import sec_manager
 from core.config import Config
@@ -1405,11 +1406,13 @@ def write_infra_audit(action, target_type="", target_id="", details=None, status
 
 def dispatch_infrastructure_task(
     user_id, action_type, target_ids, payload, title, created_by=None, source_type=None,
-    ai_report=None,
+    ai_report=None, launch_reason=None,
 ):
     user = current_user() if user_id == session.get("user_id") else User.query.get(user_id)
     if not user:
         raise PermissionError("Invalid user")
+
+    launch_reason = validate_launch_reason(launch_reason)
 
     report_template_id = payload.get("__report_template_id") if isinstance(payload, dict) else None
     if report_template_id and ai_report:
@@ -1465,6 +1468,7 @@ def dispatch_infrastructure_task(
                 for group in host.groups
             ], ensure_ascii=False),
             title=title,
+            launch_reason=launch_reason,
             module_source="Infrastructure",
             action_type=action_type,
             source_type=resolved_source,
@@ -1499,6 +1503,7 @@ def dispatch_infrastructure_task(
         details={
             "job_id": job_id,
             "title": title,
+            "launch_reason": launch_reason,
             "action_type": action_type,
             "target_count": len(tasks),
             "template_id": template_id,
@@ -2896,6 +2901,7 @@ def index():
 
     scheduled_tasks = [{
         "id": st.id, "name": st.name, "category": st.category, "cron": st.cron_expr, "is_active": st.is_active,
+        "launch_reason": mask_sensitive_text(st.launch_reason) if st.launch_reason else None,
         "target_type": st.target_type,
         "target_name": scheduled_target_name(st),
         "template_name": st.template.name if st.template else "Deleted Template",
@@ -2912,6 +2918,10 @@ def index():
     for tr in triggers_raw:
         trigger_rules.append({
             "id": tr.id, "name": tr.name, "metric_name": tr.metric_name,
+            "launch_reason": mask_sensitive_text(tr.launch_reason) if tr.launch_reason else None,
+            "target_group_id": tr.target_group_id,
+            "last_status": tr.last_status,
+            "last_run": to_kyiv_time_short(tr.last_run),
             "operator": tr.operator, "threshold_value": tr.threshold_value,
             "action_template_id": tr.action_template_id,
             "action_name": template_name_by_id.get(tr.action_template_id, "Deleted Template"),
@@ -4187,15 +4197,20 @@ def validate_schedule_target(target_type, target_id):
 def manage_trigger():
     denied = require_permission("manage_triggers")
     if denied: return denied
-    data = request.json
+    data = request.get_json(silent=True)
+    try:
+        launch_reason = validate_launch_reason(data.get("launch_reason") if isinstance(data, dict) else None)
+    except ValueError as exc:
+        return jsonify(success=False, message=str(exc)), 400
     tid = data.get('id')
     if tid:
         tr = TriggerRule.query.get(tid)
         if tr:
+            tr.launch_reason = launch_reason
             tr.name = data.get('name'); tr.metric_name = data.get('metric_name'); tr.operator = data.get('operator')
             tr.threshold_value = data.get('threshold_value'); tr.action_template_id = data.get('action_template_id'); tr.is_active = data.get('is_active', True)
     else:
-        db.session.add(TriggerRule(name=data.get('name'), metric_name=data.get('metric_name'), operator=data.get('operator'), threshold_value=data.get('threshold_value'), action_template_id=data.get('action_template_id'), is_active=data.get('is_active', True)))
+        db.session.add(TriggerRule(launch_reason=launch_reason, name=data.get('name'), metric_name=data.get('metric_name'), operator=data.get('operator'), threshold_value=data.get('threshold_value'), action_template_id=data.get('action_template_id'), is_active=data.get('is_active', True)))
     db.session.commit()
     return jsonify({"success": True})
 
@@ -4214,6 +4229,10 @@ def manage_schedule():
     data = request.get_json(silent=True)
     if not isinstance(data, dict):
         return jsonify({"success": False, "message": "A JSON schedule object is required"}), 400
+    try:
+        launch_reason = validate_launch_reason(data.get("launch_reason"))
+    except ValueError as exc:
+        return jsonify(success=False, message=str(exc)), 400
 
     tid = str(data.get('id') or '').strip() or None
     name = str(data.get('name') or '').strip()
@@ -4301,6 +4320,7 @@ def manage_schedule():
 
     variables_raw = json.dumps(clean_variables, ensure_ascii=False)
     st.name = name
+    st.launch_reason = launch_reason
     st.category = category
     st.template_id = template.id
     st.target_type = target_type
@@ -4314,7 +4334,7 @@ def manage_schedule():
         "Scheduled Task Saved",
         "scheduled_task",
         st.id,
-        {"name": name, "category": category, "target_type": target_type, "active": is_active},
+        {"name": name, "category": category, "target_type": target_type, "active": is_active, "launch_reason": launch_reason},
     )
     db.session.commit()
     from core import reload_scheduler_jobs
@@ -4359,12 +4379,18 @@ def run_schedule_now(tid):
         return jsonify({"success": False, "message": str(exc)}), 403
     except ValueError as exc:
         return jsonify({"success": False, "message": str(exc)}), 400
+    data = request.get_json(silent=True)
     from core import run_scheduled_job
+    try:
+        launch_reason = validate_launch_reason(data.get("launch_reason") if isinstance(data, dict) else None)
+    except ValueError as exc:
+        return jsonify(success=False, message=str(exc)), 400
     result = run_scheduled_job(
         tid,
         manual_run=True,
         actor_user_id=session.get("user_id"),
         actor_name=current_actor_label(),
+        launch_reason=launch_reason,
     ) or {"success": False, "message": "Schedule did not run"}
     status = 200 if result.get("success") else 400
     return jsonify(result), status
@@ -4746,26 +4772,9 @@ def delete_agent_package(package_id):
     return jsonify({"success": True})
 
 
-def agent_updater_bootstrap_script():
-    updater_path = os.path.abspath(os.path.join(
-        os.path.dirname(__file__),
-        "..",
-        "..",
-        "WinHUBAgent",
-        "update-service.ps1"
-    ))
-    with open(updater_path, "rb") as f:
-        updater_b64 = base64.b64encode(f.read()).decode("ascii")
-    return f"""$ErrorActionPreference = 'Stop'
-$InstallDir = "C:\\Program Files\\WinHUBAgent"
-$UpdaterPath = Join-Path $InstallDir "update-service.ps1"
-New-Item -ItemType Directory -Path $InstallDir -Force | Out-Null
-$bytes = [Convert]::FromBase64String("{updater_b64}")
-$content = [System.Text.Encoding]::UTF8.GetString($bytes)
-[System.IO.File]::WriteAllText($UpdaterPath, $content, (New-Object System.Text.UTF8Encoding($false)))
-Unblock-File -LiteralPath $UpdaterPath -ErrorAction SilentlyContinue
-Write-Output "[WinHUB] update-service.ps1 prepared at $UpdaterPath"
-"""
+def agent_updater_bootstrap_script(platform, sha256):
+    from core.agent_updates import updater_bootstrap_script
+    return updater_bootstrap_script(platform, sha256)
 
 
 def is_agent_updater_prepare_task(task):
@@ -4804,10 +4813,10 @@ def build_agent_update_plan(target_ids, selected_package):
     return plan, skipped
 
 
-def create_agent_update_wave(update_items, created_by, wave_index, wave_total):
+def create_agent_update_wave(update_items, created_by, wave_index, wave_total, *, launch_reason=None):
+    launch_reason = validate_launch_reason(launch_reason)
     job_id = str(uuid.uuid4())
     created_at = datetime.utcnow()
-    updater_script = agent_updater_bootstrap_script()
     host_ids = [str(item.get("host_id")) for item in update_items if item.get("host_id")]
     hosts = {row.id: row for row in Endpoint.query.filter(Endpoint.id.in_(host_ids)).all()}
     actor = User.query.filter_by(username=created_by).first() if created_by and created_by != "System" else None
@@ -4815,6 +4824,7 @@ def create_agent_update_wave(update_items, created_by, wave_index, wave_total):
 
     def add_update_task(host, **values):
         task = AgentTask(
+            launch_reason=launch_reason,
             endpoint_id=host.id,
             endpoint_id_snapshot=host.id,
             endpoint_hostname_snapshot=host.hostname,
@@ -4844,9 +4854,12 @@ def create_agent_update_wave(update_items, created_by, wave_index, wave_total):
         }
         title = f"Agent Update {package.get('version')} {platform} - Wave {wave_index}/{wave_total}"
         task_created_at = created_at
-        if platform == "windows":
+        if platform in {"windows", "linux"}:
+            updater_script = agent_updater_bootstrap_script(platform, payload["sha256"])
+            prepare_id = str(uuid.uuid4())
+            payload["__updater_prepare_task_id"] = prepare_id
             add_update_task(host,
-                id=str(uuid.uuid4()),
+                id=prepare_id,
                 job_id=job_id,
                 title=f"Prepare Agent Updater - Wave {wave_index}/{wave_total}",
                 module_source="Infrastructure",
@@ -4875,7 +4888,7 @@ def create_agent_update_wave(update_items, created_by, wave_index, wave_total):
         actor_type="system", actor_name=created_by or "System",
         actor_role="system", source_type="scheduler", module="Infrastructure",
         action="Agent Update Wave Dispatched", target_type="job", target_id=job_id,
-        details=json.dumps({"wave": wave_index, "total_waves": wave_total, "tasks": len(created_tasks)}, ensure_ascii=False),
+        details=json.dumps({"wave": wave_index, "total_waves": wave_total, "tasks": len(created_tasks), "launch_reason": launch_reason}, ensure_ascii=False),
         status="Success",
     )
     db.session.add(audit_entry)
@@ -4921,6 +4934,14 @@ def process_due_agent_update_rollouts():
 
 def process_one_agent_update_rollout(rollout):
     now = datetime.utcnow()
+    try:
+        launch_reason = validate_launch_reason(rollout.launch_reason)
+    except ValueError:
+        rollout.status = "Reason required"
+        rollout.next_run_at = None
+        rollout.updated_at = now
+        logging.getLogger("winhub").warning("Agent rollout %s blocked: launch reason required", rollout.id)
+        return False
     target_ids = json.loads(rollout.target_ids or "[]")
     target_ids = list(dict.fromkeys([str(item) for item in target_ids if str(item or "").strip()])) if isinstance(target_ids, list) else []
     if not isinstance(target_ids, list) or not target_ids:
@@ -4984,7 +5005,7 @@ def process_one_agent_update_rollout(rollout):
         rollout.updated_at = now
         return False
 
-    create_agent_update_wave(wave_items, rollout.created_by or "System", index, recalculated_total_waves)
+    create_agent_update_wave(wave_items, rollout.created_by or "System", index, recalculated_total_waves, launch_reason=launch_reason)
     rollout.next_wave_index = index + 1
     rollout.updated_at = datetime.utcnow()
     if rollout.next_wave_index > recalculated_total_waves:
@@ -5000,7 +5021,7 @@ def planned_agent_update_rollout_jobs(allowed_host_ids):
     if not allowed:
         return []
 
-    rollouts = AgentUpdateRollout.query.filter_by(status="Running").order_by(
+    rollouts = AgentUpdateRollout.query.filter(AgentUpdateRollout.status.in_(["Running", "Reason required"])).order_by(
         AgentUpdateRollout.created_at.desc()
     ).limit(25).all()
     planned_jobs = []
@@ -5053,6 +5074,8 @@ def planned_agent_update_rollout_jobs(allowed_host_ids):
                 platforms = sorted({str(item.get("platform") or "unknown").lower() for item in visible_items})
                 platform_label = platforms[0] if len(platforms) == 1 else "mixed"
                 title = f"Agent Update {rollout.package_version or package.get('version') or ''} {platform_label} - Wave {wave_index}/{total_waves}".strip()
+                if rollout.status == "Reason required":
+                    title = "[Launch reason required — restart rollout] " + title
                 tasks = []
                 for item in visible_items:
                     host_id = item["host_id"]
@@ -5070,6 +5093,7 @@ def planned_agent_update_rollout_jobs(allowed_host_ids):
                 planned_jobs.append({
                     "job_id": f"rollout:{rollout.id}:wave:{wave_index}",
                     "rollout_id": rollout.id,
+                    "launch_reason": mask_sensitive_text(rollout.launch_reason) if rollout.launch_reason else None,
                     "wave_index": wave_index,
                     "planned": True,
                     "title": title,
@@ -5527,7 +5551,11 @@ try {{
 def run_software_install():
     denied = require_permission("run_tasks")
     if denied: return denied
-    data = request.get_json(force=True) or {}
+    data = request.get_json(silent=True)
+    try:
+        launch_reason = validate_launch_reason(data.get("launch_reason") if isinstance(data, dict) else None)
+    except ValueError as exc:
+        return jsonify(success=False, message=str(exc)), 400
     package = find_software_package(str(data.get("package_id") or ""))
     if not package:
         return jsonify({"success": False, "message": "Software package not found"}), 404
@@ -5581,6 +5609,7 @@ def run_software_install():
         payload,
         title,
         created_by=current_actor_label(),
+        launch_reason=launch_reason,
     )
     write_infra_audit("Software Dispatch", "software_package", package["id"], {"operation": operation, "targets": len(target_ids), "target_mode": target_mode, "install_scope": install_scope, "user_logins": user_logins})
     db.session.commit()
@@ -5746,7 +5775,11 @@ def fleet_center():
 def run_fleet_update():
     denied = require_permission("run_tasks")
     if denied: return denied
-    data = request.get_json(force=True) or {}
+    data = request.get_json(silent=True)
+    try:
+        launch_reason = validate_launch_reason(data.get("launch_reason") if isinstance(data, dict) else None)
+    except ValueError as exc:
+        return jsonify(success=False, message=str(exc)), 400
     package = find_agent_package(str(data.get("package_id") or ""))
     if not package:
         return jsonify({"success": False, "message": "Agent package not found"}), 404
@@ -5797,6 +5830,7 @@ def run_fleet_update():
     created_by = current_actor_label()
 
     rollout = AgentUpdateRollout(
+        launch_reason=launch_reason,
         package_id=package["id"],
         package_url=package["update_url"],
         package_version=package.get("version"),
@@ -5824,6 +5858,7 @@ def run_fleet_update():
         "wave_delay_seconds": wave_delay_seconds,
         "target_mode": target_mode,
         "rollout_id": rollout.id,
+        "launch_reason": launch_reason,
     })
     db.session.commit()
     return jsonify({
@@ -6037,7 +6072,11 @@ def delete_template(tid):
 def create_task():
     denied = require_permission("run_tasks")
     if denied: return denied
-    data = request.json
+    data = request.get_json(silent=True)
+    try:
+        launch_reason = validate_launch_reason(data.get("launch_reason") if isinstance(data, dict) else None)
+    except ValueError as exc:
+        return jsonify(success=False, message=str(exc)), 400
     target_type = data.get('target_type')
     action = data.get('action')
     is_admin = session.get('is_admin', False)
@@ -6232,6 +6271,7 @@ def create_task():
         job_id = WinHubCore.dispatch_task(
             session.get('user_id'), "Infrastructure", action_type, agent_ids, payload_dict,
             data.get('title', 'Task'), ai_report=ai_report,
+            launch_reason=launch_reason,
         )
         return jsonify({"success": True, "job_id": job_id})
     except Exception as e:
@@ -6244,7 +6284,11 @@ def run_template_api(template_id):
     if denied:
         return denied
 
-    data = request.json or {}
+    data = request.get_json(silent=True)
+    try:
+        launch_reason = validate_launch_reason(data.get("launch_reason") if isinstance(data, dict) else None)
+    except ValueError as exc:
+        return jsonify(success=False, message=str(exc)), 400
     template = TaskTemplate.query.get(template_id)
     own_runnable = bool(
         not session.get("api_key_auth")
@@ -6338,6 +6382,7 @@ def run_template_api(template_id):
             title,
             created_by=current_actor_label(),
             ai_report=ai_report,
+            launch_reason=launch_reason,
         )
 
         WinHubCore.audit(
@@ -6581,6 +6626,7 @@ def get_tasks():
             jobs[jid] = {"job_id": jid, "title": t.title or "Untitled Task", "action": t.action_type, "created_at": to_kyiv_time(t.created_at), "_sort_at": job_sort_at.get(jid) or t.created_at, "created_by": t.created_by, "ai_report": ({"requested": True, "status": ai_row.status} if ai_row else {"requested": False, "status": "NotRequested"}), "tasks": [], "total": 0, "success": 0, "error": 0, "pending": 0, "running": 0, "cancelled": 0}
         if is_agent_updater_prepare_task(t):
             continue
+        jobs[jid]["launch_reason"] = mask_sensitive_text(t.launch_reason) if t.launch_reason else None
         resolved_hostname = hostname or t.endpoint_hostname_snapshot or ""
         resolved_name = display_name or t.endpoint_name_snapshot or ""
         resolved_endpoint_id = t.endpoint_id or t.endpoint_id_snapshot
@@ -6666,6 +6712,7 @@ def get_single_task(task_id):
         "id": task.id,
         "job_id": task.job_id,
         "title": task.title or "Untitled",
+        "launch_reason": mask_sensitive_text(task.launch_reason) if task.launch_reason else None,
         "action": task.action_type or "",
         "source": task.source_type or "manual",
         "created_by": task.created_by or "System",
@@ -6757,6 +6804,7 @@ def get_job_status_api(job_id):
     return jsonify({
         "success": True,
         "job_id": str(job_id),
+        "launch_reason": mask_sensitive_text(tasks[0].launch_reason) if tasks[0].launch_reason else None,
         "status": job_status,
         "counts": counters,
         "ai_report": ({
@@ -6871,7 +6919,7 @@ def cancel_agent_update_rollout(rollout_id):
     rollout = AgentUpdateRollout.query.filter_by(id=rollout_id).with_for_update().first()
     if not rollout:
         return jsonify({"success": False, "message": "Scheduled rollout not found"}), 404
-    if rollout.status != "Running":
+    if rollout.status not in ("Running", "Reason required"):
         return jsonify({"success": True, "status": rollout.status, "message": "Rollout is not running"})
 
     try:
@@ -6962,6 +7010,11 @@ def retry_failed_job(job_id):
     if not can_access_report(job_id, "run_tasks"):
         return jsonify({"success": False, "message": "Permission denied"}), 403
 
+    data = request.get_json(silent=True)
+    try:
+        launch_reason = validate_launch_reason(data.get("launch_reason") if isinstance(data, dict) else None)
+    except ValueError as exc:
+        return jsonify(success=False, message=str(exc)), 400
     failed_tasks = AgentTask.query.filter_by(job_id=job_id).filter(AgentTask.status.in_(["Error", "Cancelled"])).all()
     new_job_id = str(uuid.uuid4())
     created = 0
@@ -6980,6 +7033,7 @@ def retry_failed_job(job_id):
             endpoint_name_snapshot=task.endpoint_name_snapshot or getattr(endpoint, "display_name", None),
             endpoint_groups_snapshot=task.endpoint_groups_snapshot,
             title=f"[Retry] {task.title or 'Untitled Task'}",
+            launch_reason=launch_reason,
             module_source=task.module_source or "Infrastructure",
             action_type=task.action_type,
             payload=task.payload,
@@ -6997,7 +7051,7 @@ def retry_failed_job(job_id):
     from core.history_search import index_agent_task
     for retry_task in created_tasks:
         index_agent_task(retry_task)
-    write_infra_audit("Retry Failed Job Tasks", "job", job_id, {"new_job_id": new_job_id, "created": created})
+    write_infra_audit("Retry Failed Job Tasks", "job", job_id, {"new_job_id": new_job_id, "created": created, "launch_reason": launch_reason})
     db.session.commit()
     return jsonify({"success": True, "job_id": new_job_id, "created": created})
 

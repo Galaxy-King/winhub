@@ -43,6 +43,9 @@ class ServerDistributionTests(unittest.TestCase):
         (self.source / "core/app.py").write_text("# server source\n")
         (self.source / "modules/test/feature.py").write_text("# module source\n")
         (self.source / "deploy/debian/winhub.env.example").write_text("SECRET_KEY=replace-with-secret\n")
+        (self.source / "deploy/agent-updaters").mkdir()
+        for name in ('update-service.ps1', 'update-linux-agent.sh'):
+            shutil.copy2(SERVER / 'deploy/agent-updaters' / name, self.source / 'deploy/agent-updaters' / name)
 
     def run_bash(self, command, *args, **kwargs):
         return subprocess.run(["bash", "-c", command, "test", *map(str, args)],
@@ -60,6 +63,8 @@ class ServerDistributionTests(unittest.TestCase):
         self.assertIn("modules/test/feature.py", names)
         self.assertIn("deploy/debian/winhub.env.example", names)
         self.assertIn("deploy/server-files.txt", names)
+        self.assertIn("deploy/agent-updaters/update-service.ps1", names)
+        self.assertIn("deploy/agent-updaters/update-linux-agent.sh", names)
         manifest = json.loads((archive_path.parent / "winhub-v1.2.3.manifest.json").read_text())
         self.assertEqual(manifest["server_archive_sha256"], hashlib.sha256(archive_path.read_bytes()).hexdigest())
 

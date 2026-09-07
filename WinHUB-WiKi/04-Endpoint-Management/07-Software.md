@@ -13,6 +13,8 @@ Software Package містить versioned archive або download source, platfo
 
 ## Rollout
 
+Перед кожним встановленням або видаленням ПЗ з’являється обов’язкове вікно причини запуску. Скасування вікна не створює задач. Причина буде в деталях кожного цільового хоста, окремо від install/uninstall script.
+
 1. Test endpoint.
 2. Pilot group.
 3. Production waves.
