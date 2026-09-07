@@ -1,5 +1,6 @@
 import json
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -61,10 +62,17 @@ class TemplateContractTests(unittest.TestCase):
 
     def test_ui_uses_inert_content_not_model_html(self):
         script = (ROOT / 'static/js/ai_template_editor.js').read_text(encoding='utf-8')
+        modal = (ROOT / 'modules/Infrastructure/templates/modals/_ai_editor.html').read_text(encoding='utf-8')
+        deploy = (ROOT / 'modules/Infrastructure/templates/tabs/_deploy.html').read_text(encoding='utf-8')
         self.assertNotIn('innerHTML', script)
         self.assertNotIn('/tasks/create', script)
         self.assertIn('textContent', script)
         self.assertIn('aiEditorEpoch', script)
+        self.assertIn('Save to Template Library', modal)
+        self.assertIn('Open saved template', modal)
+        self.assertIn('openNewAiTemplateGenerator()', deploy)
+        self.assertIn("localStorage.setItem('infra_selected_template'", script)
+        self.assertIsNone(re.search(r'[А-Яа-яІіЇїЄє]', modal + script))
 
     def test_ai_actions_never_enter_legacy_parameter_or_secret_binding(self):
         from modules.Infrastructure.routes import apply_template_variables
@@ -215,6 +223,12 @@ class AiEditorApiTests(unittest.TestCase):
         self.assertEqual(AgentTask.query.count(), 0)
         self.assertTrue(all(not t.is_approved for t in TaskTemplate.query.all()))
         action = TaskTemplate.query.filter_by(type='action').first()
+        report = TaskTemplate.query.filter_by(type='report').first()
+        self.assertEqual(action.category, 'AI drafts')
+        self.assertEqual(report.category, 'AI drafts')
+        self.assertEqual(action.created_by, self.user.username)
+        self.assertEqual(json.loads(action.payload)['__report_template_id'], report.id)
+        self.assertEqual(first.json['template_ids'], [report.id, action.id])
         from modules.Infrastructure import routes
         with self.app.test_request_context('/api/infrastructure/tasks/create', method='POST', json={'template_id': action.id, 'launch_reason': 'Test approval policy'}):
             session.update(user_id=self.user.id, username=self.user.username, is_admin=False)

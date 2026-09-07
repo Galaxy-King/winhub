@@ -1,37 +1,38 @@
 {% if permissions.use_ai_templates and permissions.manage_templates %}
 <div id="aiTemplateEditorModal" class="hidden" role="dialog" aria-modal="true" aria-labelledby="aiEditorTitle">
   <section class="ai-editor-shell">
-    <header><div><h2 id="aiEditorTitle">AI-редактор шаблонів</h2><p>Open WebUI · PowerShell / Bash / Jinja · без запуску на хостах</p></div><button type="button" onclick="closeAiTemplateEditor()" aria-label="Закрити AI-редактор">✕</button></header>
+    <header><div><h2 id="aiEditorTitle">AI Template Editor</h2><p>Open WebUI · PowerShell / Bash / Jinja · no code is executed on endpoints</p></div><button type="button" onclick="closeAiTemplateEditor()" aria-label="Close AI Template Editor">✕</button></header>
     <div class="ai-editor-grid">
       <section class="ai-editor-controls">
-        <label for="aiEditorPrompt">Що потрібно створити або змінити?</label>
-        <textarea id="aiEditorPrompt" rows="7" maxlength="4000" placeholder="Збери WireGuard endpoints. Поверни JSON і створи короткий табличний звіт Host / endpoint:port."></textarea>
-        <label for="aiEditorLanguage">Мова</label>
+        <label for="aiEditorPrompt">What should be created or changed?</label>
+        <textarea id="aiEditorPrompt" rows="7" maxlength="4000" placeholder="Collect WireGuard endpoints, return JSON, and create a compact Host / endpoint:port report."></textarea>
+        <label for="aiEditorLanguage">Template language</label>
         <select id="aiEditorLanguage"><option value="powershell">PowerShell 5.1 (Windows)</option><option value="bash">Bash (Linux/macOS)</option><option value="jinja">Jinja / HTML report</option></select>
-        <label class="ai-editor-check"><input id="aiEditorReport" type="checkbox"> Також створити шаблон звіту</label>
-        <label class="ai-editor-check"><input id="aiEditorSource" type="checkbox"> Додати поточний код як контекст</label>
-        <p class="ai-editor-note">Контекст передається тільки після вибору галочки. Видаліть секрети: автоматичне маскування не знаходить усіх значень. Генератор використовує конфігураційні константи, не {{ '{{variables}}' }}.</p>
-        <div class="ai-editor-actions"><button type="button" id="aiEditorGenerate" onclick="generateAiTemplate()">Створити чернетку</button><button type="button" id="aiEditorCancel" onclick="cancelAiEditorDraft()" disabled>Скасувати запит</button></div>
-        <label for="aiEditorHistory">Історія моїх чернеток</label>
-        <select id="aiEditorHistory" onchange="loadAiEditorHistory()"><option value="">Завантаження…</option></select>
-        <button type="button" onclick="refreshAiEditorHistory()">Оновити історію</button>
-        <button type="button" onclick="checkCurrentAiEditorCode()">Перевірити код редактора без ШІ</button>
-        <pre id="aiEditorDiagnostics" aria-label="Пояснення й діагностика"></pre>
+        <label class="ai-editor-check"><input id="aiEditorReport" type="checkbox"> Also generate a companion report template</label>
+        <label class="ai-editor-check"><input id="aiEditorSource" type="checkbox"> Include the current code as reference context</label>
+        <p class="ai-editor-note">Current code is sent only when the checkbox is selected. Remove secrets first: automatic masking cannot identify every sensitive value. Generated templates use configuration constants, not {{ '{{variables}}' }}.</p>
+        <div class="ai-editor-actions"><button type="button" id="aiEditorGenerate" onclick="generateAiTemplate()">Generate draft</button><button type="button" id="aiEditorCancel" onclick="cancelAiEditorDraft()" disabled>Cancel request</button></div>
+        <label for="aiEditorHistory">My draft history</label>
+        <select id="aiEditorHistory" onchange="loadAiEditorHistory()"><option value="">Loading…</option></select>
+        <button type="button" onclick="refreshAiEditorHistory()">Refresh history</button>
+        <button type="button" onclick="checkCurrentAiEditorCode()">Validate current editor code without AI</button>
+        <pre id="aiEditorDiagnostics" aria-label="Explanation and validation diagnostics"></pre>
       </section>
       <section class="ai-editor-result">
-        <div class="ai-editor-actions" aria-label="Перегляд результату">
-          <button type="button" data-ai-editor-view="code" aria-pressed="true" onclick="showAiEditorView('code')">Код</button>
-          <button type="button" data-ai-editor-view="report" aria-pressed="false" onclick="showAiEditorView('report')">Шаблон звіту</button>
-          <button type="button" data-ai-editor-view="diff" aria-pressed="false" onclick="showAiEditorView('diff')">Зміни</button>
+        <div class="ai-editor-actions" aria-label="Generated result view">
+          <button type="button" data-ai-editor-view="code" aria-pressed="true" onclick="showAiEditorView('code')">Code</button>
+          <button type="button" data-ai-editor-view="report" aria-pressed="false" onclick="showAiEditorView('report')">Report template</button>
+          <button type="button" data-ai-editor-view="diff" aria-pressed="false" onclick="showAiEditorView('diff')">Changes</button>
         </div>
-        <textarea id="aiEditorOutput" readonly spellcheck="false" aria-label="Код AI-чернетки"></textarea>
+        <textarea id="aiEditorOutput" readonly spellcheck="false" aria-label="AI-generated draft code"></textarea>
         <p id="aiEditorStatus" role="status" aria-live="polite"></p>
         <div class="ai-editor-actions">
-          <button type="button" id="aiEditorValidate" onclick="validateAiEditorDraft()" disabled>Перевірити ще раз</button>
-          <button type="button" id="aiEditorApply" onclick="applyAiEditorDraft()" disabled>Застосувати код у редакторі</button>
-          <button type="button" id="aiEditorSave" onclick="saveAiEditorDraft()" disabled>Зберегти нові шаблони</button>
+          <button type="button" id="aiEditorValidate" onclick="validateAiEditorDraft()" disabled>Validate again</button>
+          <button type="button" id="aiEditorApply" onclick="applyAiEditorDraft()" disabled>Apply code to editor</button>
+          <button type="button" id="aiEditorSave" onclick="saveAiEditorDraft()" disabled>Save to Template Library</button>
+          <button type="button" id="aiEditorOpenSaved" class="hidden" onclick="openSavedAiTemplate()">Open saved template</button>
         </div>
-        <p class="ai-editor-note">Діагностика перевіряє синтаксис і тестові дані звіту, не поведінку на реальному хості. Згенеровані шаблони потребують окремого затвердження.</p>
+        <p class="ai-editor-note">Validation checks syntax and synthetic report data, not behavior on a real endpoint. Saved AI templates remain private and require separate approval before they can run.</p>
       </section>
     </div>
   </section>
