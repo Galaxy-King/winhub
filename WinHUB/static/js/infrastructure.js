@@ -2569,11 +2569,12 @@ function startNewTemplate() {
         document.getElementById('depVariableSchema')?.value?.trim() ||
         getPayloadValue().trim()
     );
-    if (hasContent && !confirm('Start a new template? The current builder contents will be cleared.')) return;
+    if (hasContent && !confirm('Start a new template? The current builder contents will be cleared.')) return false;
 
     resetWorkspace(true);
     switchWorkspaceTab('builder');
     document.getElementById('depTitle')?.focus();
+    return true;
 }
 
 function resetWorkspace(clearPersistedState = true) {

@@ -21,6 +21,16 @@ function aiEditorStatus(message) {
     document.getElementById('aiEditorStatus').textContent = message;
 }
 
+function openNewAiTemplateGenerator() {
+    if (typeof startNewTemplate !== 'function' || typeof openTemplateCodeEditor !== 'function') {
+        return aiEditorStatus('The template workspace is unavailable. Refresh the page and try again.');
+    }
+    if (!startNewTemplate()) return;
+    openTemplateCodeEditor('payload');
+    // Let CodeMirror finish opening before the AI dialog takes focus above it.
+    setTimeout(() => openAiTemplateEditor(), 120);
+}
+
 function openAiTemplateEditor() {
     if (!payloadEditor || templateCodeEditorTarget !== 'payload') return;
     aiEditorEpoch++;
@@ -43,7 +53,7 @@ function openAiTemplateEditor() {
     document.getElementById('aiTemplateEditorModal').classList.remove('hidden');
     document.getElementById('aiEditorPrompt').focus();
     renderAiEditorDraft();
-    aiEditorStatus('Чернетка не запускає задачі. Перевірте код перед використанням.');
+    aiEditorStatus('AI drafts cannot start tasks. Review and validate the code before saving it.');
     refreshAiEditorHistory();
 }
 
@@ -81,9 +91,9 @@ async function checkCurrentAiEditorCode() {
         name: document.getElementById('depTitle')?.value?.trim() || previous?.name || 'Checked template',
         language, code: payloadEditor.getValue(),
         report_template: language !== 'jinja' ? previous?.report_template || '' : '',
-        sample_result: previous?.sample_result || {}, explanation: 'Статична перевірка поточного коду; модель не викликалась.', warnings: []
+        sample_result: previous?.sample_result || {}, explanation: 'Static validation of the current code; the AI model was not called.', warnings: []
     };
-    aiEditorStatus('Перевіряю поточний код без запиту до моделі…');
+    aiEditorStatus('Validating the current code without calling the AI model…');
     try {
         const result = await aiEditorRequest('check', 'POST', bundle);
         if (epoch !== aiEditorEpoch) return;
@@ -99,20 +109,20 @@ async function refreshAiEditorHistory() {
         const result = await aiEditorRequest('drafts');
         if (epoch !== aiEditorEpoch) return;
         const select = document.getElementById('aiEditorHistory');
-        select.replaceChildren(new Option('Останні чернетки (30 днів)', ''));
+        select.replaceChildren(new Option('Recent drafts (30 days)', ''));
         result.drafts.forEach(d => select.add(new Option(`${d.created_at} · ${d.language} · ${d.status}`, d.id)));
     } catch (error) { if (epoch === aiEditorEpoch) aiEditorStatus(error.message); }
 }
 
 async function generateAiTemplate() {
     const prompt = document.getElementById('aiEditorPrompt').value.trim();
-    if (!prompt) return aiEditorStatus('Напишіть, який скрипт або звіт потрібен.');
+    if (!prompt) return aiEditorStatus('Describe the script or report you want to generate.');
     const epoch = ++aiEditorEpoch;
     clearTimeout(aiEditorPoll);
     document.getElementById('aiEditorGenerate').disabled = true;
     aiEditorDraft = null;
     renderAiEditorDraft();
-    aiEditorStatus('Запит передано в чергу…');
+    aiEditorStatus('The generation request has been queued…');
     try {
         const result = await aiEditorRequest('drafts', 'POST', {
             prompt, language: document.getElementById('aiEditorLanguage').value,
@@ -159,12 +169,19 @@ function renderAiEditorDraft() {
     const draft = aiEditorDraft;
     const result = draft?.result;
     const checked = draft?.status === 'Ready' && draft?.validation?.ok === true;
+    const savedTemplateIds = Array.isArray(draft?.saved_template_ids) ? draft.saved_template_ids : [];
+    const saved = savedTemplateIds.length > 0;
     document.getElementById('aiEditorApply').disabled = !checked;
-    document.getElementById('aiEditorSave').disabled = !checked;
+    const saveButton = document.getElementById('aiEditorSave');
+    saveButton.disabled = !checked || saved;
+    saveButton.textContent = saved ? 'Saved to Template Library' : 'Save to Template Library';
+    const openSavedButton = document.getElementById('aiEditorOpenSaved');
+    openSavedButton.classList.toggle('hidden', !saved);
+    openSavedButton.disabled = !saved;
     document.getElementById('aiEditorValidate').disabled = !result || draft.status !== 'Ready';
     document.getElementById('aiEditorCancel').disabled = !draft || !['Queued', 'Running', 'Validating'].includes(draft.status);
     const code = result?.code || '';
-    const content = aiEditorView === 'report' ? result?.report_template || 'Окремий шаблон звіту не запитано.'
+    const content = aiEditorView === 'report' ? result?.report_template || 'A separate report template was not requested.'
         : aiEditorView === 'diff' ? reportLineDiff(aiEditorOriginal, code) : code;
     document.getElementById('aiEditorOutput').value = content;
     document.querySelectorAll('[data-ai-editor-view]').forEach(button => {
@@ -173,14 +190,22 @@ function renderAiEditorDraft() {
     const messages = [result?.explanation || '', ...(result?.warnings || []),
         ...(draft?.validation?.diagnostics || []).map(d => `${d.severity}: ${d.message}`)];
     document.getElementById('aiEditorDiagnostics').textContent = messages.filter(Boolean).join('\n\n');
-    if (draft) aiEditorStatus(draft.error || `${draft.status} · ${draft.model} · ${checked ? 'Синтаксис перевірено; код НЕ виконувався. Це не гарантія безпеки.' : 'Не застосовуйте код без успішної перевірки та перегляду.'}`);
+    if (draft) {
+        const validationStatus = checked
+            ? 'Syntax validated; the code was NOT executed. Validation is not a safety guarantee.'
+            : 'Do not apply or save code until validation succeeds and you have reviewed it.';
+        const savedStatus = saved
+            ? `Saved ${savedTemplateIds.length} private template${savedTemplateIds.length === 1 ? '' : 's'} to Template Library. Separate approval is still required.`
+            : validationStatus;
+        aiEditorStatus(draft.error || `${draft.status} · ${draft.model} · ${savedStatus}`);
+    }
 }
 
 async function validateAiEditorDraft() {
     if (!aiEditorDraft) return;
     const epoch = aiEditorEpoch;
     document.getElementById('aiEditorValidate').disabled = true;
-    aiEditorStatus('Ізольована статична перевірка…');
+    aiEditorStatus('Running isolated static validation…');
     try {
         const result = await aiEditorRequest(`drafts/${encodeURIComponent(aiEditorDraft.id)}/validate`, 'POST', {});
         if (epoch !== aiEditorEpoch) return;
@@ -205,9 +230,9 @@ function applyAiEditorDraft() {
     if (!aiEditorDraft?.validation?.ok || aiEditorDraft.status !== 'Ready') return;
     const result = aiEditorDraft.result;
     const report = document.querySelector('input[name="depTemplateType"]:checked')?.value === 'report';
-    if (report !== (result.language === 'jinja')) return aiEditorStatus('Мова чернетки не відповідає типу відкритого редактора. Збережіть її окремо.');
+    if (report !== (result.language === 'jinja')) return aiEditorStatus('The draft language does not match the open editor type. Save it as a separate template instead.');
     showAiEditorView('diff');
-    if (!confirm('Перегляньте вкладку «Зміни». Замінити текст у редакторі цією чернеткою? Збереження та запуск не виконуються.')) return;
+    if (!confirm('Review the Changes view. Replace the editor content with this draft? This does not save or run the code.')) return;
     payloadEditor.setValue(result.code);
     payloadEditor.setOption('mode', result.language === 'jinja' ? 'htmlmixed' : result.language === 'bash' ? 'shell' : 'powershell');
     window.aiTemplateAppliedDraftId = aiEditorDraft.id;
@@ -216,17 +241,32 @@ function applyAiEditorDraft() {
     const title = document.getElementById('depTitle');
     if (title && !title.value) title.value = result.name;
     closeAiTemplateEditor();
-    setTemplateCodeEditorError('AI-чернетку вставлено. Збережіть після перегляду; зміни коду потребують нової перевірки. Для збереження пари скрипт + звіт скористайтеся «Зберегти нові шаблони» в AI-вікні.');
+    setTemplateCodeEditorError('The AI draft was applied. Review it before saving; any code change requires a new validation. To save a script and report pair, use Save to Template Library in the AI window.');
 }
 
 async function saveAiEditorDraft() {
-    if (!aiEditorDraft?.validation?.ok || !confirm('Створити нові незатверджені шаблони в категорії AI drafts? Жодна задача не запуститься.')) return;
+    if (!aiEditorDraft?.validation?.ok || !confirm('Save the generated result as new private templates in the AI drafts category? No task will be started.')) return;
     const epoch = aiEditorEpoch;
     document.getElementById('aiEditorSave').disabled = true;
     try {
         const result = await aiEditorRequest(`drafts/${encodeURIComponent(aiEditorDraft.id)}/save`, 'POST', {});
         if (epoch !== aiEditorEpoch) return;
         aiEditorDraft.saved_template_ids = result.template_ids;
-        aiEditorStatus('Збережено незатверджені шаблони. Оновіть бібліотеку. Якщо є звіт — спершу затвердіть його, потім скрипт.');
+        renderAiEditorDraft();
+        aiEditorStatus(`Saved ${result.template_ids.length} private template${result.template_ids.length === 1 ? '' : 's'} to Template Library. Use Open saved template to review it. Approval is required before execution.`);
+        refreshAiEditorHistory();
     } catch (error) { if (epoch === aiEditorEpoch) { document.getElementById('aiEditorSave').disabled = false; aiEditorStatus(error.message); } }
+}
+
+function openSavedAiTemplate() {
+    const ids = Array.isArray(aiEditorDraft?.saved_template_ids) ? aiEditorDraft.saved_template_ids : [];
+    const primaryTemplateId = ids[ids.length - 1];
+    if (!primaryTemplateId) return aiEditorStatus('No saved template is available for this draft.');
+    localStorage.setItem('infra_vfinal_view', 'deploy');
+    localStorage.setItem('infra_workspace_tab', 'builder');
+    localStorage.setItem('infra_selected_template', primaryTemplateId);
+    const url = new URL(window.location.href);
+    url.search = '';
+    url.searchParams.set('view', 'deploy');
+    window.location.assign(url.pathname + url.search);
 }
