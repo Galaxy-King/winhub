@@ -171,10 +171,12 @@ function renderAiEditorDraft() {
     const checked = draft?.status === 'Ready' && draft?.validation?.ok === true;
     const savedTemplateIds = Array.isArray(draft?.saved_template_ids) ? draft.saved_template_ids : [];
     const saved = savedTemplateIds.length > 0;
+    const readyToSave = Boolean(result) && draft?.status === 'Ready';
     document.getElementById('aiEditorApply').disabled = !checked;
     const saveButton = document.getElementById('aiEditorSave');
-    saveButton.disabled = !checked || saved;
-    saveButton.textContent = saved ? 'Saved to Template Library' : 'Save to Template Library';
+    saveButton.disabled = !readyToSave || saved;
+    saveButton.textContent = saved ? 'Saved to Template Library'
+        : checked ? 'Save to Template Library' : 'Save unvalidated draft';
     const openSavedButton = document.getElementById('aiEditorOpenSaved');
     openSavedButton.classList.toggle('hidden', !saved);
     openSavedButton.disabled = !saved;
@@ -193,7 +195,7 @@ function renderAiEditorDraft() {
     if (draft) {
         const validationStatus = checked
             ? 'Syntax validated; the code was NOT executed. Validation is not a safety guarantee.'
-            : 'Do not apply or save code until validation succeeds and you have reviewed it.';
+            : 'Validation did not pass. Apply remains blocked, but you can save an unvalidated, unapproved draft for later review.';
         const savedStatus = saved
             ? `Saved ${savedTemplateIds.length} private template${savedTemplateIds.length === 1 ? '' : 's'} to Template Library. Separate approval is still required.`
             : validationStatus;
@@ -245,7 +247,12 @@ function applyAiEditorDraft() {
 }
 
 async function saveAiEditorDraft() {
-    if (!aiEditorDraft?.validation?.ok || !confirm('Save the generated result as new private templates in the AI drafts category? No task will be started.')) return;
+    if (!aiEditorDraft?.result || aiEditorDraft.status !== 'Ready') return;
+    const checked = aiEditorDraft.validation?.ok === true;
+    const confirmation = checked
+        ? 'Save the generated result as new private templates in the AI drafts category? No task will be started.'
+        : 'Static validation has not passed. Save this result as an unvalidated, unapproved draft in Template Library? No task will be started.';
+    if (!confirm(confirmation)) return;
     const epoch = aiEditorEpoch;
     document.getElementById('aiEditorSave').disabled = true;
     try {
@@ -253,7 +260,8 @@ async function saveAiEditorDraft() {
         if (epoch !== aiEditorEpoch) return;
         aiEditorDraft.saved_template_ids = result.template_ids;
         renderAiEditorDraft();
-        aiEditorStatus(`Saved ${result.template_ids.length} private template${result.template_ids.length === 1 ? '' : 's'} to Template Library. Use Open saved template to review it. Approval is required before execution.`);
+        const validationState = result.validation_ok ? 'validated' : 'unvalidated';
+        aiEditorStatus(`Saved ${result.template_ids.length} private ${validationState} template${result.template_ids.length === 1 ? '' : 's'} to Template Library. Use Open saved template to review it. Explicit approval is required before execution.`);
         refreshAiEditorHistory();
     } catch (error) { if (epoch === aiEditorEpoch) { document.getElementById('aiEditorSave').disabled = false; aiEditorStatus(error.message); } }
 }
