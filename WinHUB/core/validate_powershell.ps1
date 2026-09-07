@@ -1,6 +1,10 @@
 param([Parameter(Mandatory=$true)][string]$InputPath)
 $ErrorActionPreference = 'Stop'
 $ProgressPreference = 'SilentlyContinue'
+$WarningPreference = 'SilentlyContinue'
+$InformationPreference = 'SilentlyContinue'
+$VerbosePreference = 'SilentlyContinue'
+$DebugPreference = 'SilentlyContinue'
 [Console]::OutputEncoding = [Text.UTF8Encoding]::new($false)
 $tokens = $null
 $parseErrors = $null
@@ -12,14 +16,22 @@ foreach ($item in @($parseErrors | Select-Object -First 20)) {
 }
 if (@($parseErrors).Count -eq 0) {
     if (Get-Module -ListAvailable -Name PSScriptAnalyzer) {
-        Import-Module PSScriptAnalyzer -ErrorAction Stop
-        # Only reviewed built-in rules; no per-script settings or custom rules.
-        $rules = @('PSAvoidUsingInvokeExpression','PSAvoidUsingPlainTextForPassword','PSAvoidUsingConvertToSecureStringWithPlainText','PSUseDeclaredVarsMoreThanAssignments')
-        foreach ($item in @(Invoke-ScriptAnalyzer -Path $InputPath -IncludeRule $rules | Select-Object -First 20)) {
-            $diagnostics += @{ severity='warning'; message="$($item.RuleName) line $($item.Line): $($item.Message)" }
+        try {
+            Import-Module PSScriptAnalyzer -ErrorAction Stop -WarningAction SilentlyContinue -InformationAction SilentlyContinue | Out-Null
+            # Only reviewed built-in rules; no per-script settings or custom rules.
+            $rules = @('PSAvoidUsingInvokeExpression','PSAvoidUsingPlainTextForPassword','PSAvoidUsingConvertToSecureStringWithPlainText','PSUseDeclaredVarsMoreThanAssignments')
+            $analysis = @(Invoke-ScriptAnalyzer -Path $InputPath -IncludeRule $rules -ErrorAction Stop -WarningAction SilentlyContinue -InformationAction SilentlyContinue | Select-Object -First 20)
+            foreach ($item in $analysis) {
+                $diagnostics += @{ severity='warning'; message="$($item.RuleName) line $($item.Line): $($item.Message)" }
+            }
+        } catch {
+            # PSScriptAnalyzer is optional. Its own module/runtime failure must not
+            # corrupt the JSON protocol or invalidate a successful parser result.
+            $diagnostics += @{ severity='warning'; message='PSScriptAnalyzer could not complete; only PowerShell syntax was checked' }
         }
     } else {
         $diagnostics += @{ severity='warning'; message='PSScriptAnalyzer unavailable; only PowerShell syntax was checked' }
     }
 }
-@{ syntax_ok=(@($parseErrors).Count -eq 0); diagnostics=@($diagnostics) } | ConvertTo-Json -Depth 4 -Compress
+$json = @{ syntax_ok=(@($parseErrors).Count -eq 0); diagnostics=@($diagnostics) } | ConvertTo-Json -Depth 4 -Compress
+[Console]::Out.WriteLine($json)

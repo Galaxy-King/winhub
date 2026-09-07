@@ -24,9 +24,9 @@ def run_parser(args, scratch):
            "PSModulePath": "/usr/local/share/powershell/Modules:/opt/microsoft/powershell/7/Modules"}
     if os.name == "nt":
         env["SystemRoot"] = os.environ.get("SystemRoot", r"C:\Windows")
-    with tempfile.TemporaryFile() as output:
+    with tempfile.TemporaryFile() as output, tempfile.TemporaryFile() as error_output:
         process = subprocess.Popen(args, cwd=scratch, env=env, stdin=subprocess.DEVNULL,
-                                   stdout=output, stderr=output, start_new_session=os.name != "nt",
+                                   stdout=output, stderr=error_output, start_new_session=os.name != "nt",
                                    creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
         try:
             process.wait(timeout=15)
@@ -40,9 +40,12 @@ def run_parser(args, scratch):
             raise ValueError("Parser timeout")
         output.seek(0)
         raw = output.read(MAX_CAPTURE + 1)
-        if len(raw) > MAX_CAPTURE:
+        error_output.seek(0)
+        raw_error = error_output.read(MAX_CAPTURE + 1)
+        if len(raw) > MAX_CAPTURE or len(raw_error) > MAX_CAPTURE or len(raw) + len(raw_error) > MAX_CAPTURE:
             raise ValueError("Parser output exceeds limit")
-        return process.returncode, raw.decode("utf-8-sig", errors="replace")
+        return (process.returncode, raw.decode("utf-8-sig", errors="replace"),
+                raw_error.decode("utf-8-sig", errors="replace"))
 
 
 def validate(value):
@@ -62,8 +65,9 @@ def validate(value):
                     available = False
                     add("unavailable", "PowerShell parser is not installed on the validator host (pwsh).")
                 else:
-                    rc, output = run_parser([binary, "-NoLogo", "-NoProfile", "-NonInteractive", "-File",
-                                             str(Path(__file__).with_name("validate_powershell.ps1")), str(path)], scratch)
+                    rc, output, error_output = run_parser(
+                        [binary, "-NoLogo", "-NoProfile", "-NonInteractive", "-File",
+                         str(Path(__file__).with_name("validate_powershell.ps1")), str(path)], scratch)
                     try:
                         parsed = json.loads(output)
                         for item in parsed["diagnostics"][:30]:
@@ -71,7 +75,8 @@ def validate(value):
                         if rc or not parsed["syntax_ok"]:
                             add("error", "PowerShell syntax validation failed")
                     except (ValueError, KeyError, TypeError):
-                        add("error", "PowerShell parser returned an invalid response")
+                        detail = f" (exit code {rc})" if rc else ""
+                        add("error", f"PowerShell parser returned an invalid response{detail}; check winhub-code-validator service logs")
                     add("warning", "Parsed with PowerShell 7; Windows PowerShell 5.1 runtime/API compatibility still requires operator review")
             else:
                 binary = shutil.which("bash")
@@ -79,12 +84,13 @@ def validate(value):
                     available = False
                     add("unavailable", "Bash parser is unavailable")
                 else:
-                    rc, output = run_parser([binary, "--noprofile", "--norc", "-n", str(path)], scratch)
+                    rc, output, error_output = run_parser([binary, "--noprofile", "--norc", "-n", str(path)], scratch)
                     if rc:
-                        add("error", output or "Bash syntax validation failed")
+                        add("error", error_output or output or "Bash syntax validation failed")
                     shellcheck = shutil.which("shellcheck")
                     if shellcheck:
-                        rc, output = run_parser([shellcheck, "--norc", "--shell=bash", "--format=json", str(path)], scratch)
+                        rc, output, error_output = run_parser(
+                            [shellcheck, "--norc", "--shell=bash", "--format=json", str(path)], scratch)
                         try:
                             for item in json.loads(output)[:30]:
                                 add("warning", f"ShellCheck SC{item['code']} line {item['line']}: {item['message']}")
@@ -101,7 +107,10 @@ def validate(value):
             try:
                 render_report(report, report_fixture(value["sample_result"]))
             except Exception as exc:
-                add("error", f"Report fixture: {exc}")
+                message = str(exc)
+                if re.search(r"['\"]data['\"] is undefined", message):
+                    message += "; there is no top-level data variable—iterate over results or all_results and use r.data"
+                add("error", f"Report fixture: {message}")
     ok = available and not any(d["severity"] == "error" for d in diagnostics)
     return {"ok": ok, "status": "checked" if ok else "invalid" if available else "unavailable",
             "diagnostics": diagnostics[:40], "code_hash": bundle_hash(value),

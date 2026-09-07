@@ -29,9 +29,11 @@ The agent supplies host identity. Do not include credentials or private keys in 
 WinHUB reports are restricted Jinja/HTML, not Python or executable scripts.
 Context: results=[{host,status,data,log}] contains ONLY successful hosts. all_results
 contains all hosts; ignored_results/failed_results contain failures. job_title is the
-title. summary={total,success,errors,ignored,included,job_id,job_title}. data is parsed script JSON;
-status can be Success/Error and data can be empty. sample_result is ONE synthetic data
-object matching the code output. Reports must handle missing data and failed hosts.
+title. summary={total,success,errors,ignored,included,job_id,job_title}. There is NO
+top-level data variable: parsed script JSON is r.data for each r iterated from results
+or all_results. status can be Success/Error and r.data can be empty. sample_result is
+ONE synthetic data object matching the code output. Reports must handle missing data
+and failed hosts.
 Allowed Jinja filters: default, escape, e, join, length, list, lower, rejectattr, round,
 selectattr. Tests: defined, undefined, mapping, string, number, boolean, none, true, false.
 Only calls namespace(), string.split(), range(integer args, max 4096). loop.index/index0/
