@@ -13,6 +13,7 @@ let currentViewedHostId = null;
 let currentViewedHostData = null;
 let currentViewedGroupId = null;
 let currentGroupNonMembers = [];
+let currentGroupMemberSelection = new Set();
 let currentReportId = null;
 let reportPage = 1;
 let reportPagination = { page: 1, total: 0, has_more: false };
@@ -174,7 +175,8 @@ function scheduleInfraLiveRefresh(section, delay = 700) {
 function refreshInfraLiveSection(section) {
     const view = currentInfraView();
     if (section === 'nodes') {
-        if (view === 'hosts' && !document.getElementById('nodesApprovedPanel')?.classList.contains('hidden')) {
+        const filterDialogOpen = Boolean(document.getElementById('fleetFilterDialog')?.open);
+        if (view === 'hosts' && !filterDialogOpen && !document.getElementById('nodesFleetPanel')?.classList.contains('hidden')) {
             loadFleetCenter();
         }
         return;
@@ -2187,6 +2189,11 @@ document.addEventListener('DOMContentLoaded', () => {
         const defaultView = ['hosts', 'groups', 'software', 'queue', 'reports', 'deploy', 'scheduler', 'triggers']
             .find(v => document.getElementById('view-' + v)) || 'hosts';
         restoreFleetCenterState();
+        const fleetFilterDialog = document.getElementById('fleetFilterDialog');
+        fleetFilterDialog?.addEventListener('cancel', event => {
+            event.preventDefault();
+            cancelFleetFilters();
+        });
         restoreQueueState();
         restoreWorkspaceStateFromLocation();
 
@@ -3311,12 +3318,144 @@ function renderAgentPackageList(packages = []) {
     }).join('');
 }
 
+const fleetStatusLabels = {
+    all: 'All agents',
+    current: 'Current',
+    outdated: 'Outdated',
+    offline: 'Offline',
+    warning: 'Warning / Critical',
+    unsigned: 'Missing identity key',
+};
+let fleetFilterSnapshot = null;
+
 function renderFleetStatusTabs(status = 'all') {
-    document.querySelectorAll('.fleet-status-tab').forEach(btn => {
-        const active = btn.dataset.fleetStatus === (status || 'all');
-        btn.className = `fleet-status-tab px-4 py-2 rounded-xl text-[10px] font-black uppercase border transition-all ${active ? 'bg-[#0f3d8a] text-white border-[#75a7f7] shadow-sm' : 'bg-white text-slate-700 border-slate-200 hover:bg-blue-50 hover:text-[#0f3d8a]'}`;
+    document.querySelectorAll('input[name="fleetStatusChoice"]').forEach(input => {
+        input.checked = input.value === (status || 'all');
     });
 }
+
+function captureFleetFilterState() {
+    return {
+        status: document.getElementById('fleetStatusFilter')?.value || 'all',
+        groups: fleetGroupFilterValues(),
+        exact: Boolean(document.getElementById('fleetExactGroupsOnly')?.checked),
+    };
+}
+
+function restoreFleetFilterState(state) {
+    if (!state) return;
+    const status = fleetStatusLabels[state.status] ? state.status : 'all';
+    const statusEl = document.getElementById('fleetStatusFilter');
+    if (statusEl) statusEl.value = status;
+    renderFleetStatusTabs(status);
+    const selectedGroups = new Set((state.groups || []).map(String));
+    document.querySelectorAll('#fleetGroupFilters input[type="checkbox"]').forEach(input => {
+        input.checked = selectedGroups.has(String(input.value));
+    });
+    const exact = document.getElementById('fleetExactGroupsOnly');
+    if (exact) exact.checked = Boolean(state.exact);
+    updateFleetFilterDraft();
+}
+
+function fleetFilterDescriptions() {
+    const state = captureFleetFilterState();
+    const descriptions = [];
+    if (state.status !== 'all') descriptions.push(fleetStatusLabels[state.status] || state.status);
+    document.querySelectorAll('#fleetGroupFilters input[type="checkbox"]:checked').forEach(input => {
+        const label = input.dataset.groupName || input.closest('label')?.querySelector('span')?.textContent || input.value;
+        descriptions.push(`Group: ${label.trim()}`);
+    });
+    if (state.exact) descriptions.push('Exact group set');
+    return descriptions;
+}
+
+function updateFleetFilterUI(total = null, error = '') {
+    const descriptions = fleetFilterDescriptions();
+    const count = descriptions.length;
+    const badge = document.getElementById('fleetFilterCount');
+    const clear = document.getElementById('fleetClearFiltersButton');
+    const chips = document.getElementById('fleetActiveFilters');
+    const summary = document.getElementById('fleetFilterSummary');
+
+    if (badge) {
+        badge.textContent = String(count);
+        badge.classList.toggle('hidden', count === 0);
+    }
+    if (clear) clear.classList.toggle('hidden', count === 0);
+    if (chips) {
+        chips.replaceChildren();
+        descriptions.forEach(description => {
+            const chip = document.createElement('span');
+            chip.className = 'inventory-filter-chip';
+            chip.textContent = description;
+            chips.appendChild(chip);
+        });
+        chips.classList.toggle('hidden', count === 0);
+    }
+    if (summary) {
+        if (error) summary.textContent = `Could not load nodes: ${error}`;
+        else if (Number.isFinite(Number(total))) summary.textContent = `${Number(total).toLocaleString()} nodes found`;
+        else summary.textContent = 'Loading nodes...';
+    }
+}
+
+window.updateFleetFilterDraft = function updateFleetFilterDraft() {
+    const summary = document.getElementById('fleetFilterDraftSummary');
+    if (!summary) return;
+    const descriptions = fleetFilterDescriptions();
+    summary.textContent = descriptions.length
+        ? `${descriptions.length} filter${descriptions.length === 1 ? '' : 's'} ready to apply.`
+        : 'No additional filters selected.';
+};
+
+window.openFleetFilters = function openFleetFilters() {
+    const dialog = document.getElementById('fleetFilterDialog');
+    if (!dialog) return;
+    fleetFilterSnapshot = captureFleetFilterState();
+    const search = document.getElementById('fleetGroupSearch');
+    if (search) search.value = '';
+    filterFleetGroupOptions();
+    updateFleetFilterDraft();
+    if (typeof dialog.showModal === 'function') dialog.showModal();
+    else dialog.setAttribute('open', '');
+};
+
+window.cancelFleetFilters = function cancelFleetFilters() {
+    restoreFleetFilterState(fleetFilterSnapshot);
+    fleetFilterSnapshot = null;
+    const dialog = document.getElementById('fleetFilterDialog');
+    if (dialog?.open && typeof dialog.close === 'function') dialog.close();
+    else dialog?.removeAttribute('open');
+};
+
+window.applyFleetFilters = function applyFleetFilters(event) {
+    event?.preventDefault();
+    fleetFilterSnapshot = null;
+    const dialog = document.getElementById('fleetFilterDialog');
+    if (dialog?.open && typeof dialog.close === 'function') dialog.close();
+    else dialog?.removeAttribute('open');
+    persistFleetCenterState(1);
+    updateFleetFilterUI();
+    loadFleetCenter(1);
+};
+
+window.resetFleetFilterDraft = function resetFleetFilterDraft() {
+    restoreFleetFilterState({status: 'all', groups: [], exact: false});
+};
+
+window.clearFleetFilters = function clearFleetFilters() {
+    restoreFleetFilterState({status: 'all', groups: [], exact: false});
+    persistFleetCenterState(1);
+    updateFleetFilterUI();
+    loadFleetCenter(1);
+};
+
+window.filterFleetGroupOptions = function filterFleetGroupOptions() {
+    const query = (document.getElementById('fleetGroupSearch')?.value || '').trim().toLowerCase();
+    document.querySelectorAll('[data-fleet-group-option]').forEach(option => {
+        option.classList.toggle('hidden', !String(option.dataset.filterText || '').toLowerCase().includes(query));
+    });
+};
 
 function restoreFleetCenterState() {
     const status = readInfraState('fleetStatus', infraStateKeys.fleetStatus, 'all') || 'all';
@@ -3330,6 +3469,7 @@ function restoreFleetCenterState() {
 
     const statusEl = document.getElementById('fleetStatusFilter');
     if (statusEl) statusEl.value = status;
+    renderFleetStatusTabs(status);
     const searchEl = document.getElementById('fleetSearch');
     if (searchEl) searchEl.value = search;
     document.querySelectorAll('#fleetGroupFilters input[type="checkbox"]:not(#fleetExactGroupsOnly)').forEach(cb => {
@@ -3343,7 +3483,7 @@ function restoreFleetCenterState() {
         key: sortKey || 'hostname',
         direction: sortDirection === 'desc' ? 'desc' : 'asc',
     };
-    renderFleetStatusTabs(status);
+    updateFleetFilterUI();
 }
 
 function persistFleetCenterState(page = fleetPagination.page || 1) {
@@ -3361,8 +3501,9 @@ function persistFleetCenterState(page = fleetPagination.page || 1) {
     localStorage.setItem(infraStateKeys.fleetPage, String(page || 1));
     localStorage.setItem(infraStateKeys.fleetPageSize, String(pageSize));
     localStorage.setItem(infraStateKeys.fleetSort, sort);
+    const currentNodeTab = localStorage.getItem(infraStateKeys.nodeTab) === 'packages' ? 'packages' : 'approved';
     writeInfraState(scopedInfraState('hosts', {
-        nodeTab: 'approved',
+        nodeTab: currentNodeTab,
         fleetStatus: status === 'all' ? null : status,
         fleetSearch: search || null,
         fleetGroups: groups || null,
@@ -3421,6 +3562,7 @@ async function loadFleetCenter(page = fleetPagination.page || 1) {
         if (!res.ok || !data.success) throw new Error(data.message || 'Fleet load failed');
         fleetCenterData = data;
         fleetPagination = data.pagination || fleetPagination;
+        updateFleetFilterUI(fleetPagination.total || 0);
         renderAgentLatestVersions(data.latest_versions || {});
         renderFleetPagination();
         renderFleetCenter();
@@ -3428,6 +3570,7 @@ async function loadFleetCenter(page = fleetPagination.page || 1) {
         console.error('Fleet load failed:', e);
         const message = e.message || 'Failed to load fleet data.';
         body.innerHTML = `<tr><td colspan="10" class="p-12 text-center text-rose-400 font-black">${escapeHtml(message)}</td></tr>`;
+        updateFleetFilterUI(null, message);
         renderFleetPaginationError(message);
     }
 }
@@ -3452,21 +3595,11 @@ function toggleFleetSelectionAll(checkbox) {
 }
 
 window.togglePackageRegistry = function togglePackageRegistry() {
-    const card = document.getElementById('packageRegistryCard');
-    const button = document.getElementById('packageRegistryToggleBtn');
-    if (!card) return;
-    const opening = card.classList.contains('hidden');
-    card.classList.toggle('hidden', !opening);
-    if (button) button.innerText = opening ? 'Hide Package Registry' : 'Package Registry';
-    document.body.classList.toggle('overflow-hidden', opening);
+    switchNodeTab('packages');
 };
 
 window.closePackageRegistry = function closePackageRegistry() {
-    const card = document.getElementById('packageRegistryCard');
-    const button = document.getElementById('packageRegistryToggleBtn');
-    if (card) card.classList.add('hidden');
-    if (button) button.innerText = 'Package Registry';
-    document.body.classList.remove('overflow-hidden');
+    switchNodeTab('approved');
 };
 
 function ipSortValue(value) {
@@ -3498,8 +3631,7 @@ window.setFleetStatusFilter = function setFleetStatusFilter(status) {
     const select = document.getElementById('fleetStatusFilter');
     if (select) select.value = status || 'all';
     renderFleetStatusTabs(status || 'all');
-    persistFleetCenterState(1);
-    loadFleetCenter(1);
+    updateFleetFilterDraft();
 };
 
 window.setFleetPageSize = function setFleetPageSize(value) {
@@ -4255,31 +4387,33 @@ function switchHostTab(tab) {
 }
 
 function switchNodeTab(tab, save = true) {
-    if (!['approved', 'review'].includes(tab)) tab = 'approved';
+    if (!['approved', 'review', 'packages'].includes(tab)) tab = 'approved';
     if (save) {
         localStorage.setItem(infraStateKeys.nodeTab, tab);
         writeInfraState(scopedInfraState('hosts', { nodeTab: tab }));
     }
-    const panels = {
-        approved: document.getElementById('nodesApprovedPanel'),
-        review: document.getElementById('nodesReviewPanel'),
-    };
+    const approvedPanel = document.getElementById('nodesApprovedPanel');
+    const reviewPanel = document.getElementById('nodesReviewPanel');
+    const fleetPanel = document.getElementById('nodesFleetPanel');
+    const packagePanel = document.getElementById('nodesPackageRegistryPanel');
     const buttons = {
         approved: document.getElementById('nodeTab-approved'),
         review: document.getElementById('nodeTab-review'),
+        packages: document.getElementById('nodeTab-packages'),
     };
-    Object.entries(panels).forEach(([key, panel]) => {
-        if (!panel) return;
-        panel.classList.toggle('hidden', tab !== key);
-    });
-    Object.values(buttons).forEach(btn => {
+    if (approvedPanel) approvedPanel.classList.toggle('hidden', tab === 'review');
+    if (reviewPanel) reviewPanel.classList.toggle('hidden', tab !== 'review');
+    if (fleetPanel) fleetPanel.classList.toggle('hidden', tab !== 'approved');
+    if (packagePanel) packagePanel.classList.toggle('hidden', tab !== 'packages');
+    Object.entries(buttons).forEach(([key, btn]) => {
         if (!btn) return;
         btn.className = "node-tab-btn inline-flex items-center px-5 py-2.5 rounded-xl text-xs font-black uppercase text-slate-500 hover:text-amber-700";
+        btn.setAttribute('aria-selected', key === tab ? 'true' : 'false');
     });
     const active = buttons[tab] || buttons.approved;
     if (active) active.className = "node-tab-btn inline-flex items-center px-5 py-2.5 rounded-xl text-xs font-black uppercase bg-slate-900 text-white shadow-sm";
     if (tab === 'review') switchReviewTab(infraUrlParam('reviewTab') || localStorage.getItem(infraStateKeys.reviewTab) || 'pending', false);
-    if (tab === 'approved') loadFleetCenter();
+    if (tab === 'approved' || tab === 'packages') loadFleetCenter();
 }
 
 function switchReviewTab(tab, save = true) {
@@ -5574,7 +5708,7 @@ function viewJobDetails(jobId) {
     currentJobStatusFilter = 'all';
     document.getElementById('jTitle').innerText = job.title || 'Job Details';
     document.getElementById('jInfo').innerText = `${job.action} • Total targets: ${job.total}`;
-    document.getElementById('jLaunchReason').textContent = job.planned && !job.launch_reason ? 'Запуск заблоковано: вкажіть причину в новому rollout.' : displayLaunchReason(job.launch_reason);
+    document.getElementById('jLaunchReason').textContent = job.planned && !job.launch_reason ? 'Launch blocked: provide a reason in a new rollout.' : displayLaunchReason(job.launch_reason);
     renderJobStatusFilters();
     renderJobTaskRows();
     openModal('jobModal');
@@ -6003,52 +6137,141 @@ async function finalizeJobReport(id) {
     loadQueue();
 }
 
+window.filterGroupList = function filterGroupList() {
+    const query = (document.getElementById('groupListSearch')?.value || '').trim().toLowerCase();
+    const rows = Array.from(document.querySelectorAll('#groupsListBody .group-list-row'));
+    let visible = 0;
+    rows.forEach(row => {
+        const haystack = `${row.dataset.groupName || ''} ${row.dataset.groupDescription || ''}`.toLowerCase();
+        row.hidden = !haystack.includes(query);
+        if (!row.hidden) visible += 1;
+    });
+    const count = document.getElementById('groupListResultCount');
+    if (count) count.textContent = `${visible} group${visible === 1 ? '' : 's'} found`;
+    document.getElementById('groupListEmpty')?.classList.toggle('hidden', visible !== 0 || rows.length === 0);
+};
+
 async function openGroupFullView(id) {
     currentViewedGroupId = id;
     currentGroupNonMembers = [];
+    currentGroupMemberSelection = new Set();
+    const search = document.getElementById('groupInnerSearch');
+    if (search) search.value = '';
     const res = await fetch('/api/infrastructure/group/' + encodeURIComponent(id));
-    const data = await res.json();
-    if(!data.success) return;
+    const data = await res.json().catch(() => ({}));
+    if(!res.ok || !data.success) return alert(data.message || 'Failed to load group.');
 
     document.getElementById('gdPageName').innerText = data.data.name;
+    const description = document.getElementById('gdPageDescription');
+    if (description) description.textContent = data.data.description || 'No description';
     currentGroupNonMembers = data.data.non_members || [];
     const groupCapabilities = data.data.capabilities || {};
     const manageGroupMembers = !!groupCapabilities.manage_groups;
+    const manageGroupHosts = !!groupCapabilities.manage_hosts;
+    const canSelectMembers = manageGroupMembers || manageGroupHosts;
     [
-        ['gdBlockGroupBtn', !!groupCapabilities.manage_hosts],
-        ['gdUnblockGroupBtn', !!groupCapabilities.manage_hosts],
         ['gdDeleteGroupBtn', !!groupCapabilities.delete_groups],
         ['gdAddHostsBtn', manageGroupMembers],
         ['gdMemberActionsHeader', manageGroupMembers],
+        ['gdMemberSelectHeader', canSelectMembers],
+        ['gdBulkToolbar', canSelectMembers],
+        ['gdBulkRemoveBtn', manageGroupMembers],
+        ['gdBulkBlockBtn', manageGroupHosts],
+        ['gdBulkUnblockBtn', manageGroupHosts],
     ].forEach(([elementId, visible]) => {
         const element = document.getElementById(elementId);
         if (element) element.classList.toggle('hidden', !visible);
     });
 
+    const emptyColspan = 3 + (canSelectMembers ? 1 : 0) + (manageGroupMembers ? 1 : 0);
     document.getElementById('groupHostsBody').innerHTML = data.data.members.map(m => `
-        <tr class="hover:bg-slate-50/80 transition-colors">
-            <td class="px-10 py-5 font-black text-slate-700 text-lg cursor-pointer" onclick="viewHost('${escapeInlineJs(m.id)}')">
+        <tr class="group-member-row hover:bg-slate-50/80 transition-colors" data-group-member-row data-member-search="${escapeHtml(`${m.name || ''} ${m.hostname || ''} ${m.ip || ''} ${m.os_type || ''}`.toLowerCase())}" data-member-id="${escapeHtml(m.id)}">
+            ${canSelectMembers ? `<td class="px-6 py-5"><input type="checkbox" value="${escapeHtml(m.id)}" onchange="toggleGroupMemberSelection(this)" class="group-member-cb w-4 h-4 rounded border-slate-300 text-indigo-600 focus:ring-indigo-500" aria-label="Select ${escapeHtml(endpointVisibleName(m))}"></td>` : ''}
+            <td class="px-6 py-5 font-black text-slate-700 text-lg cursor-pointer" onclick="viewHost('${escapeInlineJs(m.id)}')">
                 ${escapeHtml(endpointVisibleName(m))}
                 ${endpointHostnameLine(m)}
             </td>
-            <td class="px-10 py-5">
+            <td class="px-6 py-5">
                 <div class="text-[10px] font-black uppercase tracking-widest text-slate-400 mb-1">${escapeHtml(m.os_type)}</div>
                 <div class="text-sm font-bold text-slate-600">${escapeHtml(m.ip)}</div>
             </td>
-            ${manageGroupMembers ? `<td class="px-10 py-5 text-right"><button onclick="removeHostFromGroup('${escapeInlineJs(m.id)}')" class="px-4 py-2 bg-white text-rose-500 border border-slate-200 hover:bg-rose-50 rounded-xl text-xs font-black uppercase transition-all shadow-sm">Remove</button></td>` : ''}
-        </tr>`).join('') || '<tr><td colspan="3" class="p-16 text-center text-slate-300 font-black uppercase tracking-widest text-sm">No hosts in this group</td></tr>';
+            <td class="px-6 py-5"><span class="inline-flex px-3 py-1.5 rounded-xl border text-[10px] font-black uppercase ${m.is_blocked ? 'bg-rose-50 border-rose-200 text-rose-700' : 'bg-emerald-50 border-emerald-200 text-emerald-700'}">${m.is_blocked ? 'Blocked' : 'Allowed'}</span></td>
+            ${manageGroupMembers ? `<td class="px-6 py-5 text-right"><button onclick="removeHostFromGroup('${escapeInlineJs(m.id)}')" class="px-4 py-2 bg-white text-rose-500 border border-slate-200 hover:bg-rose-50 rounded-xl text-xs font-black uppercase transition-all shadow-sm">Remove</button></td>` : ''}
+        </tr>`).join('') || `<tr><td colspan="${emptyColspan}" class="p-16 text-center text-slate-300 font-black uppercase tracking-widest text-sm">No hosts in this group</td></tr>`;
 
     switchView('group-detail');
+    filterGroupHosts();
+    updateGroupSelectionCount();
 }
 
-function filterGroupHosts() {
-    const q = document.getElementById('groupInnerSearch').value.toLowerCase();
-    const rows = document.getElementById('groupHostsBody').getElementsByTagName('tr');
-    for (let r of rows) {
-        if(r.cells.length === 1) continue;
-        r.style.display = r.innerText.toLowerCase().includes(q) ? '' : 'none';
+window.filterGroupHosts = function filterGroupHosts() {
+    const query = (document.getElementById('groupInnerSearch')?.value || '').trim().toLowerCase();
+    const rows = Array.from(document.querySelectorAll('#groupHostsBody [data-group-member-row]'));
+    let visible = 0;
+    rows.forEach(row => {
+        row.hidden = !String(row.dataset.memberSearch || '').includes(query);
+        if (!row.hidden) visible += 1;
+    });
+    const count = document.getElementById('groupHostResultCount');
+    if (count) count.textContent = `${visible} host${visible === 1 ? '' : 's'} found`;
+    updateGroupSelectionCount();
+};
+
+window.toggleGroupMemberSelection = function toggleGroupMemberSelection(checkbox) {
+    if (checkbox.checked) currentGroupMemberSelection.add(String(checkbox.value));
+    else currentGroupMemberSelection.delete(String(checkbox.value));
+    updateGroupSelectionCount();
+};
+
+window.toggleAllGroupMembers = function toggleAllGroupMembers(checkbox) {
+    document.querySelectorAll('#groupHostsBody .group-member-row:not([hidden]) .group-member-cb').forEach(memberCheckbox => {
+        memberCheckbox.checked = checkbox.checked;
+        if (checkbox.checked) currentGroupMemberSelection.add(String(memberCheckbox.value));
+        else currentGroupMemberSelection.delete(String(memberCheckbox.value));
+    });
+    updateGroupSelectionCount();
+};
+
+function updateGroupSelectionCount() {
+    document.querySelectorAll('#groupHostsBody .group-member-cb').forEach(checkbox => {
+        checkbox.checked = currentGroupMemberSelection.has(String(checkbox.value));
+    });
+    const selectedCount = currentGroupMemberSelection.size;
+    const count = document.getElementById('groupSelectedCount');
+    if (count) count.textContent = String(selectedCount);
+    ['gdBulkRemoveBtn', 'gdBulkBlockBtn', 'gdBulkUnblockBtn'].forEach(id => {
+        const button = document.getElementById(id);
+        if (button) button.disabled = selectedCount === 0;
+    });
+    const visibleCheckboxes = Array.from(document.querySelectorAll('#groupHostsBody .group-member-row:not([hidden]) .group-member-cb'));
+    const selectedVisible = visibleCheckboxes.filter(checkbox => checkbox.checked).length;
+    const selectAll = document.getElementById('groupSelectAll');
+    if (selectAll) {
+        selectAll.checked = visibleCheckboxes.length > 0 && selectedVisible === visibleCheckboxes.length;
+        selectAll.indeterminate = selectedVisible > 0 && selectedVisible < visibleCheckboxes.length;
     }
 }
+
+window.bulkGroupMemberAction = async function bulkGroupMemberAction(action) {
+    const endpointIds = Array.from(currentGroupMemberSelection);
+    if (!currentViewedGroupId || endpointIds.length === 0) return;
+    const prompt = action === 'remove'
+        ? `Remove ${endpointIds.length} selected host(s) from this group? The nodes will not be deleted.`
+        : `${action === 'block' ? 'Block' : 'Unblock'} ${endpointIds.length} selected host(s)?`;
+    if (!confirm(prompt)) return;
+    try {
+        const res = await fetch(`/api/infrastructure/group/${encodeURIComponent(currentViewedGroupId)}/members/bulk`, {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({action, endpoint_ids: endpointIds}),
+        });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok || !data.success) throw new Error(data.message || 'Bulk action failed.');
+        await openGroupFullView(currentViewedGroupId);
+    } catch (error) {
+        alert(error.message || 'Bulk action failed.');
+    }
+};
 
 async function blockGroup(action) { if(confirm(`Are you sure you want to ${action} all hosts in this group?`)) { await fetch(`/api/infrastructure/group/${currentViewedGroupId}/block`, { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({action}) }); openGroupFullView(currentViewedGroupId); } }
 

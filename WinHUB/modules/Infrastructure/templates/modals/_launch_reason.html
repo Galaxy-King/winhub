@@ -1,15 +1,15 @@
 <dialog id="taskLaunchReasonDialog" aria-labelledby="taskLaunchReasonTitle" aria-describedby="taskLaunchReasonHelp">
     <form id="taskLaunchReasonForm" novalidate>
-        <h2 id="taskLaunchReasonTitle">Причина запуску задачі</h2>
+        <h2 id="taskLaunchReasonTitle">Task launch reason</h2>
         <p id="taskLaunchReasonContext"></p>
-        <p id="taskLaunchReasonHelp">Обов’язкове поле. Причина збережеться в деталях задачі. Не вказуйте паролі чи токени.</p>
+        <p id="taskLaunchReasonHelp">Required. The reason is stored with the task details. Do not include passwords or tokens.</p>
         <label class="launch-reason-field">
-            <span>Причина запуску *</span>
-            <textarea id="taskLaunchReasonInput" data-launch-reason required maxlength="2000" rows="4" placeholder="Наприклад: усунення збою за заявкою INC-123"></textarea>
+            <span>Launch reason *</span>
+            <textarea id="taskLaunchReasonInput" data-launch-reason required maxlength="2000" rows="4" placeholder="For example: investigate outage reported in INC-123"></textarea>
         </label>
         <div class="launch-reason-actions">
-            <button id="taskLaunchReasonCancel" type="button">Скасувати</button>
-            <button type="submit">Продовжити запуск</button>
+            <button id="taskLaunchReasonCancel" type="button">Cancel</button>
+            <button type="submit">Continue</button>
         </div>
     </form>
 </dialog>

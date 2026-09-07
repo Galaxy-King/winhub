@@ -14,17 +14,41 @@
         <p class="text-sm font-bold text-white/70 px-4">Group Management (View Only)</p>
         {% endif %}
     </div>
-    <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-8">
-        {% for group in groups %}
-        <div class="wh-soft-panel bg-white p-8 rounded-[2.5rem] border border-slate-200 shadow-sm hover:border-indigo-300 hover:shadow-md transition-all cursor-pointer group/card flex flex-col" onclick="openGroupFullView('{{ group.id }}')">
-            <div class="flex justify-between items-start mb-6">
-                <div class="w-14 h-14 bg-indigo-50 text-indigo-600 rounded-2xl flex items-center justify-center group-hover/card:scale-110 transition-transform"><svg class="w-7 h-7" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z" stroke-width="2"/></svg></div>
-                <span class="text-[10px] font-black text-indigo-600 bg-indigo-50 px-3 py-1.5 rounded-xl border border-indigo-100 uppercase tracking-widest">{{ group.endpoint_count }} Hosts</span>
+    <div class="wh-soft-panel bg-white rounded-[2rem] border border-slate-200 shadow-sm overflow-hidden">
+        <div class="p-5 border-b border-slate-200 flex flex-col md:flex-row md:items-center justify-between gap-4">
+            <div class="relative w-full md:max-w-xl">
+                <svg class="w-5 h-5 absolute left-4 top-3.5 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true"><path d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" stroke-width="2.5"/></svg>
+                <input type="search" id="groupListSearch" oninput="filterGroupList()" placeholder="Search groups by name or description..." class="w-full pl-12 pr-4 py-3 bg-slate-50 border border-slate-200 rounded-xl text-sm font-bold outline-none focus:bg-white focus:ring-4 focus:ring-indigo-500/10">
             </div>
-            <h3 class="text-xl font-black text-slate-800 mb-2">{{ group.name }}</h3>
-            <p class="text-sm text-slate-500 font-medium line-clamp-2">{{ group.description or 'No description' }}</p>
+            <p id="groupListResultCount" class="text-[10px] font-black uppercase tracking-widest text-slate-500">{{ groups|length }} groups found</p>
         </div>
-        {% endfor %}
+        <div class="overflow-x-auto">
+            <table class="w-full text-left min-w-[720px] infra-separated-table">
+                <thead>
+                    <tr class="text-[10px] text-slate-400 uppercase tracking-widest font-black">
+                        <th class="px-6 py-4">Group</th>
+                        <th class="px-6 py-4">Description</th>
+                        <th class="px-6 py-4 text-center">Hosts</th>
+                        <th class="px-6 py-4 text-right">Action</th>
+                    </tr>
+                </thead>
+                <tbody id="groupsListBody">
+                    {% for group in groups %}
+                    <tr class="group-list-row" data-group-name="{{ group.name | forceescape }}" data-group-description="{{ (group.description or '') | forceescape }}">
+                        <td class="px-6 py-4">
+                            <button type="button" onclick="openGroupFullView('{{ group.id }}')" class="font-black text-slate-800 hover:text-indigo-600 text-left">{{ group.name }}</button>
+                        </td>
+                        <td class="px-6 py-4 text-sm font-medium text-slate-500">{{ group.description or 'No description' }}</td>
+                        <td class="px-6 py-4 text-center"><span class="inline-flex px-3 py-1.5 rounded-xl bg-indigo-50 text-indigo-700 border border-indigo-100 text-[10px] font-black uppercase">{{ group.endpoint_count }} hosts</span></td>
+                        <td class="px-6 py-4 text-right"><button type="button" onclick="openGroupFullView('{{ group.id }}')" class="px-4 py-2 rounded-xl bg-white border border-slate-200 text-[10px] font-black uppercase text-slate-600 hover:bg-indigo-50 hover:text-indigo-700">Open</button></td>
+                    </tr>
+                    {% else %}
+                    <tr><td colspan="4" class="p-12 text-center text-slate-400 text-sm font-bold">No groups are available.</td></tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+        <div id="groupListEmpty" class="hidden p-12 text-center text-slate-400 text-sm font-bold">No groups match your search.</div>
     </div>
 </section>
 
@@ -32,20 +56,13 @@
 <section id="view-group-detail" class="hidden flex-col h-full space-y-6 animate-in fade-in duration-300">
     <div class="wh-blue-panel rounded-[2.5rem] border border-slate-200 shadow-sm p-6 sm:p-8 flex flex-col gap-6">
         <div class="flex flex-col sm:flex-row items-start sm:items-center gap-4 justify-between">
-            <div class="flex items-center gap-4">
+            <div class="flex items-center gap-4 min-w-0">
                 <button onclick="switchView('groups')" class="p-3 bg-slate-100 hover:bg-slate-200 text-slate-600 rounded-2xl transition-colors shadow-sm"><svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M15 19l-7-7 7-7"/></svg></button>
-                <div><h2 id="gdPageName" class="text-2xl font-black text-slate-800 uppercase tracking-tight">Group Name</h2></div>
+                <div class="min-w-0"><h2 id="gdPageName" class="text-2xl font-black text-white uppercase tracking-tight truncate">Group Name</h2><p id="gdPageDescription" class="mt-1 text-xs font-bold text-white/65 truncate">Group details</p></div>
             </div>
 
-            {% if permissions.manage_groups or permissions.manage_hosts or permissions.delete_groups %}
+            {% if permissions.manage_groups or permissions.delete_groups %}
             <div class="flex flex-wrap gap-3 w-full sm:w-auto">
-                {% if permissions.manage_hosts %}
-                <button id="gdBlockGroupBtn" onclick="blockGroup('block')" class="flex-1 sm:flex-none px-6 py-3 bg-amber-50 text-amber-600 rounded-2xl text-xs font-black uppercase tracking-wider hover:bg-amber-100 transition-all border border-amber-200 shadow-sm">Block</button>
-                <button id="gdUnblockGroupBtn" onclick="blockGroup('unblock')" class="flex-1 sm:flex-none px-6 py-3 bg-emerald-50 text-emerald-600 rounded-2xl text-xs font-black uppercase tracking-wider hover:bg-emerald-100 transition-all border border-emerald-200 shadow-sm">Unblock</button>
-                {% endif %}
-                {% if permissions.manage_groups or permissions.delete_groups %}
-                <div class="hidden sm:block w-px bg-slate-200 mx-2"></div>
-                {% endif %}
                 {% if permissions.delete_groups %}
                 <button id="gdDeleteGroupBtn" onclick="deleteCurrentGroup()" class="flex-1 sm:flex-none px-6 py-3 bg-rose-50 text-rose-600 rounded-2xl text-xs font-black uppercase tracking-wider hover:bg-rose-100 transition-all border border-rose-200 shadow-sm">Delete Group</button>
                 {% endif %}
@@ -55,15 +72,36 @@
             </div>
             {% endif %}
         </div>
-        <input type="text" id="groupInnerSearch" onkeyup="filterGroupHosts()" placeholder="Search hosts in group..." class="w-full max-w-lg px-6 py-4 bg-slate-50 border border-slate-200 rounded-2xl text-sm font-medium outline-none focus:ring-4 focus:ring-indigo-500/10 transition-all">
+        <div class="flex flex-col lg:flex-row lg:items-center justify-between gap-4">
+            <div class="relative w-full max-w-xl">
+                <svg class="w-5 h-5 absolute left-4 top-3.5 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true"><path d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" stroke-width="2.5"/></svg>
+                <input type="search" id="groupInnerSearch" oninput="filterGroupHosts()" placeholder="Search hosts in this group..." class="w-full pl-12 pr-4 py-3 bg-white border border-white/20 rounded-xl text-sm font-bold text-slate-800 outline-none focus:ring-4 focus:ring-cyan-300/20 transition-all">
+            </div>
+            <p id="groupHostResultCount" class="text-[10px] font-black uppercase tracking-widest text-white/65">0 hosts found</p>
+        </div>
     </div>
+    {% if permissions.manage_groups or permissions.manage_hosts %}
+    <div id="gdBulkToolbar" class="hidden wh-soft-panel bg-white rounded-2xl border border-slate-200 shadow-sm px-5 py-4 flex flex-col lg:flex-row lg:items-center justify-between gap-4">
+        <div>
+            <p class="text-xs font-black text-slate-800 uppercase tracking-widest"><span id="groupSelectedCount">0</span> selected</p>
+            <p class="text-[11px] font-bold text-slate-400 mt-1">Actions apply only to the checked hosts. Removing a host here does not delete the node.</p>
+        </div>
+        <div class="flex flex-wrap gap-2">
+            {% if permissions.manage_groups %}<button id="gdBulkRemoveBtn" type="button" onclick="bulkGroupMemberAction('remove')" class="px-4 py-2.5 rounded-xl bg-white border border-slate-200 text-[10px] font-black uppercase text-rose-600 hover:bg-rose-50 disabled:opacity-40" disabled>Remove from group</button>{% endif %}
+            {% if permissions.manage_hosts %}<button id="gdBulkBlockBtn" type="button" onclick="bulkGroupMemberAction('block')" class="px-4 py-2.5 rounded-xl bg-amber-50 border border-amber-200 text-[10px] font-black uppercase text-amber-700 hover:bg-amber-100 disabled:opacity-40" disabled>Block selected</button>{% endif %}
+            {% if permissions.manage_hosts %}<button id="gdBulkUnblockBtn" type="button" onclick="bulkGroupMemberAction('unblock')" class="px-4 py-2.5 rounded-xl bg-emerald-50 border border-emerald-200 text-[10px] font-black uppercase text-emerald-700 hover:bg-emerald-100 disabled:opacity-40" disabled>Unblock selected</button>{% endif %}
+        </div>
+    </div>
+    {% endif %}
     <div class="bg-white rounded-[2.5rem] border border-slate-200 shadow-sm overflow-hidden flex-1 overflow-x-auto">
         <table class="w-full text-left min-w-[800px]" id="groupHostsTable">
             <thead>
                 <tr class="bg-slate-50/80 border-b border-slate-100 text-[10px] font-black text-slate-400 uppercase tracking-widest">
-                    <th class="px-10 py-6">Hostname</th>
-                    <th class="px-10 py-6">OS / IP Address</th>
-                    {% if permissions.manage_groups %}<th id="gdMemberActionsHeader" class="px-10 py-6 text-right">Actions</th>{% endif %}
+                    {% if permissions.manage_groups or permissions.manage_hosts %}<th id="gdMemberSelectHeader" class="px-6 py-5 w-12"><input id="groupSelectAll" type="checkbox" onchange="toggleAllGroupMembers(this)" class="w-4 h-4 rounded border-slate-300 text-indigo-600 focus:ring-indigo-500" aria-label="Select all visible group hosts"></th>{% endif %}
+                    <th class="px-6 py-5">Hostname</th>
+                    <th class="px-6 py-5">OS / IP Address</th>
+                    <th class="px-6 py-5">Access</th>
+                    {% if permissions.manage_groups %}<th id="gdMemberActionsHeader" class="px-6 py-5 text-right">Actions</th>{% endif %}
                 </tr>
             </thead>
             <tbody class="divide-y divide-slate-50" id="groupHostsBody"></tbody>

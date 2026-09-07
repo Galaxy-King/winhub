@@ -7659,7 +7659,15 @@ def manage_group(group_id):
         else:
             non_members = []
 
-    members = [{"id": a.id, "hostname": a.hostname or a.id, "display_name": getattr(a, "display_name", None) or "", "name": endpoint_display_name(a), "ip": getattr(a, "connection_ip", None) or "", "os_type": getattr(a, 'os_type', 'Windows')} for a in members_source]
+    members = [{
+        "id": a.id,
+        "hostname": a.hostname or a.id,
+        "display_name": getattr(a, "display_name", None) or "",
+        "name": endpoint_display_name(a),
+        "ip": getattr(a, "connection_ip", None) or "",
+        "os_type": getattr(a, 'os_type', 'Windows'),
+        "is_blocked": bool(getattr(a, "is_blocked", False)),
+    } for a in members_source]
     user = current_user()
     capabilities = {
         action_id: bool(can(action_id) and group_action_allowed(user, group.id, action_id))
@@ -7695,7 +7703,7 @@ def update_group_members(group_id):
             return jsonify({"success": False, "message": "Group denied"}), 403
         if agent.id not in set(infra_allowed_host_ids(session.get('user_id'))):
             return jsonify({"success": False, "message": "Host is outside your assigned scope"}), 403
-        if (getattr(agent, "approval_status", "Approved") or "Approved") != "Approved":
+        if action == 'add' and (getattr(agent, "approval_status", "Approved") or "Approved") != "Approved":
             return jsonify({"success": False, "message": "Only approved hosts can be added to groups"}), 403
     if action == 'add' and agent not in group.endpoints: group.endpoints.append(agent)
     elif action == 'remove' and agent in group.endpoints: group.endpoints.remove(agent)
@@ -7708,6 +7716,85 @@ def update_group_members(group_id):
         status="Success"
     )
     return jsonify({"success": True})
+
+
+@infrastructure_bp.route('/api/infrastructure/group/<group_id>/members/bulk', methods=['POST'])
+def bulk_update_group_members(group_id):
+    data = request.get_json(silent=True) or {}
+    action = data.get('action')
+    if action not in {'remove', 'block', 'unblock'}:
+        return jsonify({"success": False, "message": "Action must be remove, block or unblock"}), 400
+
+    permission_id = "manage_groups" if action == "remove" else "manage_hosts"
+    denied = require_permission(permission_id)
+    if denied: return denied
+
+    raw_endpoint_ids = data.get('endpoint_ids')
+    if not isinstance(raw_endpoint_ids, list):
+        return jsonify({"success": False, "message": "endpoint_ids must be a list"}), 400
+    endpoint_ids = list(dict.fromkeys(
+        str(item).strip() for item in raw_endpoint_ids
+        if item is not None and str(item).strip()
+    ))
+    if not endpoint_ids:
+        return jsonify({"success": False, "message": "Select at least one host"}), 400
+    if len(endpoint_ids) > 200:
+        return jsonify({"success": False, "message": "A bulk action is limited to 200 hosts"}), 400
+
+    group = EndpointGroup.query.get(group_id)
+    if not group:
+        return jsonify({"success": False, "message": "Group not found"}), 404
+    if group.id not in set(infra_allowed_group_ids(session.get('user_id'), permission_id)):
+        return jsonify({"success": False, "message": "Group is outside your assigned scope"}), 403
+
+    member_ids = {
+        str(row[0])
+        for row in db.session.query(endpoint_group_m2m.c.endpoint_id).filter(
+            endpoint_group_m2m.c.group_id == group.id,
+            endpoint_group_m2m.c.endpoint_id.in_(endpoint_ids),
+        ).all()
+    }
+    missing_ids = [endpoint_id for endpoint_id in endpoint_ids if endpoint_id not in member_ids]
+    if missing_ids:
+        return jsonify({
+            "success": False,
+            "message": "One or more selected hosts are not members of this group",
+            "invalid_endpoint_ids": missing_ids,
+        }), 400
+
+    allowed_host_ids = set(infra_allowed_host_ids(session.get('user_id'), permission_id))
+    out_of_scope_ids = [endpoint_id for endpoint_id in endpoint_ids if endpoint_id not in allowed_host_ids]
+    if out_of_scope_ids:
+        return jsonify({
+            "success": False,
+            "message": "One or more selected hosts are outside your assigned scope",
+        }), 403
+
+    if action == 'remove':
+        endpoints_by_id = {
+            str(endpoint.id): endpoint
+            for endpoint in Endpoint.query.filter(Endpoint.id.in_(endpoint_ids)).all()
+        }
+        for endpoint_id in endpoint_ids:
+            group.endpoints.remove(endpoints_by_id[endpoint_id])
+    else:
+        Endpoint.query.filter(Endpoint.id.in_(endpoint_ids)).update(
+            {"is_blocked": action == 'block'},
+            synchronize_session=False,
+        )
+
+    write_infra_audit(
+        {
+            "remove": "Remove Selected Group Hosts",
+            "block": "Block Selected Group Hosts",
+            "unblock": "Unblock Selected Group Hosts",
+        }[action],
+        "endpoint_group",
+        group.id,
+        {"action": action, "updated_hosts": len(endpoint_ids), "endpoint_ids": endpoint_ids},
+    )
+    db.session.commit()
+    return jsonify({"success": True, "updated": len(endpoint_ids), "action": action})
 
 @infrastructure_bp.route('/api/infrastructure/group/<group_id>/block', methods=['POST'])
 def block_group_hosts(group_id):

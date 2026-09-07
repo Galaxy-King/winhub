@@ -217,7 +217,7 @@
                 <div>
                 <h2 id="jTitle" class="text-2xl font-black text-slate-800 uppercase tracking-tight">Job Details</h2>
                 <p id="jInfo" class="text-xs text-slate-400 font-bold mt-2 tracking-widest uppercase">...</p>
-                <p class="launch-reason-display"><strong>Причина запуску:</strong><br><span id="jLaunchReason"></span></p>
+                <p class="launch-reason-display"><strong>Launch reason:</strong><br><span id="jLaunchReason"></span></p>
                 </div>
                 <div class="flex items-center gap-2 shrink-0">
                     {% if permissions.run_tasks %}
@@ -250,7 +250,7 @@
             <div>
                 <h2 id="tTitle" class="text-xl font-black text-slate-800 uppercase tracking-tight">Terminal Log</h2>
                 <p id="tId" class="text-[10px] text-slate-400 font-mono mt-1.5 uppercase tracking-widest">...</p>
-                <p class="launch-reason-display"><strong>Причина запуску:</strong><br><span id="tLaunchReason"></span></p>
+                <p class="launch-reason-display"><strong>Launch reason:</strong><br><span id="tLaunchReason"></span></p>
             </div>
             <button onclick="closeModal('taskModal')" class="p-3 bg-white border border-slate-200 hover:bg-slate-50 rounded-2xl text-slate-500 hover:text-slate-800 transition-colors shadow-sm"><svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path d="M6 18L18 6M6 6l12 12" stroke-width="2.5"/></svg></button>
         </div>
@@ -777,8 +777,8 @@
                     <label class="text-[10px] font-black text-slate-400 uppercase tracking-widest block mb-2 ml-2">Trigger Name</label>
                     <input type="text" id="trgName" placeholder="e.g. Auto-start Spooler" class="w-full p-4 bg-slate-50 border border-slate-200 rounded-2xl text-sm font-bold outline-none focus:bg-white focus:ring-4 focus:ring-indigo-500/10 transition-all shadow-inner">
                     <label class="launch-reason-field">
-                        <span>Причина автоматичного запуску *</span>
-                        <textarea id="trgLaunchReason" data-launch-reason required maxlength="2000" rows="3" placeholder="Наприклад: відновлення служби при виявленні збою"></textarea>
+                        <span>Automatic launch reason *</span>
+                        <textarea id="trgLaunchReason" data-launch-reason required maxlength="2000" rows="3" placeholder="For example: recover the service when a failure is detected"></textarea>
                     </label>
                 </div>
                 <div>
@@ -875,8 +875,8 @@
                         <label class="text-[10px] font-black text-slate-600 uppercase tracking-widest block mb-2">Job Name</label>
                         <input type="text" id="schName" maxlength="150" placeholder="e.g. Nightly Reboot" class="w-full p-4 bg-white border border-blue-200 rounded-2xl text-sm font-bold outline-none focus:ring-4 focus:ring-blue-500/10 transition-all shadow-sm">
                         <label class="launch-reason-field">
-                            <span>Причина запуску за розкладом *</span>
-                            <textarea id="schLaunchReason" data-launch-reason required maxlength="2000" rows="3" placeholder="Наприклад: щотижнева перевірка налаштувань серверів"></textarea>
+                            <span>Scheduled launch reason *</span>
+                            <textarea id="schLaunchReason" data-launch-reason required maxlength="2000" rows="3" placeholder="For example: weekly server configuration review"></textarea>
                         </label>
                     </div>
                     <div>
