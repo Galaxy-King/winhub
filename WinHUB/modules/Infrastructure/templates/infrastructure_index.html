@@ -5,6 +5,7 @@
 {% block extra_head %}
 <link rel="stylesheet" href="{{ url_for('static', filename='vendor/codemirror/5.65.16/codemirror.min.css', v=app_version) }}">
 <link rel="stylesheet" href="{{ url_for('static', filename='vendor/codemirror/5.65.16/theme/material-darker.min.css', v=app_version) }}">
+<link rel="stylesheet" href="{{ url_for('static', filename='css/infrastructure_inventory.css', v=app_version ~ '-inventory-1') }}">
 <script nonce="{{ csp_nonce }}" src="{{ url_for('static', filename='vendor/codemirror/5.65.16/codemirror.min.js', v=app_version) }}"></script>
 <script nonce="{{ csp_nonce }}" src="{{ url_for('static', filename='vendor/codemirror/5.65.16/addon/edit/matchbrackets.min.js', v=app_version) }}"></script>
 <script nonce="{{ csp_nonce }}" src="{{ url_for('static', filename='vendor/codemirror/5.65.16/mode/powershell/powershell.min.js', v=app_version) }}"></script>
@@ -1492,7 +1493,7 @@
 {% include 'modals/_launch_reason.html' %}
 <link rel="stylesheet" href="{{ url_for('static', filename='css/task_launch_reason.css', v=app_version ~ '-reason-1') }}">
 <script nonce="{{ csp_nonce }}" src="{{ url_for('static', filename='js/task_launch_reason.js', v=app_version ~ '-reason-1') }}"></script>
-<script nonce="{{ csp_nonce }}" src="{{ url_for('static', filename='js/infrastructure.js', v=app_version ~ '-reason-1') }}"></script>
+<script nonce="{{ csp_nonce }}" src="{{ url_for('static', filename='js/infrastructure.js', v=app_version ~ '-inventory-1') }}"></script>
 {% if permissions.use_ai_templates and permissions.manage_templates %}
 <link rel="stylesheet" href="{{ url_for('static', filename='css/ai_template_editor.css', v=app_version) }}">
 <script nonce="{{ csp_nonce }}" src="{{ url_for('static', filename='js/ai_template_editor.js', v=app_version) }}"></script>

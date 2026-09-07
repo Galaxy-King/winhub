@@ -1,162 +1,155 @@
-<!-- PANEL: NODES WITH AGENT UPDATE CONTROLS -->
+<!-- PANEL: NODE INVENTORY -->
 <div id="nodesFleetPanel" class="animate-in fade-in duration-300 space-y-6">
-    <div class="space-y-6">
-        <div class="bg-white rounded-[2rem] border border-slate-200 shadow-sm overflow-hidden">
-            <div class="p-6 border-b border-slate-200 flex flex-col md:flex-row md:items-center justify-between gap-4 wh-blue-panel">
-                <div>
-                    <h3 class="text-lg font-black text-white uppercase tracking-tight">Nodes</h3>
-                    <p class="text-xs font-bold text-white/70 mt-1">Approved hosts, health, agent versions and controlled rollout waves.</p>
-                </div>
-                <div class="flex flex-col lg:items-end gap-3">
-                    <div id="agentLatestVersionCards" class="flex flex-wrap gap-2">
-                        {% for platform in agent_package_platforms %}
-                        {% set latest_version = latest_agent_versions.get(platform) %}
-                        <div class="agent-latest-card px-3 py-2 rounded-xl border bg-white/10 text-white shadow-sm" data-platform="{{ platform }}">
-                            <div class="text-[9px] font-black uppercase tracking-widest text-white/65">{{ agent_package_platform_labels.get(platform, platform) }}</div>
-                            <div class="mt-0.5 text-sm font-black">{{ latest_version or 'No package' }}</div>
-                        </div>
-                        {% endfor %}
-                    </div>
-                    <div class="flex flex-wrap gap-2">
-                        <button id="packageRegistryToggleBtn" onclick="togglePackageRegistry()" class="px-4 py-2.5 rounded-xl bg-white/15 hover:bg-white/25 text-white text-[10px] font-black uppercase border border-white/20 transition-all">Package Registry</button>
-                        <button onclick="loadFleetCenter()" class="px-4 py-2.5 rounded-xl bg-white/15 hover:bg-white/25 text-white text-[10px] font-black uppercase border border-white/20 transition-all">Refresh</button>
-                    </div>
-                </div>
+    <div class="bg-white rounded-[2rem] border border-slate-200 shadow-sm overflow-hidden">
+        <div class="p-6 border-b border-slate-200 flex flex-col md:flex-row md:items-center justify-between gap-4 wh-blue-panel">
+            <div>
+                <h3 class="text-lg font-black text-white uppercase tracking-tight">Node Inventory</h3>
+                <p class="text-xs font-bold text-white/70 mt-1">Approved hosts, connectivity, health, encryption and agent versions.</p>
             </div>
-            <div class="p-5 border-b border-slate-200 bg-slate-50/70 space-y-3">
-                <div id="fleetStatusTabs" class="flex flex-wrap gap-2">
-                    <button onclick="setFleetStatusFilter('all')" data-fleet-status="all" class="fleet-status-tab px-4 py-2 rounded-xl text-[10px] font-black uppercase bg-slate-900 text-white shadow-sm">All agents</button>
-                    <button onclick="setFleetStatusFilter('current')" data-fleet-status="current" class="fleet-status-tab px-4 py-2 rounded-xl text-[10px] font-black uppercase bg-white text-slate-700 border border-slate-200 hover:bg-emerald-50 hover:text-emerald-700">Current</button>
-                    <button onclick="setFleetStatusFilter('outdated')" data-fleet-status="outdated" class="fleet-status-tab px-4 py-2 rounded-xl text-[10px] font-black uppercase bg-white text-slate-700 border border-slate-200 hover:bg-amber-50 hover:text-amber-700">Outdated</button>
-                    <button onclick="setFleetStatusFilter('offline')" data-fleet-status="offline" class="fleet-status-tab px-4 py-2 rounded-xl text-[10px] font-black uppercase bg-white text-slate-700 border border-slate-200 hover:bg-slate-100">Offline</button>
-                    <button onclick="setFleetStatusFilter('warning')" data-fleet-status="warning" class="fleet-status-tab px-4 py-2 rounded-xl text-[10px] font-black uppercase bg-white text-slate-700 border border-slate-200 hover:bg-rose-50 hover:text-rose-700">Warning</button>
-                    <button onclick="setFleetStatusFilter('unsigned')" data-fleet-status="unsigned" class="fleet-status-tab px-4 py-2 rounded-xl text-[10px] font-black uppercase bg-white text-slate-700 border border-slate-200 hover:bg-violet-50 hover:text-violet-700">Missing Key</button>
-                </div>
-                <div class="grid grid-cols-1 lg:grid-cols-[1.2fr_1.4fr] gap-3">
-                <input id="fleetSearch" oninput="scheduleFleetLoad()" placeholder="Search host, IP, OS, version..." class="w-full p-3 bg-white border border-slate-200 rounded-xl text-xs font-bold text-slate-700 outline-none focus:ring-4 focus:ring-indigo-500/10">
-                <select id="fleetStatusFilter" onchange="setFleetStatusFilter(this.value)" class="hidden">
-                    <option value="all">All agents</option>
-                    <option value="outdated">Outdated</option>
-                    <option value="current">Current</option>
-                    <option value="offline">Offline</option>
-                    <option value="warning">Warning / Critical</option>
-                    <option value="unsigned">Missing identity key</option>
-                </select>
-                <div id="fleetGroupFilters" class="flex flex-wrap gap-2 bg-white border border-slate-200 rounded-xl p-2">
-                    <label class="inline-flex items-center gap-2 px-3 py-2 rounded-lg bg-slate-50 text-[10px] font-black uppercase text-slate-500 border border-slate-100 cursor-pointer">
-                        <input type="checkbox" value="ungrouped" onchange="loadFleetCenter(1)" class="w-3.5 h-3.5 rounded border-slate-300 text-indigo-600 focus:ring-indigo-500"> No group
-                    </label>
-                    {% for g in groups %}
-                    <label class="inline-flex items-center gap-2 px-3 py-2 rounded-lg bg-indigo-50 text-[10px] font-black uppercase text-indigo-600 border border-indigo-100 cursor-pointer">
-                        <input type="checkbox" value="{{ g.id }}" onchange="loadFleetCenter(1)" class="fleet-group-filter-cb w-3.5 h-3.5 rounded border-slate-300 text-indigo-600 focus:ring-indigo-500"> {{ g.name }}
-                    </label>
+            <div class="flex flex-col lg:items-end gap-3">
+                <div id="agentLatestVersionCards" class="flex flex-wrap gap-2">
+                    {% for platform in agent_package_platforms %}
+                    {% set latest_version = latest_agent_versions.get(platform) %}
+                    <div class="agent-latest-card px-3 py-2 rounded-xl border bg-white/10 text-white shadow-sm" data-platform="{{ platform }}">
+                        <div class="text-[9px] font-black uppercase tracking-widest text-white/65">{{ agent_package_platform_labels.get(platform, platform) }}</div>
+                        <div class="mt-0.5 text-sm font-black">{{ latest_version or 'No package' }}</div>
+                    </div>
                     {% endfor %}
-                    <div class="basis-full"></div>
-                    <label class="inline-flex items-center gap-2 px-3 py-2 rounded-lg bg-cyan-950/90 text-[10px] font-black uppercase text-cyan-50 border border-cyan-400/40 cursor-pointer shadow-sm" title="Show hosts that have exactly the selected group set and no additional groups. Example: select Windows + this option to find hosts that are only in Windows.">
-                        <input id="fleetExactGroupsOnly" type="checkbox" onchange="loadFleetCenter(1)" class="w-3.5 h-3.5 rounded border-cyan-200 text-cyan-500 focus:ring-cyan-400">
-                        Only selected groups
-                    </label>
                 </div>
-                </div>
-                <div class="fleet-pagination rounded-2xl border px-4 py-3 flex flex-col md:flex-row md:items-center justify-between gap-3">
-                    <div class="text-[10px] font-black uppercase tracking-widest text-slate-500">Loading nodes...</div>
-                </div>
-            </div>
-            <div class="overflow-x-auto">
-                <table class="w-full text-left infra-separated-table min-w-[1080px]">
-                    <thead>
-                        <tr class="text-[10px] text-slate-400 uppercase tracking-widest font-black">
-                            <th class="px-6 py-4 w-12">
-                                <input type="checkbox" onchange="toggleFleetSelectionAll(this)" class="w-4 h-4 rounded border-slate-300 text-indigo-600 focus:ring-indigo-500">
-                            </th>
-                            <th class="px-6 py-4"><button onclick="setFleetSort('hostname')" class="fleet-sort-btn hover:text-indigo-600 transition-colors" data-sort="hostname">Node</button></th>
-                            <th class="px-6 py-4">Status</th>
-                            <th class="px-6 py-4"><button onclick="setFleetSort('agent_version')" class="fleet-sort-btn hover:text-indigo-600 transition-colors" data-sort="agent_version">Agent</button></th>
-                            <th class="px-6 py-4"><button onclick="setFleetSort('health')" class="fleet-sort-btn hover:text-indigo-600 transition-colors" data-sort="health">Health</button></th>
-                            <th class="px-6 py-4">Encryption</th>
-                            <th class="px-6 py-4">Groups</th>
-                            <th class="px-6 py-4"><button onclick="setFleetSort('ip')" class="fleet-sort-btn hover:text-indigo-600 transition-colors" data-sort="ip">Connection IP</button></th>
-                            <th class="px-6 py-4 text-right"><button onclick="setFleetSort('last_seen')" class="fleet-sort-btn hover:text-indigo-600 transition-colors" data-sort="last_seen">Last Seen</button></th>
-                            <th class="px-6 py-4 text-right">Action</th>
-                        </tr>
-                    </thead>
-                    <tbody id="fleetHostsBody">
-                        <tr><td colspan="10" class="p-12 text-center text-slate-500 font-black">Loading fleet data...</td></tr>
-                    </tbody>
-                </table>
-            </div>
-            <div id="fleetPagination" class="fleet-pagination px-6 py-4 border-t flex flex-col md:flex-row md:items-center justify-between gap-3">
-                <div class="text-[10px] font-black uppercase tracking-widest text-slate-500">Loading nodes...</div>
+                <button type="button" onclick="loadFleetCenter()" class="px-4 py-2.5 rounded-xl bg-white/15 hover:bg-white/25 text-white text-[10px] font-black uppercase border border-white/20 transition-all">Refresh nodes</button>
             </div>
         </div>
-        <div id="packageRegistryCard" class="hidden fixed inset-0 z-50 bg-slate-950/45 backdrop-blur-sm p-4 md:p-8 overflow-y-auto">
-            <div class="max-w-5xl mx-auto bg-white rounded-[2rem] border border-slate-200 shadow-2xl p-6 space-y-6">
-                <div class="flex items-start justify-between gap-4">
-                    <div>
-                        <h3 class="text-sm font-black text-slate-800 uppercase">Package Registry</h3>
-                    <p class="text-xs font-bold text-slate-400 mt-1">Upload signed/tested Windows, Linux, or macOS agent packages. Latest is tracked separately per OS.</p>
+
+        <div class="p-5 border-b border-slate-200 bg-slate-50/70 space-y-3">
+            <div class="flex flex-col xl:flex-row xl:items-center justify-between gap-3">
+                <div class="flex flex-col sm:flex-row gap-3 flex-1">
+                    <div class="relative flex-1 max-w-2xl">
+                        <svg class="w-5 h-5 absolute left-4 top-3 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true"><path d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" stroke-width="2.5"/></svg>
+                        <input id="fleetSearch" type="search" oninput="scheduleFleetLoad()" placeholder="Search host, IP, OS, version or group..." class="w-full pl-12 pr-4 py-3 bg-white border border-slate-200 rounded-xl text-xs font-bold text-slate-700 outline-none focus:ring-4 focus:ring-indigo-500/10">
                     </div>
-                    <button onclick="closePackageRegistry()" class="p-2 rounded-xl bg-slate-50 border border-slate-200 text-slate-500 hover:text-rose-600 hover:bg-rose-50 transition-all" aria-label="Close Package Registry">
-                        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18" stroke-width="2.5" stroke-linecap="round"/></svg>
+                    <button id="fleetFilterButton" type="button" onclick="openFleetFilters()" class="inline-flex items-center justify-center gap-2 px-5 py-3 rounded-xl bg-slate-900 text-white text-[10px] font-black uppercase border border-slate-700 hover:bg-slate-800 transition-all" aria-haspopup="dialog" aria-controls="fleetFilterDialog">
+                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 5h16M7 12h10m-7 7h4" stroke-width="2.4" stroke-linecap="round"/></svg>
+                        Filters
+                        <span id="fleetFilterCount" class="hidden min-w-5 h-5 px-1.5 rounded-lg bg-cyan-400 text-slate-950 inline-flex items-center justify-center">0</span>
                     </button>
+                    <button id="fleetClearFiltersButton" type="button" onclick="clearFleetFilters()" class="hidden px-4 py-3 rounded-xl bg-white border border-slate-200 text-slate-500 text-[10px] font-black uppercase hover:bg-rose-50 hover:text-rose-600">Clear</button>
                 </div>
-                {% if is_admin %}
-                <form id="agentPackageForm" class="space-y-3" onsubmit="uploadAgentPackage(event)">
-                    <input id="agentPackageVersion" name="version" placeholder="Version, e.g. 1.2.6" class="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl text-xs font-bold outline-none focus:ring-4 focus:ring-indigo-500/10">
-                    <textarea id="agentPackageNotes" name="notes" placeholder="Release notes..." class="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl text-xs font-bold outline-none focus:ring-4 focus:ring-indigo-500/10 min-h-[84px]"></textarea>
-                    <input id="agentPackageFile" name="file" type="file" accept=".zip,.tar.gz,.tgz,.pkg,.dmg,application/zip,application/gzip,application/x-gzip" class="w-full text-xs font-bold text-slate-500">
-                    <div id="agentPackageProgressWrap" class="hidden h-3 bg-slate-100 rounded-full overflow-hidden border border-slate-200">
-                        <div id="agentPackageProgressBar" class="h-full bg-indigo-600 rounded-full transition-all" style="width: 0%"></div>
-                    </div>
-                    <div id="agentPackageProgressText" class="hidden text-[10px] font-black text-slate-400 uppercase tracking-widest">0%</div>
-                    <button class="w-full py-3 rounded-xl bg-slate-900 text-white text-[10px] font-black uppercase hover:bg-slate-800 transition-all">Upload Package</button>
-                </form>
-                {% else %}
-                <div class="p-4 rounded-2xl bg-slate-50 border border-slate-200 text-xs font-bold text-slate-500">Package upload is available only for superadmins.</div>
-                {% endif %}
-                <div id="agentPackageList" class="space-y-2 max-h-[260px] overflow-y-auto custom-scrollbar pr-1">
-                    <div class="p-4 rounded-xl bg-slate-50 text-xs font-bold text-slate-400">No packages loaded.</div>
-                </div>
+                <p id="fleetFilterSummary" class="text-[10px] font-black uppercase tracking-widest text-slate-500">Loading nodes...</p>
+            </div>
+            <div id="fleetActiveFilters" class="hidden flex flex-wrap gap-2" aria-live="polite"></div>
+        </div>
 
-                <div class="grid grid-cols-1 xl:grid-cols-3 gap-6">
-                    <div class="xl:col-span-2 bg-white rounded-[2rem] border border-slate-200 shadow-sm p-6 space-y-4">
-                        <div>
-                            <h3 class="text-sm font-black text-slate-800 uppercase">Rollout Waves</h3>
-                            <p class="text-xs font-bold text-slate-400 mt-1">Start updates in controlled batches.</p>
-                        </div>
-                        <select id="fleetPackageSelect" class="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl text-xs font-bold outline-none focus:ring-4 focus:ring-indigo-500/10"></select>
-                        <select id="fleetTargetMode" class="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl text-xs font-bold outline-none focus:ring-4 focus:ring-indigo-500/10">
-                            <option value="outdated">Only outdated agents</option>
-                            <option value="group">Selected group</option>
-                            <option value="selected">Checked agents</option>
-                        </select>
-                        <div class="p-3 bg-indigo-50 border border-indigo-100 rounded-xl text-[10px] font-black text-indigo-700 uppercase tracking-widest">
-                            <span id="fleetSelectedCount">0</span> checked agents
-                        </div>
-                        <select id="fleetGroupSelect" class="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl text-xs font-bold outline-none focus:ring-4 focus:ring-indigo-500/10">
-                            {% for g in groups %}
-                            <option value="{{ g.id }}">{{ g.name }}</option>
-                            {% endfor %}
-                        </select>
-                        <div class="grid grid-cols-2 gap-3">
-                            <input id="fleetWaveSize" type="number" min="1" value="50" class="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl text-xs font-bold outline-none focus:ring-4 focus:ring-indigo-500/10" title="Wave size">
-                            <input id="fleetWaveDelay" type="number" min="0" value="300" class="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl text-xs font-bold outline-none focus:ring-4 focus:ring-indigo-500/10" title="Delay between waves in seconds">
-                        </div>
-                        <button onclick="runFleetUpdate()" class="w-full py-3 rounded-xl bg-indigo-600 text-white text-[10px] font-black uppercase hover:bg-indigo-700 shadow-lg shadow-indigo-200 transition-all">Start Rollout</button>
-                    </div>
+        <div class="overflow-x-auto">
+            <table class="w-full text-left infra-separated-table min-w-[1080px]">
+                <thead>
+                    <tr class="text-[10px] text-slate-400 uppercase tracking-widest font-black">
+                        <th class="px-6 py-4 w-12"><input type="checkbox" onchange="toggleFleetSelectionAll(this)" class="w-4 h-4 rounded border-slate-300 text-indigo-600 focus:ring-indigo-500" aria-label="Select visible nodes"></th>
+                        <th class="px-6 py-4"><button onclick="setFleetSort('hostname')" class="fleet-sort-btn hover:text-indigo-600 transition-colors" data-sort="hostname">Node</button></th>
+                        <th class="px-6 py-4">Status</th>
+                        <th class="px-6 py-4"><button onclick="setFleetSort('agent_version')" class="fleet-sort-btn hover:text-indigo-600 transition-colors" data-sort="agent_version">Agent</button></th>
+                        <th class="px-6 py-4"><button onclick="setFleetSort('health')" class="fleet-sort-btn hover:text-indigo-600 transition-colors" data-sort="health">Health</button></th>
+                        <th class="px-6 py-4">Encryption</th>
+                        <th class="px-6 py-4">Groups</th>
+                        <th class="px-6 py-4"><button onclick="setFleetSort('ip')" class="fleet-sort-btn hover:text-indigo-600 transition-colors" data-sort="ip">Connection IP</button></th>
+                        <th class="px-6 py-4 text-right"><button onclick="setFleetSort('last_seen')" class="fleet-sort-btn hover:text-indigo-600 transition-colors" data-sort="last_seen">Last Seen</button></th>
+                        <th class="px-6 py-4 text-right">Action</th>
+                    </tr>
+                </thead>
+                <tbody id="fleetHostsBody"><tr><td colspan="10" class="p-12 text-center text-slate-500 font-black">Loading fleet data...</td></tr></tbody>
+            </table>
+        </div>
+        <div id="fleetPagination" class="fleet-pagination px-6 py-4 border-t flex flex-col md:flex-row md:items-center justify-between gap-3">
+            <div class="text-[10px] font-black uppercase tracking-widest text-slate-500">Loading nodes...</div>
+        </div>
+    </div>
+</div>
 
-                    <div class="wh-soft-panel bg-white rounded-[2rem] border border-slate-200 shadow-sm p-6 space-y-3">
-                        <h3 class="text-sm font-black text-slate-800 uppercase">Health Score</h3>
-                        <p class="text-xs font-bold text-slate-500">100% means the node is online, approved, unblocked, has the latest selected agent version, no identity warning, and no pending reboot flag.</p>
-                        <div class="grid grid-cols-2 gap-2 text-[10px] font-black uppercase">
-                            <span class="px-3 py-2 rounded-xl bg-emerald-50 text-emerald-700 border border-emerald-100">80-100 Healthy</span>
-                            <span class="px-3 py-2 rounded-xl bg-amber-50 text-amber-700 border border-amber-100">50-79 Warning</span>
-                            <span class="px-3 py-2 rounded-xl bg-rose-50 text-rose-700 border border-rose-100">0-49 Critical</span>
-                            <span class="px-3 py-2 rounded-xl bg-slate-50 text-slate-500 border border-slate-200">Reasons shown per row</span>
-                        </div>
-                    </div>
+<!-- PANEL: AGENT PACKAGE REGISTRY -->
+<section id="nodesPackageRegistryPanel" class="hidden animate-in fade-in duration-300 space-y-6" aria-labelledby="packageRegistryTitle">
+    <div class="wh-blue-panel p-6 rounded-[2rem] border border-slate-200 shadow-sm flex flex-col md:flex-row md:items-center justify-between gap-4">
+        <div><h3 id="packageRegistryTitle" class="text-lg font-black text-white uppercase tracking-tight">Package Registry</h3><p class="text-xs font-bold text-white/70 mt-1">Manage signed agent releases and start controlled rollout waves.</p></div>
+        <button type="button" onclick="loadFleetCenter()" class="px-4 py-2.5 rounded-xl bg-white/15 hover:bg-white/25 text-white text-[10px] font-black uppercase border border-white/20 transition-all">Refresh packages</button>
+    </div>
+
+    <div class="grid grid-cols-1 xl:grid-cols-3 gap-6">
+        <div class="xl:col-span-2 bg-white rounded-[2rem] border border-slate-200 shadow-sm p-6 space-y-5">
+            <div><h4 class="text-sm font-black text-slate-800 uppercase">Agent packages</h4><p class="text-xs font-bold text-slate-400 mt-1">Windows, Linux and macOS packages are grouped by platform; the latest release is tracked independently for each OS.</p></div>
+            <div id="agentPackageList" class="space-y-3 max-h-[460px] overflow-y-auto custom-scrollbar pr-1"><div class="p-4 rounded-xl bg-slate-50 text-xs font-bold text-slate-400">No packages loaded.</div></div>
+        </div>
+
+        <div class="space-y-6">
+            {% if is_admin %}
+            <form id="agentPackageForm" class="bg-white rounded-[2rem] border border-slate-200 shadow-sm p-6 space-y-3" onsubmit="uploadAgentPackage(event)">
+                <div><h4 class="text-sm font-black text-slate-800 uppercase">Upload package</h4><p class="text-xs font-bold text-slate-400 mt-1">Only signed and tested release artifacts should be uploaded.</p></div>
+                <input id="agentPackageVersion" name="version" placeholder="Version, e.g. 1.2.6" class="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl text-xs font-bold outline-none focus:ring-4 focus:ring-indigo-500/10">
+                <textarea id="agentPackageNotes" name="notes" placeholder="Release notes..." class="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl text-xs font-bold outline-none focus:ring-4 focus:ring-indigo-500/10 min-h-[84px]"></textarea>
+                <input id="agentPackageFile" name="file" type="file" accept=".zip,.tar.gz,.tgz,.pkg,.dmg,application/zip,application/gzip,application/x-gzip" class="w-full text-xs font-bold text-slate-500">
+                <div id="agentPackageProgressWrap" class="hidden h-3 bg-slate-100 rounded-full overflow-hidden border border-slate-200"><div id="agentPackageProgressBar" class="h-full bg-indigo-600 rounded-full transition-all" style="width: 0%"></div></div>
+                <div id="agentPackageProgressText" class="hidden text-[10px] font-black text-slate-400 uppercase tracking-widest">0%</div>
+                <button class="w-full py-3 rounded-xl bg-slate-900 text-white text-[10px] font-black uppercase hover:bg-slate-800 transition-all">Upload Package</button>
+            </form>
+            {% else %}
+            <div class="p-5 rounded-2xl bg-slate-50 border border-slate-200 text-xs font-bold text-slate-500">Package upload is available only for superadmins.</div>
+            {% endif %}
+
+            <div class="wh-soft-panel bg-white rounded-[2rem] border border-slate-200 shadow-sm p-6 space-y-3">
+                <h4 class="text-sm font-black text-slate-800 uppercase">Health Score</h4>
+                <p class="text-xs font-bold text-slate-500">100% means the node is online, approved, unblocked, current, signed and has no identity warning.</p>
+                <div class="grid grid-cols-1 sm:grid-cols-3 xl:grid-cols-1 gap-2 text-[10px] font-black uppercase">
+                    <span class="px-3 py-2 rounded-xl bg-emerald-50 text-emerald-700 border border-emerald-100">80-100 Healthy</span>
+                    <span class="px-3 py-2 rounded-xl bg-amber-50 text-amber-700 border border-amber-100">50-79 Warning</span>
+                    <span class="px-3 py-2 rounded-xl bg-rose-50 text-rose-700 border border-rose-100">0-49 Critical</span>
                 </div>
             </div>
         </div>
     </div>
-</div>
+
+    <div class="bg-white rounded-[2rem] border border-slate-200 shadow-sm p-6 space-y-4">
+        <div><h4 class="text-sm font-black text-slate-800 uppercase">Rollout Waves</h4><p class="text-xs font-bold text-slate-400 mt-1">Select a package and target, then update endpoints in controlled batches.</p></div>
+        <div class="grid grid-cols-1 lg:grid-cols-2 gap-3">
+            <select id="fleetPackageSelect" class="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl text-xs font-bold outline-none focus:ring-4 focus:ring-indigo-500/10"></select>
+            <select id="fleetTargetMode" class="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl text-xs font-bold outline-none focus:ring-4 focus:ring-indigo-500/10"><option value="outdated">Only outdated agents</option><option value="group">Selected group</option><option value="selected">Checked agents</option></select>
+            <select id="fleetGroupSelect" class="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl text-xs font-bold outline-none focus:ring-4 focus:ring-indigo-500/10">{% for g in groups %}<option value="{{ g.id }}">{{ g.name }}</option>{% endfor %}</select>
+            <div class="grid grid-cols-2 gap-3">
+                <input id="fleetWaveSize" type="number" min="1" value="50" class="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl text-xs font-bold outline-none focus:ring-4 focus:ring-indigo-500/10" title="Wave size">
+                <input id="fleetWaveDelay" type="number" min="0" value="300" class="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl text-xs font-bold outline-none focus:ring-4 focus:ring-indigo-500/10" title="Delay between waves in seconds">
+            </div>
+        </div>
+        <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+            <div class="p-3 bg-indigo-50 border border-indigo-100 rounded-xl text-[10px] font-black text-indigo-700 uppercase tracking-widest"><span id="fleetSelectedCount">0</span> checked agents</div>
+            <button type="button" onclick="runFleetUpdate()" class="px-8 py-3 rounded-xl bg-indigo-600 text-white text-[10px] font-black uppercase hover:bg-indigo-700 shadow-lg shadow-indigo-200 transition-all">Start Rollout</button>
+        </div>
+    </div>
+</section>
+
+<!-- FILTER DIALOG: values are applied only after the operator confirms -->
+<dialog id="fleetFilterDialog" class="inventory-dialog" aria-labelledby="fleetFilterTitle">
+    <form id="fleetFilterForm" onsubmit="applyFleetFilters(event)">
+        <div class="inventory-dialog-header">
+            <div><p class="inventory-dialog-eyebrow">Node inventory</p><h3 id="fleetFilterTitle">Filters</h3><p>Choose parameters, review them, and apply once.</p></div>
+            <button type="button" onclick="cancelFleetFilters()" class="inventory-dialog-close" aria-label="Close filters">&times;</button>
+        </div>
+        <input id="fleetStatusFilter" type="hidden" value="all">
+        <fieldset class="inventory-filter-section">
+            <legend>Status and health</legend>
+            <div class="inventory-filter-grid">
+                {% for value, label in [('all', 'All agents'), ('current', 'Current'), ('outdated', 'Outdated'), ('offline', 'Offline'), ('warning', 'Warning / Critical'), ('unsigned', 'Missing identity key')] %}
+                <label class="inventory-filter-choice"><input type="radio" name="fleetStatusChoice" value="{{ value }}" onchange="setFleetStatusFilter(this.value)" {{ 'checked' if value == 'all' else '' }}><span>{{ label }}</span></label>
+                {% endfor %}
+            </div>
+        </fieldset>
+        <fieldset class="inventory-filter-section">
+            <legend>Host groups</legend>
+            <div class="inventory-filter-section-heading"><p>Select one or more groups.</p><input id="fleetGroupSearch" type="search" oninput="filterFleetGroupOptions()" placeholder="Find a group..." class="inventory-filter-search"></div>
+            <div id="fleetGroupFilters" class="inventory-group-options custom-scrollbar">
+                <label class="inventory-group-option" data-fleet-group-option data-filter-text="no group"><input type="checkbox" value="ungrouped" onchange="updateFleetFilterDraft()"><span>No group</span></label>
+                {% for g in groups %}<label class="inventory-group-option" data-fleet-group-option data-filter-text="{{ g.name | forceescape }}"><input type="checkbox" value="{{ g.id }}" data-group-name="{{ g.name | forceescape }}" onchange="updateFleetFilterDraft()" class="fleet-group-filter-cb"><span>{{ g.name }}</span></label>{% endfor %}
+            </div>
+            <label class="inventory-exact-option" title="Match hosts whose complete group set equals the selected groups."><input id="fleetExactGroupsOnly" type="checkbox" onchange="updateFleetFilterDraft()"><span><strong>Match the exact group set</strong><small>Exclude hosts that belong to additional groups.</small></span></label>
+        </fieldset>
+        <div class="inventory-dialog-footer">
+            <p id="fleetFilterDraftSummary">No additional filters selected.</p>
+            <div><button type="button" onclick="resetFleetFilterDraft()" class="inventory-secondary-button">Reset</button><button type="button" onclick="cancelFleetFilters()" class="inventory-secondary-button">Cancel</button><button type="submit" class="inventory-primary-button">Apply filters</button></div>
+        </div>
+    </form>
+</dialog>

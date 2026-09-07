@@ -15,13 +15,14 @@
         </div>
     </div>
     {% if permissions.manage_hosts %}
-    <div class="wh-soft-panel bg-white p-2 rounded-2xl border border-slate-200 shadow-sm flex gap-2 w-fit">
-        <a href="?view=hosts&nodeTab=approved" onclick="handleNodeTabClick(event, 'approved')" id="nodeTab-approved" class="node-tab-btn inline-flex items-center px-5 py-2.5 rounded-xl text-xs font-black uppercase bg-slate-900 text-white shadow-sm">Nodes</a>
-        <a href="?view=hosts&nodeTab=review" onclick="handleNodeTabClick(event, 'review')" id="nodeTab-review" class="node-tab-btn inline-flex items-center px-5 py-2.5 rounded-xl text-xs font-black uppercase text-slate-500 hover:text-rose-700">
+    <nav class="wh-soft-panel bg-white p-2 rounded-2xl border border-slate-200 shadow-sm flex flex-wrap gap-2 w-fit" aria-label="Node management sections">
+        <a href="?view=hosts&nodeTab=approved" onclick="handleNodeTabClick(event, 'approved')" id="nodeTab-approved" class="node-tab-btn inline-flex items-center px-5 py-2.5 rounded-xl text-xs font-black uppercase bg-slate-900 text-white shadow-sm" role="tab" aria-controls="nodesApprovedPanel">Nodes</a>
+        <a href="?view=hosts&nodeTab=review" onclick="handleNodeTabClick(event, 'review')" id="nodeTab-review" class="node-tab-btn inline-flex items-center px-5 py-2.5 rounded-xl text-xs font-black uppercase text-slate-500 hover:text-rose-700" role="tab" aria-controls="nodesReviewPanel">
             Review Center
             {% if stats.review %}<span class="ml-2 bg-rose-100 text-rose-700 px-2 py-0.5 rounded-lg">{{ stats.review }}</span>{% endif %}
         </a>
-    </div>
+        <a href="?view=hosts&nodeTab=packages" onclick="handleNodeTabClick(event, 'packages')" id="nodeTab-packages" class="node-tab-btn inline-flex items-center px-5 py-2.5 rounded-xl text-xs font-black uppercase text-slate-500 hover:text-indigo-700" role="tab" aria-controls="nodesPackageRegistryPanel">Package Registry</a>
+    </nav>
     {% endif %}
 
     {% if permissions.manage_hosts %}

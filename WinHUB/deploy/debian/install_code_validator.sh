@@ -13,6 +13,10 @@ if id -nG winhub-validator | tr ' ' '\n' | grep -Fxq winhub; then
   echo 'winhub-validator must not belong to the winhub group.' >&2
   exit 1
 fi
+# Python's isolated import finder must be able to enumerate this directory.
+# Only the four validator files below are world-readable; the remaining core
+# files keep the stricter permissions applied by install/update.
+chmod 0755 "${APP_DIR}/core"
 for name in code_validator.py validate_powershell.ps1 ai_template_contract.py report_renderer.py; do
   chown root:root "${APP_DIR}/core/${name}"
   chmod 0644 "${APP_DIR}/core/${name}"

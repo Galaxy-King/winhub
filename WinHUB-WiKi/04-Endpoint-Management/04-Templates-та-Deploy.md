@@ -7,7 +7,7 @@ Task Template описує action, script/payload, input fields, variables, secr
 1. Виберіть approved template.
 2. Вкажіть endpoint або group.
 3. Заповніть non-secret parameters.
-4. Заповніть обов’язкову **причину запуску**: наприклад, «Перевірка WireGuard за заявкою INC-123».
+4. Заповніть обов’язкове поле **`Launch reason *`**: наприклад, «Перевірка WireGuard за заявкою INC-123».
 5. Перевірте preview/summary.
 6. Запустіть спочатку на test group.
 
