@@ -2570,6 +2570,8 @@ function startNewTemplate() {
 }
 
 function resetWorkspace(clearPersistedState = true) {
+    const reasonField = document.getElementById('depLaunchReason');
+    if (reasonField) { reasonField.value = ''; reasonField.setCustomValidity(''); }
     editingTemplateId = null; selectedTemplateId = null; currentTemplateVariables = []; currentTemplateVariableSchema = {};
     if (clearPersistedState) localStorage.removeItem(infraStateKeys.template);
 
@@ -3694,11 +3696,13 @@ async function deleteAgentPackage(packageId, version='') {
 async function runFleetUpdate(hostId=null) {
     const packageId = document.getElementById('fleetPackageSelect')?.value;
     if (!packageId) return alert('Upload or select an agent package first.');
-    if (!confirm(hostId ? 'Update this single agent with the selected package?' : 'Start agent rollout with the selected package?')) return;
     const mode = hostId ? 'selected' : (document.getElementById('fleetTargetMode')?.value || 'outdated');
     const selectedIds = hostId ? [hostId] : Array.from(fleetSelectedHostIds);
     if (mode === 'selected' && selectedIds.length === 0) return alert('Check at least one agent in Fleet first.');
+    const launchReason = await askTaskLaunchReason(hostId ? 'Update this single agent with the selected package?' : 'Start agent rollout with the selected package?');
+    if (launchReason === null) return;
     const payload = {
+        launch_reason: launchReason,
         package_id: packageId,
         target_mode: mode,
         target_ids: mode === 'selected' ? selectedIds : [],
@@ -4126,8 +4130,10 @@ async function runSoftwareInstall() {
         if (userLogins.length === 0) return alert('Specify at least one user login.');
     }
     if (installScope === 'users' && userLogins.length === 0) return alert('Specify at least one user login.');
-    if (!confirm(`Dispatch ${operation} for ${softwarePackageLabel(pkg)}?`)) return;
+    const launchReason = await askTaskLaunchReason(`Dispatch ${operation} for ${softwarePackageLabel(pkg)}?`);
+    if (launchReason === null) return;
     const payload = {
+        launch_reason: launchReason,
         package_id: packageId,
         operation,
         target_mode: mode,
@@ -4158,6 +4164,8 @@ function toggleDeploymentAiReport() {
 }
 
 async function submitDeployment() {
+    const launchReason = requiredLaunchReason('depLaunchReason');
+    if (launchReason === null) return;
     const btn = document.getElementById('btnDeploy');
     const oldText = btn.innerText;
     btn.disabled = true; btn.innerText = "Dispatching...";
@@ -4178,6 +4186,7 @@ async function submitDeployment() {
     const autoConfluence = collectAutoConfluenceSettings();
     const data = {
         title: document.getElementById('depTitle').value || "Manual Action",
+        launch_reason: launchReason,
         target_type: targetType,
         action,
         template_id: selectedTemplateId,
@@ -4840,7 +4849,7 @@ function renderQueue() {
 
 // --- TRIGGERS LOGIC ---
 function openTriggerModal() {
-    ['trgId', 'trgName', 'trgValue'].forEach(id => { const el = document.getElementById(id); if(el) el.value = ''; });
+    ['trgId', 'trgName', 'trgValue', 'trgLaunchReason'].forEach(id => { const el = document.getElementById(id); if(el) { el.value = ''; el.setCustomValidity(''); } });
 
     const trgGroup = document.getElementById('trgGroup'); if(trgGroup) trgGroup.value = 'all';
     const trgMetric = document.getElementById('trgMetric'); if(trgMetric && trgMetric.options.length > 0) trgMetric.selectedIndex = 0;
@@ -4852,7 +4861,11 @@ function openTriggerModal() {
     openModal('triggerModal');
 }
 
-function editTrigger(id, name, target_group_id, metric, op, val, action_id, active) {
+function editTrigger(source) {
+    const data = JSON.parse(source.dataset.trigger);
+    const {id, name, target_group_id, metric_name: metric, operator: op, threshold_value: val, action_template_id: action_id} = data;
+    const active = String(data.is_active).toLowerCase() === 'true';
+    document.getElementById('trgLaunchReason').value = data.launch_reason || '';
     const elId = document.getElementById('trgId'); if(elId) elId.value = id;
     const elName = document.getElementById('trgName'); if(elName) elName.value = name;
     const elGroup = document.getElementById('trgGroup'); if(elGroup) elGroup.value = target_group_id || 'all';
@@ -4874,13 +4887,16 @@ function editTrigger(id, name, target_group_id, metric, op, val, action_id, acti
         }
     }
 
-    const elAct = document.getElementById('trgActive'); if(elAct) elAct.checked = (active === 'True');
+    const elAct = document.getElementById('trgActive'); if(elAct) elAct.checked = active;
     const title = document.getElementById('trgModalTitle'); if(title) title.innerText = 'Edit Trigger';
     openModal('triggerModal');
 }
 
 async function saveTrigger() {
+    const launchReason = requiredLaunchReason('trgLaunchReason');
+    if (launchReason === null) return;
     const data = {
+        launch_reason: launchReason,
         id: document.getElementById('trgId')?.value || null,
         name: document.getElementById('trgName')?.value,
         target_group_id: document.getElementById('trgGroup')?.value,
@@ -5334,6 +5350,7 @@ function collectScheduleVariables() {
 }
 
 function openScheduleModal() {
+    document.getElementById('schLaunchReason').value = '';
     const elId = document.getElementById('schId'); if(elId) elId.value = '';
     const elName = document.getElementById('schName'); if(elName) elName.value = '';
     const elCat = document.getElementById('schCategory'); if(elCat) elCat.value = 'Scheduled';
@@ -5375,6 +5392,7 @@ function editSchedule(source, name, cat, cron, type, active) {
         active
     };
     const id = data.id || '';
+    document.getElementById('schLaunchReason').value = data.launchReason || '';
     name = data.name || '';
     cat = data.category || '';
     cron = data.cron || '';
@@ -5413,6 +5431,8 @@ function editSchedule(source, name, cat, cron, type, active) {
 }
 
 async function saveSchedule() {
+    const launchReason = requiredLaunchReason('schLaunchReason');
+    if (launchReason === null) return;
     const cronExpr = buildCronString();
     if (!cronExpr) return alert("Please specify the execution time and date/days completely.");
 
@@ -5431,6 +5451,7 @@ async function saveSchedule() {
 
     const data = {
         id: document.getElementById('schId')?.value || null,
+        launch_reason: launchReason,
         name,
         category,
         template_id: templateId,
@@ -5477,9 +5498,10 @@ async function deleteSchedule(id) {
 }
 
 async function runScheduleNow(id) {
-    if (!confirm("Run this scheduled task now? The saved schedule will not be changed.")) return;
+    const launchReason = await askTaskLaunchReason('Run this scheduled task now? The saved schedule will not be changed.');
+    if (launchReason === null) return;
     try {
-        const res = await fetch('/api/infrastructure/schedule/' + encodeURIComponent(id) + '/run-now', { method: 'POST' });
+        const res = await fetch('/api/infrastructure/schedule/' + encodeURIComponent(id) + '/run-now', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({launch_reason: launchReason}) });
         const data = await res.json().catch(() => ({}));
         if (!res.ok || !data.success) {
             return alert(data.message || "Run now failed");
@@ -5537,6 +5559,7 @@ async function viewTaskDetails(taskId) {
     document.getElementById('tTitle').innerText = d.title || 'Task Log';
     document.getElementById('tId').innerText = 'Task ID: ' + d.id;
     document.getElementById('tHost').innerText = d.name || d.hostname || 'Unknown';
+    document.getElementById('tLaunchReason').textContent = displayLaunchReason(d.launch_reason);
     const statusStr = d.status || 'Pending';
     document.getElementById('tStatus').innerHTML = `<span class="uppercase tracking-widest text-[10px] bg-white px-3 py-1 rounded-xl shadow-sm border border-slate-100 font-black ${statusStr === 'Success' ? 'text-emerald-500' : (statusStr === 'Error' ? 'text-rose-500' : 'text-amber-500')}">${escapeHtml(statusStr)}</span>`;
     document.getElementById('tLog').innerText = d.log || "Waiting for agent pulse...";
@@ -5551,6 +5574,7 @@ function viewJobDetails(jobId) {
     currentJobStatusFilter = 'all';
     document.getElementById('jTitle').innerText = job.title || 'Job Details';
     document.getElementById('jInfo').innerText = `${job.action} • Total targets: ${job.total}`;
+    document.getElementById('jLaunchReason').textContent = job.planned && !job.launch_reason ? 'Запуск заблоковано: вкажіть причину в новому rollout.' : displayLaunchReason(job.launch_reason);
     renderJobStatusFilters();
     renderJobTaskRows();
     openModal('jobModal');
@@ -5944,8 +5968,9 @@ async function submitCreateGroup() { await fetch('/api/infrastructure/group', { 
 async function deleteJob(id) { if(confirm("Permanently delete this job and all its logs?")) { await fetch('/api/infrastructure/job/' + id, { method: 'DELETE' }); loadQueue(); } }
 
 async function retryFailedJob(id) {
-    if(!confirm("Retry failed hosts from this job?")) return;
-    const res = await fetch('/api/infrastructure/job/' + encodeURIComponent(id) + '/retry-failed', { method: 'POST' });
+    const launchReason = await askTaskLaunchReason('Retry failed hosts from this job?');
+    if (launchReason === null) return;
+    const res = await fetch('/api/infrastructure/job/' + encodeURIComponent(id) + '/retry-failed', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({launch_reason: launchReason}) });
     const data = await res.json().catch(() => ({}));
     if(!res.ok || !data.success) return alert(data.message || 'Retry failed.');
     loadQueue();

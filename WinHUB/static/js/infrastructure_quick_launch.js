@@ -303,6 +303,7 @@ function quickLaunchBack() {
 }
 
 function resetQuickLaunch() {
+    document.getElementById('quickLaunchReason').value = '';
     quickLaunchState.step = 1;
     quickLaunchState.templateId = null;
     quickLaunchState.templateName = '';
@@ -363,6 +364,8 @@ function quickLaunchNotify(message) {
 
 async function submitQuickLaunch() {
     if (quickLaunchState.submitting || !quickLaunchState.templateId || !quickLaunchTargetsValid()) return;
+    const launchReason = requiredLaunchReason('quickLaunchReason');
+    if (launchReason === null) return;
     const run = document.getElementById('quickLaunchRun');
     const variables = collectVariableInputs('.quick-launch-var-input');
     const title = document.getElementById('quickLaunchTaskTitle')?.value?.trim() || quickLaunchState.templateName;
@@ -376,6 +379,7 @@ async function submitQuickLaunch() {
     }
     const payload = {
         title,
+        launch_reason: launchReason,
         target_type: quickLaunchState.targetType,
         variables,
         ai_report: {enabled: aiEnabled, prompt: aiPrompt},

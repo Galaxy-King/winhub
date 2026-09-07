@@ -48,6 +48,7 @@
 - Назва Windows-проєкту — `WinHUBAgentWindows`. `AssemblyName`, executable, установлена служба та update-пакети зберігають сумісне ім'я `WinHUBAgent`. Перейменування каталогу не є підставою міняти встановлений агент.
 - macOS підключає `../WinHUBLinuxAgent/Worker.cs`. Зміна цього файла потребує перевірки Linux і macOS. Для macOS запускай `dotnet` із `WinHUBMacAgent/`, щоб обирався його SDK через `global.json`.
 - `WinHUBLinuxAgent/Security/*.cs` підключається також Windows/macOS як shared source. Зміни цих перевірок потребують збірки та self-tests відповідних агентів; Windows-компонент більше не можна збирати з ізольованої копії лише його каталогу.
+- Канонічні Windows/Linux updater scripts — `WinHUB/deploy/agent-updaters/`: вони входять у server release і копіюються агентськими `.csproj` у publish. Scripts із відповідними назвами у source-каталогах агентів — wrappers; не створюй окремі неузгоджені runtime-копії.
 - Версії SDK і залежностей перевіряй у `global.json`, `.csproj`, `requirements.txt`; версію серверного release — у `WinHUB/VERSION`. Не підвищуй версії без потреби задачі.
 - Production server source встановлюється безпосередньо в `/opt/winhub`; конфігурація — `/etc/winhub`, дані — `/var/lib/winhub`, логи — `/var/log/winhub`. Git checkout готується окремо від установленої програми.
 - Install, update і release використовують `WinHUB/deploy/server-files.txt` та `server-excludes.txt`. Новий runtime-компонент додавай узгоджено. Не замінюй це пакуванням усього checkout.

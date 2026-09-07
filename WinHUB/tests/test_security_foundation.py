@@ -690,6 +690,7 @@ class SchedulerRegressionTests(unittest.TestCase):
         app.secret_key = "scheduler-test"
         payload = {
             "name": "Invalid schedule",
+            "launch_reason": "Validate schedule rejection",
             "category": "Test",
             "template_id": "template-1",
             "target_type": "group",
@@ -724,6 +725,7 @@ class SchedulerRegressionTests(unittest.TestCase):
         app.secret_key = "scheduler-test"
         payload = {
             "name": "Morning maintenance",
+            "launch_reason": "Planned weekly maintenance",
             "category": "Maintenance",
             "template_id": "template-1",
             "target_type": "group",
@@ -740,6 +742,7 @@ class SchedulerRegressionTests(unittest.TestCase):
         schedule_factory = mock.Mock(return_value=created_schedule)
 
         def assert_required_fields_are_set():
+            self.assertEqual(created_schedule.launch_reason, payload["launch_reason"])
             self.assertEqual(created_schedule.name, payload["name"])
             self.assertEqual(created_schedule.template_id, template.id)
             self.assertEqual(created_schedule.target_type, "group")

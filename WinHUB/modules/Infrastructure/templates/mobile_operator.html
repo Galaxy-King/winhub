@@ -126,6 +126,10 @@
                     <input id="moTaskTitle" type="text" maxlength="150" autocomplete="off">
                 </label>
                 <div id="moVariables" class="mo-variable-list"></div>
+                <label class="mo-field">
+                    <span>Launch reason *</span>
+                    <textarea id="moLaunchReason" data-launch-reason required maxlength="2000" rows="3" placeholder="Why is this task needed? Do not include passwords or tokens."></textarea>
+                </label>
                 <label id="moRiskConfirmation" class="mo-confirmation" hidden>
                     <input id="moRiskCheckbox" type="checkbox">
                     <span><strong>Confirm launch</strong><small id="moRiskText"></small></span>
@@ -188,7 +192,7 @@
 <div id="moJobModal" class="mo-overlay" role="dialog" aria-modal="true" aria-labelledby="moJobTitle" hidden>
     <section class="mo-sheet">
         <header>
-            <div><p class="mo-eyebrow">Task details</p><h2 id="moJobTitle">Task</h2><p id="moJobMeta"></p></div>
+            <div><p class="mo-eyebrow">Task details</p><h2 id="moJobTitle">Task</h2><p id="moJobMeta"></p><p class="launch-reason-display"><strong>Launch reason:</strong><br><span id="moJobLaunchReason"></span></p></div>
             <button type="button" class="mo-sheet-close" data-close-overlay="moJobModal" aria-label="Close">×</button>
         </header>
         <div id="moJobStats" class="mo-summary-grid mo-summary-grid-sheet"></div>
@@ -199,7 +203,7 @@
 <div id="moLogModal" class="mo-overlay" role="dialog" aria-modal="true" aria-labelledby="moLogTitle" hidden>
     <section class="mo-sheet mo-sheet-tall">
         <header>
-            <div><p class="mo-eyebrow">Endpoint result</p><h2 id="moLogTitle">Task log</h2><p id="moLogMeta"></p></div>
+            <div><p class="mo-eyebrow">Endpoint result</p><h2 id="moLogTitle">Task log</h2><p id="moLogMeta"></p><p class="launch-reason-display"><strong>Launch reason:</strong><br><span id="moLogLaunchReason"></span></p></div>
             <button type="button" class="mo-sheet-close" data-close-overlay="moLogModal" aria-label="Close">×</button>
         </header>
         <pre id="moLogBody" class="mo-terminal">Loading…</pre>
@@ -276,5 +280,7 @@
 <script nonce="{{ csp_nonce }}">
     window.WinhubMobilePermissions = {{ mobile_permissions | tojson }};
 </script>
-<script nonce="{{ csp_nonce }}" src="{{ url_for('static', filename='js/mobile_operator.js', v=app_version) }}"></script>
+<link rel="stylesheet" href="{{ url_for('static', filename='css/task_launch_reason.css', v=app_version ~ '-reason-1') }}">
+<script nonce="{{ csp_nonce }}" src="{{ url_for('static', filename='js/task_launch_reason.js', v=app_version ~ '-reason-1') }}"></script>
+<script nonce="{{ csp_nonce }}" src="{{ url_for('static', filename='js/mobile_operator.js', v=app_version ~ '-reason-1') }}"></script>
 {% endblock %}

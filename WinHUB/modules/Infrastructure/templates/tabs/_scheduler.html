@@ -273,6 +273,7 @@
                             <tr class="hover:bg-slate-50/80 transition-colors {{ 'opacity-60 grayscale' if not st.is_active }}">
                                 <td class="px-8 py-4 font-black text-slate-800">
                                     {{ st.name }}
+                                    {% if not st.launch_reason %}<span class="block text-xs text-amber-400">Blocked: add a launch reason via Edit</span>{% endif %}
                                     {% if not st.is_active %}<span class="ml-2 px-2 py-0.5 bg-slate-200 text-slate-500 text-[9px] rounded uppercase">Disabled</span>{% endif %}
                                 </td>
                                 <td class="px-8 py-4 text-xs font-bold text-slate-500">{{ st.template_name }}</td>
@@ -294,6 +295,7 @@
                                     <button onclick="editSchedule(this)"
                                             data-id="{{ st.id }}"
                                             data-name="{{ st.name | forceescape }}"
+                                            data-launch-reason="{{ (st.launch_reason or '') | forceescape }}"
                                             data-category="{{ st.category | forceescape }}"
                                             data-cron="{{ st.cron | forceescape }}"
                                             data-target-type="{{ st.target_type }}"

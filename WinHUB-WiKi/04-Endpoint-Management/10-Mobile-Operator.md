@@ -4,6 +4,8 @@ Mobile Operator надає permission-filtered мобільний інтерфе
 
 Доступ користувача визначається тими самими module/group permissions, що й desktop UI. Mobile interface не повинен обходити Review Center, approval або action permissions.
 
+На останньому кроці запуску заповніть `Launch reason` — обов’язкову причину (до 2000 символів). У деталях групового запуску та окремого task log видно збережену причину. Вона не додається до скрипта.
+
 ## Рекомендації
 
 - використовуйте MFA;

@@ -403,7 +403,8 @@ def scheduled_task_next_run_utc(task, from_time=None):
         return None
 
 def run_scheduled_job(
-    scheduled_task_id, *args, manual_run=False, actor_user_id=None, actor_name=None
+    scheduled_task_id, *args, manual_run=False, actor_user_id=None, actor_name=None,
+    launch_reason=None,
 ):
     """Функція, яку викликає APScheduler коли настав точний час або адмін запускає вручну."""
     global global_app
@@ -416,6 +417,14 @@ def run_scheduled_job(
             return {"success": False, "message": "Scheduled task or template was not found"}
         if not manual_run and not st.is_active:
             return {"success": False, "message": "Scheduled task is disabled"}
+
+        from core.task_reason import validate_launch_reason
+        try:
+            launch_reason = validate_launch_reason(launch_reason if manual_run else st.launch_reason)
+        except ValueError as exc:
+            st.last_status = "Launch reason required"
+            db.session.commit()
+            return {"success": False, "message": str(exc)}
 
         run_label = "MANUAL RUN" if manual_run else "TRIGGER"
         log.info(f"[Scheduler] ⚡ {run_label}: Запуск задачі '{st.name}'...")
@@ -488,6 +497,7 @@ def run_scheduled_job(
                 actor_name=actor_name or (st.created_by if manual_run else "Scheduler"),
                 actor_user_id=actor_user_id,
                 system_actor=not manual_run,
+                launch_reason=launch_reason,
             )
             st.last_job_id = job_id
             st.last_status = f"Manual run dispatched to {len(agent_ids)} hosts" if manual_run else f"Dispatched to {len(agent_ids)} hosts"

@@ -4,6 +4,9 @@ using Microsoft.Extensions.Logging;
 using System.Text;
 using WinHUBAgent;
 
+if (WinHUB.Security.WindowsTaskProcess.TryRunChild(args)) return;
+if (WinHUB.Security.ReleaseCommand.TryRun(args, "windows")) return;
+
 if (args.Any(arg => arg.Equals("--version", StringComparison.OrdinalIgnoreCase) || arg.Equals("-v", StringComparison.OrdinalIgnoreCase)))
 {
     Console.WriteLine(AgentBuildInfo.Version);
@@ -26,6 +29,16 @@ if (validateConfigIndex >= 0)
 }
 
 int extractIndex = Array.FindIndex(args, arg => arg.Equals("--extract-update", StringComparison.OrdinalIgnoreCase));
+int checkServerIndex = Array.FindIndex(args, arg => arg.Equals("--check-update-server", StringComparison.OrdinalIgnoreCase));
+if (checkServerIndex >= 0)
+{
+    if (checkServerIndex + 1 >= args.Length) throw new ArgumentException("Usage: --check-update-server CONFIG_PATH");
+    Worker.ValidateConfigFile(args[checkServerIndex + 1]);
+    await WinHUB.Security.UpdatePreflight.CheckServerAsync(args[checkServerIndex + 1]);
+    Console.WriteLine("WinHUB pinned HTTPS preflight: OK (no enrollment or tasks requested)");
+    return;
+}
+
 if (extractIndex >= 0)
 {
     if (extractIndex + 2 >= args.Length) throw new ArgumentException("Usage: --extract-update PACKAGE EMPTY_STAGING_DIRECTORY");

@@ -22,6 +22,8 @@
   - [Enrollment і безпека](03-Агенти/02-Enrollment-та-безпека.md)
   - [Windows Agent](03-Агенти/Windows/00-Windows-Agent.md)
   - [Linux Agent](03-Агенти/Linux/00-Linux-Agent.md)
+  - [Strict-pin Windows/Linux: status and release gates](guides/agents/PRODUCTION_PIN_AGENTS_UA.md)
+  - [RC3: підпис релізу та ручне приймання](guides/agents/AGENT_RELEASE_ACCEPTANCE_UA.md)
   - [macOS Agent](03-Агенти/macOS/00-macOS-Agent.md)
 - [Endpoint Management](04-Endpoint-Management/00-Endpoint-Management.md)
 - [Newsletter](05-Newsletter/00-Newsletter.md)

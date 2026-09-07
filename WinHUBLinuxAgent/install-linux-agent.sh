@@ -23,6 +23,9 @@ case "${ID:-}:${ID_LIKE:-}" in
 esac
 
 command -v systemctl >/dev/null || { echo "systemd is required." >&2; exit 1; }
+[[ -x /usr/bin/systemd-run && -f /sys/fs/cgroup/cgroup.controllers ]] || { echo 'systemd-run and cgroup v2 are required for bounded tasks.' >&2; exit 1; }
+command -v python3 >/dev/null || { echo 'python3 is required for safe update extraction.' >&2; exit 1; }
+command -v flock >/dev/null || { echo 'util-linux/flock is required for safe updates.' >&2; exit 1; }
 [[ -x /usr/bin/setsid ]] || { echo 'Install util-linux: /usr/bin/setsid is required for task cleanup.' >&2; exit 1; }
 for agent_path in "$install_dir" "$config_dir" "$data_dir"; do
   [[ "$agent_path" == /* && "$(realpath -m "$agent_path")" == "$agent_path" && ! -L "$agent_path" ]] || { echo 'Agent paths must be absolute and contain no symlinks.' >&2; exit 1; }

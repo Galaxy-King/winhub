@@ -52,6 +52,9 @@ sudo bash ~/winhub/WinHUB/deploy/debian/update_winhub.sh ~/winhub/WinHUB
 
 Спільний security-код у `WinHUBLinuxAgent/Security/` підключений також Windows/macOS. Для складання потрібен повний checkout. [Strict pin: стан реалізації та критерії production-релізу](WinHUB-WiKi/guides/agents/PRODUCTION_PIN_AGENTS_UA.md).
 
+Windows/Linux publish також бере канонічні updater scripts із `WinHUB/deploy/agent-updaters/`.
+Ці самі assets входять до встановленого сервера, щоб готувати сумісне оновлення старих агентів без копіювання їхнього вихідного коду в `/opt/winhub`.
+
 ## Що належить до Git
 
 Кореневий `.gitignore` дозволяє лише перелічені компоненти й службові файли репозиторію. Локальні резервні копії, сторонні checkout-и й архіви поруч із ними не додаються. Кеші, virtual environments, `bin`, `obj`, `dist`, `dist-agent`, runtime-конфігурації та ключі також виключені. Новий компонент у корені потрібно явно додати до `.gitignore`.

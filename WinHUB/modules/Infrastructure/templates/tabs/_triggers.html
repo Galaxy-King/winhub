@@ -40,6 +40,7 @@
                             <tr class="hover:bg-slate-50/80 transition-colors {{ 'opacity-60 grayscale' if not tr.is_active }}">
                                 <td class="px-8 py-4 font-black text-slate-800">
                                     {{ tr.name }}
+                                    {% if not tr.launch_reason %}<span class="block text-xs text-amber-400">Blocked: add a launch reason via Edit</span>{% endif %}
                                     {% if not tr.is_active %}<span class="ml-2 px-2 py-0.5 bg-slate-200 text-slate-500 text-[9px] rounded uppercase">Disabled</span>{% endif %}
                                 </td>
                                 <td class="px-8 py-4">
@@ -52,16 +53,20 @@
                                 <td class="px-8 py-4 text-xs font-bold text-emerald-600">{{ tr.action_name or 'Unknown Action' }}</td>
                                 <td class="px-8 py-4 text-xs font-bold text-slate-400">{{ tr.last_run or 'Never' }}</td>
                                 <td class="px-8 py-4 text-center">
-                                    {% if tr.last_status == 'Success' %}
+                                    {% if tr.last_status == 'Dispatched' %}
+                                        <span class="text-xs text-emerald-400">Dispatched</span>
+                                    {% elif tr.last_status == 'Success' %}
                                         <span class="px-2 py-1 bg-emerald-100 text-emerald-700 rounded text-[10px] font-black uppercase tracking-widest shadow-sm">Success</span>
                                     {% elif tr.last_status == 'Error' %}
                                         <span class="px-2 py-1 bg-rose-100 text-rose-700 rounded text-[10px] font-black uppercase tracking-widest shadow-sm">Error</span>
+                                    {% elif tr.last_status in ['Reason required', 'Dispatch error'] %}
+                                        <span class="text-xs text-amber-400">{{ tr.last_status }}</span>
                                     {% else %}
                                         <span class="px-2 py-1 bg-slate-100 text-slate-500 rounded text-[10px] font-black uppercase tracking-widest shadow-sm">Pending</span>
                                     {% endif %}
                                 </td>
                                 <td class="px-8 py-4 text-right flex justify-end gap-2">
-                                    <button onclick="editTrigger('{{ tr.id }}', '{{ tr.name }}', '{{ tr.target_group_id }}', '{{ tr.metric_name }}', '{{ tr.operator }}', '{{ tr.threshold_value }}', '{{ tr.action_template_id }}', '{{ tr.is_active }}')" class="px-4 py-2 bg-white text-slate-600 hover:text-indigo-600 rounded-xl text-xs font-black uppercase transition-colors border border-slate-200 shadow-sm">Edit</button>
+                                    <button data-trigger="{{ tr | tojson | forceescape }}" onclick="editTrigger(this)" class="px-4 py-2 bg-white text-slate-600 hover:text-indigo-600 rounded-xl text-xs font-black uppercase transition-colors border border-slate-200 shadow-sm">Edit</button>
                                     <button onclick="deleteTrigger('{{ tr.id }}')" class="p-2 bg-white text-slate-400 hover:text-rose-600 rounded-xl transition-colors border border-slate-200 shadow-sm"><svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"></path></svg></button>
                                 </td>
                             </tr>

@@ -25,7 +25,7 @@ jobs:
         run: python -m unittest discover -s tests -v
       - name: Bash syntax check
         run: |
-          for script in deploy/*.sh deploy/debian/*.sh ../WinHUBLinuxAgent/*.sh ../WinHUBMacAgent/*.sh ../WinHUBMacAgent/pkg-scripts/*; do
+          for script in deploy/*.sh deploy/debian/*.sh deploy/agent-updaters/*.sh ../WinHUBLinuxAgent/*.sh ../WinHUBMacAgent/*.sh ../WinHUBMacAgent/pkg-scripts/*; do
             bash -n "$script"
           done
       - name: Server release contents
@@ -49,6 +49,12 @@ jobs:
         run: dotnet build WinHUBLinuxAgent/WinHUBLinuxAgent.csproj -c Release -p:PublishAot=false
       - name: Verify Linux filesystem, journal and process cleanup
         run: dotnet WinHUBLinuxAgent/bin/Release/net8.0/WinHUBLinuxAgent.dll --self-test
+      - name: Verify updater archives and pinned HTTPS preflight
+        run: |
+          python -m pip install cryptography
+          ulimit -c 0
+          python -m unittest discover -s WinHUB/tests -p 'test_agent_update*.py' -v
+          python -m unittest discover -s WinHUB/tests -p test_agent_release_signing.py -v
 
   agent:
     runs-on: windows-latest
@@ -65,6 +71,15 @@ jobs:
         run: dotnet WinHUBAgentWindows\bin\Release\net8.0-windows\WinHUBAgent.dll --self-test
       - name: Build shared Unix agent code
         run: dotnet build WinHUBLinuxAgent\WinHUBLinuxAgent.csproj -c Release -p:PublishAot=false
+      - name: Verify Windows updater and release publisher contract
+        shell: pwsh
+        env:
+          WINHUB_TEST_ALLOW_POLICY_BYPASS: "1"
+        run: |
+          python -m pip install cryptography
+          python -m unittest discover -s WinHUB/tests -p test_agent_update_migration.py -v
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          python -m unittest discover -s WinHUB/tests -p test_agent_release_signing.py -v
       - name: Verify Linux agent protocol contract
         run: dotnet WinHUBLinuxAgent\bin\Release\net8.0\WinHUBLinuxAgent.dll --self-test
       - name: Build macOS agent managed validation target
@@ -75,7 +90,7 @@ jobs:
       - name: PowerShell parser check
         shell: pwsh
         run: |
-          Get-ChildItem WinHUBAgentWindows\*.ps1, WinHUB\core\validate_powershell.ps1 | ForEach-Object {
+          Get-ChildItem WinHUBAgentWindows\*.ps1, WinHUB\deploy\agent-updaters\*.ps1, WinHUB\core\validate_powershell.ps1 | ForEach-Object {
             $tokens = $null
             $errors = $null
             [System.Management.Automation.Language.Parser]::ParseFile($_.FullName, [ref]$tokens, [ref]$errors) | Out-Null

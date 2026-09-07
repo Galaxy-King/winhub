@@ -805,10 +805,17 @@ def evaluate_and_fire_triggers(agent_id, metric_name, value):
                     action=action_tpl.action_type,
                     target_ids=[agent_id],
                     payload=payload_dict,
-                    title=f"[Auto-Fix] {tr.name}"
+                    title=f"[Auto-Fix] {tr.name}",
+                    launch_reason=tr.launch_reason,
                 )
+                tr.last_status = "Dispatched"
+                tr.last_run = datetime.utcnow()
+                db.session.commit()
                 log.warning(f"🚨 TRIGGER FIRED: Rule '{tr.name}' matched value '{value}' on host {agent_id}. Firing '{action_tpl.name}'.")
             except Exception as e:
+                db.session.rollback()
+                tr.last_status = "Reason required" if not tr.launch_reason else "Dispatch error"
+                db.session.commit()
                 log.error(f"❌ TRIGGER DISPATCH ERROR: Could not fire action for '{tr.name}': {e}")
 
 
@@ -1040,6 +1047,17 @@ def agent_poll():
         needs_commit = True
 
     resp = {"status": "idle", **agent_poll_timing("idle")}
+
+    if task:
+        from core.agent_updates import update_preparation_state
+        preparation = update_preparation_state(task, lambda task_id: db.session.get(AgentTask, task_id))
+        if preparation == "failed":
+            task.status = "Error"
+            task.result_log = "Agent update not dispatched: updater preparation failed or is missing. Installed service was not replaced."
+            task.finished_at = now
+            needs_commit = True
+        if preparation != "ready":
+            task = None
 
     signature_mode = str(getattr(Config, "AGENT_TASK_SIGNATURE_MODE", "dual") or "dual").lower()
     if signature_mode not in {"hmac", "dual", "v2"}:

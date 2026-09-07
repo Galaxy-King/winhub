@@ -482,6 +482,7 @@ def get_log_details(record_id):
         _audit_sensitive_read("task", entry.id)
         return jsonify({"success": True, "log": _format_details({
             "task_id": entry.id, "job_id": entry.job_id, "actor": entry.created_by,
+            "launch_reason": entry.launch_reason if sensitive else mask_sensitive_text(entry.launch_reason),
             "source": entry.source_type, "module": entry.module_source, "action": entry.action_type,
             "target_id": endpoint_id, "target_hostname": entry.endpoint_hostname_snapshot,
             "target_name": entry.endpoint_name_snapshot, "target_groups": entry.endpoint_groups_snapshot,

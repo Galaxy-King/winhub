@@ -294,6 +294,7 @@
         if (!job) return;
         byId('moJobTitle').textContent = job.title || 'Task';
         byId('moJobMeta').textContent = `${job.action || 'operation'} · ${job.created_at || ''}`;
+        byId('moJobLaunchReason').textContent = displayLaunchReason(job.launch_reason);
         const stats = byId('moJobStats');
         if (stats) {
             stats.innerHTML = `
@@ -328,12 +329,14 @@
         byId('moLogTitle').textContent = 'Task log';
         byId('moLogMeta').textContent = `Task ID: ${taskId}`;
         byId('moLogBody').textContent = 'Loading…';
+        byId('moLogLaunchReason').textContent = '';
         openOverlay('moLogModal');
         try {
             const result = await apiJson(`/api/infrastructure/task/${encodeURIComponent(taskId)}`);
             const task = result.data || {};
             byId('moLogTitle').textContent = task.title || 'Task log';
             byId('moLogMeta').textContent = `${task.name || task.hostname || 'Endpoint'} · ${statusLabel(task.status)}`;
+            byId('moLogLaunchReason').textContent = displayLaunchReason(task.launch_reason);
             byId('moLogBody').textContent = task.log || 'The task is waiting for the agent response.';
         } catch (error) {
             byId('moLogBody').textContent = error.message || 'Unable to load the task log.';
@@ -934,6 +937,7 @@
         if (byId('moTemplateSearch')) byId('moTemplateSearch').value = '';
         if (byId('moHostSearch')) byId('moHostSearch').value = '';
         if (byId('moTaskTitle')) byId('moTaskTitle').value = '';
+        if (byId('moLaunchReason')) byId('moLaunchReason').value = '';
         if (byId('moGroupSelect')) byId('moGroupSelect').value = '';
         setTargetType('hosts');
         renderTemplates();
@@ -956,12 +960,15 @@
     async function submitLaunch() {
         const template = selectedTemplate();
         if (!template || !launchTargetsValid() || state.launching) return;
+        const launchReason = requiredLaunchReason('moLaunchReason');
+        if (launchReason === null) return;
         const title = String(byId('moTaskTitle').value || '').trim() || template.name || 'Mobile task';
         if (title.length > 150) return setLaunchError('The task title cannot exceed 150 characters.');
         const confirmationRequired = !byId('moRiskConfirmation').hidden;
         if (confirmationRequired && !byId('moRiskCheckbox').checked) return setLaunchError('Confirm this operation before launch.');
         const payload = {
             title,
+            launch_reason: launchReason,
             target_type: state.targetType,
             variables: collectVariables(),
             ...(state.targetType === 'group'

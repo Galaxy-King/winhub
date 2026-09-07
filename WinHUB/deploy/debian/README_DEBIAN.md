@@ -271,6 +271,12 @@ For production, prefer an Ansible playbook that updates one server at a time and
 
 ## 10. Agent config
 
+Strict-pin RC2 agent updates require the new server runtime assets in `deploy/agent-updaters/`.
+Update the server before uploading RC2 ZIP/TAR.GZ packages to Fleet Center. The signed prepare task
+is a dependency of the update task, including on Linux; a failed/denied preparation blocks the update.
+Linux endpoints require Python 3, util-linux and permission for the preparation `run_script` action.
+Do not bypass local execution policy. See the [agent migration guide](../../../WinHUB-WiKi/guides/agents/PRODUCTION_PIN_AGENTS_UA.md).
+
 If Nginx is used as above, agents should use:
 
 ```json
