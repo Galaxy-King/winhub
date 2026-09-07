@@ -11,7 +11,7 @@ from unittest import mock
 
 from flask import Blueprint, Flask, session
 
-from core.ai_template_contract import parse_bundle, bundle_hash, report_fixture
+from core.ai_template_contract import SYSTEM_PROMPT, parse_bundle, bundle_hash, report_fixture
 from core.ai_templates import process_ai_template_queue
 from core.database import db, AiTemplateDraft, User, TaskTemplate, AgentTask
 from modules.Infrastructure.ai_editor import register_ai_editor
@@ -36,6 +36,8 @@ class TemplateContractTests(unittest.TestCase):
         self.assertEqual(context['results'][0]['host'], 'TEST-01')
         self.assertEqual(len(context['results']), 1)
         self.assertEqual(len(context['all_results']), 2)
+        self.assertNotIn('data', context)
+        self.assertIn('There is NO\ntop-level data variable', SYSTEM_PROMPT)
 
     def test_unknown_fields_wrong_language_duplicates_and_legacy_binding_rejected(self):
         for update in ({'tools': []}, {'language': 'python'}, {'code': 'echo {{user_input}}'},
@@ -59,6 +61,26 @@ class TemplateContractTests(unittest.TestCase):
         wrapper = (ROOT / 'core/validate_powershell.ps1').read_text(encoding='utf-8')
         self.assertIn('Parser]::ParseFile', wrapper)
         self.assertNotIn('Invoke-Expression', wrapper)
+        self.assertIn("$WarningPreference = 'SilentlyContinue'", wrapper)
+        self.assertIn('PSScriptAnalyzer could not complete', wrapper)
+
+    def test_parser_protocol_keeps_stderr_separate(self):
+        from core.code_validator import run_parser
+        with tempfile.TemporaryDirectory() as scratch:
+            command = [sys.executable, '-c',
+                       'import sys; print("{\\"ok\\":true}"); print("diagnostic", file=sys.stderr)']
+            rc, output, error_output = run_parser(command, scratch)
+        self.assertEqual(rc, 0)
+        self.assertEqual(json.loads(output), {'ok': True})
+        self.assertEqual(error_output.strip(), 'diagnostic')
+
+    def test_report_fixture_diagnostic_explains_data_scope(self):
+        from core.code_validator import validate
+        result = validate({**BUNDLE, 'language': 'jinja', 'code': '{{ data.endpoint }}',
+                           'report_template': ''})
+        messages = [item['message'] for item in result['diagnostics']]
+        self.assertFalse(result['ok'])
+        self.assertTrue(any('no top-level data variable' in message for message in messages), messages)
 
     def test_ui_uses_inert_content_not_model_html(self):
         script = (ROOT / 'static/js/ai_template_editor.js').read_text(encoding='utf-8')
