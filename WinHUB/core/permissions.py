@@ -16,6 +16,7 @@ MODULE_INTERNAL_PERMISSION_CATALOG = {
         {"id": "edit_reports", "name": "Edit reports"},
         {"id": "dismiss_reports", "name": "Dismiss reports"},
         {"id": "run_tasks", "name": "Run approved templates"},
+        {"id": "run_own_draft_templates", "name": "Test-run own draft templates"},
         {"id": "manage_software", "name": "Manage software packages"},
         {"id": "send_reports", "name": "Send reports by email"},
         {"id": "manage_templates", "name": "Manage templates"},
@@ -124,6 +125,7 @@ EXPLICIT_ONLY_PERMISSIONS = {
         "view_sensitive_reports",
         "use_ai_reports",
         "use_ai_templates",
+        "run_own_draft_templates",
         "manage_ai",
         # Legacy tokens remain parseable during upgrades, but route-level hard
         # deletion is reserved for an interactive superadmin.
@@ -146,7 +148,7 @@ SUPERADMIN_ONLY_PERMISSIONS = {
 # returned to automation clients. This remains denied even if a legacy key still
 # contains the old exact token in its JSON permissions.
 API_DENIED_PERMISSIONS = {
-    "Infrastructure": {"view_sensitive_reports", "use_ai_templates"},
+    "Infrastructure": {"view_sensitive_reports", "use_ai_templates", "run_own_draft_templates"},
 }
 
 

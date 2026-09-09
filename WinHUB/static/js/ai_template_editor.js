@@ -53,7 +53,7 @@ function openAiTemplateEditor() {
     document.getElementById('aiTemplateEditorModal').classList.remove('hidden');
     document.getElementById('aiEditorPrompt').focus();
     renderAiEditorDraft();
-    aiEditorStatus('AI drafts cannot start tasks. Review and validate the code before saving it.');
+    aiEditorStatus('Review and validate the code before saving it. Only explicitly authorized creators can test-run their own validated private action drafts.');
     refreshAiEditorHistory();
 }
 
@@ -197,7 +197,7 @@ function renderAiEditorDraft() {
             ? 'Syntax validated; the code was NOT executed. Validation is not a safety guarantee.'
             : 'Validation did not pass. Apply remains blocked, but you can save an unvalidated, unapproved draft for later review.';
         const savedStatus = saved
-            ? `Saved ${savedTemplateIds.length} private template${savedTemplateIds.length === 1 ? '' : 's'} to Template Library. Separate approval is still required.`
+            ? `Saved ${savedTemplateIds.length} private template${savedTemplateIds.length === 1 ? '' : 's'} to Template Library. Shared and automated execution still requires approval.`
             : validationStatus;
         aiEditorStatus(draft.error || `${draft.status} · ${draft.model} · ${savedStatus}`);
     }
@@ -261,7 +261,7 @@ async function saveAiEditorDraft() {
         aiEditorDraft.saved_template_ids = result.template_ids;
         renderAiEditorDraft();
         const validationState = result.validation_ok ? 'validated' : 'unvalidated';
-        aiEditorStatus(`Saved ${result.template_ids.length} private ${validationState} template${result.template_ids.length === 1 ? '' : 's'} to Template Library. Use Open saved template to review it. Explicit approval is required before execution.`);
+        aiEditorStatus(`Saved ${result.template_ids.length} private ${validationState} template${result.template_ids.length === 1 ? '' : 's'} to Template Library. Use Open saved template to review it. Only validated action drafts can be test-run by an explicitly authorized creator; shared and automated execution requires approval.`);
         refreshAiEditorHistory();
     } catch (error) { if (epoch === aiEditorEpoch) { document.getElementById('aiEditorSave').disabled = false; aiEditorStatus(error.message); } }
 }

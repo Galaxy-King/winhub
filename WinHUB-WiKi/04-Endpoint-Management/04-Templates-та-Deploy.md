@@ -27,6 +27,10 @@ Task Template описує action, script/payload, input fields, variables, secr
 - не повертайте secrets у task log/report;
 - перевірте script окремо до approval.
 
+Звичайний користувач із `manage_templates` може створювати й редагувати шаблони, але не може позначати їх **Approved for execution**. Для ручної розробки адміністратор може окремо видати `run_own_draft_templates`; разом із `run_tasks` воно дозволяє автору тестувати лише власні private action/metric drafts на доступних йому endpoint-групах. Право явне, не працює через API key і не поширюється на чужі чернетки.
+
+AI-чернетка перед таким запуском має успішно пройти статичну валідацію після останньої зміни коду. Валідація перевіряє синтаксис, але не безпечність поведінки. Scheduler і Triggers виконують тільки approved templates із чинною approval-печаткою. Рекомендований доступ розробника — окрема canary-група; `run_own_draft_templates` еквівалентне можливості виконувати створений ним PowerShell/Bash із service-правами агента в межах цієї групи.
+
 ## Import/Export
 
 Пакет шаблону може містити scripts і report templates, але не production secrets. Перед import перевірте код, actions, URLs, hashes і approval metadata.
