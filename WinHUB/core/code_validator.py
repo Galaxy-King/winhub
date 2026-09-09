@@ -18,6 +18,14 @@ VALIDATOR_VERSION = "1"
 MAX_CAPTURE = 262144
 
 
+def parser_protocol_detail(output, error_output, scratch):
+    """Return bounded text-only diagnostics without logging submitted source."""
+    value = str(error_output or output or "").replace(str(scratch), "<scratch>")
+    value = re.sub(r"\x1b\[[0-?]*[ -/]*[@-~]", "", value)
+    value = re.sub(r"[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]+", " ", value).strip()
+    return value[:600]
+
+
 def run_parser(args, scratch):
     env = {"PATH": "/usr/bin:/bin", "LANG": "C.UTF-8", "HOME": str(scratch),
            "DOTNET_EnableDiagnostics": "0", "POWERSHELL_TELEMETRY_OPTOUT": "1",
@@ -76,7 +84,10 @@ def validate(value):
                             add("error", "PowerShell syntax validation failed")
                     except (ValueError, KeyError, TypeError):
                         detail = f" (exit code {rc})" if rc else ""
-                        add("error", f"PowerShell parser returned an invalid response{detail}; check winhub-code-validator service logs")
+                        protocol_detail = parser_protocol_detail(output, error_output, scratch)
+                        if protocol_detail:
+                            detail += f": {protocol_detail}"
+                        add("error", f"PowerShell parser returned an invalid response{detail}")
                     add("warning", "Parsed with PowerShell 7; Windows PowerShell 5.1 runtime/API compatibility still requires operator review")
             else:
                 binary = shutil.which("bash")

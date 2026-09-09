@@ -52,6 +52,17 @@ def validated_result(row):
     return bundle
 
 
+def ready_result(row):
+    if not row or row.status != 'Ready':
+        raise ValueError('Draft is not ready')
+    return validate_bundle(json.loads(row.result_json or '{}'))
+
+
+def draft_validation_ok(row, bundle):
+    validation = json.loads(row.validation_json or '{}')
+    return validation.get('ok') is True and validation.get('code_hash') == bundle_hash(bundle)
+
+
 def stamp_ai_origin(payload, draft_id):
     user = editor_user()
     row = owned_draft(draft_id, user) if user else None
@@ -194,11 +205,20 @@ def register_ai_editor(bp):
         if not row:
             return jsonify(success=False, message='Draft not found'), 404
         try:
-            bundle = validated_result(row)
+            bundle = ready_result(row)
+            validation = json.loads(row.validation_json or '{}')
+            validation_ok = draft_validation_ok(row, bundle)
             if row.saved_template_ids:
-                return jsonify(success=True, template_ids=json.loads(row.saved_template_ids))
+                return jsonify(success=True, template_ids=json.loads(row.saved_template_ids),
+                               validation_ok=validation_ok)
             ids = []
-            marker = {'draft_id': row.id, 'language': row.language}
+            marker = {
+                'draft_id': row.id,
+                'language': row.language,
+                'validation_ok': validation_ok,
+                'validation_status': str(validation.get('status') or 'not_checked'),
+                'bundle_hash': bundle_hash(bundle),
+            }
             companion = None
             if bundle['report_template']:
                 companion = TaskTemplate(name=(bundle['name'] + ' — report')[:150], category='AI drafts',
@@ -220,8 +240,12 @@ def register_ai_editor(bp):
             row.saved_template_ids = json.dumps(ids)
             db.session.commit()
             from modules.Infrastructure.routes import write_infra_audit
-            write_infra_audit('ai_templates_saved_unapproved', 'ai_template_draft', row.id, {'template_ids': ids})
-            return jsonify(success=True, template_ids=ids), 201
+            write_infra_audit('ai_templates_saved_unapproved', 'ai_template_draft', row.id, {
+                'template_ids': ids,
+                'validation_ok': validation_ok,
+                'validation_status': marker['validation_status'],
+            })
+            return jsonify(success=True, template_ids=ids, validation_ok=validation_ok), 201
         except (ValueError, TypeError) as exc:
             db.session.rollback()
             return jsonify(success=False, message=str(exc)), 400

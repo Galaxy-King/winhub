@@ -63,6 +63,7 @@ class TemplateContractTests(unittest.TestCase):
         self.assertNotIn('Invoke-Expression', wrapper)
         self.assertIn("$WarningPreference = 'SilentlyContinue'", wrapper)
         self.assertIn('PSScriptAnalyzer could not complete', wrapper)
+        self.assertIn('PowerShell parser helper failed', wrapper)
 
     def test_parser_protocol_keeps_stderr_separate(self):
         from core.code_validator import run_parser
@@ -91,6 +92,8 @@ class TemplateContractTests(unittest.TestCase):
         self.assertIn('textContent', script)
         self.assertIn('aiEditorEpoch', script)
         self.assertIn('Save to Template Library', modal)
+        self.assertIn('Save unvalidated draft', script)
+        self.assertIn('you can save an unvalidated, unapproved draft', script)
         self.assertIn('Open saved template', modal)
         self.assertIn('openNewAiTemplateGenerator()', deploy)
         self.assertIn("localStorage.setItem('infra_selected_template'", script)
@@ -257,20 +260,43 @@ class AiEditorApiTests(unittest.TestCase):
             with mock.patch.object(routes, 'require_permission', return_value=None), mock.patch.object(routes, 'can', return_value=True):
                 self.assertEqual(routes.create_task()[1], 403)
 
-    def test_unavailable_validator_prevents_saving(self):
+    def test_unavailable_validator_allows_only_unapproved_draft_save(self):
         row_id = self.generate()
         row = db.session.get(AiTemplateDraft, row_id)
-        row.validation_json = json.dumps({'ok': False, 'status': 'unavailable'})
+        row.validation_json = json.dumps({
+            'ok': False, 'status': 'unavailable', 'code_hash': bundle_hash(BUNDLE),
+            'diagnostics': [{'severity': 'unavailable', 'message': 'Synthetic unavailable validator'}],
+        })
         db.session.commit()
-        self.assertEqual(self.client.post(f'/api/infrastructure/ai-editor/drafts/{row_id}/save').status_code, 400)
-        self.assertEqual(TaskTemplate.query.count(), 0)
+        response = self.client.post(f'/api/infrastructure/ai-editor/drafts/{row_id}/save')
+        self.assertEqual(response.status_code, 201, response.json)
+        self.assertIs(response.json['validation_ok'], False)
+        self.assertEqual(TaskTemplate.query.count(), 2)
+        self.assertTrue(all(not item.is_approved for item in TaskTemplate.query.all()))
+        for item in TaskTemplate.query.all():
+            marker = json.loads(item.payload)['__ai_generated']
+            self.assertIs(marker['validation_ok'], False)
+            self.assertEqual(marker['validation_status'], 'unavailable')
+            self.assertEqual(marker['bundle_hash'], bundle_hash(BUNDLE))
+        action = TaskTemplate.query.filter_by(type='action').first()
+        from modules.Infrastructure import routes
+        with self.app.test_request_context('/api/infrastructure/tasks/create', method='POST', json={
+            'template_id': action.id, 'launch_reason': 'Confirm unvalidated AI draft cannot run',
+        }):
+            session.update(user_id=self.user.id, username=self.user.username, is_admin=False)
+            with mock.patch.object(routes, 'require_permission', return_value=None), \
+                 mock.patch.object(routes, 'can', return_value=True):
+                self.assertEqual(routes.create_task()[1], 403)
 
-    def test_stale_hash_cannot_save(self):
+    def test_stale_validation_hash_saves_as_unvalidated_draft(self):
         row_id = self.generate()
         row = db.session.get(AiTemplateDraft, row_id)
         row.result_json = json.dumps({**BUNDLE, 'code': 'different'})
         db.session.commit()
-        self.assertEqual(self.client.post(f'/api/infrastructure/ai-editor/drafts/{row_id}/save').status_code, 400)
+        response = self.client.post(f'/api/infrastructure/ai-editor/drafts/{row_id}/save')
+        self.assertEqual(response.status_code, 201, response.json)
+        self.assertIs(response.json['validation_ok'], False)
+        self.assertTrue(all(not item.is_approved for item in TaskTemplate.query.all()))
 
     def test_cancel_wins_over_model_response(self):
         row_id = self.create().json['draft']['id']
