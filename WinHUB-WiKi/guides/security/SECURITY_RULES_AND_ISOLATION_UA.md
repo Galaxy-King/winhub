@@ -8,11 +8,11 @@
 
 Живі Debian-служби, firewall, PostgreSQL grants, Windows service token, macOS TCC та конфігурація зовнішнього Open WebUI **не перевірені**. Наявність правильної unit-конфігурації у Git не доводить її застосування на сервері. Особливо важливо перевірити старі інсталяції: update зберігає частину попередніх режимів сумісності.
 
-### Доповнення після реалізації AI-редактора (2026-09-04)
+### Доповнення після реалізації AI-редактора (оновлено 2026-09-09)
 
 Початкові F01–F11 нижче зберігають опис стану до реалізації. Додано [AI-редактор приватних чернеток](../features/AI_TEMPLATE_EDITOR_UA.md) та [архітектурне рішення](../../09-Розробка/07-AI-редактор-архітектура.md). Це не повне усунення всіх знайдених прогалин і не дозвіл на autonomous execution.
 
-- **F05 — новий AI-шлях захищений:** draft окремо від task/template; перевірка й генерація не створюють задач; save може зберегти також невалідавану приватну чернетку, але завжди створює лише непогоджені шаблони з validation marker. Explicit approval обов'язковий, `own_runnable` не діє на AI marker. Перевірено regression; provenance не переживає ручне копіювання коду адміністратором у зовсім новий немаркований template.
+- **F05 — контрольований developer test run:** draft окремо від task/template; генерація й перевірка не створюють задач; save завжди створює непогоджені шаблони. Автор може вручну запустити власну action/metric-чернетку лише з explicit-only `run_own_draft_templates`, `manage_templates`, `run_tasks`, інтерактивною сесією та доступом до цілі. Для AI marker обов'язкові `use_ai_templates`, успішна валідація й `source_hash` точного поточного коду. API keys, чужі drafts, unvalidated/stale AI, reports, Scheduler і Triggers цей виняток не приймають; automation вимагає чинну approval-печатку. Право test run саме по собі високоризикове, бо агенти не sandboxed; provenance не переживає ручне копіювання AI-коду в новий немаркований template.
 - **F02 — обхідний захист для AI v1:** генератор не використовує raw parameter/secret substitution. Позначені AI action payloads відхиляють `{{`/`{%` перед підстановкою навіть після ручного редагування; template secrets не читаються. Старий механізм у звичайних templates лишається окремою невирішеною задачею.
 - **F07 — AI completions:** bounded HTTP reading до JSON parsing, ліміти bundle/source/code/fixture, квоти черги та HTTP timeout. AI scheduler ще не окремий killable worker; slow-drip deadline і Windows `ReadToEndAsync` не закриті повністю. `health()` provider не перебудовувався як частина цього cap.
 - **F08 — новий code validator:** Unix socket без fallback, інший UID, no-network/secrets units, fixed parsers, resource limits; submitted скрипти не виконуються. Інші Jinja-save/GPG/web/gateway межі не змінені. Фактичне застосування systemd restrictions на Debian ще треба перевірити.
@@ -171,9 +171,9 @@ P1 — виправити в першу чергу / до розширення �
 
 ### F05 · P1 для AI-функціоналу · Генерацію не можна одразу робити runnable
 
-У `create_task` є дозволений сценарій `own_runnable`: інтерактивний автор із `manage_templates` може запускати власний незатверджений template. Тому автоматичне збереження AI-відповіді як `TaskTemplate` не дає гарантованого approval gate. Windows та Unix full-mode execution не ізольовані від керованої ОС.
+Реалізовано окремий контрольований сценарій private test run: інтерактивний автор має отримати explicit-only `run_own_draft_templates` разом із `manage_templates` і `run_tasks`; AI-чернетка додатково потребує актуального validation/source hash. Інші користувачі, API keys, reports, Scheduler і Triggers не використовують цей виняток. Windows та Unix full-mode execution усе одно не ізольовані від керованої ОС, тому це право фактично дозволяє автору виконувати довільний адміністративний код на доступних йому хостах.
 
-Дія: окремі AI drafts, незалежні validate/apply/save/run permissions, тестова група хостів і явна політика approval для AI-коду. Переглянути всі dispatch paths, не лише нову кнопку редактора.
+Залишкова дія: видавати право лише перевіреним розробникам, обмежувати їх окремою canary-групою, переглядати audit/launch reason і не вважати статичну валідацію гарантією безпеки. Для production rollout, API та automation потрібен superadmin approval точного content hash.
 
 ### F06 · P1, якщо лишився legacy mode · Підтвердити renderer service
 

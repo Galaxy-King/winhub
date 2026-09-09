@@ -102,6 +102,69 @@ class TemplateApprovalTests(unittest.TestCase):
         changed = self.security.template_content_hash("run_script", "action", {"script": "echo changed"})
         self.assertNotEqual(original, changed)
 
+    def test_ai_validation_marker_is_bound_to_exact_language_and_script(self):
+        source = 'Write-Output "validated"'
+        marker = {
+            "language": "powershell",
+            "validation_ok": True,
+            "source_hash": self.security.ai_template_source_hash("powershell", source),
+        }
+        self.assertTrue(self.security.ai_template_validation_valid({
+            "script": source,
+            "__ai_generated": marker,
+        }))
+        self.assertFalse(self.security.ai_template_validation_valid({
+            "script": source + "\nWrite-Output changed",
+            "__ai_generated": marker,
+        }))
+        self.assertFalse(self.security.ai_template_validation_valid({
+            "script": source,
+            "__ai_generated": {**marker, "validation_ok": False},
+        }))
+
+    def test_private_manual_draft_run_is_owner_only_explicit_and_interactive(self):
+        from flask import Flask, session
+        from modules.Infrastructure import routes
+
+        app = Flask(__name__)
+        app.secret_key = "private-draft-run-test"
+        template = types.SimpleNamespace(
+            id="draft-1", type="action", action_type="run_script",
+            created_by="alice", is_approved=False, approved_content_hash=None,
+            payload=json.dumps({"script": "Write-Output test"}),
+        )
+        grants = {"manage_templates", "run_tasks", "run_own_draft_templates"}
+        with app.test_request_context("/"):
+            session.update(username="alice", is_admin=False, api_key_auth=False)
+            with mock.patch.object(routes, "can", side_effect=lambda permission: permission in grants):
+                self.assertTrue(routes.can_run_template(template))
+                grants.remove("run_own_draft_templates")
+                self.assertFalse(routes.can_run_template(template))
+                grants.add("run_own_draft_templates")
+                session["username"] = "bob"
+                self.assertFalse(routes.can_run_template(template))
+                session.update(username="alice", api_key_auth=True)
+                self.assertFalse(routes.can_run_template(template))
+
+    def test_disable_run_policy_also_blocks_the_draft_owner(self):
+        from flask import Flask, session
+        from modules.Infrastructure import routes
+
+        app = Flask(__name__)
+        app.secret_key = "private-draft-policy-test"
+        template = types.SimpleNamespace(
+            id="draft-2", type="action", action_type="run_script",
+            created_by="alice", is_approved=False, approved_content_hash=None,
+            payload=json.dumps({
+                "script": "Write-Output test",
+                "__template_policy": {"disable_run": True},
+            }),
+        )
+        with app.test_request_context("/"):
+            session.update(username="alice", is_admin=False, api_key_auth=False)
+            with mock.patch.object(routes, "can", return_value=True):
+                self.assertFalse(routes.can_run_template(template))
+
 
 class TemplateVariableSubstitutionTests(unittest.TestCase):
     def test_windows_and_unc_backslashes_are_inserted_literally(self):
@@ -707,6 +770,7 @@ class SchedulerRegressionTests(unittest.TestCase):
             session.update({"user_id": 1, "username": "tester", "is_admin": True})
             with mock.patch.object(routes, "require_permission", return_value=None), \
                  mock.patch.object(routes.TaskTemplate, "query", template_query), \
+                 mock.patch.object(routes, "template_approval_valid", return_value=True), \
                  mock.patch.object(routes, "can_access_template_library_entry", return_value=True), \
                  mock.patch.object(routes, "can_use_template", return_value=True), \
                  mock.patch.object(routes, "validate_schedule_target", return_value=("group", "group-1")), \
@@ -754,6 +818,7 @@ class SchedulerRegressionTests(unittest.TestCase):
             with mock.patch.object(routes, "require_permission", return_value=None), \
                  mock.patch.object(routes.TaskTemplate, "query", template_query), \
                  mock.patch.object(routes, "ScheduledTask", schedule_factory), \
+                 mock.patch.object(routes, "template_approval_valid", return_value=True), \
                  mock.patch.object(routes, "can_access_template_library_entry", return_value=True), \
                  mock.patch.object(routes, "can_use_template", return_value=True), \
                  mock.patch.object(routes, "validate_schedule_target", return_value=("group", "group-1")), \
@@ -788,6 +853,7 @@ class SchedulerRegressionTests(unittest.TestCase):
             session.update({"user_id": 1, "username": "tester", "is_admin": False})
             with mock.patch.object(routes, "require_permission", return_value=None), \
                  mock.patch.object(routes.ScheduledTask, "query", schedule_query), \
+                 mock.patch.object(routes, "template_approval_valid", return_value=True), \
                  mock.patch.object(routes, "can_access_template_library_entry", return_value=True), \
                  mock.patch.object(routes, "can_use_template", return_value=True), \
                  mock.patch.object(routes, "validate_schedule_target", side_effect=PermissionError("denied")):

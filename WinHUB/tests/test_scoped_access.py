@@ -18,6 +18,7 @@ class GranularPermissionTests(unittest.TestCase):
         self.assertFalse(has_permission(user, "Infrastructure", "delete_tasks"))
         self.assertFalse(has_permission(user, "Infrastructure", "delete_hosts"))
         self.assertFalse(has_permission(user, "Infrastructure", "delete_groups"))
+        self.assertFalse(has_permission(user, "Infrastructure", "run_own_draft_templates"))
 
     def test_exact_tokens_and_legacy_delete_alias_grant_expected_actions(self):
         from core.permissions import has_permission
@@ -28,10 +29,12 @@ class GranularPermissionTests(unittest.TestCase):
             allowed_modules=json.dumps([
                 "Infrastructure:view_sensitive_reports",
                 "Infrastructure:delete_hosts",
+                "Infrastructure:run_own_draft_templates",
             ]),
         )
         self.assertTrue(has_permission(exact, "Infrastructure", "view_sensitive_reports"))
         self.assertTrue(has_permission(exact, "Infrastructure", "delete_hosts"))
+        self.assertTrue(has_permission(exact, "Infrastructure", "run_own_draft_templates"))
         self.assertFalse(has_permission(exact, "Infrastructure", "delete_groups"))
 
         retired_delete = types.SimpleNamespace(
@@ -64,6 +67,7 @@ class GranularPermissionTests(unittest.TestCase):
         ids = {item["id"] for item in granular_permission_catalog("Infrastructure")}
         self.assertTrue({
             "view_sensitive_reports",
+            "run_own_draft_templates",
             "delete_hosts",
             "delete_groups",
         }.issubset(ids))
@@ -342,6 +346,19 @@ class ApiKeySecurityPolicyTests(unittest.TestCase):
             session["api_permissions"] = ["Infrastructure:view_sensitive_reports"]
             g.winhub_api_permissions = list(session["api_permissions"])
             self.assertFalse(has_permission(user, "Infrastructure", "view_sensitive_reports"))
+
+    def test_api_key_cannot_test_run_private_drafts(self):
+        from flask import Flask, g, session
+        from core.permissions import has_permission
+
+        app = Flask(__name__)
+        app.secret_key = "api-draft-policy-test"
+        user = types.SimpleNamespace(id=8, is_admin=True, allowed_modules="[]")
+        with app.test_request_context("/api/infrastructure/templates/draft/run"):
+            session["api_key_auth"] = True
+            session["api_permissions"] = ["Infrastructure:run_own_draft_templates"]
+            g.winhub_api_permissions = list(session["api_permissions"])
+            self.assertFalse(has_permission(user, "Infrastructure", "run_own_draft_templates"))
 
     def test_networks_are_canonical_and_spoofed_forwarding_is_ignored(self):
         from flask import Flask

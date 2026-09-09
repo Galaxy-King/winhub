@@ -271,7 +271,7 @@
 5. Виберіть тип: `Action Script`, `Metric Item` або `Report Template`.
 6. Додайте код у редактор.
 7. За потреби додайте variables або secrets.
-8. Увімкніть `Share with Team`, якщо шаблон має бути доступний іншим користувачам.
+8. Суперадмін може увімкнути `Approved for execution` після перегляду коду. Звичайний автор зберігає private draft; з окремим `run_own_draft_templates` він може вручну тестувати власну action/metric-чернетку тільки на дозволеній canary-групі.
 9. Натисніть `Save Template`.
 
 ### Variables і secrets
