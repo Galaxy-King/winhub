@@ -70,7 +70,10 @@ class NewsletterSafetyTests(unittest.TestCase):
     def test_frontend_keeps_failed_draft_and_has_preflight(self):
         template = Path(routes.MODULE_DIR, "templates", "newsletter_index.html").read_text(encoding="utf-8")
         self.assertIn("runCampaignPreflight", template)
-        self.assertIn("Чернетку збережено", template)
+        self.assertIn("Your draft was preserved", template)
+        self.assertIn("switchNewsletterGuide('en')", template)
+        self.assertIn("New campaign", template)
+        self.assertNotIn("Нова розсилка", template)
         self.assertIn("currentLdapProfileId = profile.id", template)
         self.assertNotIn("currentLdapProfileId = id;\n        renderLdapProfiles", template)
 
