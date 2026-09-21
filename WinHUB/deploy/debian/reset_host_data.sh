@@ -24,14 +24,17 @@ if [[ ! -x "${APP_DIR}/venv/bin/python" || ! -f "${APP_DIR}/core/reset_host_data
 fi
 
 run_reset() {
-  set -a
-  # This is the same root-owned EnvironmentFile consumed by systemd.
-  # shellcheck disable=SC1090
-  source "${ENV_FILE}"
-  set +a
-  WINHUB_ROLE=maintenance WINHUB_DISABLE_SCHEDULER=true \
-    runuser -u winhub --preserve-environment -- \
-    "${APP_DIR}/venv/bin/python" "${APP_DIR}/core/reset_host_data.py" "$@"
+  (
+    cd "${APP_DIR}"
+    set -a
+    # This is the same root-owned EnvironmentFile consumed by systemd.
+    # shellcheck disable=SC1090
+    source "${ENV_FILE}"
+    set +a
+    WINHUB_ROLE=maintenance WINHUB_DISABLE_SCHEDULER=true \
+      runuser -u winhub --preserve-environment -- \
+      "${APP_DIR}/venv/bin/python" -m core.reset_host_data "$@"
+  )
 }
 
 if [[ "${EXECUTE}" != true ]]; then
