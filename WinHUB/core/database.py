@@ -133,6 +133,64 @@ class Task(db.Model):
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
     ended_at = db.Column(db.DateTime, nullable=True)
 
+
+class NewsletterCampaign(db.Model):
+    """Durable Newsletter queue entry and immutable send-time snapshot."""
+    __tablename__ = 'newsletter_campaigns'
+
+    id = db.Column(db.String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
+    task_id = db.Column(db.String(36), db.ForeignKey('tasks.id', ondelete="SET NULL"), nullable=True, unique=True, index=True)
+    user_id = db.Column(db.Integer, db.ForeignKey('users.id', ondelete="SET NULL"), nullable=True, index=True)
+    source = db.Column(db.String(20), default="manual", nullable=False, index=True)
+    source_message_id_hash = db.Column(db.String(64), nullable=True, unique=True, index=True)
+    sender_email = db.Column(db.String(320), nullable=False)
+    keyserver_override = db.Column(db.String(1000), nullable=True)
+    subject = db.Column(EncryptedText, nullable=False)
+    body_text = db.Column(EncryptedText, nullable=True)
+    body_html = db.Column(EncryptedText, nullable=True)
+    attachments_json = db.Column(EncryptedText, nullable=True)
+    selected_lists_json = db.Column(EncryptedText, nullable=True)
+    use_gpg = db.Column(db.Boolean, default=True, nullable=False)
+    status = db.Column(db.String(20), default="Queued", nullable=False, index=True)
+    cancel_requested = db.Column(db.Boolean, default=False, nullable=False)
+    total_count = db.Column(db.Integer, default=0, nullable=False)
+    sent_count = db.Column(db.Integer, default=0, nullable=False)
+    failed_count = db.Column(db.Integer, default=0, nullable=False)
+    skipped_count = db.Column(db.Integer, default=0, nullable=False)
+    error_summary = db.Column(EncryptedText, nullable=True)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False, index=True)
+    started_at = db.Column(db.DateTime, nullable=True)
+    ended_at = db.Column(db.DateTime, nullable=True)
+
+    deliveries = db.relationship(
+        'NewsletterDelivery',
+        back_populates='campaign',
+        cascade="all, delete-orphan",
+        passive_deletes=True,
+    )
+
+
+class NewsletterDelivery(db.Model):
+    """Per-recipient delivery state used for resume, retry and safe summaries."""
+    __tablename__ = 'newsletter_deliveries'
+
+    id = db.Column(db.String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
+    campaign_id = db.Column(db.String(36), db.ForeignKey('newsletter_campaigns.id', ondelete="CASCADE"), nullable=False, index=True)
+    recipient = db.Column(EncryptedString, nullable=False)
+    recipient_hash = db.Column(db.String(64), nullable=False, index=True)
+    status = db.Column(db.String(20), default="Pending", nullable=False, index=True)
+    attempts = db.Column(db.Integer, default=0, nullable=False)
+    error = db.Column(EncryptedText, nullable=True)
+    message_id = db.Column(db.String(255), nullable=True)
+    sent_at = db.Column(db.DateTime, nullable=True)
+    updated_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
+
+    campaign = db.relationship('NewsletterCampaign', back_populates='deliveries')
+
+    __table_args__ = (
+        db.UniqueConstraint('campaign_id', 'recipient_hash', name='uq_newsletter_delivery_recipient'),
+    )
+
 class EndpointGroup(db.Model):
     __tablename__ = 'endpoint_groups'
     id = db.Column(db.String(36), primary_key=True, default=lambda: str(uuid.uuid4()))

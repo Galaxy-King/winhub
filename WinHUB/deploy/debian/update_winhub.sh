@@ -178,10 +178,20 @@ mkdir -p "${UPDATE_LOG_DIR}"
 STARTED_AT="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
 FROM_VERSION="$(test -f "${APP_DIR}/VERSION" && tr -d '[:space:]' < "${APP_DIR}/VERSION" || echo unknown)"
 
+echo "[WinHUB] Stopping web and Newsletter workers for a consistent backup and migration"
+systemctl stop winhub-newsletter 2>/dev/null || true
+systemctl stop winhub
+
 if [[ -x "${BACKUP_SCRIPT}" ]]; then
-  "${BACKUP_SCRIPT}"
+  BACKUP_COMMAND=("${BACKUP_SCRIPT}")
 else
-  bash "${BACKUP_SCRIPT}"
+  BACKUP_COMMAND=(bash "${BACKUP_SCRIPT}")
+fi
+if ! "${BACKUP_COMMAND[@]}"; then
+  echo "[WinHUB] Backup failed; restarting the existing services without deploying changes." >&2
+  systemctl start winhub
+  systemctl start winhub-newsletter 2>/dev/null || true
+  exit 1
 fi
 
 echo "[WinHUB] Deploying server components from ${RELEASE_SRC}"
@@ -209,6 +219,7 @@ fi
 
 install -m 0644 "${APP_DIR}/deploy/debian/winhub.service" /etc/systemd/system/winhub.service
 install -m 0644 "${APP_DIR}/deploy/debian/winhub-agent.service" /etc/systemd/system/winhub-agent.service
+install -m 0644 "${APP_DIR}/deploy/debian/winhub-newsletter.service" /etc/systemd/system/winhub-newsletter.service
 install -m 0644 "${APP_DIR}/deploy/debian/winhub-renderer.socket" /etc/systemd/system/winhub-renderer.socket
 install -m 0644 "${APP_DIR}/deploy/debian/winhub-renderer@.service" /etc/systemd/system/winhub-renderer@.service
 ENV_FILE="${ENV_FILE}" APP_DIR="${APP_DIR}" bash "${RENDER_NGINX_SCRIPT}" /etc/nginx/sites-available/winhub
@@ -235,6 +246,8 @@ APP_DIR="${APP_DIR}" bash "${APP_DIR}/deploy/debian/install_code_validator.sh"
 systemctl enable --now winhub-renderer.socket
 nginx -t
 systemctl restart winhub
+systemctl enable --now winhub-newsletter
+systemctl restart winhub-newsletter
 if awk -F= '/^[[:space:]]*AGENT_BACKEND_PORT[[:space:]]*=/{gsub(/[ \047"\r]/, "", $2); if ($2 != "") found=1} END{exit found ? 0 : 1}' "${ENV_FILE}"; then
   systemctl enable --now winhub-agent
   systemctl restart winhub-agent

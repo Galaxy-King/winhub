@@ -4,11 +4,13 @@ GPG encrypts повідомлення для recipient public keys і може d
 
 ## Адміністративні правила
 
-- перевіряйте fingerprint до import/fetch;
+- перевіряйте fingerprint до import; автоматичний keyserver import за замовчуванням вимкнений;
 - обмежуйте keyservers;
 - private key та passphrase не публікуйте;
 - GPG home включайте в encrypted off-host backup;
 - видалення key виконуйте лише після перевірки active lists/routes;
 - test encryption/decryption робіть на непублічних тестових даних.
+
+Inbound relay додатково вимагає валідний GPG-підпис, fingerprint якого внесений у конкретний mailbox route.
 
 Помилка `Missing/Invalid GPG Key` означає, що хоча б для одного recipient немає придатного verified public key.

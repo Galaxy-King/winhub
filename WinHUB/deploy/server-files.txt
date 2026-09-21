@@ -3,6 +3,7 @@ requirements.txt
 alembic.ini
 server_debian.py
 server_prod.py
+newsletter_worker.py
 core/
 modules/
 templates/
