@@ -1,4 +1,5 @@
 import unittest
+from pathlib import Path
 
 from sqlalchemy import create_engine, insert, select
 
@@ -51,6 +52,17 @@ class ResetHostDataTests(unittest.TestCase):
             second = erase_host_data(connection, db.metadata)
         self.assertTrue(all(value == 0 for value in first.values()))
         self.assertEqual(first, second)
+
+    def test_debian_wrapper_runs_reset_as_package_module(self):
+        wrapper = (
+            Path(__file__).resolve().parents[1] / "deploy/debian/reset_host_data.sh"
+        ).read_text(encoding="utf-8")
+        self.assertIn('cd "${APP_DIR}"', wrapper)
+        self.assertIn('"${APP_DIR}/venv/bin/python" -m core.reset_host_data "$@"', wrapper)
+        self.assertNotIn(
+            '"${APP_DIR}/venv/bin/python" "${APP_DIR}/core/reset_host_data.py"',
+            wrapper,
+        )
 
 
 if __name__ == "__main__":
