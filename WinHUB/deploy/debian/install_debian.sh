@@ -402,6 +402,7 @@ fi
 
 install -m 0644 "${APP_DIR}/deploy/debian/winhub.service" /etc/systemd/system/winhub.service
 install -m 0644 "${APP_DIR}/deploy/debian/winhub-agent.service" /etc/systemd/system/winhub-agent.service
+install -m 0644 "${APP_DIR}/deploy/debian/winhub-newsletter.service" /etc/systemd/system/winhub-newsletter.service
 install -m 0644 "${APP_DIR}/deploy/debian/winhub-renderer.socket" /etc/systemd/system/winhub-renderer.socket
 install -m 0644 "${APP_DIR}/deploy/debian/winhub-renderer@.service" /etc/systemd/system/winhub-renderer@.service
 ENV_FILE="${ENV_FILE}" APP_DIR="${APP_DIR}" bash "${APP_DIR}/deploy/debian/render_nginx_config.sh" /etc/nginx/sites-available/winhub
@@ -442,6 +443,7 @@ fi
 
 systemctl enable winhub
 systemctl restart winhub
+systemctl enable --now winhub-newsletter
 if awk -F= '/^[[:space:]]*AGENT_BACKEND_PORT[[:space:]]*=/{gsub(/[ \047"\r]/, "", $2); if ($2 != "") found=1} END{exit found ? 0 : 1}' "${ENV_FILE}"; then
   systemctl enable --now winhub-agent
 fi
@@ -466,7 +468,7 @@ cat <<EOF
 WinHUB installation completed successfully.
 
 URL: https://${PUBLIC_HOST:-server-address}
-Services: winhub, winhub-renderer.socket, nginx
+Services: winhub, winhub-newsletter, winhub-renderer.socket, nginx
 Configuration: ${ENV_FILE}
 Data: ${DATA_DIR}
 Logs: ${LOG_DIR}

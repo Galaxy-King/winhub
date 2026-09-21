@@ -31,6 +31,7 @@ MODULE_INTERNAL_PERMISSION_CATALOG = {
         {"id": "delete_groups", "name": "Delete groups"},
     ],
     "Newsletter": [
+        {"id": "view_newsletter", "name": "View Newsletter"},
         {"id": "send_campaigns", "name": "Send mailings"},
         {"id": "manage_lists", "name": "Manage mailing lists"},
         {"id": "manage_smtp", "name": "Manage SMTP profiles"},
@@ -96,7 +97,7 @@ PERMISSION_ALIASES = {
     },
     "Newsletter": {
         "view": {
-            "send_campaigns",
+            "view_newsletter",
         },
         "change": {
             "send_campaigns",

@@ -33,6 +33,7 @@ For a fresh installation the script:
 - asks for the public DNS name or IPv4 address;
 - installs Debian dependencies;
 - creates `winhub` and separate isolated `winhub-renderer` / `winhub-validator` users;
+- installs the durable `winhub-newsletter` queue and inbound worker under the `winhub` service account;
 - generates independent session, database, enrollment, task-signing and history-search secrets with the OS CSPRNG;
 - creates/reconciles the local PostgreSQL role and database;
 - creates a self-signed TLS certificate with the selected host in SAN when no certificate exists;
@@ -161,6 +162,7 @@ Use the same certificate fingerprint in the agent config if TLS pinning is enabl
 
 ```bash
 sudo systemctl status winhub --no-pager
+sudo systemctl status winhub-newsletter --no-pager
 sudo systemctl status winhub-renderer.socket --no-pager
 sudo nginx -t
 sudo /opt/winhub/deploy/debian/healthcheck_winhub.sh
