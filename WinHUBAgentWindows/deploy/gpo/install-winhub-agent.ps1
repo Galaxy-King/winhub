@@ -115,6 +115,12 @@ try {
 } finally {
     if ($lock) { $lock.Dispose() }
 }
+'@ | Set-Content -LiteralPath $watchdog -Encoding UTF8
+    & schtasks.exe /Create /TN 'WinHUBAgent Watchdog' /SC MINUTE /MO 5 /RU SYSTEM /RL HIGHEST /TR "powershell.exe -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -File `"$watchdog`"" /F | Out-Null
+    if ($LASTEXITCODE -ne 0) { throw 'Could not register the service watchdog task.' }
+    $service.Refresh()
+    if ($service.Status -ne 'Running') { Start-Service -Name $ServiceName }
+}
 
 function Reset-ServerBoundIdentity([string]$Epoch, [string]$BootstrapSource) {
     if ([string]::IsNullOrWhiteSpace($Epoch)) { return }
@@ -155,12 +161,6 @@ function Reset-ServerBoundIdentity([string]$Epoch, [string]$BootstrapSource) {
     } finally {
         $identityLock.Dispose()
     }
-}
-'@ | Set-Content -LiteralPath $watchdog -Encoding UTF8
-    & schtasks.exe /Create /TN 'WinHUBAgent Watchdog' /SC MINUTE /MO 5 /RU SYSTEM /RL HIGHEST /TR "powershell.exe -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -File `"$watchdog`"" /F | Out-Null
-    if ($LASTEXITCODE -ne 0) { throw 'Could not register the service watchdog task.' }
-    $service.Refresh()
-    if ($service.Status -ne 'Running') { Start-Service -Name $ServiceName }
 }
 
 try {
