@@ -278,7 +278,9 @@
                                         <span class="workspace-pill-action text-[9px] font-black uppercase px-2.5 py-1 rounded-lg border">Action</span>
                                     {% endif %}
                                     {% if t.is_approved %}
-                                        <span class="text-[9px] font-black uppercase px-2 py-0.5 rounded bg-emerald-50 text-emerald-700 border border-emerald-100">Shared</span>
+                                        <span class="text-[9px] font-black uppercase px-2 py-0.5 rounded bg-emerald-50 text-emerald-700 border border-emerald-100">Approved</span>
+                                    {% elif t.can_run %}
+                                        <span class="text-[9px] font-black uppercase px-2 py-0.5 rounded bg-cyan-50 text-cyan-700 border border-cyan-100">Private Test Run</span>
                                     {% else %}
                                         <span class="text-[9px] font-black uppercase px-2 py-0.5 rounded bg-amber-50 text-amber-700 border border-amber-100">Private Draft</span>
                                     {% endif %}
@@ -314,9 +316,9 @@
 	                        <button id="workspaceTabBuilder" onclick="switchWorkspaceTab('builder')" class="px-3 py-2 bg-white text-indigo-700 rounded-lg text-[10px] font-black uppercase shadow-sm">Builder</button>
 	                        <button id="workspaceTabGuide" onclick="switchWorkspaceTab('guide')" class="px-3 py-2 text-slate-500 rounded-lg text-[10px] font-black uppercase">Guide</button>
 	                    </div>
-                    <label id="depIsApprovedWrapper" class="flex shrink-0 items-center gap-2 cursor-pointer bg-white px-2.5 py-2 rounded-xl border border-slate-200 hover:bg-slate-100 transition-all shadow-sm {% if not permissions.manage_templates %}hidden{% endif %}">
+                    <label id="depIsApprovedWrapper" class="flex shrink-0 items-center gap-2 cursor-pointer bg-white px-2.5 py-2 rounded-xl border border-slate-200 hover:bg-slate-100 transition-all shadow-sm {% if not is_admin %}hidden{% endif %}">
                         <input type="checkbox" id="depIsApproved" class="w-4 h-4 text-indigo-600 rounded border-slate-300 focus:ring-indigo-500">
-                        <span class="text-[9px] font-black text-slate-500 uppercase">Share with Team</span>
+                        <span class="text-[9px] font-black text-slate-500 uppercase">Approved for execution</span>
                     </label>
                     <div class="flex shrink-0 items-center gap-1.5 {% if not permissions.manage_templates %}hidden{% endif %}" aria-label="Template actions">
                         <button type="button" onclick="saveAsTemplate()" id="btnSaveTemplate" class="w-10 h-10 shrink-0 inline-flex items-center justify-center bg-slate-800 text-white rounded-xl hover:bg-slate-900 transition-all shadow-sm" title="Save template" aria-label="Save template">
@@ -357,7 +359,7 @@
                         </datalist>
                     </div>
 
-                    <!-- Type Selection (Admin Only) -->
+                    <!-- Type Selection (Template Authors) -->
                     {% if permissions.manage_templates %}
                     <div class="col-span-full flex gap-4 p-1.5 bg-slate-100 rounded-2xl w-fit border border-slate-200 shadow-inner">
                         <label class="flex items-center gap-2 px-5 py-2.5 rounded-xl cursor-pointer transition-all has-[:checked]:bg-white has-[:checked]:shadow-sm has-[:checked]:text-indigo-600 text-slate-500 hover:text-slate-700">
@@ -531,7 +533,7 @@
                     </div>
                 </div>
 
-                {% if is_admin %}
+                {% if permissions.manage_templates %}
                 <div id="variableSchemaArea">
                     <button type="button" onclick="openTemplateCodeEditor('schema')" class="w-full flex items-center justify-between gap-5 p-5 rounded-3xl border border-cyan-400/25 bg-slate-950/75 hover:bg-slate-900/90 hover:border-cyan-300/50 transition-all text-left shadow-lg group" aria-label="Open Variable Field Schema editor">
                         <span class="flex items-center gap-4 min-w-0">
@@ -738,7 +740,7 @@ Your personal data goes here.
 	                            </div>
 	                            <div class="bg-white border border-slate-200 rounded-2xl p-6 shadow-sm">
 	                                <h4 class="text-[11px] font-black text-indigo-700 uppercase tracking-widest mb-3">Sharing And Permissions</h4>
-	                                <p class="text-sm font-bold text-slate-600 leading-relaxed">Use Share with Team only for templates that are safe for operators. Operators also need access to target endpoint groups and <span class="font-mono text-slate-900">run_tasks</span>. Reports use separate permissions: <span class="font-mono text-slate-900">view_reports</span>, <span class="font-mono text-slate-900">send_reports</span>, <span class="font-mono text-slate-900">edit_reports</span>, and <span class="font-mono text-slate-900">view_sensitive_reports</span>. Permanent deletion is reserved for an interactive superadmin.</p>
+	                                <p class="text-sm font-bold text-slate-600 leading-relaxed">Only a superadmin can approve a template for shared or automated execution. A developer with <span class="font-mono text-slate-900">manage_templates</span>, <span class="font-mono text-slate-900">run_tasks</span>, and the explicit <span class="font-mono text-slate-900">run_own_draft_templates</span> permission can test-run only their own private action drafts on permitted endpoint groups. AI drafts must also pass validation after the last code change. Reports use separate permissions: <span class="font-mono text-slate-900">view_reports</span>, <span class="font-mono text-slate-900">send_reports</span>, <span class="font-mono text-slate-900">edit_reports</span>, and <span class="font-mono text-slate-900">view_sensitive_reports</span>.</p>
 	                            </div>
 	                        </section>
 	                    </div>
@@ -846,7 +848,7 @@ Write-Output ($result | ConvertTo-Json -Depth 8 -Compress){% endraw %}</code></p
 	                            </div>
 	                            <div class="bg-white border border-slate-200 rounded-2xl p-6 shadow-sm">
 	                                <h4 class="text-[11px] font-black text-indigo-700 uppercase tracking-widest mb-3">Sharing і permissions</h4>
-	                                <p class="text-sm font-bold text-slate-600 leading-relaxed">Вмикай Share with Team тільки для шаблонів, які безпечно давати операторам. Оператору також потрібен доступ до груп endpoint-ів і право <span class="font-mono text-slate-900">run_tasks</span>. Для reports є окремі права: <span class="font-mono text-slate-900">view_reports</span>, <span class="font-mono text-slate-900">send_reports</span>, <span class="font-mono text-slate-900">edit_reports</span>, <span class="font-mono text-slate-900">view_sensitive_reports</span>. Остаточне видалення доступне лише інтерактивному суперадміну.</p>
+	                                <p class="text-sm font-bold text-slate-600 leading-relaxed">Затвердити шаблон для спільного або автоматичного виконання може лише суперадмін. Розробник із правами <span class="font-mono text-slate-900">manage_templates</span>, <span class="font-mono text-slate-900">run_tasks</span> та явним <span class="font-mono text-slate-900">run_own_draft_templates</span> може вручну тестувати лише власні приватні action-чернетки на дозволених групах endpoint-ів. AI-чернетка додатково має пройти валідацію після останньої зміни коду. Для reports є окремі права: <span class="font-mono text-slate-900">view_reports</span>, <span class="font-mono text-slate-900">send_reports</span>, <span class="font-mono text-slate-900">edit_reports</span> і <span class="font-mono text-slate-900">view_sensitive_reports</span>.</p>
 	                            </div>
 	                        </section>
 	                    </div>

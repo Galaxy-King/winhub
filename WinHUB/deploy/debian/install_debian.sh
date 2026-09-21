@@ -414,6 +414,7 @@ chmod 0755 \
   "${APP_DIR}/deploy/debian/security_smoke_test.sh" \
   "${APP_DIR}/deploy/debian/migrate_winhub.sh" \
   "${APP_DIR}/deploy/debian/render_nginx_config.sh" \
+  "${APP_DIR}/deploy/debian/reset_host_data.sh" \
   "${APP_DIR}/deploy/debian/restore_winhub.sh" \
   "${APP_DIR}/deploy/debian/rollback_winhub.sh" \
   "${APP_DIR}/deploy/debian/update_winhub.sh"

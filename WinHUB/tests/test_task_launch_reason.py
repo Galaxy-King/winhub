@@ -264,6 +264,32 @@ class LaunchReasonIntegrationTests(unittest.TestCase):
         evaluate_and_fire_triggers('host-1', 'health', 'bad')
         self.assertEqual(AgentTask.query.one().launch_reason, REASON)
 
+    def test_background_scheduler_and_trigger_reject_private_drafts(self):
+        import core
+        from core.agent_gateway import evaluate_and_fire_triggers
+
+        self.template.is_approved = False
+        self.template.approved_content_hash = None
+        schedule = self.schedule()
+        rule = TriggerRule(
+            name='Private draft must not auto-run', metric_name='health', operator='==',
+            threshold_value='bad', action_template_id=self.template.id, is_active=True,
+            launch_reason=REASON,
+        )
+        db.session.add(rule)
+        db.session.commit()
+
+        with mock.patch.object(core, 'global_app', self.app):
+            result = core.run_scheduled_job(schedule.id)
+        self.assertFalse(result['success'])
+        db.session.refresh(schedule)
+        self.assertEqual(schedule.last_status, 'Template approval required')
+
+        evaluate_and_fire_triggers('host-1', 'health', 'bad')
+        db.session.refresh(rule)
+        self.assertEqual(AgentTask.query.count(), 0)
+        self.assertEqual(rule.last_status, 'Template approval required')
+
     def test_schedule_and_trigger_save_configured_reason(self):
         with mock.patch('core.reload_scheduler_jobs'):
             response = self.client.post('/api/infrastructure/schedule', json={

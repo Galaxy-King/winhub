@@ -674,11 +674,11 @@ function filterTemplateLibrary() {
 
 // --- ГЛОБАЛЬНІ ФУНКЦІЇ ---
 function checkIsAdmin() {
-    if (Object.prototype.hasOwnProperty.call(infraPermissions, 'manage_templates')) {
-        return !!infraPermissions.manage_templates;
-    }
-    const wrap = document.getElementById('depIsApprovedWrapper');
-    return wrap ? !wrap.classList.contains('hidden') : false;
+    return window.WinhubIsAdmin === true;
+}
+
+function canManageTemplates() {
+    return infraPermissions.manage_templates === true;
 }
 
 // Завантажуємо SMTP пошти ГЛОБАЛЬНО, щоб вони були доступні всім і скрізь
@@ -2602,6 +2602,11 @@ function resetWorkspace(clearPersistedState = true) {
     setTemplateToolbarButtonState('btnDeleteTemplate', false, 'Delete selected template', 'Select a deletable template');
 
     const isAdmin = checkIsAdmin();
+    const deployButton = document.getElementById('btnDeploy');
+    if (deployButton) {
+        deployButton.disabled = !isAdmin;
+        deployButton.title = isAdmin ? '' : 'Save and select an authorized template before running it.';
+    }
     const actionEl = document.getElementById('depAction');
     const approvedEl = document.getElementById('depIsApproved');
     if (approvedEl) approvedEl.checked = false;
@@ -2638,7 +2643,7 @@ function resetWorkspace(clearPersistedState = true) {
 
     if(actionEl) actionEl.value = 'run_script';
 
-    if(isAdmin) {
+    if(canManageTemplates()) {
         const typeRadios = document.querySelectorAll('input[name="depTemplateType"]');
         if(typeRadios.length > 0) {
             typeRadios[0].checked = true;
@@ -2692,10 +2697,20 @@ function loadTemplate(el) {
 
     const canEditTemplate = el.dataset.canEdit !== 'false' && canViewCode;
     const canDeleteTemplate = el.dataset.canDelete !== 'false';
+    const canRunTemplate = el.dataset.canRun !== 'false' && tType !== 'report';
+    const deployButton = document.getElementById('btnDeploy');
+    if (deployButton) {
+        deployButton.disabled = !canRunTemplate;
+        deployButton.title = canRunTemplate
+            ? ''
+            : tType === 'report'
+                ? 'Report templates format results and cannot run on endpoints.'
+                : 'This draft is editing-only. Ask for run_own_draft_templates or validate the latest AI code.';
+    }
     setTemplateToolbarButtonState('btnExportTemplate', canViewCode, 'Download selected template', 'Template code export is blocked by policy');
     setTemplateToolbarButtonState('btnCloneTemplate', canEditTemplate, 'Clone selected template', 'Template cloning is blocked by policy');
     setTemplateToolbarButtonState('btnDeleteTemplate', canDeleteTemplate, 'Delete selected template', 'Template deletion is blocked by policy');
-    if (isAdmin && canEditTemplate) {
+    if (canEditTemplate) {
         editingTemplateId = el.dataset.id;
         const saveTemplateBtn = document.getElementById('btnSaveTemplate');
         if(saveTemplateBtn) {
@@ -2716,7 +2731,7 @@ function loadTemplate(el) {
         } catch(e) {}
 
         const chkAppr = document.getElementById('depIsApproved');
-        if(chkAppr) chkAppr.checked = (el.dataset.approved === 'true');
+        if(isAdmin && chkAppr) chkAppr.checked = (el.dataset.approved === 'true');
 
         const typeRadios = document.querySelectorAll('input[name="depTemplateType"]');
         if(typeRadios.length > 0) {
@@ -2726,9 +2741,13 @@ function loadTemplate(el) {
 
         const bTitle = document.getElementById('builderTitle');
         if(bTitle) bTitle.innerText = "Editing: " + el.dataset.name;
+        const lblSel = document.getElementById('selectedTemplateLabel');
+        if(lblSel) lblSel.innerText = canRunTemplate
+            ? "Ready to test: " + el.dataset.name
+            : "Editing only: " + el.dataset.name;
     } else {
         editingTemplateId = null;
-        if(el.dataset.canRun === 'false') return alert("This template is disabled by superadmin policy.");
+        if(el.dataset.canRun === 'false') return alert("This template is not available for execution.");
         if(tType === 'report') return alert("You cannot deploy a report format. Please select an Action or Item.");
         const lblSel = document.getElementById('selectedTemplateLabel');
         if(lblSel) lblSel.innerText = "Ready to deploy: " + el.dataset.name;
@@ -2885,14 +2904,14 @@ function toggleActionView() {
     const actionEl = document.getElementById('depAction');
     if (!actionEl) return;
 
-    const isAdmin = checkIsAdmin();
+    const canManage = canManageTemplates();
     const checkedType = document.querySelector('input[name="depTemplateType"]:checked')?.value || 'action';
     const showPayloadEditor = ['run_script', 'aggregation_report'].includes(actionEl.value) || ['action', 'metric', 'report'].includes(checkedType);
 
     const payArea = document.getElementById('payloadArea');
     const tplArea = document.getElementById('templateInfoArea');
 
-    if (isAdmin) {
+    if (canManage) {
         if(payArea) payArea.classList.toggle('hidden', !showPayloadEditor);
         if(tplArea) tplArea.classList.toggle('hidden', showPayloadEditor);
     } else {

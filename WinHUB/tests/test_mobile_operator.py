@@ -108,7 +108,7 @@ class MobileOperatorContractTests(unittest.TestCase):
             with mock.patch.object(routes, "require_permission", return_value=None), mock.patch.object(
                 routes, "TaskTemplate", template_model
             ), mock.patch.object(routes, "can", return_value=True), mock.patch.object(
-                routes, "can_use_template", return_value=True
+                routes, "can_run_template", side_effect=lambda template: template.type != "report"
             ), mock.patch.object(
                 routes, "get_allowed_hosts_light", return_value=[allowed, blocked]
             ), mock.patch.object(routes, "WinHubCore", core), mock.patch.object(routes, "db", database):

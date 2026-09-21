@@ -20,6 +20,7 @@ from core.security import sec_manager
 from core.host_security import apply_endpoint_encryption_status
 from core.sdk import WinHubCore
 from core.config import Config
+from core.template_security import template_approval_valid
 
 agent_gateway_bp = Blueprint('agent_gateway', __name__, url_prefix='/api/agent')
 log = logging.getLogger("winhub.triggers")
@@ -791,7 +792,15 @@ def evaluate_and_fire_triggers(agent_id, metric_name, value):
 
         if is_triggered:
             action_tpl = TaskTemplate.query.get(tr.action_template_id)
-            if not action_tpl: continue
+            if (
+                not action_tpl
+                or getattr(action_tpl, "type", "action") == "report"
+                or not template_approval_valid(action_tpl)
+            ):
+                tr.last_status = "Template approval required"
+                tr.last_run = datetime.utcnow()
+                db.session.commit()
+                continue
 
             try:
                 admin_user = User.query.filter_by(is_admin=True).first()

@@ -90,7 +90,7 @@ jobs:
       - name: PowerShell parser check
         shell: pwsh
         run: |
-          Get-ChildItem WinHUBAgentWindows\*.ps1, WinHUB\deploy\agent-updaters\*.ps1, WinHUB\core\validate_powershell.ps1 | ForEach-Object {
+          Get-ChildItem WinHUBAgentWindows\*.ps1, WinHUBAgentWindows\deploy\gpo\*.ps1, WinHUB\deploy\agent-updaters\*.ps1, WinHUB\core\validate_powershell.ps1 | ForEach-Object {
             $tokens = $null
             $errors = $null
             [System.Management.Automation.Language.Parser]::ParseFile($_.FullName, [ref]$tokens, [ref]$errors) | Out-Null

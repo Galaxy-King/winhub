@@ -41,7 +41,11 @@ from core.host_security import encryption_status_from_host_info
 from core.permissions import has_module_access, has_permission, request_api_group_scope, user_permissions
 from core.gpg import fetch_public_key, gpg_env
 from core.report_renderer import validate_report_template
-from core.template_security import current_template_hash, template_approval_valid
+from core.template_security import (
+    ai_template_validation_valid,
+    current_template_hash,
+    template_approval_valid,
+)
 from core.outbound_security import normalized_origin, pinned_outbound_host, pinned_outbound_url
 from core.sensitive_data import is_sensitive_name, mask_sensitive_text, masked_variables
 from core.ai_client import OpenWebUIClient, load_ai_provider, save_ai_provider
@@ -1890,9 +1894,45 @@ def can_use_template(template):
         return False
     if not api_template_allowed(getattr(template, "id", None)):
         return False
+    if bool(template_policy(template).get("disable_run")):
+        return False
     if getattr(template, "created_by", None) == session.get("username") and can("manage_templates"):
         return True
     return template_run_policy_allows(template)
+
+
+def can_run_template(template):
+    """Authorize an approved template or an explicitly delegated manual draft run."""
+    if not template or getattr(template, "type", "action") == "report" or not can("run_tasks"):
+        return False
+    if template_approval_valid(template):
+        return can_use_template(template)
+
+    payload = load_template_payload(template)
+    ai_generated = bool(payload.get("__ai_generated"))
+    if session.get("is_admin"):
+        return not ai_generated or ai_template_validation_valid(payload)
+
+    if (
+        session.get("api_key_auth")
+        or getattr(template, "created_by", None) != session.get("username")
+        or not can("manage_templates")
+        or not can("run_own_draft_templates")
+        or not can_use_template(template)
+    ):
+        return False
+    if ai_generated:
+        return can("use_ai_templates") and ai_template_validation_valid(payload)
+    return True
+
+
+def template_run_denial_message(template):
+    payload = load_template_payload(template) if template else {}
+    if payload.get("__ai_generated") and not ai_template_validation_valid(payload):
+        return "AI-generated drafts must pass static validation after their last code change before a test run"
+    if template and getattr(template, "created_by", None) == session.get("username"):
+        return "Running a private draft requires the explicit run_own_draft_templates permission"
+    return "Template is not approved or is outside your template policy"
 
 
 def can_access_template_library_entry(template):
@@ -2857,13 +2897,13 @@ def index():
         "id": t.id, "name": t.name, "category": getattr(t, 'category', 'General'),
         "action_type": t.action_type,
         "type": getattr(t, 'type', 'action'),
-        "is_approved": t.is_approved,
+        "is_approved": template_approval_valid(t),
         "payload": t.payload if (t.payload and can_view_template_code(t)) else "{}",
         "policy": template_policy(t),
         "can_view_code": can_view_template_code(t),
         "can_edit": can_edit_template(t),
         "can_delete": can_delete_template(t),
-        "can_run": can_use_template(t),
+        "can_run": can_run_template(t),
         "variables": template_variable_names(t),
         "variable_schema": template_variable_schema(t),
     } for t in templates_raw]
@@ -4202,15 +4242,23 @@ def manage_trigger():
         launch_reason = validate_launch_reason(data.get("launch_reason") if isinstance(data, dict) else None)
     except ValueError as exc:
         return jsonify(success=False, message=str(exc)), 400
+    action_template_id = str(data.get('action_template_id') or '').strip()
+    action_template = TaskTemplate.query.get(action_template_id) if action_template_id else None
+    if (
+        not action_template
+        or getattr(action_template, 'type', 'action') == 'report'
+        or not template_approval_valid(action_template)
+    ):
+        return jsonify(success=False, message='Triggers require an approved action template with a valid approval seal'), 400
     tid = data.get('id')
     if tid:
         tr = TriggerRule.query.get(tid)
         if tr:
             tr.launch_reason = launch_reason
             tr.name = data.get('name'); tr.metric_name = data.get('metric_name'); tr.operator = data.get('operator')
-            tr.threshold_value = data.get('threshold_value'); tr.action_template_id = data.get('action_template_id'); tr.is_active = data.get('is_active', True)
+            tr.threshold_value = data.get('threshold_value'); tr.action_template_id = action_template.id; tr.is_active = data.get('is_active', True)
     else:
-        db.session.add(TriggerRule(launch_reason=launch_reason, name=data.get('name'), metric_name=data.get('metric_name'), operator=data.get('operator'), threshold_value=data.get('threshold_value'), action_template_id=data.get('action_template_id'), is_active=data.get('is_active', True)))
+        db.session.add(TriggerRule(launch_reason=launch_reason, name=data.get('name'), metric_name=data.get('metric_name'), operator=data.get('operator'), threshold_value=data.get('threshold_value'), action_template_id=action_template.id, is_active=data.get('is_active', True)))
     db.session.commit()
     return jsonify({"success": True})
 
@@ -4251,8 +4299,8 @@ def manage_schedule():
     template = TaskTemplate.query.get(template_id) if template_id else None
     if not template or getattr(template, "type", "action") == "report":
         return jsonify({"success": False, "message": "Runnable template was not found"}), 404
-    if not can_access_template_library_entry(template) or not can_use_template(template):
-        return jsonify({"success": False, "message": "Template is not available for scheduled execution"}), 403
+    if not template_approval_valid(template) or not can_access_template_library_entry(template) or not can_use_template(template):
+        return jsonify({"success": False, "message": "Scheduled execution requires an approved template with a valid approval seal"}), 403
 
     try:
         target_type, target_id = validate_schedule_target(data.get('target_type'), data.get('target_id'))
@@ -4371,8 +4419,8 @@ def run_schedule_now(tid):
         return jsonify({"success": False, "message": "Scheduled task was not found"}), 404
     if not st.template or getattr(st.template, "type", "action") == "report":
         return jsonify({"success": False, "message": "Runnable template was not found"}), 404
-    if not can_access_template_library_entry(st.template) or not can_use_template(st.template):
-        return jsonify({"success": False, "message": "Template is not available for scheduled execution"}), 403
+    if not template_approval_valid(st.template) or not can_access_template_library_entry(st.template) or not can_use_template(st.template):
+        return jsonify({"success": False, "message": "Scheduled execution requires an approved template with a valid approval seal"}), 403
     try:
         validate_schedule_target(st.target_type, st.target_id)
     except PermissionError as exc:
@@ -4407,15 +4455,7 @@ def task_launch_options():
     templates = TaskTemplate.query.order_by(TaskTemplate.category, TaskTemplate.name).all()
     runnable_templates = []
     for template in templates:
-        own_runnable = bool(
-            getattr(template, "created_by", None) == session.get("username")
-            and can("manage_templates")
-        )
-        if getattr(template, "type", "action") == "report":
-            continue
-        if not bool(getattr(template, "is_approved", False)) and not own_runnable:
-            continue
-        if not can_use_template(template):
+        if not can_run_template(template):
             continue
         runnable_templates.append({
             "id": template.id,
@@ -4484,15 +4524,9 @@ def list_templates():
         templates = [
             t for t in templates
             if (
-                template_approval_valid(t)
-                or (
-                    not session.get("api_key_auth")
-                    and getattr(t, "created_by", None) == session.get("username")
-                    and can("manage_templates")
-                )
+                can_run_template(t)
             )
             and getattr(t, "type", "action") != "report"
-            and can_use_template(t)
         ]
 
     return jsonify({
@@ -4503,14 +4537,14 @@ def list_templates():
             "category": t.category,
             "action_type": t.action_type,
             "type": getattr(t, "type", "action"),
-            "is_approved": bool(t.is_approved),
+            "is_approved": template_approval_valid(t),
             "created_by": t.created_by,
             "created_at": to_kyiv_time(t.created_at),
             "policy": template_policy(t),
             "can_view_code": can_view_template_code(t),
             "can_edit": can_edit_template(t),
             "can_delete": can_delete_template(t),
-            "can_run": can_use_template(t),
+            "can_run": can_run_template(t),
         } for t in templates]
     })
 
@@ -5888,6 +5922,7 @@ def create_template():
             return jsonify(success=False, message='AI draft is not accessible or has not passed validation'), 400
         # Applying AI content never inherits an old approval checkbox.
         data['is_approved'] = False
+    submitted_ai_origin = payload_dict.get('__ai_generated')
 
     if 'report_template_id' in data and data['report_template_id']:
         if not approved_report_template(data['report_template_id']):
@@ -5912,8 +5947,12 @@ def create_template():
             if not can_edit_template(t):
                 return jsonify({"success": False, "message": "Template editing is locked by superadmin policy"}), 403
             prior_ai_origin = load_template_payload(t).get('__ai_generated')
-            if prior_ai_origin:
-                payload_dict['__ai_generated'] = prior_ai_origin
+            ai_origin = submitted_ai_origin or prior_ai_origin
+            if ai_origin:
+                payload_dict['__ai_generated'] = dict(ai_origin)
+                if not ai_template_validation_valid(payload_dict):
+                    payload_dict['__ai_generated']['validation_ok'] = False
+                    payload_dict['__ai_generated']['validation_status'] = 'stale_after_edit'
                 payload_raw = json.dumps(payload_dict, ensure_ascii=False)
             if not session.get("is_admin"):
                 payload_dict[TEMPLATE_POLICY_KEY] = template_policy(t)
@@ -6084,19 +6123,12 @@ def create_task():
     action_type = 'run_script'
     payload_dict = {}
     template = TaskTemplate.query.get(data.get('template_id')) if data.get('template_id') else None
-    if template and load_template_payload(template).get('__ai_generated') and not template_approval_valid(template):
-        return jsonify(success=False, message='AI-generated templates require explicit approval before execution'), 403
+    if template and not can_run_template(template):
+        return jsonify(success=False, message=template_run_denial_message(template)), 403
 
     # ТЕПЕР ДЛЯ ВСІХ КОРИСТУВАЧІВ (І АДМІНІВ І ЗВИЧАЙНИХ) МИ ПРИЙМАЄМО СКРИПТ З ФРОНТЕНДУ
     if not is_admin:
-        own_runnable = bool(
-            not session.get("api_key_auth")
-            and template
-            and getattr(template, "created_by", None) == session.get("username")
-            and can("manage_templates")
-            and not load_template_payload(template).get('__ai_generated')
-        )
-        if not template or (not template_approval_valid(template) and not own_runnable) or getattr(template, 'type', 'action') == 'report' or not can_use_template(template):
+        if not template or not can_run_template(template):
             return jsonify({"success": False, "message": "Template denied or not found"}), 403
         action_type = template.action_type or 'run_script'
         payload_dict = load_template_payload(template)
@@ -6121,13 +6153,7 @@ def create_task():
     elif action == 'run_template':
         # Залишаємо як фолбек, якщо раптом фронтенд відішле це
         t = template
-        own_runnable = bool(
-            not session.get("api_key_auth")
-            and t
-            and getattr(t, "created_by", None) == session.get("username")
-            and can("manage_templates")
-        )
-        if not t or (not is_admin and ((not template_approval_valid(t) and not own_runnable) or not can_use_template(t))):
+        if not t or not can_run_template(t):
             return jsonify({"success": False, "message": "Template denied or not found"}), 403
         action_type = t.action_type or 'run_script'
         payload_dict = load_template_payload(t)
@@ -6290,16 +6316,10 @@ def run_template_api(template_id):
     except ValueError as exc:
         return jsonify(success=False, message=str(exc)), 400
     template = TaskTemplate.query.get(template_id)
-    own_runnable = bool(
-        not session.get("api_key_auth")
-        and template
-        and getattr(template, "created_by", None) == session.get("username")
-        and can("manage_templates")
-    )
-    if not template or (not template_approval_valid(template) and not own_runnable) or getattr(template, "type", "action") == "report":
+    if not template:
         return jsonify({"success": False, "message": "Approved action template not found"}), 404
-    if not can_use_template(template):
-        return jsonify({"success": False, "message": "Template denied"}), 403
+    if not can_run_template(template):
+        return jsonify({"success": False, "message": template_run_denial_message(template)}), 403
 
     if data.get("target_type") == "group" and not group_action_allowed(
         current_user(), data.get("target_id"), "run_tasks"

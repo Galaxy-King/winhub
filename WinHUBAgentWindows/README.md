@@ -171,6 +171,8 @@ Then restart WinHUB. Existing approved agents continue to poll with their per-ho
 
 ## Install service
 
+For domain deployment, use the maintained scripts in `deploy/gpo/` together with a signed package, `deployment-manifest.json`, runtime/bootstrap configs and the publisher public key. They install, update, repair and restart the service without overwriting enrolled identity/config state. See the [GPO/DC deployment guide](../WinHUB-WiKi/guides/agents/GPO_AGENT_DEPLOYMENT.md).
+
 Run PowerShell as Administrator:
 
 ```powershell
