@@ -391,20 +391,20 @@
 <!-- Main Content -->
 <main class="newsletter-module flex-1 flex flex-col bg-slate-50 relative z-10 overflow-hidden h-screen">
     <header class="h-16 bg-white border-b border-slate-200 flex items-center justify-between px-8 shrink-0 shadow-sm">
-        <h2 class="text-lg font-bold text-slate-800">Розсилки</h2>
+        <h2 class="text-lg font-bold text-slate-800">Newsletter</h2>
         <div class="flex items-center gap-4">
             <button onclick="openLogsModal()" class="flex items-center gap-2 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold py-2 px-4 rounded-lg border border-slate-300 transition-colors text-sm">
                 <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 9h8M8 13h6M5 5h14v14H5z"></path></svg>
-                Журнал
+                Logs
             </button>
             <button onclick="openNewsletterGuide()" class="flex items-center gap-2 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold py-2 px-4 rounded-lg border border-slate-300 transition-colors text-sm">
                 <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 6.253v13M5 5.5A2.5 2.5 0 017.5 3H20v15H7.5A2.5 2.5 0 005 20.5v-15z"></path></svg>
-                Довідка
+                Guide
             </button>
             {% if permissions.manage_smtp %}
             <button onclick="openSmtpModal()" class="flex items-center gap-2 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold py-2 px-4 rounded-lg border border-slate-300 transition-colors text-sm">
                 <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z"></path><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"></path></svg>
-                Налаштування
+                Settings
             </button>
             {% endif %}
             <div class="flex items-center gap-2 border-l border-slate-200 pl-4">
@@ -419,9 +419,9 @@
         <!-- Main Workspace -->
         <div class="w-full max-w-[1280px] mx-auto flex flex-col gap-6">
 
-            <section id="newsletterReadiness" class="grid sm:grid-cols-3 gap-3" aria-label="Готовність Newsletter">
-                <div class="rounded-xl border border-slate-200 bg-white p-4"><div class="text-xs font-black uppercase text-slate-500">Поштові профілі</div><div id="readinessProfiles" class="mt-1 text-lg font-black text-slate-800">…</div></div>
-                <div class="rounded-xl border border-slate-200 bg-white p-4"><div class="text-xs font-black uppercase text-slate-500">Списки</div><div id="readinessLists" class="mt-1 text-lg font-black text-slate-800">…</div></div>
+            <section id="newsletterReadiness" class="grid sm:grid-cols-3 gap-3" aria-label="Newsletter readiness">
+                <div class="rounded-xl border border-slate-200 bg-white p-4"><div class="text-xs font-black uppercase text-slate-500">Mail profiles</div><div id="readinessProfiles" class="mt-1 text-lg font-black text-slate-800">…</div></div>
+                <div class="rounded-xl border border-slate-200 bg-white p-4"><div class="text-xs font-black uppercase text-slate-500">Mailing lists</div><div id="readinessLists" class="mt-1 text-lg font-black text-slate-800">…</div></div>
                 <div class="rounded-xl border border-slate-200 bg-white p-4"><div class="text-xs font-black uppercase text-slate-500">Worker</div><div id="readinessWorker" class="mt-1 text-lg font-black text-slate-800">…</div></div>
             </section>
 
@@ -430,13 +430,13 @@
             <article class="bg-white rounded-xl shadow-sm border border-slate-200 p-7 lg:p-8 flex flex-col shrink-0 wh-soft-panel">
                 <h3 class="text-xl font-bold text-slate-800 mb-6 flex items-center gap-3">
                     <svg class="w-6 h-6 text-indigo-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z"></path></svg>
-                    Нова розсилка
+                    New campaign
                 </h3>
 
                 <form id="campaignForm" onsubmit="sendCampaign(event)">
                     <div class="campaign-section">
-                        <div class="text-xs font-black uppercase tracking-wider text-indigo-600 mb-2">Крок 1 · Відправник</div>
-                        <label class="block text-base font-bold text-slate-700 mb-2">Поштовий профіль*</label>
+                        <div class="text-xs font-black uppercase tracking-wider text-indigo-600 mb-2">Step 1 · Sender</div>
+                        <label class="block text-base font-bold text-slate-700 mb-2">Mail profile*</label>
                         <div class="select-shell">
                         <select id="nlSender" required class="w-full px-5 py-3.5 border border-slate-300 rounded-lg outline-none focus:ring-2 focus:ring-indigo-500 font-medium text-slate-800 bg-slate-50 text-base">
                             <option value="" disabled selected>Loading senders...</option>
@@ -445,8 +445,8 @@
                     </div>
 
                     <div class="campaign-section">
-                        <div class="text-xs font-black uppercase tracking-wider text-indigo-600 mb-2">Крок 2 · Аудиторія</div>
-                        <label class="block text-base font-bold text-slate-700 mb-2">Списки отримувачів*</label>
+                        <div class="text-xs font-black uppercase tracking-wider text-indigo-600 mb-2">Step 2 · Audience</div>
+                        <label class="block text-base font-bold text-slate-700 mb-2">Recipient lists*</label>
                         <p id="nlRecipientDomainHint" class="text-xs text-slate-500 mb-2"></p>
                         <div id="nlListsCheckboxes" class="border border-slate-200 rounded-lg p-4 bg-slate-50 max-h-48 overflow-y-auto space-y-2">
                             <span class="text-slate-500 text-sm italic">Loading lists...</span>
@@ -455,8 +455,8 @@
 
                     <div class="campaign-section flex justify-between items-center">
                         <div>
-                            <span class="block text-base font-bold text-slate-800">GPG-шифрування</span>
-                            <span class="block text-sm text-slate-500">Шифрувати текст і вкладення окремо для кожного отримувача</span>
+                            <span class="block text-base font-bold text-slate-800">GPG encryption</span>
+                            <span class="block text-sm text-slate-500">Encrypt the message and attachments separately for every recipient</span>
                         </div>
                         <label class="toggle-switch">
                             <input type="checkbox" id="nlUseGpg" checked>
@@ -465,13 +465,13 @@
                     </div>
 
                     <div class="campaign-section">
-                        <div class="text-xs font-black uppercase tracking-wider text-indigo-600 mb-2">Крок 3 · Повідомлення</div>
-                        <label class="block text-base font-bold text-slate-700 mb-2">Тема*</label>
+                        <div class="text-xs font-black uppercase tracking-wider text-indigo-600 mb-2">Step 3 · Message</div>
+                        <label class="block text-base font-bold text-slate-700 mb-2">Subject*</label>
                         <input type="text" id="nlSubject" required class="w-full px-5 py-3.5 border border-slate-300 rounded-lg outline-none focus:ring-2 focus:ring-indigo-500 font-medium text-base" placeholder="Email subject...">
                     </div>
 
                     <div class="campaign-section">
-                        <label class="block text-base font-bold text-slate-700 mb-2">Текст листа*</label>
+                        <label class="block text-base font-bold text-slate-700 mb-2">Message body*</label>
                         <div class="editor-shell">
                         <div class="newsletter-editor-toolbar flex flex-wrap items-center gap-2.5 p-3 bg-slate-950/40">
                             <select id="nlFontFamily" onchange="formatEditor('fontName', this.value)" title="Font family" class="px-3 border border-cyan-400/25 rounded bg-slate-950/70 text-cyan-50 font-bold outline-none">
@@ -505,20 +505,20 @@
                     </div>
 
                     <div class="campaign-section mb-6">
-                        <label class="block text-base font-bold text-slate-700 mb-2">Вкладення</label>
+                        <label class="block text-base font-bold text-slate-700 mb-2">Attachments</label>
                         <input type="file" id="nlAttachments" multiple onchange="handleAttachmentSelection()" class="w-full px-5 py-3.5 border border-slate-300 rounded-lg outline-none focus:ring-2 focus:ring-indigo-500 font-medium text-base">
                         <div id="nlAttachmentList" class="mt-2 space-y-2 text-xs text-cyan-50"></div>
                         <p id="nlAttachmentLimits" class="mt-2 text-xs text-slate-500 font-bold"></p>
                     </div>
 
                     <div class="campaign-section">
-                    <div class="text-xs font-black uppercase tracking-wider text-indigo-600 mb-3">Крок 4 · Перевірка і запуск</div>
+                    <div class="text-xs font-black uppercase tracking-wider text-indigo-600 mb-3">Step 4 · Review and launch</div>
                     <div id="nlPreflightSummary" class="hidden mb-4 rounded-xl border border-slate-200 bg-slate-50 p-4 text-sm"></div>
                     <div class="grid md:grid-cols-2 gap-3">
-                    <button type="button" id="btnPreflight" onclick="runCampaignPreflight()" class="w-full bg-slate-800 hover:bg-slate-900 text-white font-black py-4 rounded-xl transition-all uppercase text-sm tracking-widest">Перевірити розсилку</button>
+                    <button type="button" id="btnPreflight" onclick="runCampaignPreflight()" class="w-full bg-slate-800 hover:bg-slate-900 text-white font-black py-4 rounded-xl transition-all uppercase text-sm tracking-widest">Run preflight</button>
                     <button type="submit" id="btnSend" disabled class="w-full bg-indigo-600 hover:bg-indigo-700 disabled:bg-slate-300 disabled:cursor-not-allowed text-white font-black py-4 rounded-xl shadow-lg shadow-indigo-200 transition-all flex justify-center items-center gap-2 uppercase text-sm tracking-widest">
                         <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><line x1="22" y1="2" x2="11" y2="13"></line><polygon points="22 2 15 22 11 13 2 9 22 2"></polygon></svg>
-                        Поставити в чергу
+                        Queue campaign
                     </button>
                     </div>
                     </div>
@@ -526,7 +526,7 @@
             </article>
             {% else %}
             <article class="bg-white rounded-xl shadow-sm border border-slate-200 p-8 text-center text-slate-600">
-                У вас є право перегляду Newsletter, але немає окремого дозволу на запуск розсилок.
+                You can view Newsletter, but you do not have permission to launch campaigns.
             </article>
             {% endif %}
 
@@ -535,7 +535,7 @@
                 <div class="flex justify-between items-center mb-4">
                     <h3 class="text-xl font-bold text-slate-800 flex items-center gap-3">
                         <svg class="w-6 h-6 text-emerald-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4.354a4 4 0 110 5.292M15 21H3v-1a6 6 0 0112 0v1zm0 0h6v-1a6 6 0 00-9-5.197M13 7a4 4 0 11-8 0 4 4 0 018 0z"></path></svg>
-                        Списки отримувачів
+                        Recipient lists
                     </h3>
                     {% if permissions.manage_lists %}
                     <button onclick="openListModal()" class="bg-emerald-500 hover:bg-emerald-600 text-white text-xs font-bold py-1.5 px-3 rounded shadow-sm transition-colors flex items-center gap-1">
@@ -551,17 +551,17 @@
                 {% else %}
                 <div class="flex-1 flex flex-col items-center justify-center text-center p-4">
                     <svg class="w-12 h-12 text-slate-200 mb-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z"></path></svg>
-                        <p class="text-sm text-slate-500">Керування списками обмежене вашими правами.<br>Доступні списки можна вибрати у формі розсилки.</p>
+                        <p class="text-sm text-slate-500">Your permissions do not allow list management.<br>Available lists can still be selected in the campaign form.</p>
                 </div>
                 {% endif %}
             </article>
 
             <article class="bg-white rounded-xl shadow-sm border border-slate-200 p-7 lg:p-8">
                 <div class="flex items-center justify-between gap-3 mb-4">
-                    <h3 class="text-xl font-bold text-slate-800">Останні кампанії</h3>
-                    <button type="button" onclick="loadCampaigns()" class="px-3 py-2 rounded-lg bg-slate-100 hover:bg-slate-200 text-sm font-bold">Оновити</button>
+                    <h3 class="text-xl font-bold text-slate-800">Recent campaigns</h3>
+                    <button type="button" onclick="loadCampaigns()" class="px-3 py-2 rounded-lg bg-slate-100 hover:bg-slate-200 text-sm font-bold">Refresh</button>
                 </div>
-                <div id="nlCampaignHistory" class="space-y-3"><div class="text-sm text-slate-400 italic">Завантаження…</div></div>
+                <div id="nlCampaignHistory" class="space-y-3"><div class="text-sm text-slate-400 italic">Loading…</div></div>
             </article>
 
         </div>
@@ -569,7 +569,7 @@
 </main>
 
 <!-- Modal: Newsletter Logs -->
-<div id="logsModal" role="dialog" aria-modal="true" aria-label="Журнал Newsletter" class="hidden fixed inset-0 z-50 flex items-center justify-center bg-slate-900/80 p-6 backdrop-blur-sm">
+<div id="logsModal" role="dialog" aria-modal="true" aria-label="Newsletter logs" class="hidden fixed inset-0 z-50 flex items-center justify-center bg-slate-900/80 p-6 backdrop-blur-sm">
     <div class="w-full max-w-5xl h-[78vh] rounded-2xl shadow-2xl flex flex-col overflow-hidden">
         <div class="h-12 bg-slate-800 border-b border-slate-700 flex items-center px-5 justify-between shrink-0">
             <div class="flex items-center gap-2">
@@ -588,7 +588,7 @@
 </div>
 
 <!-- Modal: Newsletter Guide -->
-<div id="newsletterGuideModal" role="dialog" aria-modal="true" aria-label="Довідка Newsletter" class="hidden fixed inset-0 z-50 flex items-center justify-center bg-slate-900/80 p-3 sm:p-6 backdrop-blur-sm">
+<div id="newsletterGuideModal" role="dialog" aria-modal="true" aria-label="Newsletter guide" class="hidden fixed inset-0 z-50 flex items-center justify-center bg-slate-900/80 p-3 sm:p-6 backdrop-blur-sm">
     <div class="w-full max-w-6xl h-[92vh] sm:h-[86vh] rounded-2xl shadow-2xl flex flex-col overflow-hidden min-h-0">
         <div class="bg-white border-b border-slate-200 px-4 sm:px-6 py-4 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 shrink-0">
             <div>
@@ -606,7 +606,18 @@
             <div id="newsletterGuideEn" class="space-y-4">
                 <div class="guide-section">
                     <h4>What The Module Does</h4>
-                    <p>Newsletter sends encrypted announcements to selected recipients. You can send a campaign manually from the web interface or configure an inbound relay mailbox. Inbound relay reads encrypted emails from a dedicated mailbox and forwards them to predefined local lists and LDAP / FreeIPA groups.</p>
+                    <p>Newsletter has two launch modes: an operator can queue a manual campaign in the web interface, or a verified email can create a campaign through an inbound relay route. Both modes use the same durable database queue and the dedicated <code>winhub-newsletter</code> worker.</p>
+                </div>
+
+                <div class="guide-section">
+                    <h4>Mode 1: Manual Campaign</h4>
+                    <ol>
+                        <li>Create and test a <code>Mail Profile</code>, then create at least one local recipient list.</li>
+                        <li>Select the sender, one or more lists, the subject, message body, attachments, and whether outgoing GPG encryption is required.</li>
+                        <li>Run <code>Preflight</code>. It validates addresses, removes duplicates, shows the exact audience, and checks every recipient key when GPG is enabled.</li>
+                        <li>Review the preview and queue the campaign. Closing the page does not stop delivery.</li>
+                        <li>Use campaign history to monitor, cancel pending deliveries, or retry only failed and skipped recipients.</li>
+                    </ol>
                 </div>
 
                 <div class="guide-section">
@@ -616,7 +627,7 @@
                         <li>Import the private GPG key for that mailbox into the server keyring. The message sent to this mailbox must be encrypted for this key.</li>
                         <li>Create local mailing lists or configure an LDAP / FreeIPA profile.</li>
                         <li>Open <code>Settings</code>, go to <code>Inbound Relay</code>, create a route, and select which mail profile to read from and which profile to send from.</li>
-                        <li>Add allowed senders. Only these users can trigger the relay.</li>
+                        <li>Add exact allowed sender addresses and the approved GPG signer fingerprints. Both checks are mandatory.</li>
                         <li>Select one or more local lists, LDAP groups, or both. Duplicated recipients are sent only once.</li>
                         <li>Save the route and send an encrypted test email to the relay mailbox.</li>
                     </ol>
@@ -629,7 +640,7 @@
                         <li><code>SMTP</code> settings are used to send outgoing emails.</li>
                         <li><code>IMAP</code> settings are used to read incoming relay emails from the mailbox.</li>
                         <li><code>GPG Passphrase</code> unlocks the private key for inbound decryption. It is stored encrypted and is never shown back in the UI.</li>
-                        <li><code>Keyserver</code> is used as a fallback when a recipient public key is missing locally.</li>
+                        <li><code>Keyserver</code> identifies a possible public-key source. Automatic import remains disabled unless <code>NEWSLETTER_ALLOW_KEYSERVER_AUTO_IMPORT=true</code>; verify fingerprints before enabling it.</li>
                     </ul>
                 </div>
 
@@ -640,6 +651,7 @@
                         <li><code>Read From Mail Profile</code> is the mailbox where WinHUB checks incoming encrypted emails.</li>
                         <li><code>Send From Mail Profile</code> is the mailbox used to send forwarded messages. Auto means use the same profile as reading.</li>
                         <li><code>Allowed Senders</code> controls who may send emails to this relay mailbox.</li>
+                        <li><code>Allowed Signer Fingerprints</code> lists the full fingerprints that are permitted to authorize an inbound campaign.</li>
                         <li><code>Local Mailing Lists</code> are manually managed recipient lists inside Newsletter.</li>
                         <li><code>LDAP Groups</code> are external directory groups resolved through LDAP / FreeIPA.</li>
                         <li><code>Recipient Domain</code> is appended only to local list entries without @. Example: <code>spock</code> plus <code>@example.com</code> becomes <code>spock@example.com</code>.</li>
@@ -672,8 +684,18 @@
                     <ul>
                         <li>Inbound emails must be encrypted for the private key of the mailbox that WinHUB reads.</li>
                         <li>Outgoing messages are encrypted separately for each recipient public key.</li>
-                        <li>If a public key is missing, WinHUB tries the route keyserver first, then the sending mail profile keyserver.</li>
-                        <li>GPG signatures are optional. If a message decrypts successfully but the sender public key is missing for signature verification, the relay can still process the email.</li>
+                        <li>Outgoing encryption requires a usable public key for every recipient. Preflight blocks a manual campaign when a key is missing.</li>
+                        <li>Inbound email must be both encrypted for WinHUB and validly signed by one of the route's approved fingerprints. A matching From address alone is not sufficient.</li>
+                    </ul>
+                </div>
+
+                <div class="guide-section">
+                    <h4>Worker And Recovery Mode</h4>
+                    <ul>
+                        <li>Production uses the dedicated <code>winhub-newsletter.service</code>. Embedded mode is intended only for explicit local development.</li>
+                        <li><code>Queued</code> campaigns wait for the worker; <code>Sending</code> campaigns are active; <code>Completed</code>, <code>Partial</code>, <code>Failed</code>, and <code>Cancelled</code> are final outcomes.</li>
+                        <li>After an unexpected restart, a delivery that had already started becomes <code>Unknown</code> and is not retried automatically, preventing duplicate email.</li>
+                        <li>An inbound route without an approved signer fingerprint is paused and leaves unread IMAP messages untouched.</li>
                     </ul>
                 </div>
 
@@ -691,7 +713,18 @@
             <div id="newsletterGuideUk" class="hidden space-y-4">
                 <div class="guide-section">
                     <h4>Що робить модуль</h4>
-                    <p>Newsletter надсилає зашифровані повідомлення вибраним отримувачам. Розсилку можна створити вручну у веб-інтерфейсі або налаштувати inbound relay. Inbound relay читає зашифровані листи з окремої поштової скриньки та пересилає їх у визначені локальні списки й LDAP / FreeIPA групи.</p>
+                    <p>Newsletter має два режими запуску: оператор ставить ручну кампанію в чергу через вебінтерфейс або перевірений лист створює кампанію через inbound relay route. Обидва режими використовують одну стійку чергу в БД та окремий worker <code>winhub-newsletter</code>.</p>
+                </div>
+
+                <div class="guide-section">
+                    <h4>Режим 1: ручна кампанія</h4>
+                    <ol>
+                        <li>Створіть і перевірте <code>Mail Profile</code>, потім створіть хоча б один локальний список.</li>
+                        <li>Виберіть відправника, списки, тему, текст, вкладення та режим вихідного GPG-шифрування.</li>
+                        <li>Запустіть <code>Preflight</code>. Він перевіряє адреси, прибирає дублікати, показує точну аудиторію та перевіряє ключ кожного отримувача, якщо GPG увімкнено.</li>
+                        <li>Перегляньте preview і поставте кампанію в чергу. Закриття сторінки не зупиняє доставку.</li>
+                        <li>В історії можна стежити за прогресом, скасувати ще не розпочаті доставки або повторити лише невдалі й пропущені.</li>
+                    </ol>
                 </div>
 
                 <div class="guide-section">
@@ -701,7 +734,7 @@
                         <li>Імпортуй приватний GPG-ключ цієї пошти на сервер. Листи на цю пошту мають бути зашифровані саме для цього ключа.</li>
                         <li>Створи локальні списки отримувачів або налаштуй LDAP / FreeIPA профіль.</li>
                         <li>Відкрий <code>Settings</code>, перейди в <code>Inbound Relay</code>, створи route і вибери, з якої пошти читати та з якої пошти відправляти.</li>
-                        <li>Додай дозволених відправників. Тільки вони можуть запускати пересилку.</li>
+                        <li>Додайте точні адреси дозволених відправників і перевірені GPG fingerprints підписувачів. Обидві перевірки обов'язкові.</li>
                         <li>Вибери один або кілька локальних списків, LDAP-груп або обидва типи одночасно. Дублікати отримувачів прибираються автоматично.</li>
                         <li>Збережи route і надішли зашифрований тестовий лист на relay-пошту.</li>
                     </ol>
@@ -714,7 +747,7 @@
                         <li><code>SMTP</code> потрібен для відправлення листів.</li>
                         <li><code>IMAP</code> потрібен для читання вхідних листів з relay-пошти.</li>
                         <li><code>GPG Passphrase</code> розблоковує приватний ключ для розшифрування вхідного листа. Вона зберігається зашифровано і не показується назад у веб-інтерфейсі.</li>
-                        <li><code>Keyserver</code> використовується, якщо публічного ключа отримувача немає локально.</li>
+                        <li><code>Keyserver</code> задає можливе джерело публічних ключів. Автоімпорт вимкнено, доки явно не задано <code>NEWSLETTER_ALLOW_KEYSERVER_AUTO_IMPORT=true</code>; перед цим потрібна перевірка fingerprints.</li>
                     </ul>
                 </div>
 
@@ -725,6 +758,7 @@
                         <li><code>Read From Mail Profile</code> це пошта, з якої WinHUB читає вхідні зашифровані листи.</li>
                         <li><code>Send From Mail Profile</code> це пошта, з якої WinHUB відправляє переслані листи. Auto означає використовувати ту саму пошту, з якої читаємо.</li>
                         <li><code>Allowed Senders</code> визначає, хто має право писати на relay-пошту для запуску пересилки.</li>
+                        <li><code>Allowed Signer Fingerprints</code> містить повні fingerprints ключів, яким дозволено авторизувати inbound-кампанію.</li>
                         <li><code>Local Mailing Lists</code> це списки отримувачів, які зберігаються в самому WinHUB.</li>
                         <li><code>LDAP Groups</code> це групи з LDAP / FreeIPA, які WinHUB читає через LDAP-профіль.</li>
                         <li><code>Recipient Domain</code> додається тільки до локальних записів без @. Наприклад <code>spock</code> плюс <code>@example.com</code> стане <code>spock@example.com</code>.</li>
@@ -757,8 +791,18 @@
                     <ul>
                         <li>Вхідний лист має бути зашифрований на приватний ключ тієї пошти, яку читає WinHUB.</li>
                         <li>Вихідні листи шифруються окремо під публічний ключ кожного отримувача.</li>
-                        <li>Якщо публічного ключа немає локально, WinHUB спочатку пробує <code>Recipient Keyserver</code> route, потім keyserver профілю відправника.</li>
-                        <li>GPG-підпис не є обов'язковим. Якщо лист успішно розшифровано, але public key відправника відсутній для перевірки підпису, пересилка може продовжитись.</li>
+                        <li>Для вихідного шифрування потрібен придатний публічний ключ кожного отримувача. Preflight блокує ручну кампанію, якщо ключ відсутній.</li>
+                        <li>Inbound-лист має бути одночасно зашифрований для WinHUB і валідно підписаний одним із дозволених fingerprints route. Збігу адреси From недостатньо.</li>
+                    </ul>
+                </div>
+
+                <div class="guide-section">
+                    <h4>Worker і відновлення</h4>
+                    <ul>
+                        <li>У production використовується окрема служба <code>winhub-newsletter.service</code>. Embedded mode призначений лише для явно ввімкненої локальної розробки.</li>
+                        <li><code>Queued</code> очікує worker; <code>Sending</code> означає активну доставку; <code>Completed</code>, <code>Partial</code>, <code>Failed</code> і <code>Cancelled</code> є фінальними результатами.</li>
+                        <li>Після аварійного перезапуску вже розпочата доставка отримує <code>Unknown</code> і не повторюється автоматично, щоб не створити дублікат.</li>
+                        <li>Inbound route без дозволеного fingerprint призупиняється та не забирає непрочитані IMAP-листи.</li>
                     </ul>
                 </div>
 
@@ -778,7 +822,7 @@
 
 <!-- Modal: List Editor (Admin Only) -->
 {% if permissions.manage_lists %}
-<div id="listModal" role="dialog" aria-modal="true" aria-label="Список отримувачів" class="hidden fixed inset-0 z-50 flex items-center justify-center bg-slate-900/80 p-6 backdrop-blur-sm">
+<div id="listModal" role="dialog" aria-modal="true" aria-label="Recipient list" class="hidden fixed inset-0 z-50 flex items-center justify-center bg-slate-900/80 p-6 backdrop-blur-sm">
     <div class="bg-white rounded-2xl shadow-2xl w-full max-w-2xl p-6 flex flex-col max-h-[85vh]">
         <h3 class="text-xl font-bold text-slate-800 mb-4 flex items-center gap-2">
             <svg class="w-6 h-6 text-indigo-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"></path></svg>
@@ -815,7 +859,7 @@
 
 <!-- Modal: Newsletter Settings -->
 {% if permissions.manage_smtp %}
-<div id="smtpModal" role="dialog" aria-modal="true" aria-label="Налаштування Newsletter" class="hidden fixed inset-0 z-50 flex items-center justify-center bg-slate-900/80 p-6 backdrop-blur-sm">
+<div id="smtpModal" role="dialog" aria-modal="true" aria-label="Newsletter settings" class="hidden fixed inset-0 z-50 flex items-center justify-center bg-slate-900/80 p-6 backdrop-blur-sm">
     <div class="bg-white rounded-2xl shadow-2xl w-full max-w-6xl p-6 flex flex-col max-h-[90vh]">
         <h3 class="text-xl font-bold text-slate-800 mb-4 flex items-center gap-2 border-b border-slate-200 pb-3">
             <svg class="w-6 h-6 text-slate-700" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z"></path><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"></path></svg>
@@ -1188,7 +1232,7 @@
 
     function openNewsletterGuide() {
         document.getElementById('newsletterGuideModal').classList.remove('hidden');
-        switchNewsletterGuide('uk');
+        switchNewsletterGuide('en');
     }
 
     function closeNewsletterGuide() {
@@ -1231,13 +1275,13 @@
             maxAttachmentBytes = Number(moduleData.limits?.max_attachment_bytes || 10 * 1024 * 1024);
             maxTotalAttachmentBytes = Number(moduleData.limits?.max_total_attachment_bytes || 25 * 1024 * 1024);
             const domainHint = document.getElementById('nlRecipientDomainHint');
-            if (domainHint) domainHint.innerText = `Короткі імена без @ буде перетворено на адресу в домені ${moduleData.recipient_domain || '(не задано)'}.`;
+            if (domainHint) domainHint.innerText = `Short names without @ are converted to addresses in ${moduleData.recipient_domain || '(not configured)'}.`;
             const limits = document.getElementById('nlAttachmentLimits');
-            if (limits) limits.innerText = `До ${maxAttachments} файлів, ${formatBytes(maxAttachmentBytes)} кожен, ${formatBytes(maxTotalAttachmentBytes)} загалом. З GPG шифрується весь лист.`;
-            document.getElementById('readinessProfiles').innerText = moduleData.readiness?.mail_profiles ? `${moduleData.readiness.mail_profiles} готово` : 'Не налаштовано';
-            document.getElementById('readinessLists').innerText = moduleData.readiness?.mailing_lists ? `${moduleData.readiness.mailing_lists} доступно` : 'Немає списків';
+            if (limits) limits.innerText = `Up to ${maxAttachments} files, ${formatBytes(maxAttachmentBytes)} each, ${formatBytes(maxTotalAttachmentBytes)} total. GPG encrypts the complete message.`;
+            document.getElementById('readinessProfiles').innerText = moduleData.readiness?.mail_profiles ? `${moduleData.readiness.mail_profiles} ready` : 'Not configured';
+            document.getElementById('readinessLists').innerText = moduleData.readiness?.mailing_lists ? `${moduleData.readiness.mailing_lists} available` : 'No lists';
             const workerReady = !!moduleData.readiness?.worker_active;
-            document.getElementById('readinessWorker').innerText = workerReady ? 'Працює' : 'Немає heartbeat';
+            document.getElementById('readinessWorker').innerText = workerReady ? 'Running' : 'No heartbeat';
             document.getElementById('readinessWorker').className = `mt-1 text-lg font-black ${workerReady ? 'text-emerald-700' : 'text-rose-700'}`;
             renderUI();
             restoreNewsletterDraft();
@@ -1246,7 +1290,7 @@
         } catch (e) {
             console.error("Config load error", e);
             const summary = document.getElementById('nlPreflightSummary');
-            if (summary) { summary.classList.remove('hidden'); summary.className = 'mb-4 rounded-xl border border-rose-200 bg-rose-50 p-4 text-sm text-rose-700'; summary.innerText = 'Не вдалося завантажити конфігурацію Newsletter.'; }
+            if (summary) { summary.classList.remove('hidden'); summary.className = 'mb-4 rounded-xl border border-rose-200 bg-rose-50 p-4 text-sm text-rose-700'; summary.innerText = 'Could not load the Newsletter configuration.'; }
         }
     }
 
@@ -1447,15 +1491,15 @@
         const summary = document.getElementById('nlPreflightSummary');
         const button = document.getElementById('btnPreflight');
         const payload = getNewsletterDraft();
-        if (!payload.sender) return alert('Виберіть поштовий профіль.');
-        if (!payload.lists.length) return alert('Виберіть хоча б один список отримувачів.');
-        if (!payload.subject.trim()) return alert('Вкажіть тему листа.');
-        if (!editorPlainText()) return alert('Напишіть текст листа.');
+        if (!payload.sender) return alert('Select a mail profile.');
+        if (!payload.lists.length) return alert('Select at least one recipient list.');
+        if (!payload.subject.trim()) return alert('Enter the message subject.');
+        if (!editorPlainText()) return alert('Enter the message body.');
         button.disabled = true;
-        button.innerText = 'Перевіряю…';
+        button.innerText = 'Checking…';
         summary.classList.remove('hidden');
         summary.className = 'mb-4 rounded-xl border border-slate-200 bg-slate-50 p-4 text-sm';
-        summary.innerText = 'Перевіряємо адреси та GPG-ключі…';
+        summary.innerText = 'Checking addresses and GPG keys…';
         try {
             const response = await fetch('/api/newsletter/preflight', {
                 method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(payload)
@@ -1463,26 +1507,26 @@
             const data = await response.json();
             lastPreflight = data;
             const problems = [];
-            if (data.invalid_recipients?.length) problems.push(`Некоректні адреси: ${data.invalid_recipients.length}`);
-            if (data.missing_gpg_keys_count) problems.push(`Немає підтверджених GPG-ключів: ${data.missing_gpg_keys_count}`);
+            if (data.invalid_recipients?.length) problems.push(`Invalid addresses: ${data.invalid_recipients.length}`);
+            if (data.missing_gpg_keys_count) problems.push(`Missing verified GPG keys: ${data.missing_gpg_keys_count}`);
             if (response.ok && data.success) {
                 preflightApprovedHash = campaignPayloadFingerprint();
                 document.getElementById('btnSend').disabled = false;
                 summary.className = 'mb-4 rounded-xl border border-emerald-200 bg-emerald-50 p-4 text-sm text-emerald-800';
-                summary.innerHTML = `<div class="font-black">Готово до запуску</div><div class="mt-1">Унікальних отримувачів: <strong>${data.recipients_count}</strong>. Списків: <strong>${payload.lists.length}</strong>. Режим: <strong>${payload.use_gpg ? 'GPG' : 'без шифрування'}</strong>.</div><details class="mt-3"><summary class="cursor-pointer font-bold">Попередній перегляд</summary><div class="mt-3 rounded-lg border border-slate-200 bg-white p-4"><div class="font-black mb-3">${escapeHtml(payload.subject)}</div><div>${sanitizeNewsletterHtml(payload.body_html)}</div></div></details>`;
+                summary.innerHTML = `<div class="font-black">Ready to launch</div><div class="mt-1">Unique recipients: <strong>${data.recipients_count}</strong>. Lists: <strong>${payload.lists.length}</strong>. Mode: <strong>${payload.use_gpg ? 'GPG encrypted' : 'unencrypted'}</strong>.</div><details class="mt-3"><summary class="cursor-pointer font-bold">Message preview</summary><div class="mt-3 rounded-lg border border-slate-200 bg-white p-4"><div class="font-black mb-3">${escapeHtml(payload.subject)}</div><div>${sanitizeNewsletterHtml(payload.body_html)}</div></div></details>`;
             } else {
                 preflightApprovedHash = null;
                 document.getElementById('btnSend').disabled = true;
                 summary.className = 'mb-4 rounded-xl border border-rose-200 bg-rose-50 p-4 text-sm text-rose-800';
-                summary.innerHTML = `<div class="font-black">Розсилку не можна запустити</div><div class="mt-1">${escapeHtml(problems.join(' · ') || data.message || 'Перевірка не пройдена.')}</div>`;
+                summary.innerHTML = `<div class="font-black">Campaign cannot be launched</div><div class="mt-1">${escapeHtml(problems.join(' · ') || data.message || 'Preflight failed.')}</div>`;
             }
         } catch (error) {
             preflightApprovedHash = null;
             summary.className = 'mb-4 rounded-xl border border-rose-200 bg-rose-50 p-4 text-sm text-rose-800';
-            summary.innerText = 'Не вдалося виконати перевірку. Перевірте мережу та повторіть.';
+            summary.innerText = 'Preflight could not be completed. Check the network connection and try again.';
         } finally {
             button.disabled = false;
-            button.innerText = 'Перевірити розсилку';
+            button.innerText = 'Run preflight';
         }
     }
 
@@ -1504,13 +1548,13 @@
             attachments: []
         };
 
-        if(payload.lists.length === 0) return alert('Виберіть хоча б один список отримувачів.');
-        if(!bodyText) return alert('Напишіть текст листа.');
+        if(payload.lists.length === 0) return alert('Select at least one recipient list.');
+        if(!bodyText) return alert('Enter the message body.');
         if (!lastPreflight || preflightApprovedHash !== campaignPayloadFingerprint()) {
             invalidateCampaignPreflight();
-            return alert('Після останніх змін потрібно повторно перевірити розсилку.');
+            return alert('Run preflight again after changing the campaign.');
         }
-        const finalConfirmed = confirm(`Поставити розсилку в чергу?\n\nОтримувачів: ${lastPreflight.recipients_count}\nВідправник: ${payload.sender}\nТема: ${payload.subject}\nGPG: ${payload.use_gpg ? 'увімкнено' : 'вимкнено'}`);
+        const finalConfirmed = confirm(`Queue this campaign?\n\nRecipients: ${lastPreflight.recipients_count}\nSender: ${payload.sender}\nSubject: ${payload.subject}\nGPG: ${payload.use_gpg ? 'enabled' : 'disabled'}`);
         if (!finalConfirmed) return;
         if(!payload.use_gpg) {
             const confirmed = confirm('Final confirmation: send this newsletter without GPG encryption?');
@@ -1530,10 +1574,10 @@
             });
             const data = await res.json();
             if (!res.ok || !data.success) {
-                appendLog(`[SYSTEM ERROR] ${data.message || 'Не вдалося поставити розсилку в чергу.'}`);
+                appendLog(`[SYSTEM ERROR] ${data.message || 'Could not queue the campaign.'}`);
                 return;
             }
-            appendLog(`✅ Кампанію ${data.campaign.id} поставлено в чергу.`);
+            appendLog(`✅ Campaign ${data.campaign.id} was queued.`);
             localStorage.removeItem(newsletterStateKey);
             preflightApprovedHash = null;
             lastPreflight = null;
@@ -1550,7 +1594,7 @@
                 loadCampaigns();
             }, 1000);
         } catch(err) {
-            appendLog(`[NETWORK ERROR] Запит не виконано. Чернетку збережено.`);
+            appendLog(`[NETWORK ERROR] The request failed. Your draft was preserved.`);
         }
         finally {
             if (!lastPreflight) {
@@ -1578,7 +1622,7 @@
             const data = await response.json();
             if (!response.ok || !data.success) throw new Error(data.message || 'Load failed');
             if (!data.campaigns.length) {
-                container.innerHTML = '<div class="text-sm text-slate-500 italic">Кампаній ще немає.</div>';
+                container.innerHTML = '<div class="text-sm text-slate-500 italic">No campaigns yet.</div>';
                 return;
             }
             container.innerHTML = data.campaigns.map(campaign => {
@@ -1587,36 +1631,36 @@
                 const progress = campaign.total_count ? Math.round(((campaign.sent_count + campaign.failed_count + campaign.skipped_count) / campaign.total_count) * 100) : 0;
                 return `<div class="rounded-xl border border-slate-200 p-4">
                     <div class="flex flex-wrap items-start justify-between gap-3">
-                        <div class="min-w-0"><div class="font-black text-slate-800 truncate">${escapeHtml(campaign.subject || 'Без теми')}</div><div class="text-xs text-slate-500 mt-1">${escapeHtml(campaign.sender)} · ${new Date(campaign.created_at).toLocaleString()}</div></div>
+                        <div class="min-w-0"><div class="font-black text-slate-800 truncate">${escapeHtml(campaign.subject || 'No subject')}</div><div class="text-xs text-slate-500 mt-1">${escapeHtml(campaign.sender)} · ${new Date(campaign.created_at).toLocaleString()}</div></div>
                         <span class="px-2.5 py-1 rounded-full text-xs font-black ${campaignStatusClass(campaign.status)}">${escapeHtml(campaign.status)}</span>
                     </div>
                     <div class="mt-3 h-2 bg-slate-100 rounded-full overflow-hidden"><div class="h-full bg-indigo-500" style="width:${progress}%"></div></div>
-                    <div class="mt-2 text-xs text-slate-600">Усього ${campaign.total_count} · Надіслано ${campaign.sent_count} · Помилки ${campaign.failed_count} · Пропущено ${campaign.skipped_count}</div>
+                    <div class="mt-2 text-xs text-slate-600">Total ${campaign.total_count} · Sent ${campaign.sent_count} · Failed ${campaign.failed_count} · Skipped ${campaign.skipped_count}</div>
                     ${campaign.error_summary ? `<div class="mt-2 text-xs text-rose-700">${escapeHtml(campaign.error_summary)}</div>` : ''}
                     <div class="mt-3 flex justify-end gap-2">
-                        ${!finished ? `<button type="button" onclick="cancelCampaign('${escapeInlineJs(campaign.id)}')" class="px-3 py-1.5 rounded bg-rose-50 text-rose-700 text-xs font-bold">Скасувати</button>` : ''}
-                        ${retry ? `<button type="button" onclick="retryCampaign('${escapeInlineJs(campaign.id)}')" class="px-3 py-1.5 rounded bg-amber-50 text-amber-800 text-xs font-bold">Повторити невдалі</button>` : ''}
+                        ${!finished ? `<button type="button" onclick="cancelCampaign('${escapeInlineJs(campaign.id)}')" class="px-3 py-1.5 rounded bg-rose-50 text-rose-700 text-xs font-bold">Cancel</button>` : ''}
+                        ${retry ? `<button type="button" onclick="retryCampaign('${escapeInlineJs(campaign.id)}')" class="px-3 py-1.5 rounded bg-amber-50 text-amber-800 text-xs font-bold">Retry failed</button>` : ''}
                     </div>
                 </div>`;
             }).join('');
         } catch (error) {
-            container.innerHTML = '<div class="text-sm text-rose-600">Не вдалося завантажити кампанії.</div>';
+            container.innerHTML = '<div class="text-sm text-rose-600">Could not load campaigns.</div>';
         }
     }
 
     async function campaignAction(id, action) {
         const response = await fetch(`/api/newsletter/campaigns/${encodeURIComponent(id)}/${action}`, {method: 'POST'});
         const data = await response.json();
-        if (!response.ok || !data.success) return alert(data.message || 'Операцію не виконано.');
+        if (!response.ok || !data.success) return alert(data.message || 'The operation failed.');
         loadCampaigns();
     }
 
     function cancelCampaign(id) {
-        if (confirm('Скасувати всі доставки, які ще не почалися?')) campaignAction(id, 'cancel');
+        if (confirm('Cancel all deliveries that have not started yet?')) campaignAction(id, 'cancel');
     }
 
     function retryCampaign(id) {
-        if (confirm('Повторно поставити в чергу лише невдалі й пропущені доставки?')) campaignAction(id, 'retry');
+        if (confirm('Queue only failed and skipped deliveries again?')) campaignAction(id, 'retry');
     }
 
     // --- Permission-controlled management functions ---
@@ -1690,7 +1734,7 @@
                 body: JSON.stringify({ list_name: newName, original_list_name: originalEditListName || newName, users: currentEditListUsers })
             });
             const data = await response.json();
-            if (!response.ok || !data.success) return alert(data.message || 'Не вдалося зберегти список.');
+            if (!response.ok || !data.success) return alert(data.message || 'Could not save the list.');
             closeListModal();
             loadConfig();
         } catch(e) { alert("Network Error"); }
@@ -1701,7 +1745,7 @@
         try {
             const response = await fetch(`/api/newsletter/lists/${encodeURIComponent(listName)}`, { method: 'DELETE' });
             const data = await response.json();
-            if (!response.ok || !data.success) return alert(data.message || 'Не вдалося видалити список.');
+            if (!response.ok || !data.success) return alert(data.message || 'Could not delete the list.');
             loadConfig();
         } catch(e) { alert("Network Error"); }
     }
