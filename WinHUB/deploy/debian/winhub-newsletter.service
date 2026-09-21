@@ -1,0 +1,25 @@
+[Unit]
+Description=WinHUB Newsletter queue and inbound worker
+After=network-online.target postgresql.service winhub.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=winhub
+Group=winhub
+WorkingDirectory=/opt/winhub
+EnvironmentFile=/etc/winhub/winhub.env
+Environment=WINHUB_ROLE=newsletter-worker
+Environment=WINHUB_DISABLE_SCHEDULER=true
+ExecStart=/opt/winhub/venv/bin/python /opt/winhub/newsletter_worker.py
+Restart=always
+RestartSec=5
+KillSignal=SIGTERM
+TimeoutStopSec=45
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=full
+ReadWritePaths=/var/lib/winhub /var/log/winhub
+
+[Install]
+WantedBy=multi-user.target

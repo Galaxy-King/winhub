@@ -391,20 +391,20 @@
 <!-- Main Content -->
 <main class="newsletter-module flex-1 flex flex-col bg-slate-50 relative z-10 overflow-hidden h-screen">
     <header class="h-16 bg-white border-b border-slate-200 flex items-center justify-between px-8 shrink-0 shadow-sm">
-        <h2 class="text-lg font-bold text-slate-800">Newsletter Manager</h2>
+        <h2 class="text-lg font-bold text-slate-800">Розсилки</h2>
         <div class="flex items-center gap-4">
             <button onclick="openLogsModal()" class="flex items-center gap-2 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold py-2 px-4 rounded-lg border border-slate-300 transition-colors text-sm">
                 <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 9h8M8 13h6M5 5h14v14H5z"></path></svg>
-                Logs
+                Журнал
             </button>
             <button onclick="openNewsletterGuide()" class="flex items-center gap-2 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold py-2 px-4 rounded-lg border border-slate-300 transition-colors text-sm">
                 <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 6.253v13M5 5.5A2.5 2.5 0 017.5 3H20v15H7.5A2.5 2.5 0 005 20.5v-15z"></path></svg>
-                Guide
+                Довідка
             </button>
             {% if permissions.manage_smtp %}
             <button onclick="openSmtpModal()" class="flex items-center gap-2 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold py-2 px-4 rounded-lg border border-slate-300 transition-colors text-sm">
                 <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z"></path><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"></path></svg>
-                Settings
+                Налаштування
             </button>
             {% endif %}
             <div class="flex items-center gap-2 border-l border-slate-200 pl-4">
@@ -419,16 +419,24 @@
         <!-- Main Workspace -->
         <div class="w-full max-w-[1280px] mx-auto flex flex-col gap-6">
 
+            <section id="newsletterReadiness" class="grid sm:grid-cols-3 gap-3" aria-label="Готовність Newsletter">
+                <div class="rounded-xl border border-slate-200 bg-white p-4"><div class="text-xs font-black uppercase text-slate-500">Поштові профілі</div><div id="readinessProfiles" class="mt-1 text-lg font-black text-slate-800">…</div></div>
+                <div class="rounded-xl border border-slate-200 bg-white p-4"><div class="text-xs font-black uppercase text-slate-500">Списки</div><div id="readinessLists" class="mt-1 text-lg font-black text-slate-800">…</div></div>
+                <div class="rounded-xl border border-slate-200 bg-white p-4"><div class="text-xs font-black uppercase text-slate-500">Worker</div><div id="readinessWorker" class="mt-1 text-lg font-black text-slate-800">…</div></div>
+            </section>
+
             <!-- Newsletter Setup Card -->
+            {% if permissions.send_campaigns %}
             <article class="bg-white rounded-xl shadow-sm border border-slate-200 p-7 lg:p-8 flex flex-col shrink-0 wh-soft-panel">
                 <h3 class="text-xl font-bold text-slate-800 mb-6 flex items-center gap-3">
                     <svg class="w-6 h-6 text-indigo-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z"></path></svg>
-                    Newsletter Setup
+                    Нова розсилка
                 </h3>
 
                 <form id="campaignForm" onsubmit="sendCampaign(event)">
                     <div class="campaign-section">
-                        <label class="block text-base font-bold text-slate-700 mb-2">Sender Profile*</label>
+                        <div class="text-xs font-black uppercase tracking-wider text-indigo-600 mb-2">Крок 1 · Відправник</div>
+                        <label class="block text-base font-bold text-slate-700 mb-2">Поштовий профіль*</label>
                         <div class="select-shell">
                         <select id="nlSender" required class="w-full px-5 py-3.5 border border-slate-300 rounded-lg outline-none focus:ring-2 focus:ring-indigo-500 font-medium text-slate-800 bg-slate-50 text-base">
                             <option value="" disabled selected>Loading senders...</option>
@@ -437,7 +445,9 @@
                     </div>
 
                     <div class="campaign-section">
-                        <label class="block text-base font-bold text-slate-700 mb-2">Target Lists*</label>
+                        <div class="text-xs font-black uppercase tracking-wider text-indigo-600 mb-2">Крок 2 · Аудиторія</div>
+                        <label class="block text-base font-bold text-slate-700 mb-2">Списки отримувачів*</label>
+                        <p id="nlRecipientDomainHint" class="text-xs text-slate-500 mb-2"></p>
                         <div id="nlListsCheckboxes" class="border border-slate-200 rounded-lg p-4 bg-slate-50 max-h-48 overflow-y-auto space-y-2">
                             <span class="text-slate-500 text-sm italic">Loading lists...</span>
                         </div>
@@ -445,8 +455,8 @@
 
                     <div class="campaign-section flex justify-between items-center">
                         <div>
-                            <span class="block text-base font-bold text-slate-800">GPG Encryption</span>
-                            <span class="block text-sm text-slate-500">Encrypt email body and attachments before sending</span>
+                            <span class="block text-base font-bold text-slate-800">GPG-шифрування</span>
+                            <span class="block text-sm text-slate-500">Шифрувати текст і вкладення окремо для кожного отримувача</span>
                         </div>
                         <label class="toggle-switch">
                             <input type="checkbox" id="nlUseGpg" checked>
@@ -455,12 +465,13 @@
                     </div>
 
                     <div class="campaign-section">
-                        <label class="block text-base font-bold text-slate-700 mb-2">Subject*</label>
+                        <div class="text-xs font-black uppercase tracking-wider text-indigo-600 mb-2">Крок 3 · Повідомлення</div>
+                        <label class="block text-base font-bold text-slate-700 mb-2">Тема*</label>
                         <input type="text" id="nlSubject" required class="w-full px-5 py-3.5 border border-slate-300 rounded-lg outline-none focus:ring-2 focus:ring-indigo-500 font-medium text-base" placeholder="Email subject...">
                     </div>
 
                     <div class="campaign-section">
-                        <label class="block text-base font-bold text-slate-700 mb-2">Email Body*</label>
+                        <label class="block text-base font-bold text-slate-700 mb-2">Текст листа*</label>
                         <div class="editor-shell">
                         <div class="newsletter-editor-toolbar flex flex-wrap items-center gap-2.5 p-3 bg-slate-950/40">
                             <select id="nlFontFamily" onchange="formatEditor('fontName', this.value)" title="Font family" class="px-3 border border-cyan-400/25 rounded bg-slate-950/70 text-cyan-50 font-bold outline-none">
@@ -494,27 +505,37 @@
                     </div>
 
                     <div class="campaign-section mb-6">
-                        <label class="block text-base font-bold text-slate-700 mb-2">Attachments</label>
+                        <label class="block text-base font-bold text-slate-700 mb-2">Вкладення</label>
                         <input type="file" id="nlAttachments" multiple onchange="handleAttachmentSelection()" class="w-full px-5 py-3.5 border border-slate-300 rounded-lg outline-none focus:ring-2 focus:ring-indigo-500 font-medium text-base">
                         <div id="nlAttachmentList" class="mt-2 space-y-2 text-xs text-cyan-50"></div>
-                        <p class="mt-2 text-xs text-slate-500 font-bold">Files are included in the MIME message. With GPG enabled, the whole message including attachments is encrypted.</p>
+                        <p id="nlAttachmentLimits" class="mt-2 text-xs text-slate-500 font-bold"></p>
                     </div>
 
                     <div class="campaign-section">
-                    <button type="submit" id="btnSend" class="w-full bg-indigo-600 hover:bg-indigo-700 text-white font-black py-4 rounded-xl shadow-lg shadow-indigo-200 transition-all flex justify-center items-center gap-2 uppercase text-sm tracking-widest">
+                    <div class="text-xs font-black uppercase tracking-wider text-indigo-600 mb-3">Крок 4 · Перевірка і запуск</div>
+                    <div id="nlPreflightSummary" class="hidden mb-4 rounded-xl border border-slate-200 bg-slate-50 p-4 text-sm"></div>
+                    <div class="grid md:grid-cols-2 gap-3">
+                    <button type="button" id="btnPreflight" onclick="runCampaignPreflight()" class="w-full bg-slate-800 hover:bg-slate-900 text-white font-black py-4 rounded-xl transition-all uppercase text-sm tracking-widest">Перевірити розсилку</button>
+                    <button type="submit" id="btnSend" disabled class="w-full bg-indigo-600 hover:bg-indigo-700 disabled:bg-slate-300 disabled:cursor-not-allowed text-white font-black py-4 rounded-xl shadow-lg shadow-indigo-200 transition-all flex justify-center items-center gap-2 uppercase text-sm tracking-widest">
                         <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><line x1="22" y1="2" x2="11" y2="13"></line><polygon points="22 2 15 22 11 13 2 9 22 2"></polygon></svg>
-                        Send Newsletter
+                        Поставити в чергу
                     </button>
+                    </div>
                     </div>
                 </form>
             </article>
+            {% else %}
+            <article class="bg-white rounded-xl shadow-sm border border-slate-200 p-8 text-center text-slate-600">
+                У вас є право перегляду Newsletter, але немає окремого дозволу на запуск розсилок.
+            </article>
+            {% endif %}
 
             <!-- Manage Lists Card -->
             <article class="bg-white rounded-xl shadow-sm border border-slate-200 p-7 lg:p-8 flex flex-col shrink-0 flex-1 min-h-[300px]">
                 <div class="flex justify-between items-center mb-4">
                     <h3 class="text-xl font-bold text-slate-800 flex items-center gap-3">
                         <svg class="w-6 h-6 text-emerald-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4.354a4 4 0 110 5.292M15 21H3v-1a6 6 0 0112 0v1zm0 0h6v-1a6 6 0 00-9-5.197M13 7a4 4 0 11-8 0 4 4 0 018 0z"></path></svg>
-                        Mailing Lists
+                        Списки отримувачів
                     </h3>
                     {% if permissions.manage_lists %}
                     <button onclick="openListModal()" class="bg-emerald-500 hover:bg-emerald-600 text-white text-xs font-bold py-1.5 px-3 rounded shadow-sm transition-colors flex items-center gap-1">
@@ -530,9 +551,17 @@
                 {% else %}
                 <div class="flex-1 flex flex-col items-center justify-center text-center p-4">
                     <svg class="w-12 h-12 text-slate-200 mb-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z"></path></svg>
-                    <p class="text-sm text-slate-500">List management is restricted to administrators.<br>You can select available lists from the left panel.</p>
+                        <p class="text-sm text-slate-500">Керування списками обмежене вашими правами.<br>Доступні списки можна вибрати у формі розсилки.</p>
                 </div>
                 {% endif %}
+            </article>
+
+            <article class="bg-white rounded-xl shadow-sm border border-slate-200 p-7 lg:p-8">
+                <div class="flex items-center justify-between gap-3 mb-4">
+                    <h3 class="text-xl font-bold text-slate-800">Останні кампанії</h3>
+                    <button type="button" onclick="loadCampaigns()" class="px-3 py-2 rounded-lg bg-slate-100 hover:bg-slate-200 text-sm font-bold">Оновити</button>
+                </div>
+                <div id="nlCampaignHistory" class="space-y-3"><div class="text-sm text-slate-400 italic">Завантаження…</div></div>
             </article>
 
         </div>
@@ -540,7 +569,7 @@
 </main>
 
 <!-- Modal: Newsletter Logs -->
-<div id="logsModal" class="hidden fixed inset-0 z-50 flex items-center justify-center bg-slate-900/80 p-6 backdrop-blur-sm">
+<div id="logsModal" role="dialog" aria-modal="true" aria-label="Журнал Newsletter" class="hidden fixed inset-0 z-50 flex items-center justify-center bg-slate-900/80 p-6 backdrop-blur-sm">
     <div class="w-full max-w-5xl h-[78vh] rounded-2xl shadow-2xl flex flex-col overflow-hidden">
         <div class="h-12 bg-slate-800 border-b border-slate-700 flex items-center px-5 justify-between shrink-0">
             <div class="flex items-center gap-2">
@@ -559,7 +588,7 @@
 </div>
 
 <!-- Modal: Newsletter Guide -->
-<div id="newsletterGuideModal" class="hidden fixed inset-0 z-50 flex items-center justify-center bg-slate-900/80 p-3 sm:p-6 backdrop-blur-sm">
+<div id="newsletterGuideModal" role="dialog" aria-modal="true" aria-label="Довідка Newsletter" class="hidden fixed inset-0 z-50 flex items-center justify-center bg-slate-900/80 p-3 sm:p-6 backdrop-blur-sm">
     <div class="w-full max-w-6xl h-[92vh] sm:h-[86vh] rounded-2xl shadow-2xl flex flex-col overflow-hidden min-h-0">
         <div class="bg-white border-b border-slate-200 px-4 sm:px-6 py-4 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 shrink-0">
             <div>
@@ -749,7 +778,7 @@
 
 <!-- Modal: List Editor (Admin Only) -->
 {% if permissions.manage_lists %}
-<div id="listModal" class="hidden fixed inset-0 z-50 flex items-center justify-center bg-slate-900/80 p-6 backdrop-blur-sm">
+<div id="listModal" role="dialog" aria-modal="true" aria-label="Список отримувачів" class="hidden fixed inset-0 z-50 flex items-center justify-center bg-slate-900/80 p-6 backdrop-blur-sm">
     <div class="bg-white rounded-2xl shadow-2xl w-full max-w-2xl p-6 flex flex-col max-h-[85vh]">
         <h3 class="text-xl font-bold text-slate-800 mb-4 flex items-center gap-2">
             <svg class="w-6 h-6 text-indigo-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"></path></svg>
@@ -786,7 +815,7 @@
 
 <!-- Modal: Newsletter Settings -->
 {% if permissions.manage_smtp %}
-<div id="smtpModal" class="hidden fixed inset-0 z-50 flex items-center justify-center bg-slate-900/80 p-6 backdrop-blur-sm">
+<div id="smtpModal" role="dialog" aria-modal="true" aria-label="Налаштування Newsletter" class="hidden fixed inset-0 z-50 flex items-center justify-center bg-slate-900/80 p-6 backdrop-blur-sm">
     <div class="bg-white rounded-2xl shadow-2xl w-full max-w-6xl p-6 flex flex-col max-h-[90vh]">
         <h3 class="text-xl font-bold text-slate-800 mb-4 flex items-center gap-2 border-b border-slate-200 pb-3">
             <svg class="w-6 h-6 text-slate-700" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z"></path><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"></path></svg>
@@ -949,7 +978,12 @@
                         <div>
                             <label class="block text-xs font-bold text-slate-500 mb-1">Allowed Senders</label>
                             <textarea id="inboundMailboxAllowedSenders" rows="4" placeholder="operator@example.com&#10;security@example.com" class="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm font-mono resize-y focus:ring-2 focus:ring-indigo-500 outline-none"></textarea>
-                            <p class="text-xs text-slate-500 mt-1">One sender email per line. Use * only for isolated testing.</p>
+                            <p class="text-xs text-slate-500 mt-1">One sender email per line. Wildcards are not recommended.</p>
+                        </div>
+                        <div>
+                            <label class="block text-xs font-bold text-slate-500 mb-1">Approved GPG Signer Fingerprints</label>
+                            <textarea id="inboundMailboxSignerFingerprints" rows="4" placeholder="40 or 64 hexadecimal characters per line" class="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm font-mono resize-y focus:ring-2 focus:ring-indigo-500 outline-none"></textarea>
+                            <p class="text-xs text-slate-500 mt-1">A valid inbound signature must match one of these fingerprints.</p>
                         </div>
                         <div>
                             <label class="block text-xs font-bold text-slate-500 mb-1">LDAP Groups</label>
@@ -1058,10 +1092,13 @@
     let currentInboundMailboxId = null;
     let currentEditMailProfileEmail = null;
     let currentLdapProfileId = null;
-    const newsletterStateKey = 'winhub_newsletter_draft';
-    const maxAttachments = 8;
-    const maxAttachmentBytes = 10 * 1024 * 1024;
-    const maxTotalAttachmentBytes = 25 * 1024 * 1024;
+    const newsletterStateKey = `winhub_newsletter_draft_${encodeURIComponent({{ username|tojson }})}`;
+    let maxAttachments = 8;
+    let maxAttachmentBytes = 10 * 1024 * 1024;
+    let maxTotalAttachmentBytes = 25 * 1024 * 1024;
+    let preflightApprovedHash = null;
+    let lastPreflight = null;
+    let campaignPollTimer = null;
 
     function escapeHtml(value) {
         return String(value ?? '').replace(/[&<>"']/g, ch => ({
@@ -1079,7 +1116,7 @@
     }
 
     function sanitizeNewsletterHtml(value) {
-        const allowedTags = new Set(['A','B','BR','DIV','EM','H1','H2','H3','HR','I','LI','OL','P','SPAN','STRONG','U','UL']);
+        const allowedTags = new Set(['A','B','BR','DIV','EM','FONT','H1','H2','H3','HR','I','LI','OL','P','SPAN','STRONG','U','UL']);
         const parsed = new DOMParser().parseFromString(String(value || ''), 'text/html');
         parsed.body.querySelectorAll('*').forEach(node => {
             if (!allowedTags.has(node.tagName)) {
@@ -1090,6 +1127,10 @@
                 const name = attribute.name.toLowerCase();
                 if (name === 'href' && node.tagName === 'A') {
                     if (!/^(https?:|mailto:)/i.test(attribute.value.trim())) node.removeAttribute(attribute.name);
+                } else if (node.tagName === 'FONT' && ['face', 'size', 'color'].includes(name)) {
+                    if (name === 'face' && !/^[A-Za-z0-9 ,'-]{1,80}$/.test(attribute.value)) node.removeAttribute(attribute.name);
+                    if (name === 'size' && !/^[1-7]$/.test(attribute.value)) node.removeAttribute(attribute.name);
+                    if (name === 'color' && !/^(#[A-Fa-f0-9]{3,8}|[A-Za-z]{1,20})$/.test(attribute.value)) node.removeAttribute(attribute.name);
                 } else if (!['href', 'title'].includes(name)) {
                     node.removeAttribute(attribute.name);
                 }
@@ -1102,14 +1143,21 @@
     window.onload = () => {
         normalizeEditorToolbarLabels();
         loadConfig();
+        loadCampaigns();
+        campaignPollTimer = window.setInterval(loadCampaigns, 5000);
     };
+
+    document.addEventListener('keydown', event => {
+        if (event.key !== 'Escape') return;
+        ['logsModal', 'newsletterGuideModal', 'listModal', 'smtpModal'].forEach(id => document.getElementById(id)?.classList.add('hidden'));
+    });
 
     socket.on('connect', function() {
         socket.emit('join_newsletter_logs');
     });
     socket.on('log_update', function(msg) { appendLog(msg.data); });
 
-    document.getElementById('nlUseGpg').addEventListener('change', function() {
+    document.getElementById('nlUseGpg')?.addEventListener('change', function() {
         if (!this.checked) {
             const confirmed = confirm('Are you sure you want to send this newsletter without GPG encryption? The email body will be sent as plain text.');
             if (!confirmed) this.checked = true;
@@ -1140,7 +1188,7 @@
 
     function openNewsletterGuide() {
         document.getElementById('newsletterGuideModal').classList.remove('hidden');
-        switchNewsletterGuide('en');
+        switchNewsletterGuide('uk');
     }
 
     function closeNewsletterGuide() {
@@ -1178,11 +1226,28 @@
         try {
             const res = await fetch('/api/newsletter/config');
             moduleData = await res.json();
+            if (!res.ok || !moduleData.success) throw new Error(moduleData.message || 'Config load failed');
+            maxAttachments = Number(moduleData.limits?.max_attachments || 8);
+            maxAttachmentBytes = Number(moduleData.limits?.max_attachment_bytes || 10 * 1024 * 1024);
+            maxTotalAttachmentBytes = Number(moduleData.limits?.max_total_attachment_bytes || 25 * 1024 * 1024);
+            const domainHint = document.getElementById('nlRecipientDomainHint');
+            if (domainHint) domainHint.innerText = `Короткі імена без @ буде перетворено на адресу в домені ${moduleData.recipient_domain || '(не задано)'}.`;
+            const limits = document.getElementById('nlAttachmentLimits');
+            if (limits) limits.innerText = `До ${maxAttachments} файлів, ${formatBytes(maxAttachmentBytes)} кожен, ${formatBytes(maxTotalAttachmentBytes)} загалом. З GPG шифрується весь лист.`;
+            document.getElementById('readinessProfiles').innerText = moduleData.readiness?.mail_profiles ? `${moduleData.readiness.mail_profiles} готово` : 'Не налаштовано';
+            document.getElementById('readinessLists').innerText = moduleData.readiness?.mailing_lists ? `${moduleData.readiness.mailing_lists} доступно` : 'Немає списків';
+            const workerReady = !!moduleData.readiness?.worker_active;
+            document.getElementById('readinessWorker').innerText = workerReady ? 'Працює' : 'Немає heartbeat';
+            document.getElementById('readinessWorker').className = `mt-1 text-lg font-black ${workerReady ? 'text-emerald-700' : 'text-rose-700'}`;
             renderUI();
             restoreNewsletterDraft();
             bindNewsletterDraftPersistence();
             {% if permissions.manage_smtp %} renderSmtpModalList(); renderInboundRelaySettings(); {% endif %}
-        } catch (e) { console.error("Config load error", e); }
+        } catch (e) {
+            console.error("Config load error", e);
+            const summary = document.getElementById('nlPreflightSummary');
+            if (summary) { summary.classList.remove('hidden'); summary.className = 'mb-4 rounded-xl border border-rose-200 bg-rose-50 p-4 text-sm text-rose-700'; summary.innerText = 'Не вдалося завантажити конфігурацію Newsletter.'; }
+        }
     }
 
     function getNewsletterDraft() {
@@ -1197,6 +1262,22 @@
 
     function saveNewsletterDraft() {
         localStorage.setItem(newsletterStateKey, JSON.stringify(getNewsletterDraft()));
+        invalidateCampaignPreflight();
+    }
+
+    function campaignPayloadFingerprint() {
+        const draft = getNewsletterDraft();
+        const files = Array.from(document.getElementById('nlAttachments')?.files || []).map(file => [file.name, file.size, file.lastModified]);
+        return JSON.stringify({...draft, files});
+    }
+
+    function invalidateCampaignPreflight() {
+        preflightApprovedHash = null;
+        lastPreflight = null;
+        const btn = document.getElementById('btnSend');
+        if (btn) btn.disabled = true;
+        const summary = document.getElementById('nlPreflightSummary');
+        if (summary) summary.classList.add('hidden');
     }
 
     function restoreNewsletterDraft() {
@@ -1235,9 +1316,9 @@
     function renderUI() {
         // Senders Dropdown
         const senderSelect = document.getElementById('nlSender');
-        if (moduleData.senders.length === 0) {
+        if (senderSelect && moduleData.senders.length === 0) {
             senderSelect.innerHTML = '<option value="" disabled selected>No profiles configured (Contact Admin)</option>';
-        } else {
+        } else if (senderSelect) {
             senderSelect.innerHTML = moduleData.senders.map(s => `<option value="${escapeHtml(s.email)}">${escapeHtml(s.email)}</option>`).join('');
         }
 
@@ -1247,11 +1328,11 @@
         const listNames = Object.keys(moduleData.lists);
 
         if (listNames.length === 0) {
-            cbContainer.innerHTML = '<span class="text-slate-500 text-sm italic">No lists created yet.</span>';
+            if (cbContainer) cbContainer.innerHTML = '<span class="text-slate-500 text-sm italic">No lists created yet.</span>';
             if (rightPanel) rightPanel.innerHTML = '<div class="text-center text-slate-400 italic text-sm mt-10">No lists created. Click "Create New".</div>';
         } else {
             // Regular users do not see the count badge
-            cbContainer.innerHTML = listNames.map(name => `
+            if (cbContainer) cbContainer.innerHTML = listNames.map(name => `
                 <label class="nl-list-option flex items-center gap-3 p-3 hover:bg-cyan-500/10 rounded-lg cursor-pointer transition-all">
                     <input type="checkbox" value="${escapeHtml(name)}" class="nl-list-cb w-4 h-4 text-indigo-600 border-slate-300 rounded cursor-pointer">
                     <span class="text-sm font-bold text-cyan-50 flex-1">${escapeHtml(name)}</span>
@@ -1312,6 +1393,7 @@
     }
 
     function handleAttachmentSelection() {
+        invalidateCampaignPreflight();
         const input = document.getElementById('nlAttachments');
         const files = Array.from(input.files || []);
         const list = document.getElementById('nlAttachmentList');
@@ -1361,6 +1443,49 @@
         return Promise.all(files.map(readFileAsDataUrl));
     }
 
+    async function runCampaignPreflight() {
+        const summary = document.getElementById('nlPreflightSummary');
+        const button = document.getElementById('btnPreflight');
+        const payload = getNewsletterDraft();
+        if (!payload.sender) return alert('Виберіть поштовий профіль.');
+        if (!payload.lists.length) return alert('Виберіть хоча б один список отримувачів.');
+        if (!payload.subject.trim()) return alert('Вкажіть тему листа.');
+        if (!editorPlainText()) return alert('Напишіть текст листа.');
+        button.disabled = true;
+        button.innerText = 'Перевіряю…';
+        summary.classList.remove('hidden');
+        summary.className = 'mb-4 rounded-xl border border-slate-200 bg-slate-50 p-4 text-sm';
+        summary.innerText = 'Перевіряємо адреси та GPG-ключі…';
+        try {
+            const response = await fetch('/api/newsletter/preflight', {
+                method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(payload)
+            });
+            const data = await response.json();
+            lastPreflight = data;
+            const problems = [];
+            if (data.invalid_recipients?.length) problems.push(`Некоректні адреси: ${data.invalid_recipients.length}`);
+            if (data.missing_gpg_keys_count) problems.push(`Немає підтверджених GPG-ключів: ${data.missing_gpg_keys_count}`);
+            if (response.ok && data.success) {
+                preflightApprovedHash = campaignPayloadFingerprint();
+                document.getElementById('btnSend').disabled = false;
+                summary.className = 'mb-4 rounded-xl border border-emerald-200 bg-emerald-50 p-4 text-sm text-emerald-800';
+                summary.innerHTML = `<div class="font-black">Готово до запуску</div><div class="mt-1">Унікальних отримувачів: <strong>${data.recipients_count}</strong>. Списків: <strong>${payload.lists.length}</strong>. Режим: <strong>${payload.use_gpg ? 'GPG' : 'без шифрування'}</strong>.</div><details class="mt-3"><summary class="cursor-pointer font-bold">Попередній перегляд</summary><div class="mt-3 rounded-lg border border-slate-200 bg-white p-4"><div class="font-black mb-3">${escapeHtml(payload.subject)}</div><div>${sanitizeNewsletterHtml(payload.body_html)}</div></div></details>`;
+            } else {
+                preflightApprovedHash = null;
+                document.getElementById('btnSend').disabled = true;
+                summary.className = 'mb-4 rounded-xl border border-rose-200 bg-rose-50 p-4 text-sm text-rose-800';
+                summary.innerHTML = `<div class="font-black">Розсилку не можна запустити</div><div class="mt-1">${escapeHtml(problems.join(' · ') || data.message || 'Перевірка не пройдена.')}</div>`;
+            }
+        } catch (error) {
+            preflightApprovedHash = null;
+            summary.className = 'mb-4 rounded-xl border border-rose-200 bg-rose-50 p-4 text-sm text-rose-800';
+            summary.innerText = 'Не вдалося виконати перевірку. Перевірте мережу та повторіть.';
+        } finally {
+            button.disabled = false;
+            button.innerText = 'Перевірити розсилку';
+        }
+    }
+
     // --- Newsletter Execution ---
     async function sendCampaign(e) {
         e.preventDefault();
@@ -1379,8 +1504,14 @@
             attachments: []
         };
 
-        if(payload.lists.length === 0) return alert('Please select at least one target list.');
-        if(!bodyText) return alert('Please write an email body.');
+        if(payload.lists.length === 0) return alert('Виберіть хоча б один список отримувачів.');
+        if(!bodyText) return alert('Напишіть текст листа.');
+        if (!lastPreflight || preflightApprovedHash !== campaignPayloadFingerprint()) {
+            invalidateCampaignPreflight();
+            return alert('Після останніх змін потрібно повторно перевірити розсилку.');
+        }
+        const finalConfirmed = confirm(`Поставити розсилку в чергу?\n\nОтримувачів: ${lastPreflight.recipients_count}\nВідправник: ${payload.sender}\nТема: ${payload.subject}\nGPG: ${payload.use_gpg ? 'увімкнено' : 'вимкнено'}`);
+        if (!finalConfirmed) return;
         if(!payload.use_gpg) {
             const confirmed = confirm('Final confirmation: send this newsletter without GPG encryption?');
             if(!confirmed) return;
@@ -1398,9 +1529,14 @@
                 method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(payload)
             });
             const data = await res.json();
-            if (!data.success) appendLog(`[SYSTEM ERROR] ${data.message}`);
-        } catch(err) { appendLog(`[NETWORK ERROR] Failed to send request.`); }
-        finally {
+            if (!res.ok || !data.success) {
+                appendLog(`[SYSTEM ERROR] ${data.message || 'Не вдалося поставити розсилку в чергу.'}`);
+                return;
+            }
+            appendLog(`✅ Кампанію ${data.campaign.id} поставлено в чергу.`);
+            localStorage.removeItem(newsletterStateKey);
+            preflightApprovedHash = null;
+            lastPreflight = null;
             setTimeout(() => {
                 btn.disabled = false; btn.innerHTML = originalHtml; btn.classList.remove('opacity-75', 'cursor-not-allowed');
                 document.getElementById('nlSubject').value = '';
@@ -1409,9 +1545,78 @@
                 document.getElementById('nlAttachments').value = '';
                 document.getElementById('nlAttachmentList').innerHTML = '';
                 document.querySelectorAll('.nl-list-cb').forEach(cb => cb.checked = false);
-                localStorage.removeItem(newsletterStateKey);
+                document.getElementById('nlPreflightSummary').classList.add('hidden');
+                document.getElementById('btnSend').disabled = true;
+                loadCampaigns();
             }, 1000);
+        } catch(err) {
+            appendLog(`[NETWORK ERROR] Запит не виконано. Чернетку збережено.`);
         }
+        finally {
+            if (!lastPreflight) {
+                btn.disabled = true;
+            } else {
+                btn.disabled = false;
+            }
+            btn.innerHTML = originalHtml;
+            btn.classList.remove('opacity-75', 'cursor-not-allowed');
+        }
+    }
+
+    function campaignStatusClass(status) {
+        if (status === 'Completed') return 'bg-emerald-100 text-emerald-800';
+        if (status === 'Failed') return 'bg-rose-100 text-rose-800';
+        if (status === 'Partial' || status === 'Cancelled') return 'bg-amber-100 text-amber-800';
+        return 'bg-indigo-100 text-indigo-800';
+    }
+
+    async function loadCampaigns() {
+        const container = document.getElementById('nlCampaignHistory');
+        if (!container) return;
+        try {
+            const response = await fetch('/api/newsletter/campaigns');
+            const data = await response.json();
+            if (!response.ok || !data.success) throw new Error(data.message || 'Load failed');
+            if (!data.campaigns.length) {
+                container.innerHTML = '<div class="text-sm text-slate-500 italic">Кампаній ще немає.</div>';
+                return;
+            }
+            container.innerHTML = data.campaigns.map(campaign => {
+                const finished = ['Completed', 'Partial', 'Failed', 'Cancelled'].includes(campaign.status);
+                const retry = (campaign.failed_count || campaign.skipped_count) && finished;
+                const progress = campaign.total_count ? Math.round(((campaign.sent_count + campaign.failed_count + campaign.skipped_count) / campaign.total_count) * 100) : 0;
+                return `<div class="rounded-xl border border-slate-200 p-4">
+                    <div class="flex flex-wrap items-start justify-between gap-3">
+                        <div class="min-w-0"><div class="font-black text-slate-800 truncate">${escapeHtml(campaign.subject || 'Без теми')}</div><div class="text-xs text-slate-500 mt-1">${escapeHtml(campaign.sender)} · ${new Date(campaign.created_at).toLocaleString()}</div></div>
+                        <span class="px-2.5 py-1 rounded-full text-xs font-black ${campaignStatusClass(campaign.status)}">${escapeHtml(campaign.status)}</span>
+                    </div>
+                    <div class="mt-3 h-2 bg-slate-100 rounded-full overflow-hidden"><div class="h-full bg-indigo-500" style="width:${progress}%"></div></div>
+                    <div class="mt-2 text-xs text-slate-600">Усього ${campaign.total_count} · Надіслано ${campaign.sent_count} · Помилки ${campaign.failed_count} · Пропущено ${campaign.skipped_count}</div>
+                    ${campaign.error_summary ? `<div class="mt-2 text-xs text-rose-700">${escapeHtml(campaign.error_summary)}</div>` : ''}
+                    <div class="mt-3 flex justify-end gap-2">
+                        ${!finished ? `<button type="button" onclick="cancelCampaign('${escapeInlineJs(campaign.id)}')" class="px-3 py-1.5 rounded bg-rose-50 text-rose-700 text-xs font-bold">Скасувати</button>` : ''}
+                        ${retry ? `<button type="button" onclick="retryCampaign('${escapeInlineJs(campaign.id)}')" class="px-3 py-1.5 rounded bg-amber-50 text-amber-800 text-xs font-bold">Повторити невдалі</button>` : ''}
+                    </div>
+                </div>`;
+            }).join('');
+        } catch (error) {
+            container.innerHTML = '<div class="text-sm text-rose-600">Не вдалося завантажити кампанії.</div>';
+        }
+    }
+
+    async function campaignAction(id, action) {
+        const response = await fetch(`/api/newsletter/campaigns/${encodeURIComponent(id)}/${action}`, {method: 'POST'});
+        const data = await response.json();
+        if (!response.ok || !data.success) return alert(data.message || 'Операцію не виконано.');
+        loadCampaigns();
+    }
+
+    function cancelCampaign(id) {
+        if (confirm('Скасувати всі доставки, які ще не почалися?')) campaignAction(id, 'cancel');
+    }
+
+    function retryCampaign(id) {
+        if (confirm('Повторно поставити в чергу лише невдалі й пропущені доставки?')) campaignAction(id, 'retry');
     }
 
     // --- Permission-controlled management functions ---
@@ -1480,13 +1685,12 @@
         if (currentEditListUsers.length === 0) return alert("List cannot be empty!");
 
         try {
-            if (originalEditListName && originalEditListName !== newName) {
-                await fetch(`/api/newsletter/lists/${originalEditListName}`, { method: 'DELETE' });
-            }
-            await fetch('/api/newsletter/lists', {
+            const response = await fetch('/api/newsletter/lists', {
                 method: 'POST', headers: {'Content-Type': 'application/json'},
-                body: JSON.stringify({ list_name: newName, users: currentEditListUsers })
+                body: JSON.stringify({ list_name: newName, original_list_name: originalEditListName || newName, users: currentEditListUsers })
             });
+            const data = await response.json();
+            if (!response.ok || !data.success) return alert(data.message || 'Не вдалося зберегти список.');
             closeListModal();
             loadConfig();
         } catch(e) { alert("Network Error"); }
@@ -1495,7 +1699,9 @@
     async function deleteList(listName) {
         if (!confirm(`Permanently delete the list "${listName}"?`)) return;
         try {
-            await fetch(`/api/newsletter/lists/${listName}`, { method: 'DELETE' });
+            const response = await fetch(`/api/newsletter/lists/${encodeURIComponent(listName)}`, { method: 'DELETE' });
+            const data = await response.json();
+            if (!response.ok || !data.success) return alert(data.message || 'Не вдалося видалити список.');
             loadConfig();
         } catch(e) { alert("Network Error"); }
     }
@@ -1622,6 +1828,7 @@
         return {
             action: 'add',
             email,
+            original_email: currentEditMailProfileEmail || email,
             host: document.getElementById('smtpHost').value.trim(),
             port: document.getElementById('smtpPort').value || 587,
             password: document.getElementById('smtpPass').value,
@@ -1684,10 +1891,12 @@
     async function deleteSmtpProfile(email) {
         if(!confirm(`Delete mail profile ${email}?`)) return;
         try {
-            await fetch('/api/newsletter/smtp', {
+            const response = await fetch('/api/newsletter/smtp', {
                 method: 'POST', headers: {'Content-Type': 'application/json'},
                 body: JSON.stringify({ action: 'delete', email })
             });
+            const data = await response.json();
+            if (!response.ok || !data.success) return alert(data.message || 'Delete failed.');
             loadConfig();
         } catch(e) { alert('Network Error'); }
     }
@@ -1811,7 +2020,7 @@
         const index = ldapProfileDrafts.findIndex(item => item.id === profile.id);
         if (index >= 0) ldapProfileDrafts[index] = profile;
         else ldapProfileDrafts.push(profile);
-        currentLdapProfileId = id;
+        currentLdapProfileId = profile.id;
         renderLdapProfiles();
         resetLdapProfileForm();
     }
@@ -1928,6 +2137,7 @@
         setValue('routeRecipientDomain', route.recipient_domain || '');
         setValue('routeRecipientKeyserver', route.recipient_keyserver || '');
         setValue('inboundMailboxAllowedSenders', routeText(route.allowed_senders));
+        setValue('inboundMailboxSignerFingerprints', routeText(route.allowed_signer_fingerprints));
         setValue('inboundMailboxLdapGroups', routeText(route.ldap_groups));
         renderInboundMailboxListChoices(route.lists || []);
     }
@@ -1963,12 +2173,14 @@
             recipient_domain: valueOf('routeRecipientDomain').trim(),
             recipient_keyserver: valueOf('routeRecipientKeyserver').trim(),
             allowed_senders: routeArray(valueOf('inboundMailboxAllowedSenders')),
+            allowed_signer_fingerprints: routeArray(valueOf('inboundMailboxSignerFingerprints')),
             lists: selectedInboundLists(),
             ldap_groups: routeArray(valueOf('inboundMailboxLdapGroups')),
         };
         if (!route.name) route.name = route.inbound_profile || 'Inbound route';
         if (!route.inbound_profile) return alert('Select a mail profile to read from.');
         if (!route.allowed_senders.length) return alert('Add at least one allowed sender.');
+        if (!route.allowed_signer_fingerprints.length) return alert('Add at least one approved GPG signer fingerprint.');
         if (!route.lists.length && !route.ldap_groups.length) return alert('Select at least one local list or LDAP group.');
         if (route.ldap_groups.length && !route.ldap_profile) return alert('Select an LDAP profile for LDAP groups.');
         const index = inboundMailboxDrafts.findIndex(item => item.id === id);

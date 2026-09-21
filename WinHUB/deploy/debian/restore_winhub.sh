@@ -38,6 +38,7 @@ env_value() {
 }
 
 echo "[WinHUB] Restoring backup ${BACKUP_DIR}"
+systemctl stop winhub-newsletter || true
 systemctl stop winhub || true
 
 TMP_DIR="$(mktemp -d)"
@@ -83,6 +84,9 @@ python3 -m venv "${APP_DIR}/venv"
 "${APP_DIR}/venv/bin/pip" install -r "${APP_DIR}/requirements.txt"
 
 install -m 0644 "${APP_DIR}/deploy/debian/winhub.service" /etc/systemd/system/winhub.service
+if [[ -f "${APP_DIR}/deploy/debian/winhub-newsletter.service" ]]; then
+  install -m 0644 "${APP_DIR}/deploy/debian/winhub-newsletter.service" /etc/systemd/system/winhub-newsletter.service
+fi
 install -m 0644 "${APP_DIR}/deploy/debian/nginx-winhub.conf" /etc/nginx/sites-available/winhub
 ln -sfn /etc/nginx/sites-available/winhub /etc/nginx/sites-enabled/winhub
 install -m 0644 "${APP_DIR}/deploy/debian/winhub.logrotate" /etc/logrotate.d/winhub
@@ -106,6 +110,9 @@ if [[ -f "${APP_DIR}/deploy/debian/install_code_validator.sh" ]]; then
 fi
 nginx -t
 systemctl start winhub
+if [[ -f /etc/systemd/system/winhub-newsletter.service ]]; then
+  systemctl enable --now winhub-newsletter
+fi
 systemctl reload nginx || true
 
 "${APP_DIR}/deploy/debian/healthcheck_winhub.sh"

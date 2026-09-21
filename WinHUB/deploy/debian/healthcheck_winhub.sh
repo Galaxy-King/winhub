@@ -79,7 +79,7 @@ PY
 
 for attempt in $(seq 1 "${TRIES}"); do
   if curl -fsS --max-time 5 "${URL}" >"${HEALTH_TMP}"; then
-    if renderer_healthcheck && validator_healthcheck; then
+    if renderer_healthcheck && validator_healthcheck && systemctl is-active --quiet winhub-newsletter; then
       echo "[WinHUB] Healthcheck OK: ${URL}"
       cat "${HEALTH_TMP}"
       echo
@@ -93,7 +93,9 @@ done
 
 echo "[WinHUB] Healthcheck failed: ${URL}" >&2
 systemctl --no-pager --full status winhub || true
+systemctl --no-pager --full status winhub-newsletter || true
 journalctl -u winhub -n 80 --no-pager || true
+journalctl -u winhub-newsletter -n 80 --no-pager || true
 journalctl -u 'winhub-renderer@*' -n 80 --no-pager || true
 journalctl -u 'winhub-code-validator@*' -n 80 --no-pager || true
 exit 1
