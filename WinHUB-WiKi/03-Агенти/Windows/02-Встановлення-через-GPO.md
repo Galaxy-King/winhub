@@ -12,7 +12,9 @@
 
 ```text
 \\<DC_FQDN>\NETLOGON\WinHUBAgentDeploy\
+  deployment-manifest.json
   WinHUBAgent-v<VERSION>-win-x64.zip
+  release-signing-public.pem
   winhub_agent.conf
   winhub_agent.bootstrap.conf
   install-winhub-agent.ps1
@@ -46,7 +48,7 @@ Computer Configuration
 1. 1–5 тестових машин.
 2. Перевірка service, ACL, logs, enrollment і Task v2.
 3. Розширення групи невеликими хвилями.
-4. Після завершення припиніть повторне розповсюдження bootstrap config.
+4. Переконайтеся, що bootstrap видалено агентом і GPO не копіює його повторно на enrolled endpoint.
 5. Закрийте enrollment window на сервері.
 
 [Повна інструкція GPO](../../guides/agents/GPO_AGENT_DEPLOYMENT.md).

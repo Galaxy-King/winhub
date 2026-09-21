@@ -1,0 +1,9 @@
+{
+  "schema": 1,
+  "version": "2.0.0-rc.3",
+  "package": "WinHUBAgent-v2.0.0-rc.3-win-x64.zip",
+  "sha256": "REPLACE_WITH_SIGNED_PACKAGE_SHA256",
+  "publisher_public_key": "release-signing-public.pem",
+  "publisher_public_key_sha256": "REPLACE_WITH_PUBLIC_KEY_FILE_SHA256",
+  "server_identity_epoch": ""
+}
