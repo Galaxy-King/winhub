@@ -151,6 +151,8 @@ class NewsletterSafetyTests(unittest.TestCase):
         self.assertNotIn('id="routeRecipientDomain"', template)
         self.assertIn("campaignReportModal", template)
         self.assertIn("Campaign Result Report Emails", template)
+        self.assertIn("#campaignReportModal > div", template)
+        self.assertIn("#campaignReportModal tbody tr:nth-child(even)", template)
 
     def test_dedicated_worker_is_packaged_and_managed(self):
         root = Path(routes.MODULE_DIR).parents[1]
