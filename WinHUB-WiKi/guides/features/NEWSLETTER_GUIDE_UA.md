@@ -101,6 +101,8 @@ Use this mode for announcements prepared and approved by an operator.
 
 Any edit after preflight invalidates the result and requires another check. A failed API request preserves the draft. Closing the page after queueing is safe because the worker continues independently.
 
+Open **Recent campaigns → View report** to inspect the actual delivery result. The report is paginated and can be filtered by `Sent`, `Failed`, `Skipped`, `Unknown`, `Pending`, or `Sending`. Every row shows the exact recipient, number of attempts, timestamp, message ID, and the delivery or encryption error. Access follows the campaign rules: ordinary operators see their own campaigns; `view_all_campaigns` can inspect every campaign.
+
 ### GPG for outgoing campaigns
 
 GPG encrypts the body and attachments separately for each recipient. The subject, sender, recipient, and normal transport headers remain mail metadata.
@@ -133,12 +135,16 @@ Configure **Settings → Inbound Relay → New Route**:
 | Send From Mail Profile | SMTP identity for the resulting campaign; Auto reuses the read profile |
 | LDAP Profile | Directory connection used for LDAP Groups |
 | Recipient Keyserver | Per-route override for recipient key lookup |
+| Campaign Result Report Emails | Optional exact administrator/owner addresses that receive the final result |
+| Encrypt result reports | Encrypts each report and its CSV attachment for that report recipient; enabled by default |
 | Allowed Senders | Exact From addresses allowed to request a campaign |
 | Approved GPG Signer Fingerprints | Full fingerprints allowed to authorize the message |
 | LDAP Groups | Fixed directory groups for this route |
 | Local Mailing Lists | Fixed local lists for this route |
 
 Save the route draft, then select **Save Inbound Relay** to persist the complete configuration.
+
+After an inbound campaign reaches a final state, WinHUB sends each configured report recipient a summary and a UTF-8 CSV containing every target address, status, attempt count, error, timestamp, and message ID. Report delivery has its own durable status shown in **View report**. A worker restart while a report is being sent marks that delivery `Unknown` and does not resend it automatically, preventing silent duplicates. If report GPG is enabled, each report recipient must have a usable public key; otherwise the web report remains available and records why the email report failed.
 
 An inbound message is accepted only when all checks pass:
 
@@ -292,6 +298,8 @@ Inbound route ніколи не бере цільові списки з теми
 
 Будь-яке редагування після preflight скасовує перевірку. Помилка API не видаляє чернетку. Після постановки в чергу сторінку можна закрити — worker працює незалежно.
 
+Відкрийте **Recent campaigns → View report**, щоб побачити фактичний результат доставки. Звіт має сторінки та фільтри `Sent`, `Failed`, `Skipped`, `Unknown`, `Pending` і `Sending`. Для кожного рядка показано точного отримувача, кількість спроб, час, message ID та помилку доставки або шифрування. Звичайний оператор бачить власні кампанії, а право `view_all_campaigns` відкриває всі кампанії.
+
 ### GPG для вихідних кампаній
 
 GPG окремо шифрує тіло й вкладення для кожного отримувача. Тема, відправник, отримувач і транспортні заголовки залишаються поштовими метаданими.
@@ -324,12 +332,16 @@ Inbound relay потрібний, коли авторизована систем
 | Send From Mail Profile | SMTP-профіль кампанії; Auto використовує Read-профіль |
 | LDAP Profile | Каталог для LDAP Groups |
 | Recipient Keyserver | Перевизначення джерела ключів для route |
+| Campaign Result Report Emails | Необов'язкові точні адреси адміністраторів або власників, які отримають фінальний звіт |
+| Encrypt result reports | Окремо шифрує звіт і CSV для кожного отримувача звіту; увімкнено за замовчуванням |
 | Allowed Senders | Точні From-адреси, яким дозволено створювати кампанію |
 | Approved GPG Signer Fingerprints | Повні fingerprints, яким дозволено авторизувати лист |
 | LDAP Groups | Закріплені групи каталогу |
 | Local Mailing Lists | Закріплені локальні списки |
 
 Спочатку збережіть draft route, потім натисніть **Save Inbound Relay**, щоб записати повну конфігурацію.
+
+Після фінального статусу inbound-кампанії WinHUB надсилає кожній заданій адресі коротке резюме та UTF-8 CSV з усіма адресатами, статусами, кількістю спроб, помилками, часом і message ID. Доставка звіту має власний durable-статус у **View report**. Якщо worker перезапустився під час відправлення звіту, стан стає `Unknown` і автоматичної повторної відправки немає, щоб уникнути прихованих дублікатів. Коли GPG для звіту ввімкнено, кожен його отримувач повинен мати придатний публічний ключ; інакше веб-звіт залишається доступним і показує причину помилки email-звіту.
 
 Inbound-лист приймається лише коли всі перевірки успішні:
 

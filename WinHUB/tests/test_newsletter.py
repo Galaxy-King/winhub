@@ -128,6 +128,15 @@ class NewsletterSafetyTests(unittest.TestCase):
         self.assertFalse(has_permission(list_editor, "Newsletter", "manage_smtp"))
         self.assertFalse(has_permission(list_editor, "Newsletter", "manage_inbound_routes"))
 
+    def test_result_report_recipients_require_exact_email_addresses(self):
+        self.assertEqual(
+            routes.normalize_result_recipients(["Admin@Example.com", "admin@example.com"]),
+            ["admin@example.com"],
+        )
+        for invalid in (["admin"], ["*"]):
+            with self.subTest(invalid=invalid), self.assertRaises(ValueError):
+                routes.normalize_result_recipients(invalid)
+
     def test_frontend_keeps_failed_draft_and_has_preflight(self):
         template = Path(routes.MODULE_DIR, "templates", "newsletter_index.html").read_text(encoding="utf-8")
         self.assertIn("runCampaignPreflight", template)
@@ -140,6 +149,8 @@ class NewsletterSafetyTests(unittest.TestCase):
         self.assertIn("Default Email Domain (optional)", template)
         self.assertIn("checkListKeys", template)
         self.assertNotIn('id="routeRecipientDomain"', template)
+        self.assertIn("campaignReportModal", template)
+        self.assertIn("Campaign Result Report Emails", template)
 
     def test_dedicated_worker_is_packaged_and_managed(self):
         root = Path(routes.MODULE_DIR).parents[1]
@@ -207,6 +218,75 @@ class NewsletterQueueTests(unittest.TestCase):
             self.assertEqual(campaign.status, "Queued")
             self.assertEqual(NewsletterDelivery.query.filter_by(campaign_id=campaign.id).count(), 2)
             self.assertEqual(db.session.get(Task, campaign.task_id).status, "Queued")
+
+    def test_result_report_is_durable_and_contains_complete_csv(self):
+        with self.app.app_context():
+            user = User(username="newsletter-report", email="operator@example.com", is_admin=True)
+            db.session.add(user)
+            db.session.commit()
+            campaign = routes.enqueue_campaign(
+                user_id=user.id,
+                source="inbound",
+                sender_email="sender@example.com",
+                subject="Maintenance",
+                body_text="Body",
+                body_html="",
+                attachments=[],
+                recipients=["ok@example.com", "failed@example.com"],
+                selected_lists=["ops"],
+                use_gpg=True,
+                result_recipients=["admin1@example.com", "admin2@example.com"],
+                result_use_gpg=False,
+            )
+            deliveries = NewsletterDelivery.query.filter_by(campaign_id=campaign.id).all()
+            for delivery in deliveries:
+                delivery.status = "Sent" if delivery.recipient == "ok@example.com" else "Failed"
+                delivery.error = "=Mailbox rejected" if delivery.status == "Failed" else None
+            campaign.status = "Partial"
+            campaign.sent_count = 1
+            campaign.failed_count = 1
+            db.session.commit()
+
+            smtp = mock.Mock()
+            with mock.patch.object(routes, "open_smtp_connection", return_value=smtp):
+                routes.deliver_campaign_result_report(
+                    campaign,
+                    {"host": "smtp.example.com", "port": 587, "password": routes.encrypt_pass("secret")},
+                    "gpg",
+                    "",
+                )
+
+            db.session.refresh(campaign)
+            self.assertEqual(campaign.result_report_status, "Completed")
+            self.assertEqual(smtp.send_message.call_count, 2)
+            message = smtp.send_message.call_args_list[0].args[0]
+            csv_attachment = next(message.iter_attachments())
+            csv_text = csv_attachment.get_content()
+            self.assertIn("ok@example.com", csv_text)
+            self.assertIn("failed@example.com", csv_text)
+            self.assertIn("'=Mailbox rejected", csv_text)
+
+    def test_recovery_does_not_resend_uncertain_result_report(self):
+        with self.app.app_context():
+            user = User(username="newsletter-report-recovery", email="operator@example.com", is_admin=True)
+            db.session.add(user)
+            db.session.commit()
+            campaign = routes.enqueue_campaign(
+                user_id=user.id, source="inbound", sender_email="sender@example.com",
+                subject="Recovery", body_text="Body", body_html="", attachments=[],
+                recipients=["a@example.com"], selected_lists=["ops"], use_gpg=False,
+                result_recipients=["admin@example.com"], result_use_gpg=False,
+            )
+            campaign.status = "Completed"
+            campaign.result_report_status = "Sending"
+            campaign.result_report_json = json.dumps([{
+                "recipient": "admin@example.com", "status": "Sending", "error": "", "sent_at": None,
+            }])
+            db.session.commit()
+            routes.recover_interrupted_campaigns()
+            db.session.refresh(campaign)
+            self.assertEqual(campaign.result_report_status, "Unknown")
+            self.assertEqual(json.loads(campaign.result_report_json)[0]["status"], "Unknown")
 
     def test_recovery_never_retries_uncertain_delivery(self):
         with self.app.app_context():
