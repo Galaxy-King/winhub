@@ -24,9 +24,56 @@ class NewsletterSafetyTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory, mock.patch.object(routes, "LISTS_DIR", directory):
             routes.atomic_json_write(routes.list_file_path("team"), ["alice", "bob@example.com"])
             recipients, invalid, counts = routes.resolve_campaign_recipients(["team"], "@example.org")
+            self.assertEqual(recipients, ["bob@example.com"])
+            self.assertEqual(invalid, [{"list": "team", "value": "alice"}])
+            self.assertEqual(counts, {"team": 1})
+
+            routes.atomic_json_write(routes.list_file_path("team"), {
+                "schema": 2,
+                "domain": "@example.org",
+                "keyserver": "hkps://keys.example.org",
+                "entries": ["alice", "bob@example.com"],
+            })
+            recipients, invalid, counts = routes.resolve_campaign_recipients(["team"])
             self.assertEqual(recipients, ["alice@example.org", "bob@example.com"])
             self.assertEqual(invalid, [])
             self.assertEqual(counts, {"team": 2})
+
+    def test_inbound_uses_list_domain_and_ignores_legacy_route_domain(self):
+        with tempfile.TemporaryDirectory() as directory, mock.patch.object(routes, "LISTS_DIR", directory):
+            routes.atomic_json_write(routes.list_file_path("team"), {
+                "schema": 2, "domain": "example.org", "entries": ["alice"],
+            })
+            recipients, _ = routes.resolve_mailbox_recipients({
+                "name": "relay", "lists": ["team"], "ldap_groups": [],
+                "recipient_domain": "@wrong.example",
+            })
+            self.assertEqual(recipients, ["alice@example.org"])
+
+    def test_expired_key_refresh_uses_known_fingerprint_not_email_search(self):
+        fingerprint = "A" * 40
+        with (
+            mock.patch.object(routes, "get_gpg_key_status", side_effect=[
+                {"exists": True, "usable": False, "reason": "Public key is expired", "fingerprint": fingerprint},
+                {"exists": True, "usable": True, "reason": "Public key is usable", "fingerprint": fingerprint},
+            ]),
+            mock.patch.object(routes, "fetch_gpg_key", return_value=(True, "ok")) as fetch,
+        ):
+            ok, _ = routes.ensure_gpg_key_ready("gpg", "hkps://keys.example.org", "alice@example.org")
+        self.assertTrue(ok)
+        fetch.assert_called_once_with("gpg", "hkps://keys.example.org", f"0x{fingerprint}")
+
+    def test_missing_key_is_not_silently_discovered_during_delivery(self):
+        with (
+            mock.patch.object(routes, "get_gpg_key_status", return_value={
+                "exists": False, "usable": False, "reason": "Missing public key",
+            }),
+            mock.patch.object(routes, "fetch_gpg_key") as fetch,
+        ):
+            ok, message = routes.ensure_gpg_key_ready("gpg", "hkps://keys.example.org", "alice@example.org")
+        self.assertFalse(ok)
+        self.assertIn("explicitly discover", message)
+        fetch.assert_not_called()
 
     def test_inbound_decrypt_requires_valid_signature_status(self):
         completed = mock.Mock(returncode=0, stdout=b"Subject: signed\n\nbody", stderr=b"[GNUPG:] VALIDSIG " + b"A" * 40 + b" 2026")
@@ -67,6 +114,19 @@ class NewsletterSafetyTests(unittest.TestCase):
         self.assertTrue(has_permission(viewer, "Newsletter", "view_newsletter"))
         self.assertFalse(has_permission(viewer, "Newsletter", "send_campaigns"))
         self.assertTrue(has_permission(editor, "Newsletter", "send_campaigns"))
+        self.assertTrue(has_permission(editor, "Newsletter", "manage_inbound_routes"))
+        self.assertTrue(has_permission(editor, "Newsletter", "refresh_recipient_keys"))
+
+    def test_newsletter_permissions_can_be_separated(self):
+        list_editor = mock.Mock(
+            is_admin=False,
+            allowed_modules=json.dumps(["Newsletter:view_newsletter", "Newsletter:manage_lists", "Newsletter:check_recipient_keys"]),
+        )
+        self.assertTrue(has_permission(list_editor, "Newsletter", "manage_lists"))
+        self.assertTrue(has_permission(list_editor, "Newsletter", "check_recipient_keys"))
+        self.assertFalse(has_permission(list_editor, "Newsletter", "refresh_recipient_keys"))
+        self.assertFalse(has_permission(list_editor, "Newsletter", "manage_smtp"))
+        self.assertFalse(has_permission(list_editor, "Newsletter", "manage_inbound_routes"))
 
     def test_frontend_keeps_failed_draft_and_has_preflight(self):
         template = Path(routes.MODULE_DIR, "templates", "newsletter_index.html").read_text(encoding="utf-8")
@@ -77,6 +137,9 @@ class NewsletterSafetyTests(unittest.TestCase):
         self.assertNotIn("Нова розсилка", template)
         self.assertIn("currentLdapProfileId = profile.id", template)
         self.assertNotIn("currentLdapProfileId = id;\n        renderLdapProfiles", template)
+        self.assertIn("Default Email Domain (optional)", template)
+        self.assertIn("checkListKeys", template)
+        self.assertNotIn('id="routeRecipientDomain"', template)
 
     def test_dedicated_worker_is_packaged_and_managed(self):
         root = Path(routes.MODULE_DIR).parents[1]

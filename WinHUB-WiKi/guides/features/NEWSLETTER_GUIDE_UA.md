@@ -27,8 +27,12 @@ The inbound route never takes target lists from the email subject. Targets are f
 | `view_newsletter` / legacy `View` | Open Newsletter and view the user's own campaigns |
 | `send_campaigns` | Create, cancel, and retry the user's own campaigns |
 | `manage_lists` | Create, rename, and delete local mailing lists |
-| `manage_smtp` | Manage mail, inbound, and LDAP profiles |
-| Administrator | View every campaign and administer the module |
+| `manage_smtp` | Manage SMTP/IMAP mail profiles and their secrets |
+| `manage_inbound_routes` | Manage inbound routes and LDAP/FreeIPA profiles |
+| `check_recipient_keys` | Scan list recipients and view key status/fingerprints |
+| `refresh_recipient_keys` | Explicitly import missing or expired recipient keys from a list keyserver |
+| `view_all_campaigns` | View all users' campaigns and full processing errors |
+| Administrator | All Newsletter capabilities |
 
 `View` does not grant permission to send.
 
@@ -73,10 +77,13 @@ Open **Recipient lists → Create New**.
 
 1. Use a name containing only Latin letters, digits, `.`, `_`, and `-`; maximum length is 80 characters.
 2. Paste recipients separated by commas, spaces, or new lines.
-3. Use full addresses whenever possible. A short entry such as `alice` receives the configured `NEWSLETTER_RECIPIENT_DOMAIN` suffix.
-4. Review the total count and save.
+3. Enter full addresses, or set **Default Email Domain** on this particular list. Only then does `alice` resolve to `alice@example.com`.
+4. Optionally set the list's **Recipient Keyserver**.
+5. Review the resolved-address preview and save.
+6. For encrypted delivery, select **Check Keys**. The result identifies every missing, expired, revoked, or disabled key and displays its fingerprint.
+7. If permitted, **Fetch Missing / Expired** explicitly downloads keys from the configured list keyserver. Verify resulting fingerprints through a trusted channel.
 
-A list supports up to 10,000 entries. Addresses are validated and deduplicated. A list used by an inbound route cannot be deleted; renaming updates route references.
+A list supports up to 10,000 entries. Addresses are validated and deduplicated. There is no global or hidden recipient domain. Legacy lists containing aliases remain readable but cannot be used until a domain is assigned to that list or aliases are replaced with full addresses. Manual and inbound campaigns resolve the same list in exactly the same way. A list used by an inbound route cannot be deleted; renaming updates route references.
 
 ### Mode 1: manual campaign
 
@@ -98,7 +105,7 @@ Any edit after preflight invalidates the result and requires another check. A fa
 
 GPG encrypts the body and attachments separately for each recipient. The subject, sender, recipient, and normal transport headers remain mail metadata.
 
-Production defaults to `NEWSLETTER_ALLOW_KEYSERVER_AUTO_IMPORT=false`. Import recipient keys through the administrative GPG workflow and verify each fingerprint out of band. Enabling automatic keyserver import changes only key retrieval; it does not establish identity trust.
+Production defaults to `NEWSLETTER_ALLOW_KEYSERVER_AUTO_IMPORT=false`. This switch gates the explicit **Fetch Missing / Expired** list action. Key retrieval does not establish identity trust: compare every displayed fingerprint with an independently verified value. During delivery, WinHUB may refresh an unusable local key only by its already-known fingerprint; it never silently discovers a replacement key by email. A missing key must first be explicitly fetched or imported and verified.
 
 Preflight blocks an encrypted campaign when any recipient has no usable public key. To intentionally send without encryption, disable GPG and confirm that organizational policy permits it.
 
@@ -125,7 +132,6 @@ Configure **Settings → Inbound Relay → New Route**:
 | Read From Mail Profile | IMAP mailbox that receives encrypted source messages |
 | Send From Mail Profile | SMTP identity for the resulting campaign; Auto reuses the read profile |
 | LDAP Profile | Directory connection used for LDAP Groups |
-| Recipient Domain | Optional suffix for short local-list entries |
 | Recipient Keyserver | Per-route override for recipient key lookup |
 | Allowed Senders | Exact From addresses allowed to request a campaign |
 | Approved GPG Signer Fingerprints | Full fingerprints allowed to authorize the message |
@@ -212,8 +218,12 @@ Inbound route ніколи не бере цільові списки з теми
 | `view_newsletter` / legacy `View` | Відкрити модуль і переглядати власні кампанії |
 | `send_campaigns` | Створювати, скасовувати й повторювати власні кампанії |
 | `manage_lists` | Створювати, перейменовувати й видаляти локальні списки |
-| `manage_smtp` | Керувати mail, inbound і LDAP-профілями |
-| Administrator | Перегляд усіх кампаній і повне керування |
+| `manage_smtp` | Керувати SMTP/IMAP mail profiles та їх секретами |
+| `manage_inbound_routes` | Керувати inbound routes та LDAP/FreeIPA profiles |
+| `check_recipient_keys` | Перевіряти ключі списку та бачити status/fingerprint |
+| `refresh_recipient_keys` | Явно імпортувати або оновлювати ключі з keyserver списку |
+| `view_all_campaigns` | Переглядати кампанії всіх користувачів і повні помилки |
+| Administrator | Усі можливості Newsletter |
 
 Право `View` не дозволяє надсилати розсилки.
 
@@ -258,10 +268,13 @@ Inbound route ніколи не бере цільові списки з теми
 
 1. Ім'я може містити лише латинські літери, цифри, `.`, `_` і `-`; максимум 80 символів.
 2. Вставте адреси через кому, пробіл або новий рядок.
-3. Бажано використовувати повні адреси. До короткого запису `alice` додається домен із `NEWSLETTER_RECIPIENT_DOMAIN`.
-4. Перевірте кількість і збережіть список.
+3. Вказуйте повні адреси або задайте **Default Email Domain** саме для цього списку. Лише тоді `alice` перетворюється на `alice@example.com`.
+4. За потреби задайте **Recipient Keyserver** списку.
+5. Перевірте preview отриманих адрес і збережіть список.
+6. Для шифрованої доставки натисніть **Check Keys**. Результат покаже відсутні, прострочені, відкликані чи вимкнені ключі та їх fingerprints.
+7. За наявності дозволу **Fetch Missing / Expired** явно завантажує ключі з keyserver списку. Перевірте fingerprints незалежним довіреним каналом.
 
-Один список підтримує до 10 000 записів. Адреси перевіряються й дедуплікуються. Список, який використовує inbound route, не можна видалити; перейменування оновлює посилання route.
+Один список підтримує до 10 000 записів. Адреси перевіряються й дедуплікуються. Глобального або прихованого домену немає. Старі списки з ніками читаються, але не запускаються, доки їм не задано власний домен або ніки не замінено повними адресами. Ручні й inbound-кампанії однаково обробляють той самий список. Список, який використовує inbound route, не можна видалити; перейменування оновлює посилання route.
 
 ### Режим 1: ручна кампанія
 
@@ -283,7 +296,7 @@ Inbound route ніколи не бере цільові списки з теми
 
 GPG окремо шифрує тіло й вкладення для кожного отримувача. Тема, відправник, отримувач і транспортні заголовки залишаються поштовими метаданими.
 
-У production використовується `NEWSLETTER_ALLOW_KEYSERVER_AUTO_IMPORT=false`. Імпортуйте ключі отримувачів через адміністративний GPG workflow та перевіряйте fingerprints іншим каналом. Автоімпорт із keyserver змінює лише спосіб отримання ключа, але не підтверджує особу власника.
+У production використовується `NEWSLETTER_ALLOW_KEYSERVER_AUTO_IMPORT=false`. Цей параметр дозволяє явну дію **Fetch Missing / Expired**. Завантаження не підтверджує особу власника: кожен показаний fingerprint потрібно звірити незалежним довіреним каналом. Під час доставки WinHUB може оновити непридатний локальний ключ лише за вже відомим fingerprint; він не шукає мовчки заміну за email. Відсутній ключ спочатку потрібно явно завантажити або імпортувати й перевірити.
 
 Preflight блокує зашифровану кампанію, якщо хоча б один отримувач не має придатного ключа. Для навмисної доставки без шифрування вимкніть GPG і переконайтеся, що це дозволяє політика організації.
 
@@ -310,7 +323,6 @@ Inbound relay потрібний, коли авторизована систем
 | Read From Mail Profile | IMAP-скринька для вхідних зашифрованих листів |
 | Send From Mail Profile | SMTP-профіль кампанії; Auto використовує Read-профіль |
 | LDAP Profile | Каталог для LDAP Groups |
-| Recipient Domain | Необов'язковий суфікс коротких локальних записів |
 | Recipient Keyserver | Перевизначення джерела ключів для route |
 | Allowed Senders | Точні From-адреси, яким дозволено створювати кампанію |
 | Approved GPG Signer Fingerprints | Повні fingerprints, яким дозволено авторизувати лист |
