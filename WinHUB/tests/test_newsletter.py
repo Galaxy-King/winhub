@@ -153,6 +153,10 @@ class NewsletterSafetyTests(unittest.TestCase):
         self.assertIn("Campaign Result Report Emails", template)
         self.assertIn("#campaignReportModal > div", template)
         self.assertIn("#campaignReportModal tbody tr:nth-child(even)", template)
+        self.assertIn("Install The Mailbox Private Key On Debian", template)
+        self.assertIn("Як додати приватний ключ поштової скриньки на Debian", template)
+        self.assertIn("runuser -u winhub -- env GNUPGHOME=/var/lib/winhub/gnupg", template)
+        self.assertIn("--list-secret-keys --keyid-format LONG", template)
 
     def test_dedicated_worker_is_packaged_and_managed(self):
         root = Path(routes.MODULE_DIR).parents[1]
