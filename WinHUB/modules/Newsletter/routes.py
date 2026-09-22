@@ -2493,6 +2493,99 @@ def retry_newsletter_campaign(campaign_id):
 
 
 # --- GPG Functions ---
+def list_secret_gpg_keys(gpg_path):
+    """Return read-only metadata for private keys visible to the WinHUB service account."""
+    cmd = [
+        gpg_path,
+        "--batch",
+        "--with-colons",
+        "--fixed-list-mode",
+        "--fingerprint",
+        "--list-secret-keys",
+    ]
+    try:
+        proc = subprocess.run(
+            cmd,
+            capture_output=True,
+            text=True,
+            timeout=10,
+            stdin=subprocess.DEVNULL,
+            env=gpg_env(),
+            **hidden_subprocess_kwargs(),
+        )
+    except Exception as exc:
+        log.warning("Could not inspect the Newsletter secret-key keyring: %s", type(exc).__name__)
+        return False, "GPG key status is unavailable.", []
+
+    if proc.returncode != 0:
+        log.warning("Could not inspect the Newsletter secret-key keyring: gpg exit code %s", proc.returncode)
+        return False, "GPG could not read the WinHUB keyring.", []
+
+    keys = []
+    current = None
+    for line in proc.stdout.splitlines():
+        parts = line.split(":")
+        record_type = parts[0] if parts else ""
+        if record_type == "sec":
+            current = {
+                "key_id": parts[4].upper() if len(parts) > 4 else "",
+                "fingerprint": "",
+                "created": parts[5] if len(parts) > 5 else "",
+                "expires": parts[6] if len(parts) > 6 else "",
+                "validity": parts[1] if len(parts) > 1 else "",
+                "capabilities": parts[11] if len(parts) > 11 else "",
+                "uids": [],
+            }
+            keys.append(current)
+        elif record_type == "ssb" and current:
+            current["capabilities"] += parts[11] if len(parts) > 11 else ""
+        elif record_type == "fpr" and current and not current["fingerprint"]:
+            current["fingerprint"] = parts[9].upper() if len(parts) > 9 else ""
+        elif record_type == "uid" and current and len(current["uids"]) < 20:
+            current["uids"].append(parts[9] if len(parts) > 9 else "")
+
+    now = int(time.time())
+    for key in keys:
+        created_raw = key.pop("created", "")
+        expires_at = None
+        try:
+            expires_at = int(key["expires"]) if key["expires"] else None
+        except ValueError:
+            pass
+        capabilities = key.pop("capabilities", "").lower()
+        key["can_encrypt"] = "e" in capabilities
+        key["can_sign"] = "s" in capabilities
+        key["created_at"] = datetime.fromtimestamp(int(created_raw), tz=ZoneInfo("UTC")).isoformat() if created_raw.isdigit() else None
+        key["expires_at"] = datetime.fromtimestamp(expires_at, tz=ZoneInfo("UTC")).isoformat() if expires_at else None
+        validity = key.pop("validity", "")
+        if validity == "r":
+            key["status"] = "Revoked"
+        elif validity in {"e", "d"} or (expires_at and expires_at <= now):
+            key["status"] = "Expired" if validity != "d" else "Disabled"
+        elif not key["can_encrypt"]:
+            key["status"] = "No encryption capability"
+        else:
+            key["status"] = "Ready"
+        key["usable_for_inbound"] = key["status"] == "Ready"
+
+    return True, "OK", keys
+
+
+@newsletter_bp.route("/api/newsletter/gpg/secret-keys", methods=["GET"])
+def gpg_secret_key_status():
+    denied = require_permission("manage_smtp")
+    if denied:
+        return denied
+    gpg_path = current_app.config.get("GPG_PATH") or os.environ.get("GPG_PATH", "gpg")
+    ok, message, keys = list_secret_gpg_keys(gpg_path)
+    return jsonify({
+        "success": ok,
+        "message": message,
+        "keyring": gpg_env().get("GNUPGHOME", ""),
+        "keys": keys,
+    }), 200 if ok else 503
+
+
 def get_gpg_key_status(gpg_path, email):
     cmd = [gpg_path, "--batch", "--with-colons", "--fingerprint", "--list-keys", email]
     try:

@@ -803,6 +803,7 @@
                 <div class="guide-section">
                     <h4>Install The Mailbox Private Key On Debian</h4>
                     <p>WSL and Debian use the same Linux commands, but they are two different machines in this procedure: <code>ADMIN COMPUTER</code> means your WSL or trusted Debian workstation; <code>WINHUB SERVER</code> means the production Debian server. This key is needed only for inbound decryption. Replace <code>FULL_FINGERPRINT</code> and <code>SERVER_ADDRESS</code>; never put the key or passphrase in Git.</p>
+                    <p class="mt-2"><code>gpg --list-secret-keys</code> and <code>gpg --export-secret-keys</code> work only when the key is stored in the GnuPG keyring used by that terminal, normally <code>~/.gnupg</code>. Thunderbird and other mail applications may use a different key database. In that case, export the private key manually from the application's key manager, or use an existing private-key backup file, and continue below with its file path.</p>
                     <ol>
                         <li><code>ADMIN COMPUTER — WSL or Debian:</code> find the mailbox key's full fingerprint and export it:</li>
                     </ol>
@@ -879,6 +880,7 @@ runuser -u winhub -- env GNUPGHOME=/var/lib/winhub/gnupg /usr/bin/gpg --with-col
                         <li>The List Editor can scan every recipient, show fingerprints, and explicitly fetch missing or unusable keys from the list keyserver when the operator has that permission.</li>
                         <li>During delivery an unusable existing key is refreshed only by its known fingerprint; a missing key is never silently trusted by email address.</li>
                         <li>Inbound email must be both encrypted for WinHUB and validly signed by one of the route's approved fingerprints. A matching From address alone is not sufficient.</li>
+                        <li><code>Settings → GPG Key Status</code> shows read-only fingerprints, UIDs, expiry, and capabilities for private keys visible to the WinHUB service.</li>
                     </ul>
                 </div>
 
@@ -961,6 +963,7 @@ runuser -u winhub -- env GNUPGHOME=/var/lib/winhub/gnupg /usr/bin/gpg --with-col
                 <div class="guide-section">
                     <h4>Як додати приватний ключ поштової скриньки на Debian</h4>
                     <p>WSL і Debian використовують однакові Linux-команди, але в цій інструкції це дві різні машини: <code>КОМП'ЮТЕР АДМІНІСТРАТОРА</code> — ваш WSL або довірений Debian-комп'ютер; <code>СЕРВЕР WINHUB</code> — production-сервер Debian. Ключ потрібний лише для inbound-розшифрування. Замініть <code>FULL_FINGERPRINT</code> і <code>SERVER_ADDRESS</code>; ніколи не додавайте ключ або парольну фразу в Git.</p>
+                    <p class="mt-2">Команди <code>gpg --list-secret-keys</code> і <code>gpg --export-secret-keys</code> бачать ключ лише тоді, коли він доданий у GnuPG keyring цього термінала, зазвичай <code>~/.gnupg</code>. Thunderbird та інші поштові програми можуть використовувати власну базу ключів. Тоді експортуйте приватний ключ вручну через менеджер ключів поштової програми або використайте наявний backup-файл приватного ключа, а далі вкажіть шлях до цього файла.</p>
                     <ol>
                         <li><code>КОМП'ЮТЕР АДМІНІСТРАТОРА — WSL або Debian:</code> знайдіть повний fingerprint ключа mailbox і експортуйте його:</li>
                     </ol>
@@ -1037,6 +1040,7 @@ runuser -u winhub -- env GNUPGHOME=/var/lib/winhub/gnupg /usr/bin/gpg --with-col
                         <li>List Editor перевіряє весь список, показує fingerprints і, за окремим дозволом, явно завантажує відсутні або непридатні ключі з keyserver списку.</li>
                         <li>Під час доставки наявний непридатний ключ оновлюється лише за відомим fingerprint; відсутній ключ ніколи не отримує мовчазної довіри за email.</li>
                         <li>Inbound-лист має бути одночасно зашифрований для WinHUB і валідно підписаний одним із дозволених fingerprints route. Збігу адреси From недостатньо.</li>
+                        <li><code>Settings → GPG Key Status</code> лише показує fingerprints, UID, строк дії та можливості приватних ключів, які бачить служба WinHUB.</li>
                     </ul>
                 </div>
 
@@ -1137,6 +1141,7 @@ runuser -u winhub -- env GNUPGHOME=/var/lib/winhub/gnupg /usr/bin/gpg --with-col
         <div class="flex items-center gap-2 border-b border-slate-200 pb-3 mb-4">
             {% if permissions.manage_smtp %}
             <button type="button" data-settings-tab="smtp" onclick="switchNewsletterSettingsTab('smtp')" class="newsletter-settings-tab px-4 py-2 rounded-lg text-sm font-bold bg-slate-800 text-white">Mail Profiles</button>
+            <button type="button" data-settings-tab="gpg" onclick="switchNewsletterSettingsTab('gpg')" class="newsletter-settings-tab px-4 py-2 rounded-lg text-sm font-bold bg-slate-100 text-slate-600 hover:bg-slate-200">GPG Key Status</button>
             {% endif %}
             {% if permissions.manage_inbound_routes %}
             <button type="button" data-settings-tab="inbound" onclick="switchNewsletterSettingsTab('inbound')" class="newsletter-settings-tab px-4 py-2 rounded-lg text-sm font-bold bg-slate-100 text-slate-600 hover:bg-slate-200">Inbound Relay</button>
@@ -1231,6 +1236,24 @@ runuser -u winhub -- env GNUPGHOME=/var/lib/winhub/gnupg /usr/bin/gpg --with-col
                 <div id="smtpSavedList" class="flex-1 overflow-y-auto space-y-2 border border-slate-200 rounded-xl p-2 bg-slate-50"></div>
             </div>
         </div>
+
+        {% if permissions.manage_smtp %}
+        <div id="settingsTabGpg" class="newsletter-settings-panel hidden mt-5 p-4 rounded-xl border border-slate-200 bg-white overflow-y-auto">
+            <div class="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-4 mb-4">
+                <div>
+                    <h4 class="font-bold text-sm text-slate-700 uppercase">GPG Key Status</h4>
+                    <p class="text-xs text-slate-500 mt-1">Read-only view of private keys available to the WinHUB service. Private key material and passphrases are never displayed.</p>
+                    <p id="gpgSecretKeyring" class="text-xs text-slate-500 mt-2 font-mono break-all"></p>
+                </div>
+                <button type="button" onclick="loadGpgKeyStatus()" class="px-4 py-2 rounded-lg bg-slate-800 hover:bg-slate-900 text-white text-sm font-bold">Refresh</button>
+            </div>
+            <div id="gpgSecretKeyMessage" class="text-sm font-bold text-slate-500 mb-3">Open this tab to check the keyring.</div>
+            <div id="gpgSecretKeyList" class="grid grid-cols-1 xl:grid-cols-2 gap-3"></div>
+            <div class="mt-4 rounded-lg border border-amber-200 bg-amber-50 p-3 text-xs text-amber-800">
+                This page does not import, export, replace, or delete keys. It also does not test a passphrase or decrypt a message. Use Newsletter Guide to install a private key, select Refresh, then verify the complete flow with an encrypted and signed test message.
+            </div>
+        </div>
+        {% endif %}
 
         <div id="settingsTabInbound" class="newsletter-settings-panel hidden mt-5 p-4 rounded-xl border border-cyan-400/25 bg-slate-50 overflow-y-auto">
             <div class="flex items-start justify-between gap-4 mb-4">
@@ -2181,6 +2204,7 @@ runuser -u winhub -- env GNUPGHOME=/var/lib/winhub/gnupg /usr/bin/gpg --with-col
                 ? 'newsletter-settings-tab px-4 py-2 rounded-lg text-sm font-bold bg-slate-800 text-white'
                 : 'newsletter-settings-tab px-4 py-2 rounded-lg text-sm font-bold bg-slate-100 text-slate-600 hover:bg-slate-200';
         });
+        if (tab === 'gpg') loadGpgKeyStatus();
     }
 
     // --- SMTP Management ---
@@ -2211,6 +2235,49 @@ runuser -u winhub -- env GNUPGHOME=/var/lib/winhub/gnupg /usr/bin/gpg --with-col
 
     function routeText(value) {
         return routeArray(value).join('\n');
+    }
+
+    async function loadGpgKeyStatus() {
+        const message = document.getElementById('gpgSecretKeyMessage');
+        const list = document.getElementById('gpgSecretKeyList');
+        const keyring = document.getElementById('gpgSecretKeyring');
+        if (!message || !list) return;
+        message.innerText = 'Checking the WinHUB keyring...';
+        message.className = 'text-sm font-bold text-slate-500 mb-3';
+        list.innerHTML = '';
+        try {
+            const response = await fetch('/api/newsletter/gpg/secret-keys');
+            const data = await response.json();
+            if (!response.ok || !data.success) {
+                throw new Error(data.message || 'GPG key status is unavailable.');
+            }
+            if (keyring) keyring.innerText = `Keyring: ${data.keyring || 'not configured'}`;
+            const keys = Array.isArray(data.keys) ? data.keys : [];
+            message.innerText = keys.length ? `${keys.length} private key${keys.length === 1 ? '' : 's'} visible to WinHUB.` : 'No private keys are visible to WinHUB.';
+            message.className = keys.length ? 'text-sm font-bold text-emerald-700 mb-3' : 'text-sm font-bold text-amber-700 mb-3';
+            if (!keys.length) return;
+            list.innerHTML = keys.map(key => {
+                const ready = key.usable_for_inbound === true;
+                const uids = Array.isArray(key.uids) && key.uids.length ? key.uids.map(uid => `<li class="break-all">${escapeHtml(uid)}</li>`).join('') : '<li>No UID recorded</li>';
+                const expiry = key.expires_at ? new Date(key.expires_at).toLocaleString() : 'Does not expire';
+                const created = key.created_at ? new Date(key.created_at).toLocaleString() : 'Unknown';
+                return `<article class="rounded-xl border ${ready ? 'border-emerald-300 bg-emerald-50' : 'border-amber-300 bg-amber-50'} p-4">
+                    <div class="flex items-start justify-between gap-3">
+                        <div class="font-black text-slate-800">${escapeHtml(key.status || 'Unknown')}</div>
+                        <span class="text-xs font-bold ${ready ? 'text-emerald-700' : 'text-amber-700'}">${ready ? 'Key is usable' : 'Review required'}</span>
+                    </div>
+                    <div class="mt-3 text-xs text-slate-600"><span class="font-bold">Fingerprint</span><div class="font-mono break-all mt-1 text-slate-800">${escapeHtml(key.fingerprint || 'Unavailable')}</div></div>
+                    <div class="mt-2 text-xs text-slate-600"><span class="font-bold">Key ID:</span> <span class="font-mono">${escapeHtml(key.key_id || 'Unavailable')}</span></div>
+                    <div class="mt-2 grid grid-cols-2 gap-2 text-xs text-slate-600"><div><span class="font-bold">Created:</span><br>${escapeHtml(created)}</div><div><span class="font-bold">Expires:</span><br>${escapeHtml(expiry)}</div></div>
+                    <div class="mt-2 text-xs text-slate-600"><span class="font-bold">Capabilities:</span> ${key.can_encrypt ? 'Encrypt/decrypt' : 'No encryption'} · ${key.can_sign ? 'Sign' : 'No signing'}</div>
+                    <ul class="mt-3 list-disc pl-5 text-xs text-slate-600 space-y-1">${uids}</ul>
+                </article>`;
+            }).join('');
+        } catch (error) {
+            if (keyring) keyring.innerText = '';
+            message.innerText = error.message || 'Could not load GPG key status.';
+            message.className = 'text-sm font-bold text-rose-700 mb-3';
+        }
     }
 
     function renderSmtpModalList() {
