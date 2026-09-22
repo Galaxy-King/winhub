@@ -266,6 +266,25 @@
         font-weight: 700;
     }
 
+    .guide-section pre {
+        margin-top: 0.75rem;
+        overflow-x: auto;
+        border-radius: 10px;
+        background: #0f172a;
+        padding: 0.9rem 1rem;
+        color: #e2e8f0;
+        font-size: 0.82rem;
+        line-height: 1.55;
+        white-space: pre;
+    }
+
+    .guide-section pre code {
+        background: transparent;
+        color: inherit;
+        padding: 0;
+        font-weight: 500;
+    }
+
     .newsletter-module #nlListsCheckboxes,
     .newsletter-module article .bg-slate-50,
     .newsletter-module article .bg-slate-100,
@@ -782,6 +801,38 @@
                 </div>
 
                 <div class="guide-section">
+                    <h4>Install The Mailbox Private Key On Debian</h4>
+                    <p>This key is needed only when WinHUB must decrypt inbound relay mail. Run the server commands as <code>root</code>. Replace <code>FULL_FINGERPRINT</code> and <code>SERVER_ADDRESS</code> with your values; never put the key or its passphrase in Git.</p>
+                    <ol>
+                        <li>On the trusted computer that already has the mailbox key, find its full fingerprint and export the secret key:</li>
+                    </ol>
+                    <pre><code>gpg --list-secret-keys --keyid-format LONG
+gpg --armor --export-secret-keys FULL_FINGERPRINT &gt; winhub-mailbox-private.asc
+chmod 600 winhub-mailbox-private.asc</code></pre>
+                    <ol start="2">
+                        <li>From WSL, copy the exported file to the server. Verify the SSH host fingerprint when prompted:</li>
+                    </ol>
+                    <pre><code>scp ./winhub-mailbox-private.asc root@SERVER_ADDRESS:/root/winhub-mailbox-private.asc</code></pre>
+                    <ol start="3">
+                        <li>On the WinHUB server, create the protected keyring and import the key as the service account:</li>
+                    </ol>
+                    <pre><code>chmod 600 /root/winhub-mailbox-private.asc
+install -d -o winhub -g winhub -m 0700 /var/lib/winhub/gnupg
+runuser -u winhub -- env GNUPGHOME=/var/lib/winhub/gnupg /usr/bin/gpg --batch --import &lt; /root/winhub-mailbox-private.asc</code></pre>
+                    <ol start="4">
+                        <li>Confirm that <code>sec</code> is shown and compare the full fingerprint with the trusted original:</li>
+                    </ol>
+                    <pre><code>runuser -u winhub -- env GNUPGHOME=/var/lib/winhub/gnupg /usr/bin/gpg --list-secret-keys --keyid-format LONG
+runuser -u winhub -- env GNUPGHOME=/var/lib/winhub/gnupg /usr/bin/gpg --with-colons --fingerprint --list-secret-keys | awk -F: '$1 == "sec" {want=1; next} want &amp;&amp; $1 == "fpr" {print $10; exit}'</code></pre>
+                    <ol start="5">
+                        <li>Remove both exported copies, then enter the key passphrase in <code>Settings → Mail Profiles → GPG Key Passphrase</code>. Do not type the passphrase into a shell command.</li>
+                    </ol>
+                    <pre><code>shred -u /root/winhub-mailbox-private.asc
+shred -u ./winhub-mailbox-private.asc</code></pre>
+                    <p>The second command runs on the trusted computer, not on the server. Secure deletion is best-effort on SSDs and copy-on-write filesystems. Finally, use <code>Test Mail Profile</code>, check <code>systemctl status winhub-newsletter</code>, and send one encrypted and signed test email. The sender's public signing key and each recipient's public encryption key are separate keys and must also be present in the same WinHUB keyring.</p>
+                </div>
+
+                <div class="guide-section">
                     <h4>Inbound Relay Route Fields</h4>
                     <ul>
                         <li><code>Route Name</code> is a friendly name for this relay rule, for example IT Support Relay.</li>
@@ -902,6 +953,38 @@
                         <li><code>GPG Passphrase</code> розблоковує приватний ключ для розшифрування вхідного листа. Вона зберігається зашифровано і не показується назад у веб-інтерфейсі.</li>
                         <li><code>Keyserver</code> задає можливе джерело публічних ключів. Автоімпорт вимкнено, доки явно не задано <code>NEWSLETTER_ALLOW_KEYSERVER_AUTO_IMPORT=true</code>; перед цим потрібна перевірка fingerprints.</li>
                     </ul>
+                </div>
+
+                <div class="guide-section">
+                    <h4>Як додати приватний ключ поштової скриньки на Debian</h4>
+                    <p>Цей ключ потрібний лише тоді, коли WinHUB має розшифровувати вхідні листи relay. Команди на сервері виконуйте від <code>root</code>. Замініть <code>FULL_FINGERPRINT</code> і <code>SERVER_ADDRESS</code> своїми значеннями; ніколи не додавайте ключ або його парольну фразу в Git.</p>
+                    <ol>
+                        <li>На довіреному комп'ютері, де вже є ключ mailbox, знайдіть повний fingerprint і експортуйте секретний ключ:</li>
+                    </ol>
+                    <pre><code>gpg --list-secret-keys --keyid-format LONG
+gpg --armor --export-secret-keys FULL_FINGERPRINT &gt; winhub-mailbox-private.asc
+chmod 600 winhub-mailbox-private.asc</code></pre>
+                    <ol start="2">
+                        <li>Із WSL скопіюйте експортований файл на сервер. Коли SSH запитає підтвердження, звірте fingerprint сервера:</li>
+                    </ol>
+                    <pre><code>scp ./winhub-mailbox-private.asc root@SERVER_ADDRESS:/root/winhub-mailbox-private.asc</code></pre>
+                    <ol start="3">
+                        <li>На сервері WinHUB створіть захищений keyring та імпортуйте ключ саме від service account:</li>
+                    </ol>
+                    <pre><code>chmod 600 /root/winhub-mailbox-private.asc
+install -d -o winhub -g winhub -m 0700 /var/lib/winhub/gnupg
+runuser -u winhub -- env GNUPGHOME=/var/lib/winhub/gnupg /usr/bin/gpg --batch --import &lt; /root/winhub-mailbox-private.asc</code></pre>
+                    <ol start="4">
+                        <li>Переконайтеся, що виведено рядок <code>sec</code>, і звірте повний fingerprint із довіреним оригіналом:</li>
+                    </ol>
+                    <pre><code>runuser -u winhub -- env GNUPGHOME=/var/lib/winhub/gnupg /usr/bin/gpg --list-secret-keys --keyid-format LONG
+runuser -u winhub -- env GNUPGHOME=/var/lib/winhub/gnupg /usr/bin/gpg --with-colons --fingerprint --list-secret-keys | awk -F: '$1 == "sec" {want=1; next} want &amp;&amp; $1 == "fpr" {print $10; exit}'</code></pre>
+                    <ol start="5">
+                        <li>Видаліть обидві експортовані копії, а парольну фразу введіть у <code>Settings → Mail Profiles → GPG Key Passphrase</code>. Не передавайте парольну фразу параметром shell-команди.</li>
+                    </ol>
+                    <pre><code>shred -u /root/winhub-mailbox-private.asc
+shred -u ./winhub-mailbox-private.asc</code></pre>
+                    <p>Другу команду виконуйте на довіреному комп'ютері, а не на сервері. Для SSD і copy-on-write файлових систем безпечне стирання є лише best-effort. Наприкінці запустіть <code>Test Mail Profile</code>, перевірте <code>systemctl status winhub-newsletter</code> і надішліть один зашифрований та підписаний тестовий лист. Публічний ключ підписувача і публічні ключі отримувачів — це окремі ключі; вони також мають бути в keyring WinHUB.</p>
                 </div>
 
                 <div class="guide-section">
