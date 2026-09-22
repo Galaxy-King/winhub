@@ -15,6 +15,8 @@ import mimetypes
 import html as html_lib
 import smtplib
 import ssl
+import csv
+import io
 from email.message import EmailMessage
 from email import policy
 from email.parser import BytesParser
@@ -550,6 +552,8 @@ def normalize_inbound_mailbox(raw, existing=None, for_save=False):
         "outbound_profile": outbound_profile,
         "ldap_profile": ldap_profile,
         "recipient_keyserver": str(raw.get("recipient_keyserver") or existing.get("recipient_keyserver") or "").strip(),
+        "result_recipients": normalize_result_recipients(raw.get("result_recipients", existing.get("result_recipients", []))),
+        "result_use_gpg": bool(raw.get("result_use_gpg", existing.get("result_use_gpg", True))),
         "imap_host": str(raw.get("imap_host") or existing.get("imap_host") or "").strip(),
         "imap_port": int(raw.get("imap_port") or existing.get("imap_port") or 993),
         "imap_ssl": bool(raw.get("imap_ssl", existing.get("imap_ssl", True))),
@@ -1290,6 +1294,8 @@ def dispatch_inbound_newsletter(app, source_msg, decrypted_msg, mailbox, subject
             use_gpg=True,
             source_message_id_hash=message_id_hash,
             keyserver_override=route_keyserver,
+            result_recipients=mailbox.get("result_recipients", []),
+            result_use_gpg=mailbox.get("result_use_gpg", True),
         )
 
         WinHubCore.audit(
@@ -1306,6 +1312,7 @@ def dispatch_inbound_newsletter(app, source_msg, decrypted_msg, mailbox, subject
                 "campaign_id": campaign.id,
                 "use_gpg": True,
                 "attachments_count": len(attachments),
+                "result_recipients_count": len(mailbox.get("result_recipients", [])),
                 **target_meta,
             },
             status="Success",
@@ -1529,6 +1536,13 @@ def normalize_email_list(raw):
             clean.append(value)
     return clean
 
+
+def normalize_result_recipients(raw):
+    recipients = normalize_email_list(raw)
+    if "*" in recipients:
+        raise ValueError("Result report recipients must be exact email addresses.")
+    return recipients
+
 def normalize_list_record(raw):
     if isinstance(raw, list):
         return {"schema": 1, "domain": "", "keyserver": "", "entries": raw}
@@ -1628,6 +1642,7 @@ def campaign_summary(campaign, include_subject=False, include_error=False):
         "created_at": campaign.created_at.isoformat() + "Z" if campaign.created_at else None,
         "started_at": campaign.started_at.isoformat() + "Z" if campaign.started_at else None,
         "ended_at": campaign.ended_at.isoformat() + "Z" if campaign.ended_at else None,
+        "result_report_status": campaign.result_report_status or "NotRequested",
         "error_summary": (
             campaign.error_summary
             if include_error
@@ -1647,7 +1662,7 @@ def can_view_campaign(user, campaign):
     ))
 
 
-def enqueue_campaign(*, user_id, source, sender_email, subject, body_text, body_html, attachments, recipients, selected_lists, use_gpg, source_message_id_hash=None, keyserver_override=None):
+def enqueue_campaign(*, user_id, source, sender_email, subject, body_text, body_html, attachments, recipients, selected_lists, use_gpg, source_message_id_hash=None, keyserver_override=None, result_recipients=None, result_use_gpg=True):
     subject = str(subject or "").strip()
     if not subject:
         raise ValueError("Subject is required.")
@@ -1669,6 +1684,10 @@ def enqueue_campaign(*, user_id, source, sender_email, subject, body_text, body_
         action="Inbound Mailing" if source == "inbound" else "Send Mailing",
         targets=targets_db, status="Queued", log_file=log_file,
     )
+    report_entries = [
+        {"recipient": recipient, "status": "Pending", "error": "", "sent_at": None}
+        for recipient in normalize_result_recipients(result_recipients or [])
+    ]
     campaign = NewsletterCampaign(
         id=campaign_id,
         task_id=task_id,
@@ -1682,6 +1701,9 @@ def enqueue_campaign(*, user_id, source, sender_email, subject, body_text, body_
         body_html=body_html or "",
         attachments_json=attachment_snapshot(attachments),
         selected_lists_json=json.dumps(selected_lists or [], ensure_ascii=False),
+        result_report_json=json.dumps(report_entries, ensure_ascii=False),
+        result_report_status="Pending" if report_entries else "NotRequested",
+        result_report_use_gpg=bool(result_use_gpg),
         use_gpg=bool(use_gpg),
         status="Queued",
         total_count=len(recipients),
@@ -2370,6 +2392,21 @@ def get_newsletter_campaign(campaign_id):
     if not campaign or not can_view_campaign(current_user(), campaign):
         return jsonify({"success": False, "message": "Campaign not found."}), 404
     user = current_user()
+    status_filter = str(request.args.get("status") or "").strip()
+    allowed_statuses = {"Pending", "Sending", "Sent", "Failed", "Skipped", "Unknown"}
+    if status_filter and status_filter not in allowed_statuses:
+        return jsonify({"success": False, "message": "Invalid delivery status filter."}), 400
+    try:
+        page = max(1, int(request.args.get("page", 1)))
+        per_page = min(200, max(10, int(request.args.get("per_page", 100))))
+    except (TypeError, ValueError):
+        return jsonify({"success": False, "message": "Invalid pagination values."}), 400
+    delivery_query = NewsletterDelivery.query.filter_by(campaign_id=campaign.id)
+    if status_filter:
+        delivery_query = delivery_query.filter_by(status=status_filter)
+    total_deliveries = delivery_query.count()
+    deliveries = delivery_query.order_by(NewsletterDelivery.recipient_hash.asc()).offset((page - 1) * per_page).limit(per_page).all()
+    report_entries = json.loads(campaign.result_report_json or "[]")
     return jsonify({
         "success": True,
         "campaign": campaign_summary(
@@ -2377,6 +2414,31 @@ def get_newsletter_campaign(campaign_id):
             include_subject=True,
             include_error=has_permission(user, "Newsletter", "view_all_campaigns"),
         ),
+        "deliveries": [
+            {
+                "recipient": item.recipient,
+                "status": item.status,
+                "attempts": item.attempts,
+                "error": item.error or "",
+                "message_id": item.message_id or "",
+                "sent_at": item.sent_at.isoformat() + "Z" if item.sent_at else None,
+                "updated_at": item.updated_at.isoformat() + "Z" if item.updated_at else None,
+            }
+            for item in deliveries
+        ],
+        "delivery_counts": _campaign_counts(campaign.id),
+        "pagination": {
+            "page": page,
+            "per_page": per_page,
+            "total": total_deliveries,
+            "pages": max(1, (total_deliveries + per_page - 1) // per_page),
+        },
+        "result_report": {
+            "status": campaign.result_report_status or "NotRequested",
+            "use_gpg": bool(campaign.result_report_use_gpg),
+            "recipients": report_entries,
+            "updated_at": campaign.result_report_updated_at.isoformat() + "Z" if campaign.result_report_updated_at else None,
+        },
     })
 
 
@@ -2414,6 +2476,13 @@ def retry_newsletter_campaign(campaign_id):
     campaign.cancel_requested = False
     campaign.ended_at = None
     campaign.error_summary = None
+    report_entries = json.loads(campaign.result_report_json or "[]")
+    if report_entries:
+        for item in report_entries:
+            item.update({"status": "Pending", "error": "", "sent_at": None})
+        campaign.result_report_json = json.dumps(report_entries, ensure_ascii=False)
+        campaign.result_report_status = "Pending"
+        campaign.result_report_updated_at = datetime.utcnow()
     if campaign.task_id:
         task = db.session.get(Task, campaign.task_id)
         if task:
@@ -2821,6 +2890,161 @@ def _campaign_counts(campaign_id):
     return counts
 
 
+def _campaign_result_csv(campaign):
+    def safe_cell(value):
+        text = str(value or "")
+        return f"'{text}" if text.startswith(("=", "+", "-", "@")) else text
+
+    output = io.StringIO(newline="")
+    writer = csv.writer(output)
+    writer.writerow(["recipient", "status", "attempts", "error", "sent_at", "message_id"])
+    deliveries = NewsletterDelivery.query.filter_by(campaign_id=campaign.id).order_by(NewsletterDelivery.recipient_hash.asc()).all()
+    for delivery in deliveries:
+        writer.writerow([
+            safe_cell(delivery.recipient),
+            delivery.status,
+            delivery.attempts,
+            safe_cell(delivery.error),
+            delivery.sent_at.isoformat() + "Z" if delivery.sent_at else "",
+            delivery.message_id or "",
+        ])
+    return output.getvalue().encode("utf-8-sig"), deliveries
+
+
+def deliver_campaign_result_report(campaign, smtp_config, gpg_path, keyserver):
+    """Deliver a durable per-recipient result report without changing campaign outcome."""
+    entries = json.loads(campaign.result_report_json or "[]")
+    pending_indexes = [index for index, item in enumerate(entries) if item.get("status") == "Pending"]
+    if not pending_indexes:
+        return
+
+    csv_payload, deliveries = _campaign_result_csv(campaign)
+    failures = [item for item in deliveries if item.status != "Sent"]
+    failure_lines = [
+        f"- {item.recipient}: {item.status}; {item.error or 'No additional error details'}"
+        for item in failures[:100]
+    ]
+    if len(failures) > 100:
+        failure_lines.append(f"- ...and {len(failures) - 100} more; see the attached CSV.")
+    body = "\n".join([
+        "WinHUB Newsletter campaign result",
+        "",
+        f"Campaign ID: {campaign.id}",
+        f"Source: {campaign.source}",
+        f"Subject: {campaign.subject}",
+        f"Status: {campaign.status}",
+        f"Total: {campaign.total_count}",
+        f"Sent: {campaign.sent_count}",
+        f"Failed/unknown: {campaign.failed_count}",
+        f"Skipped: {campaign.skipped_count}",
+        "",
+        "Unsuccessful deliveries:",
+        *(failure_lines or ["- None"]),
+        "",
+        "The attached CSV contains the complete per-recipient delivery report.",
+    ])
+    attachment = {
+        "filename": f"newsletter-result-{campaign.id}.csv",
+        "content_type": "text/csv",
+        "content": csv_payload,
+    }
+
+    campaign.result_report_status = "Sending"
+    campaign.result_report_updated_at = datetime.utcnow()
+    for index in pending_indexes:
+        entries[index]["status"] = "Sending"
+        entries[index]["error"] = ""
+    campaign.result_report_json = json.dumps(entries, ensure_ascii=False)
+    db.session.commit()
+
+    server = None
+    try:
+        server = open_smtp_connection(smtp_config['host'], smtp_config['port'], "newsletter result report", timeout=30)
+        server.login(campaign.sender_email, decrypt_pass(smtp_config['password']))
+        for index in pending_indexes:
+            recipient = entries[index]["recipient"]
+            try:
+                clear_msg = build_clear_message(
+                    campaign.sender_email,
+                    recipient,
+                    f"[WinHUB Newsletter] {campaign.status}: {campaign.subject}",
+                    body,
+                    attachments=[attachment],
+                )
+                clear_msg["Message-ID"] = f"<newsletter.result.{campaign.id}.{index}@winhub.local>"
+                final_msg = clear_msg
+                if campaign.result_report_use_gpg:
+                    ready, reason = ensure_gpg_key_ready(gpg_path, keyserver, recipient)
+                    if not ready:
+                        raise ValueError(reason)
+                    encrypted, payload = encrypt_with_gpg(gpg_path, recipient, clear_msg.as_bytes())
+                    if not encrypted:
+                        raise ValueError(payload)
+                    final_msg = build_encrypted_message(
+                        campaign.sender_email,
+                        recipient,
+                        f"[WinHUB Newsletter] {campaign.status}: {campaign.subject}",
+                        payload,
+                    )
+                    final_msg["Message-ID"] = f"<newsletter.result.{campaign.id}.{index}@winhub.local>"
+                server.send_message(final_msg)
+                entries[index]["status"] = "Sent"
+                entries[index]["sent_at"] = datetime.utcnow().isoformat() + "Z"
+                entries[index]["error"] = ""
+            except Exception as error:
+                entries[index]["status"] = "Failed"
+                entries[index]["error"] = str(error)[:2000]
+            campaign.result_report_json = json.dumps(entries, ensure_ascii=False)
+            campaign.result_report_updated_at = datetime.utcnow()
+            db.session.commit()
+    finally:
+        if server:
+            try:
+                server.quit()
+            except Exception:
+                pass
+
+    statuses = [item.get("status") for item in entries]
+    sent_count = statuses.count("Sent")
+    campaign.result_report_status = "Completed" if sent_count == len(statuses) else ("Partial" if sent_count else "Failed")
+    campaign.result_report_json = json.dumps(entries, ensure_ascii=False)
+    campaign.result_report_updated_at = datetime.utcnow()
+    db.session.commit()
+    try:
+        WinHubCore.audit(
+            user_id=campaign.user_id,
+            username="Newsletter Worker",
+            module="Newsletter",
+            action="Campaign Result Report Delivered",
+            target_type="newsletter_campaign",
+            target_id=campaign.id,
+            details={
+                "campaign_id": campaign.id,
+                "report_recipients_count": len(entries),
+                "sent_count": sent_count,
+                "failed_count": len(entries) - sent_count,
+                "use_gpg": bool(campaign.result_report_use_gpg),
+            },
+            status="Success" if sent_count == len(entries) else "Warning",
+        )
+    except Exception:
+        log.error("Could not audit Newsletter result report delivery: %s", traceback.format_exc())
+
+
+def mark_campaign_result_report_failed(campaign, error):
+    entries = json.loads(campaign.result_report_json or "[]")
+    if not entries:
+        return
+    for item in entries:
+        if item.get("status") in {"Pending", "Sending"}:
+            item["status"] = "Failed"
+            item["error"] = str(error)[:2000]
+    campaign.result_report_json = json.dumps(entries, ensure_ascii=False)
+    campaign.result_report_status = "Failed"
+    campaign.result_report_updated_at = datetime.utcnow()
+    db.session.commit()
+
+
 def execute_queued_campaign(app, campaign_id):
     """Execute one durable campaign. The dedicated worker is the only production caller."""
     with app.app_context():
@@ -2838,6 +3062,7 @@ def execute_queued_campaign(app, campaign_id):
                 task.status = "Error"
                 task.ended_at = campaign.ended_at
             db.session.commit()
+            mark_campaign_result_report_failed(campaign, "Sender profile not found; result report could not be delivered.")
             return False
 
         attachments = attachment_restore(campaign.attachments_json)
@@ -2929,6 +3154,12 @@ def execute_queued_campaign(app, campaign_id):
                 task.status = "Success" if campaign.status == "Completed" else ("Warning" if campaign.sent_count else "Error")
                 task.ended_at = campaign.ended_at
             db.session.commit()
+            if server:
+                try:
+                    server.quit()
+                except Exception:
+                    pass
+                server = None
             WinHubCore.audit(
                 user_id=campaign.user_id,
                 username="Newsletter Worker",
@@ -2947,6 +3178,11 @@ def execute_queued_campaign(app, campaign_id):
                 },
                 status="Success" if campaign.status == "Completed" else "Warning",
             )
+            try:
+                deliver_campaign_result_report(campaign, smtp_config, gpg_path, keyserver)
+            except Exception as report_error:
+                log.error("Newsletter campaign %s result report failed: %s", campaign.id, traceback.format_exc())
+                mark_campaign_result_report_failed(campaign, report_error)
             return True
         except Exception as error:
             log.error("Newsletter campaign %s failed: %s", campaign.id, traceback.format_exc())
@@ -2962,6 +3198,17 @@ def execute_queued_campaign(app, campaign_id):
                 task.status = "Error"
                 task.ended_at = campaign.ended_at
             db.session.commit()
+            if server:
+                try:
+                    server.quit()
+                except Exception:
+                    pass
+                server = None
+            try:
+                deliver_campaign_result_report(campaign, smtp_config, gpg_path, keyserver)
+            except Exception as report_error:
+                log.error("Newsletter campaign %s failure report failed: %s", campaign.id, traceback.format_exc())
+                mark_campaign_result_report_failed(campaign, report_error)
             return False
         finally:
             if server:
@@ -2997,6 +3244,16 @@ def recover_interrupted_campaigns():
         campaign.status = "Queued" if pending else "Partial"
         if not pending:
             campaign.ended_at = datetime.utcnow()
+    interrupted_reports = NewsletterCampaign.query.filter_by(result_report_status="Sending").all()
+    for campaign in interrupted_reports:
+        entries = json.loads(campaign.result_report_json or "[]")
+        for item in entries:
+            if item.get("status") == "Sending":
+                item["status"] = "Unknown"
+                item["error"] = "Worker restarted while the result report was being delivered; it was not resent automatically."
+        campaign.result_report_json = json.dumps(entries, ensure_ascii=False)
+        campaign.result_report_status = "Unknown"
+        campaign.result_report_updated_at = datetime.utcnow()
     db.session.commit()
 
 
