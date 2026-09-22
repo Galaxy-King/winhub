@@ -27,7 +27,7 @@ The inbound route never takes target lists from the email subject. Targets are f
 | `view_newsletter` / legacy `View` | Open Newsletter and view the user's own campaigns |
 | `send_campaigns` | Create, cancel, and retry the user's own campaigns |
 | `manage_lists` | Create, rename, and delete local mailing lists |
-| `manage_smtp` | Manage SMTP/IMAP mail profiles and their secrets |
+| `manage_smtp` | Manage SMTP/IMAP mail profiles and their secrets; view read-only GPG private-key status |
 | `manage_inbound_routes` | Manage inbound routes and LDAP/FreeIPA profiles |
 | `check_recipient_keys` | Scan list recipients and view key status/fingerprints |
 | `refresh_recipient_keys` | Explicitly import missing or expired recipient keys from a list keyserver |
@@ -81,6 +81,8 @@ WSL and Debian use the same Linux commands, but they are different machines in t
 - **WINHUB SERVER** means the production Debian server where `/opt/winhub` is installed.
 
 If both machines run Debian, the commands remain the same. Pay attention to the label before every step. Replace `FULL_FINGERPRINT` with the mailbox key's complete fingerprint and `SERVER_ADDRESS` with the server DNS name or IP address. Never commit the exported file, attach it to a ticket, or send it through email or chat.
+
+The commands `gpg --list-secret-keys` and `gpg --export-secret-keys` see only keys stored in the GnuPG keyring used by that terminal, normally `~/.gnupg`. Thunderbird, another mail client, or a graphical key manager may keep keys in another database. If the key is not listed, export the private key manually from that application's key manager, or use an existing protected private-key backup file. The remaining steps require only the path to that exported file.
 
 1. **ADMIN COMPUTER — WSL or Debian.** List the secret keys:
 
@@ -152,6 +154,8 @@ If both machines run Debian, the commands remain the same. Pay attention to the 
    ```
 
    Send one message encrypted for the mailbox private key and signed by a fingerprint approved on the inbound route. A successful Mail Profile test checks SMTP/IMAP connectivity; the encrypted and signed test message proves the complete GPG relay flow.
+
+Open **Newsletter → Settings → GPG Key Status** to verify what the WinHUB service can actually see. This page is read-only: it displays fingerprints, UIDs, dates, capabilities, and structural usability, but never private-key material or passphrases. It does not test the passphrase or decrypt a message, so finish with the encrypted and signed end-to-end test described above.
 
 ### Configure local mailing lists
 
@@ -306,7 +310,7 @@ Inbound route ніколи не бере цільові списки з теми
 | `view_newsletter` / legacy `View` | Відкрити модуль і переглядати власні кампанії |
 | `send_campaigns` | Створювати, скасовувати й повторювати власні кампанії |
 | `manage_lists` | Створювати, перейменовувати й видаляти локальні списки |
-| `manage_smtp` | Керувати SMTP/IMAP mail profiles та їх секретами |
+| `manage_smtp` | Керувати SMTP/IMAP mail profiles та їх секретами; переглядати read-only статус приватних GPG-ключів |
 | `manage_inbound_routes` | Керувати inbound routes та LDAP/FreeIPA profiles |
 | `check_recipient_keys` | Перевіряти ключі списку та бачити status/fingerprint |
 | `refresh_recipient_keys` | Явно імпортувати або оновлювати ключі з keyserver списку |
@@ -360,6 +364,8 @@ WSL і Debian використовують однакові Linux-команди
 - **СЕРВЕР WINHUB** — production-сервер Debian, де встановлено `/opt/winhub`.
 
 Якщо обидві машини працюють на Debian, команди не змінюються. Перед кожним кроком дивіться на позначку машини. Замініть `FULL_FINGERPRINT` на повний fingerprint ключа mailbox, а `SERVER_ADDRESS` — на DNS-ім'я або IP сервера. Не додавайте експортований файл у Git, не прикріплюйте його до заявок і не передавайте поштою або в чаті.
+
+Команди `gpg --list-secret-keys` і `gpg --export-secret-keys` бачать лише ключі у GnuPG keyring цього термінала, зазвичай `~/.gnupg`. Thunderbird, інший поштовий клієнт або графічний менеджер ключів можуть зберігати ключі в іншій базі. Якщо ключ не відображається, експортуйте приватний ключ вручну з менеджера ключів цієї програми або використайте наявний захищений backup-файл приватного ключа. Для наступних кроків потрібний лише шлях до експортованого файла.
 
 1. **КОМП'ЮТЕР АДМІНІСТРАТОРА — WSL або Debian.** Покажіть секретні ключі:
 
@@ -431,6 +437,8 @@ WSL і Debian використовують однакові Linux-команди
    ```
 
    Надішліть один лист, зашифрований для приватного ключа mailbox і підписаний ключем, fingerprint якого дозволено в inbound route. Успішний Test Mail Profile перевіряє SMTP/IMAP, а тестовий зашифрований і підписаний лист — увесь GPG relay flow.
+
+Відкрийте **Newsletter → Settings → GPG Key Status**, щоб перевірити, які ключі фактично бачить служба WinHUB. Сторінка працює лише на читання: показує fingerprints, UID, дати, можливості та структурну придатність, але ніколи не показує матеріал приватного ключа або парольні фрази. Вона не перевіряє парольну фразу й не розшифровує лист, тому завершіть перевірку наскрізним зашифрованим і підписаним тестовим листом, описаним вище.
 
 ### Налаштування локальних списків
 

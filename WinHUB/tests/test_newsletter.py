@@ -83,6 +83,41 @@ class NewsletterSafetyTests(unittest.TestCase):
         self.assertIn(b"signed", payload)
         self.assertEqual(fingerprints, ["A" * 40])
 
+    def test_secret_gpg_key_status_returns_metadata_only(self):
+        fingerprint = "A" * 40
+        completed = mock.Mock(
+            returncode=0,
+            stdout="\n".join([
+                "sec:u:3072:1:ABCDEF0123456789:1700000000:1890000000:::::sc:::::",
+                f"fpr:::::::::{fingerprint}:",
+                "uid:u::::::::Newsletter Mailbox <newsletter@example.com>:",
+                "ssb:u:3072:1:0123456789ABCDEF:1700000000:1890000000:::::e:::::",
+            ]),
+            stderr="",
+        )
+        with mock.patch("subprocess.run", return_value=completed) as run:
+            ok, message, keys = routes.list_secret_gpg_keys("gpg")
+
+        self.assertTrue(ok)
+        self.assertEqual(message, "OK")
+        self.assertEqual(len(keys), 1)
+        self.assertEqual(keys[0]["fingerprint"], fingerprint)
+        self.assertEqual(keys[0]["key_id"], "ABCDEF0123456789")
+        self.assertEqual(keys[0]["uids"], ["Newsletter Mailbox <newsletter@example.com>"])
+        self.assertTrue(keys[0]["can_encrypt"])
+        self.assertTrue(keys[0]["can_sign"])
+        self.assertEqual(keys[0]["status"], "Ready")
+        self.assertNotIn("private", keys[0])
+        self.assertEqual(run.call_args.kwargs["stdin"], routes.subprocess.DEVNULL)
+
+    def test_secret_gpg_key_status_requires_mail_profile_permission(self):
+        denied = ("Forbidden", 403)
+        with mock.patch.object(routes, "require_permission", return_value=denied) as require_permission:
+            response = routes.gpg_secret_key_status()
+
+        self.assertEqual(response, denied)
+        require_permission.assert_called_once_with("manage_smtp")
+
     def test_newsletter_html_keeps_formatting_without_active_content(self):
         rendered = routes.sanitize_newsletter_html(
             '<p style="text-align:center" onclick="bad()"><b>Hello</b>'
@@ -157,6 +192,8 @@ class NewsletterSafetyTests(unittest.TestCase):
         self.assertIn("Як додати приватний ключ поштової скриньки на Debian", template)
         self.assertIn("runuser -u winhub -- env GNUPGHOME=/var/lib/winhub/gnupg", template)
         self.assertIn("--list-secret-keys --keyid-format LONG", template)
+        self.assertIn("GPG Key Status", template)
+        self.assertIn("/api/newsletter/gpg/secret-keys", template)
 
     def test_dedicated_worker_is_packaged_and_managed(self):
         root = Path(routes.MODULE_DIR).parents[1]
