@@ -75,9 +75,14 @@ Renaming a profile updates inbound references. Deleting a profile used by a rout
 
 This private key lets WinHUB decrypt messages received by an inbound relay mailbox. It is not the sender's signing key and it is not a recipient's public encryption key. The production worker runs as `winhub` and reads `/var/lib/winhub/gnupg`; importing the key into root's default keyring will not work.
 
-Use a trusted administrator computer and the WinHUB server. Replace `FULL_FINGERPRINT` with the mailbox key's complete fingerprint and `SERVER_ADDRESS` with the server DNS name or IP address. Never commit the exported file, attach it to a ticket, or send it through email or chat.
+WSL and Debian use the same Linux commands, but they are different machines in this procedure:
 
-1. On the trusted computer that already contains the key, list the secret keys:
+- **ADMIN COMPUTER** means your WSL terminal on Windows or a trusted Debian workstation where the private key already exists;
+- **WINHUB SERVER** means the production Debian server where `/opt/winhub` is installed.
+
+If both machines run Debian, the commands remain the same. Pay attention to the label before every step. Replace `FULL_FINGERPRINT` with the mailbox key's complete fingerprint and `SERVER_ADDRESS` with the server DNS name or IP address. Never commit the exported file, attach it to a ticket, or send it through email or chat.
+
+1. **ADMIN COMPUTER — WSL or Debian.** List the secret keys:
 
    ```bash
    gpg --list-secret-keys --keyid-format LONG
@@ -92,7 +97,7 @@ Use a trusted administrator computer and the WinHUB server. Replace `FULL_FINGER
 
    The exported file contains the private key. Keep the terminal and directory private until it is removed.
 
-2. From WSL, copy the file directly to root's protected directory on the server:
+2. **ADMIN COMPUTER — WSL or Debian.** Copy the file directly to root's protected directory on the server:
 
    ```bash
    scp ./winhub-mailbox-private.asc root@SERVER_ADDRESS:/root/winhub-mailbox-private.asc
@@ -100,7 +105,7 @@ Use a trusted administrator computer and the WinHUB server. Replace `FULL_FINGER
 
    When SSH asks about a new host, verify the server host-key fingerprint through a trusted channel before accepting it.
 
-3. Log in to the server as `root`, lock down the file, and create the WinHUB keyring:
+3. **WINHUB SERVER — Debian as `root`.** Log in, lock down the file, and create the WinHUB keyring:
 
    ```bash
    ssh root@SERVER_ADDRESS
@@ -108,13 +113,13 @@ Use a trusted administrator computer and the WinHUB server. Replace `FULL_FINGER
    install -d -o winhub -g winhub -m 0700 /var/lib/winhub/gnupg
    ```
 
-4. Import the key as the same `winhub` account that runs the Newsletter worker. Root performs the input redirection, so no second temporary copy is needed:
+4. **WINHUB SERVER.** Import the key as the same `winhub` account that runs the Newsletter worker. Root performs the input redirection, so no second temporary copy is needed:
 
    ```bash
    runuser -u winhub -- env GNUPGHOME=/var/lib/winhub/gnupg /usr/bin/gpg --batch --import < /root/winhub-mailbox-private.asc
    ```
 
-5. Verify that a `sec` entry is present and compare the full fingerprint with the trusted source:
+5. **WINHUB SERVER.** Verify that a `sec` entry is present and compare the full fingerprint with the trusted source:
 
    ```bash
    runuser -u winhub -- env GNUPGHOME=/var/lib/winhub/gnupg /usr/bin/gpg --list-secret-keys --keyid-format LONG
@@ -123,18 +128,23 @@ Use a trusted administrator computer and the WinHUB server. Replace `FULL_FINGER
 
    If the expected fingerprint is absent, stop and do not enable the inbound route.
 
-6. Remove the exported copies. Run the first command on the server and the second on the trusted computer:
+6. **WINHUB SERVER.** Remove the transferred copy:
 
    ```bash
    shred -u /root/winhub-mailbox-private.asc
+   ```
+
+7. **ADMIN COMPUTER — WSL or Debian.** Remove the local exported copy:
+
+   ```bash
    shred -u ./winhub-mailbox-private.asc
    ```
 
    `shred` is only best-effort on SSDs, snapshots, and copy-on-write filesystems. Ensure that the exported file was not synchronized to cloud storage and protect any deliberate encrypted backup separately.
 
-7. In **Newsletter → Settings → Mail Profiles**, edit this mailbox profile. Enter the key's password in **GPG Key Passphrase**, select **Test Mail Profile**, and save. Do not put the passphrase in a shell command or shell history.
+8. In **Newsletter → Settings → Mail Profiles**, edit this mailbox profile. Enter the key's password in **GPG Key Passphrase**, select **Test Mail Profile**, and save. Do not put the passphrase in a shell command or shell history.
 
-8. Check the worker and perform a small end-to-end test:
+9. **WINHUB SERVER.** Check the worker and perform a small end-to-end test:
 
    ```bash
    systemctl status winhub-newsletter --no-pager
@@ -344,9 +354,14 @@ Inbound route ніколи не бере цільові списки з теми
 
 Цей приватний ключ дає WinHUB змогу розшифровувати листи, які надходять на mailbox для inbound relay. Це не ключ підпису відправника і не публічний ключ отримувача. Production worker працює від користувача `winhub` та читає `/var/lib/winhub/gnupg`, тому імпорт у стандартний keyring користувача `root` не спрацює.
 
-Потрібні довірений адміністраторський комп'ютер і сервер WinHUB. Замініть `FULL_FINGERPRINT` на повний fingerprint ключа mailbox, а `SERVER_ADDRESS` — на DNS-ім'я або IP сервера. Не додавайте експортований файл у Git, не прикріплюйте його до заявок і не передавайте поштою або в чаті.
+WSL і Debian використовують однакові Linux-команди, але в цій інструкції це різні машини:
 
-1. На довіреному комп'ютері, де вже є ключ, покажіть секретні ключі:
+- **КОМП'ЮТЕР АДМІНІСТРАТОРА** — термінал WSL у Windows або довірений Debian-комп'ютер, де вже є приватний ключ;
+- **СЕРВЕР WINHUB** — production-сервер Debian, де встановлено `/opt/winhub`.
+
+Якщо обидві машини працюють на Debian, команди не змінюються. Перед кожним кроком дивіться на позначку машини. Замініть `FULL_FINGERPRINT` на повний fingerprint ключа mailbox, а `SERVER_ADDRESS` — на DNS-ім'я або IP сервера. Не додавайте експортований файл у Git, не прикріплюйте його до заявок і не передавайте поштою або в чаті.
+
+1. **КОМП'ЮТЕР АДМІНІСТРАТОРА — WSL або Debian.** Покажіть секретні ключі:
 
    ```bash
    gpg --list-secret-keys --keyid-format LONG
@@ -361,7 +376,7 @@ Inbound route ніколи не бере цільові списки з теми
 
    У цьому файлі міститься приватний ключ. До видалення файла не залишайте термінал і каталог доступними стороннім.
 
-2. Із WSL скопіюйте файл безпосередньо в захищений каталог `root` на сервері:
+2. **КОМП'ЮТЕР АДМІНІСТРАТОРА — WSL або Debian.** Скопіюйте файл безпосередньо в захищений каталог `root` на сервері:
 
    ```bash
    scp ./winhub-mailbox-private.asc root@SERVER_ADDRESS:/root/winhub-mailbox-private.asc
@@ -369,7 +384,7 @@ Inbound route ніколи не бере цільові списки з теми
 
    Якщо SSH уперше просить підтвердити новий host, спочатку звірте fingerprint SSH-ключа сервера через довірений канал.
 
-3. Увійдіть на сервер як `root`, обмежте права файла та створіть keyring WinHUB:
+3. **СЕРВЕР WINHUB — Debian від `root`.** Увійдіть на сервер, обмежте права файла та створіть keyring WinHUB:
 
    ```bash
    ssh root@SERVER_ADDRESS
@@ -377,13 +392,13 @@ Inbound route ніколи не бере цільові списки з теми
    install -d -o winhub -g winhub -m 0700 /var/lib/winhub/gnupg
    ```
 
-4. Імпортуйте ключ від того самого користувача `winhub`, від якого працює Newsletter worker. Перенаправлення вводу виконує root-shell, тому друга тимчасова копія не створюється:
+4. **СЕРВЕР WINHUB.** Імпортуйте ключ від того самого користувача `winhub`, від якого працює Newsletter worker. Перенаправлення вводу виконує root-shell, тому друга тимчасова копія не створюється:
 
    ```bash
    runuser -u winhub -- env GNUPGHOME=/var/lib/winhub/gnupg /usr/bin/gpg --batch --import < /root/winhub-mailbox-private.asc
    ```
 
-5. Переконайтеся, що є рядок `sec`, і звірте повний fingerprint із довіреним джерелом:
+5. **СЕРВЕР WINHUB.** Переконайтеся, що є рядок `sec`, і звірте повний fingerprint із довіреним джерелом:
 
    ```bash
    runuser -u winhub -- env GNUPGHOME=/var/lib/winhub/gnupg /usr/bin/gpg --list-secret-keys --keyid-format LONG
@@ -392,18 +407,23 @@ Inbound route ніколи не бере цільові списки з теми
 
    Якщо очікуваного fingerprint немає, зупиніться й не вмикайте inbound route.
 
-6. Видаліть експортовані копії. Першу команду виконайте на сервері, другу — на довіреному комп'ютері:
+6. **СЕРВЕР WINHUB.** Видаліть передану копію:
 
    ```bash
    shred -u /root/winhub-mailbox-private.asc
+   ```
+
+7. **КОМП'ЮТЕР АДМІНІСТРАТОРА — WSL або Debian.** Видаліть локальну експортовану копію:
+
+   ```bash
    shred -u ./winhub-mailbox-private.asc
    ```
 
    Для SSD, snapshots і copy-on-write файлових систем `shred` дає лише best-effort результат. Переконайтеся, що файл не синхронізувався у хмарне сховище, а навмисну зашифровану резервну копію захищайте окремо.
 
-7. У **Newsletter → Settings → Mail Profiles** відредагуйте профіль цієї скриньки. Введіть пароль ключа в **GPG Key Passphrase**, натисніть **Test Mail Profile** і збережіть профіль. Не передавайте пароль у shell-командах і не залишайте його в історії команд.
+8. У **Newsletter → Settings → Mail Profiles** відредагуйте профіль цієї скриньки. Введіть пароль ключа в **GPG Key Passphrase**, натисніть **Test Mail Profile** і збережіть профіль. Не передавайте пароль у shell-командах і не залишайте його в історії команд.
 
-8. Перевірте worker і виконайте малий наскрізний тест:
+9. **СЕРВЕР WINHUB.** Перевірте worker і виконайте малий наскрізний тест:
 
    ```bash
    systemctl status winhub-newsletter --no-pager

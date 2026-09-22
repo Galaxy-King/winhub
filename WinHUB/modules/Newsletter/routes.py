@@ -1415,7 +1415,7 @@ def poll_inbound_mailbox(app, mailbox):
 
 def inbound_worker(app):
     startup_delay = env_int("NEWSLETTER_INBOUND_STARTUP_DELAY_SECONDS", 5, 0)
-    poll_seconds = env_int("NEWSLETTER_INBOUND_POLL_SECONDS", 60, 10)
+    poll_seconds = env_int("NEWSLETTER_ROUTE_POLL_SECONDS", 60, 10)
     time.sleep(startup_delay)
     log.info("Newsletter inbound relay worker started; polling every %s seconds.", poll_seconds)
     while True:
@@ -3259,7 +3259,7 @@ def recover_interrupted_campaigns():
 
 def run_newsletter_worker(app, once=False):
     poll_seconds = env_int("NEWSLETTER_WORKER_POLL_SECONDS", 5, 1)
-    inbound_poll_seconds = env_int("NEWSLETTER_INBOUND_POLL_SECONDS", 60, 10)
+    inbound_poll_seconds = env_int("NEWSLETTER_ROUTE_POLL_SECONDS", 60, 10)
     next_inbound_poll = 0.0
     with app.app_context():
         recover_interrupted_campaigns()
