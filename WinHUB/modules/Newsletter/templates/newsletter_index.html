@@ -401,7 +401,7 @@
                 <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 6.253v13M5 5.5A2.5 2.5 0 017.5 3H20v15H7.5A2.5 2.5 0 005 20.5v-15z"></path></svg>
                 Guide
             </button>
-            {% if permissions.manage_smtp %}
+            {% if permissions.manage_smtp or permissions.manage_inbound_routes %}
             <button onclick="openSmtpModal()" class="flex items-center gap-2 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold py-2 px-4 rounded-lg border border-slate-300 transition-colors text-sm">
                 <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z"></path><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"></path></svg>
                 Settings
@@ -447,7 +447,7 @@
                     <div class="campaign-section">
                         <div class="text-xs font-black uppercase tracking-wider text-indigo-600 mb-2">Step 2 · Audience</div>
                         <label class="block text-base font-bold text-slate-700 mb-2">Recipient lists*</label>
-                        <p id="nlRecipientDomainHint" class="text-xs text-slate-500 mb-2"></p>
+                        <p id="nlRecipientDomainHint" class="text-xs text-slate-500 mb-2">Every entry must be a full email address unless that list has its own explicit default domain.</p>
                         <div id="nlListsCheckboxes" class="border border-slate-200 rounded-lg p-4 bg-slate-50 max-h-48 overflow-y-auto space-y-2">
                             <span class="text-slate-500 text-sm italic">Loading lists...</span>
                         </div>
@@ -610,6 +610,18 @@
                 </div>
 
                 <div class="guide-section">
+                    <h4>Access Levels</h4>
+                    <ul>
+                        <li><code>view_newsletter</code> opens the module and shows only the user's own campaigns.</li>
+                        <li><code>send_campaigns</code> creates, cancels, and retries the user's own campaigns.</li>
+                        <li><code>manage_lists</code> edits recipient lists; <code>check_recipient_keys</code> scans their keys.</li>
+                        <li><code>refresh_recipient_keys</code> is a separate high-trust permission for keyserver imports.</li>
+                        <li><code>manage_smtp</code> manages mail profiles and secrets; <code>manage_inbound_routes</code> separately manages inbound and LDAP rules.</li>
+                        <li><code>view_all_campaigns</code> shows every operator's campaigns and full processing errors.</li>
+                    </ul>
+                </div>
+
+                <div class="guide-section">
                     <h4>Mode 1: Manual Campaign</h4>
                     <ol>
                         <li>Create and test a <code>Mail Profile</code>, then create at least one local recipient list.</li>
@@ -654,7 +666,7 @@
                         <li><code>Allowed Signer Fingerprints</code> lists the full fingerprints that are permitted to authorize an inbound campaign.</li>
                         <li><code>Local Mailing Lists</code> are manually managed recipient lists inside Newsletter.</li>
                         <li><code>LDAP Groups</code> are external directory groups resolved through LDAP / FreeIPA.</li>
-                        <li><code>Recipient Domain</code> is appended only to local list entries without @. Example: <code>spock</code> plus <code>@example.com</code> becomes <code>spock@example.com</code>.</li>
+                        <li>Short aliases are resolved only by the <code>Default Email Domain</code> saved on that particular list. There is no global fallback.</li>
                         <li><code>Recipient Keyserver</code> overrides the send profile keyserver for this route.</li>
                     </ul>
                 </div>
@@ -663,7 +675,7 @@
                     <h4>Recipient List Types</h4>
                     <ul>
                         <li><code>Manual campaign lists</code> are used when an operator sends a newsletter directly from the editor.</li>
-                        <li><code>Local mailing lists</code> are stored in WinHUB and can contain full emails or short usernames.</li>
+                        <li><code>Local mailing lists</code> contain full emails, or short aliases only when the list has an explicit default domain.</li>
                         <li><code>LDAP / FreeIPA groups</code> are resolved dynamically. WinHUB reads group members and uses the configured email attribute, usually <code>mail</code>.</li>
                         <li>If the same email appears in several lists or groups, WinHUB sends only one message to that address.</li>
                     </ul>
@@ -685,6 +697,8 @@
                         <li>Inbound emails must be encrypted for the private key of the mailbox that WinHUB reads.</li>
                         <li>Outgoing messages are encrypted separately for each recipient public key.</li>
                         <li>Outgoing encryption requires a usable public key for every recipient. Preflight blocks a manual campaign when a key is missing.</li>
+                        <li>The List Editor can scan every recipient, show fingerprints, and explicitly fetch missing or unusable keys from the list keyserver when the operator has that permission.</li>
+                        <li>During delivery an unusable existing key is refreshed only by its known fingerprint; a missing key is never silently trusted by email address.</li>
                         <li>Inbound email must be both encrypted for WinHUB and validly signed by one of the route's approved fingerprints. A matching From address alone is not sufficient.</li>
                     </ul>
                 </div>
@@ -714,6 +728,18 @@
                 <div class="guide-section">
                     <h4>Що робить модуль</h4>
                     <p>Newsletter має два режими запуску: оператор ставить ручну кампанію в чергу через вебінтерфейс або перевірений лист створює кампанію через inbound relay route. Обидва режими використовують одну стійку чергу в БД та окремий worker <code>winhub-newsletter</code>.</p>
+                </div>
+
+                <div class="guide-section">
+                    <h4>Рівні доступу</h4>
+                    <ul>
+                        <li><code>view_newsletter</code> відкриває модуль і показує лише власні кампанії користувача.</li>
+                        <li><code>send_campaigns</code> створює, скасовує та повторює власні кампанії.</li>
+                        <li><code>manage_lists</code> редагує списки; <code>check_recipient_keys</code> перевіряє їх ключі.</li>
+                        <li><code>refresh_recipient_keys</code> — окремий високодовірений дозвіл на імпорт із keyserver.</li>
+                        <li><code>manage_smtp</code> керує mail profiles і секретами; <code>manage_inbound_routes</code> окремо керує inbound та LDAP.</li>
+                        <li><code>view_all_campaigns</code> показує кампанії всіх операторів і повні помилки обробки.</li>
+                    </ul>
                 </div>
 
                 <div class="guide-section">
@@ -761,7 +787,7 @@
                         <li><code>Allowed Signer Fingerprints</code> містить повні fingerprints ключів, яким дозволено авторизувати inbound-кампанію.</li>
                         <li><code>Local Mailing Lists</code> це списки отримувачів, які зберігаються в самому WinHUB.</li>
                         <li><code>LDAP Groups</code> це групи з LDAP / FreeIPA, які WinHUB читає через LDAP-профіль.</li>
-                        <li><code>Recipient Domain</code> додається тільки до локальних записів без @. Наприклад <code>spock</code> плюс <code>@example.com</code> стане <code>spock@example.com</code>.</li>
+                        <li>Короткі ніки доповнюються лише <code>Default Email Domain</code>, який явно збережений у конкретному списку. Глобального fallback немає.</li>
                         <li><code>Recipient Keyserver</code> перевизначає keyserver профілю відправника саме для цього route.</li>
                     </ul>
                 </div>
@@ -770,7 +796,7 @@
                     <h4>Типи списків отримувачів</h4>
                     <ul>
                         <li><code>Manual campaign lists</code> використовуються, коли оператор вручну створює розсилку з редактора.</li>
-                        <li><code>Local mailing lists</code> зберігаються у WinHUB і можуть містити повні email-адреси або короткі ніки.</li>
+                        <li><code>Local mailing lists</code> містять повні email-адреси або короткі ніки лише тоді, коли список має явно заданий default domain.</li>
                         <li><code>LDAP / FreeIPA groups</code> беруться з корпоративного каталогу. WinHUB читає учасників групи й бере email з налаштованого атрибута, зазвичай <code>mail</code>.</li>
                         <li>Якщо одна адреса є в кількох списках або групах, WinHUB відправить їй лише один лист.</li>
                     </ul>
@@ -792,6 +818,8 @@
                         <li>Вхідний лист має бути зашифрований на приватний ключ тієї пошти, яку читає WinHUB.</li>
                         <li>Вихідні листи шифруються окремо під публічний ключ кожного отримувача.</li>
                         <li>Для вихідного шифрування потрібен придатний публічний ключ кожного отримувача. Preflight блокує ручну кампанію, якщо ключ відсутній.</li>
+                        <li>List Editor перевіряє весь список, показує fingerprints і, за окремим дозволом, явно завантажує відсутні або непридатні ключі з keyserver списку.</li>
+                        <li>Під час доставки наявний непридатний ключ оновлюється лише за відомим fingerprint; відсутній ключ ніколи не отримує мовчазної довіри за email.</li>
                         <li>Inbound-лист має бути одночасно зашифрований для WinHUB і валідно підписаний одним із дозволених fingerprints route. Збігу адреси From недостатньо.</li>
                     </ul>
                 </div>
@@ -822,32 +850,56 @@
 
 <!-- Modal: List Editor (Admin Only) -->
 {% if permissions.manage_lists %}
-<div id="listModal" role="dialog" aria-modal="true" aria-label="Recipient list" class="hidden fixed inset-0 z-50 flex items-center justify-center bg-slate-900/80 p-6 backdrop-blur-sm">
-    <div class="bg-white rounded-2xl shadow-2xl w-full max-w-2xl p-6 flex flex-col max-h-[85vh]">
+<div id="listModal" role="dialog" aria-modal="true" aria-label="Recipient list" class="hidden fixed inset-0 z-50 flex items-center justify-center bg-slate-900/80 p-3 lg:p-6 backdrop-blur-sm">
+    <div class="bg-white rounded-2xl shadow-2xl w-full max-w-6xl p-6 flex flex-col h-[92vh]">
         <h3 class="text-xl font-bold text-slate-800 mb-4 flex items-center gap-2">
             <svg class="w-6 h-6 text-indigo-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"></path></svg>
             List Editor
         </h3>
 
-        <div class="mb-4">
-            <label class="block text-xs font-bold text-slate-500 uppercase mb-1">List Name</label>
-            <input type="text" id="modalListName" class="w-full px-4 py-2 border border-slate-300 rounded-lg outline-none focus:ring-2 focus:ring-indigo-500 font-bold text-lg">
-        </div>
-
-        <div class="mb-4">
-            <label class="block text-xs font-bold text-slate-500 uppercase mb-1">Add Users (comma/space/newline separated)</label>
-            <div class="flex gap-2">
-                <textarea id="modalUserAdd" rows="2" class="flex-1 px-4 py-2 border border-slate-300 rounded-lg outline-none focus:ring-2 focus:ring-indigo-500 font-mono text-sm resize-none"></textarea>
-                <button onclick="addUsersToList()" class="bg-slate-800 hover:bg-slate-900 text-white font-bold px-6 rounded-lg transition-colors flex items-center justify-center">Add</button>
+        <div class="grid grid-cols-1 lg:grid-cols-3 gap-4 mb-4">
+            <div>
+                <label class="block text-xs font-bold text-slate-500 uppercase mb-1">List Name</label>
+                <input type="text" id="modalListName" class="w-full px-4 py-2 border border-slate-300 rounded-lg outline-none focus:ring-2 focus:ring-indigo-500 font-bold text-lg">
+            </div>
+            <div>
+                <label class="block text-xs font-bold text-slate-500 uppercase mb-1">Default Email Domain (optional)</label>
+                <input type="text" id="modalListDomain" placeholder="@example.com" oninput="renderModalUsers()" class="w-full px-4 py-2 border border-slate-300 rounded-lg outline-none focus:ring-2 focus:ring-indigo-500 font-mono">
+                <p class="text-xs text-slate-500 mt-1">Required only when this list contains aliases such as <code>alice</code>.</p>
+            </div>
+            <div>
+                <label class="block text-xs font-bold text-slate-500 uppercase mb-1">Recipient Keyserver (optional)</label>
+                <input type="url" id="modalListKeyserver" placeholder="hkps://keys.example.com" class="w-full px-4 py-2 border border-slate-300 rounded-lg outline-none focus:ring-2 focus:ring-indigo-500 font-mono">
+                <p class="text-xs text-slate-500 mt-1">Used by Check Keys → Fetch missing or expired.</p>
             </div>
         </div>
 
-        <div class="flex justify-between items-center mb-2">
-            <span class="font-bold text-sm text-slate-700">Total Users: <span id="modalUserCount" class="text-indigo-600">0</span></span>
-            <input type="text" id="modalSearch" onkeyup="renderModalUsers()" placeholder="Search users..." class="px-3 py-1.5 border border-slate-300 rounded-lg text-sm outline-none focus:border-indigo-500">
+        <div class="grid grid-cols-1 lg:grid-cols-[minmax(0,2fr)_minmax(320px,1fr)] gap-4 flex-1 min-h-0">
+            <div class="flex flex-col min-h-0">
+                <label class="block text-xs font-bold text-slate-500 uppercase mb-1">Paste or Add Recipients</label>
+                <textarea id="modalUserAdd" rows="7" placeholder="One address or alias per line. Commas and spaces are also accepted." class="w-full px-4 py-3 border border-slate-300 rounded-lg outline-none focus:ring-2 focus:ring-indigo-500 font-mono text-sm resize-y"></textarea>
+                <div class="flex flex-wrap gap-2 my-3">
+                    <button onclick="addUsersToList()" class="bg-slate-800 hover:bg-slate-900 text-white font-bold px-5 py-2 rounded-lg transition-colors">Add Entries</button>
+                    <button onclick="replaceUsersInList()" class="bg-indigo-50 hover:bg-indigo-100 text-indigo-700 font-bold px-5 py-2 rounded-lg transition-colors">Replace All</button>
+                    <button onclick="clearUsersInList()" class="bg-rose-50 hover:bg-rose-100 text-rose-700 font-bold px-5 py-2 rounded-lg transition-colors">Clear</button>
+                </div>
+                <div class="flex justify-between items-center mb-2 gap-3">
+                    <span class="font-bold text-sm text-slate-700">Total: <span id="modalUserCount" class="text-indigo-600">0</span></span>
+                    <input type="text" id="modalSearch" onkeyup="renderModalUsers()" placeholder="Search entries or resolved emails..." class="w-full max-w-sm px-3 py-2 border border-slate-300 rounded-lg text-sm outline-none focus:border-indigo-500">
+                </div>
+                <div id="modalUsersContainer" class="flex-1 min-h-[220px] overflow-y-auto border border-slate-200 rounded-lg bg-slate-50 p-2 space-y-1"></div>
+            </div>
+            <aside class="border border-slate-200 rounded-xl bg-slate-50 p-4 flex flex-col min-h-0">
+                <h4 class="font-bold text-slate-800">Encryption Key Check</h4>
+                <p class="text-xs text-slate-500 mt-1">Save the list, then scan every resolved email. Fingerprints are shown for verification.</p>
+                <div class="flex flex-wrap gap-2 mt-3">
+                    {% if permissions.check_recipient_keys %}<button onclick="checkListKeys(false)" class="bg-emerald-600 hover:bg-emerald-700 text-white font-bold px-4 py-2 rounded-lg text-sm">Check Keys</button>{% endif %}
+                    {% if permissions.refresh_recipient_keys %}<button onclick="checkListKeys(true)" class="bg-amber-500 hover:bg-amber-600 text-white font-bold px-4 py-2 rounded-lg text-sm">Fetch Missing / Expired</button>{% endif %}
+                </div>
+                <div id="modalKeySummary" class="text-sm font-bold text-slate-600 mt-4">Not checked yet.</div>
+                <div id="modalKeyResults" class="mt-3 flex-1 overflow-y-auto space-y-2 text-xs"></div>
+            </aside>
         </div>
-
-        <div id="modalUsersContainer" class="flex-1 overflow-y-auto border border-slate-200 rounded-lg bg-slate-50 p-2 mb-4 space-y-1"></div>
 
         <div class="flex justify-end gap-3 shrink-0 pt-2 border-t border-slate-100">
             <button onclick="closeListModal()" class="px-4 py-2 text-slate-500 hover:bg-slate-100 font-bold rounded-lg transition-colors">Cancel</button>
@@ -858,7 +910,7 @@
 {% endif %}
 
 <!-- Modal: Newsletter Settings -->
-{% if permissions.manage_smtp %}
+{% if permissions.manage_smtp or permissions.manage_inbound_routes %}
 <div id="smtpModal" role="dialog" aria-modal="true" aria-label="Newsletter settings" class="hidden fixed inset-0 z-50 flex items-center justify-center bg-slate-900/80 p-6 backdrop-blur-sm">
     <div class="bg-white rounded-2xl shadow-2xl w-full max-w-6xl p-6 flex flex-col max-h-[90vh]">
         <h3 class="text-xl font-bold text-slate-800 mb-4 flex items-center gap-2 border-b border-slate-200 pb-3">
@@ -867,12 +919,16 @@
         </h3>
 
         <div class="flex items-center gap-2 border-b border-slate-200 pb-3 mb-4">
+            {% if permissions.manage_smtp %}
             <button type="button" data-settings-tab="smtp" onclick="switchNewsletterSettingsTab('smtp')" class="newsletter-settings-tab px-4 py-2 rounded-lg text-sm font-bold bg-slate-800 text-white">Mail Profiles</button>
+            {% endif %}
+            {% if permissions.manage_inbound_routes %}
             <button type="button" data-settings-tab="inbound" onclick="switchNewsletterSettingsTab('inbound')" class="newsletter-settings-tab px-4 py-2 rounded-lg text-sm font-bold bg-slate-100 text-slate-600 hover:bg-slate-200">Inbound Relay</button>
             <button type="button" data-settings-tab="ldap" onclick="switchNewsletterSettingsTab('ldap')" class="newsletter-settings-tab px-4 py-2 rounded-lg text-sm font-bold bg-slate-100 text-slate-600 hover:bg-slate-200">LDAP / FreeIPA</button>
+            {% endif %}
         </div>
 
-        <div id="settingsTabSmtp" class="newsletter-settings-panel grid grid-cols-1 xl:grid-cols-[1fr_1fr] gap-6 flex-1 min-h-0">
+        <div id="settingsTabSmtp" class="newsletter-settings-panel {% if not permissions.manage_smtp %}hidden {% endif %}grid grid-cols-1 xl:grid-cols-[1fr_1fr] gap-6 flex-1 min-h-0">
             <div class="flex flex-col bg-slate-50 p-4 rounded-xl border border-slate-200 overflow-y-auto">
                 <div class="flex items-center justify-between mb-3">
                     <h4 id="mailProfileFormTitle" class="font-bold text-sm text-slate-600 uppercase">New Mail Profile</h4>
@@ -1005,11 +1061,6 @@
                         <div>
                             <label class="block text-xs font-bold text-slate-500 mb-1">LDAP Profile</label>
                             <select id="routeLdapProfile" class="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500 outline-none"></select>
-                        </div>
-                        <div>
-                            <label class="block text-xs font-bold text-slate-500 mb-1">Recipient Domain</label>
-                            <input type="text" id="routeRecipientDomain" placeholder="@example.com" class="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500 outline-none">
-                            <p class="text-xs text-slate-500 mt-1">Used only for local list entries without @.</p>
                         </div>
                         <div>
                             <label class="block text-xs font-bold text-slate-500 mb-1">Recipient Keyserver</label>
@@ -1274,8 +1325,6 @@
             maxAttachments = Number(moduleData.limits?.max_attachments || 8);
             maxAttachmentBytes = Number(moduleData.limits?.max_attachment_bytes || 10 * 1024 * 1024);
             maxTotalAttachmentBytes = Number(moduleData.limits?.max_total_attachment_bytes || 25 * 1024 * 1024);
-            const domainHint = document.getElementById('nlRecipientDomainHint');
-            if (domainHint) domainHint.innerText = `Short names without @ are converted to addresses in ${moduleData.recipient_domain || '(not configured)'}.`;
             const limits = document.getElementById('nlAttachmentLimits');
             if (limits) limits.innerText = `Up to ${maxAttachments} files, ${formatBytes(maxAttachmentBytes)} each, ${formatBytes(maxTotalAttachmentBytes)} total. GPG encrypts the complete message.`;
             document.getElementById('readinessProfiles').innerText = moduleData.readiness?.mail_profiles ? `${moduleData.readiness.mail_profiles} ready` : 'Not configured';
@@ -1286,7 +1335,7 @@
             renderUI();
             restoreNewsletterDraft();
             bindNewsletterDraftPersistence();
-            {% if permissions.manage_smtp %} renderSmtpModalList(); renderInboundRelaySettings(); {% endif %}
+            {% if permissions.manage_smtp or permissions.manage_inbound_routes %} renderSmtpModalList(); renderInboundRelaySettings(); {% endif %}
         } catch (e) {
             console.error("Config load error", e);
             const summary = document.getElementById('nlPreflightSummary');
@@ -1670,13 +1719,19 @@
         originalEditListName = listName;
         document.getElementById('modalUserAdd').value = '';
         document.getElementById('modalSearch').value = '';
+        document.getElementById('modalKeySummary').innerText = 'Not checked yet.';
+        document.getElementById('modalKeyResults').innerHTML = '';
 
         if (listName) {
             document.getElementById('modalListName').value = listName;
             currentEditListUsers = [...moduleData.lists[listName]];
+            document.getElementById('modalListDomain').value = moduleData.list_metadata?.[listName]?.domain || '';
+            document.getElementById('modalListKeyserver').value = moduleData.list_metadata?.[listName]?.keyserver || '';
         } else {
             document.getElementById('modalListName').value = '';
             currentEditListUsers = [];
+            document.getElementById('modalListDomain').value = '';
+            document.getElementById('modalListKeyserver').value = '';
         }
         renderModalUsers();
         document.getElementById('listModal').classList.remove('hidden');
@@ -1697,9 +1752,31 @@
         renderModalUsers();
     }
 
+    function replaceUsersInList() {
+        const input = document.getElementById('modalUserAdd').value;
+        if (!input.trim() && !confirm('Replace the list with no entries?')) return;
+        currentEditListUsers = Array.from(new Set(input.split(/[\n,\s]+/).map(u => u.trim()).filter(Boolean)));
+        document.getElementById('modalUserAdd').value = '';
+        renderModalUsers();
+    }
+
+    function clearUsersInList() {
+        if (!currentEditListUsers.length || confirm('Remove every entry from this editor?')) {
+            currentEditListUsers = [];
+            renderModalUsers();
+        }
+    }
+
+    function resolvedListAddress(entry) {
+        if (entry.includes('@')) return entry.toLowerCase();
+        const rawDomain = document.getElementById('modalListDomain').value.trim();
+        const domain = rawDomain ? (rawDomain.startsWith('@') ? rawDomain : `@${rawDomain}`) : '';
+        return domain ? `${entry}${domain}`.toLowerCase() : '';
+    }
+
     function renderModalUsers() {
         const search = document.getElementById('modalSearch').value.toLowerCase();
-        const filtered = search ? currentEditListUsers.filter(u => u.toLowerCase().includes(search)) : currentEditListUsers;
+        const filtered = search ? currentEditListUsers.filter(u => u.toLowerCase().includes(search) || resolvedListAddress(u).includes(search)) : currentEditListUsers;
 
         document.getElementById('modalUserCount').innerText = currentEditListUsers.length;
         const container = document.getElementById('modalUsersContainer');
@@ -1710,12 +1787,14 @@
         }
 
         const chunk = filtered.slice(0, 300);
-        container.innerHTML = chunk.map(u => `
+        container.innerHTML = chunk.map(u => {
+            const resolved = resolvedListAddress(u);
+            return `
             <div class="flex justify-between items-center bg-slate-950/45 border border-cyan-400/20 p-2 rounded shadow-sm">
-                <span class="font-mono text-sm font-bold text-cyan-50">${escapeHtml(u)}</span>
+                <span class="min-w-0"><span class="block font-mono text-sm font-bold text-cyan-50 truncate">${escapeHtml(u)}</span><span class="block text-[11px] ${resolved ? 'text-cyan-100/70' : 'text-rose-300'} truncate">${resolved ? escapeHtml(resolved) : 'Invalid: alias needs this list’s default domain'}</span></span>
                 <button onclick="removeUser('${escapeInlineJs(u)}')" class="text-rose-300 hover:text-rose-100 transition-colors"><svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path></svg></button>
             </div>
-        `).join('') + (filtered.length > 300 ? `<div class="text-center text-xs text-slate-400 mt-2 font-bold">+ ${filtered.length - 300} more hidden for UI performance</div>` : '');
+        `}).join('') + (filtered.length > 300 ? `<div class="text-center text-xs text-slate-400 mt-2 font-bold">+ ${filtered.length - 300} more hidden for UI performance</div>` : '');
     }
 
     function removeUser(user) {
@@ -1723,21 +1802,55 @@
         renderModalUsers();
     }
 
-    async function saveList() {
+    async function saveList(closeAfter = true) {
         const newName = document.getElementById('modalListName').value.trim().replace(/\s+/g, '_');
-        if (!newName) return alert("List name is required!");
-        if (currentEditListUsers.length === 0) return alert("List cannot be empty!");
+        if (!newName) { alert("List name is required!"); return null; }
+        if (currentEditListUsers.length === 0) { alert("List cannot be empty!"); return null; }
 
         try {
             const response = await fetch('/api/newsletter/lists', {
                 method: 'POST', headers: {'Content-Type': 'application/json'},
-                body: JSON.stringify({ list_name: newName, original_list_name: originalEditListName || newName, users: currentEditListUsers })
+                body: JSON.stringify({
+                    list_name: newName,
+                    original_list_name: originalEditListName || newName,
+                    users: currentEditListUsers,
+                    domain: document.getElementById('modalListDomain').value.trim(),
+                    keyserver: document.getElementById('modalListKeyserver').value.trim()
+                })
             });
             const data = await response.json();
-            if (!response.ok || !data.success) return alert(data.message || 'Could not save the list.');
-            closeListModal();
-            loadConfig();
-        } catch(e) { alert("Network Error"); }
+            if (!response.ok || !data.success) { alert(data.message || 'Could not save the list.'); return null; }
+            originalEditListName = newName;
+            if (closeAfter) closeListModal();
+            await loadConfig();
+            return newName;
+        } catch(e) { alert("Network Error"); return null; }
+    }
+
+    async function checkListKeys(refresh) {
+        if (refresh && !confirm('Fetch public keys for every missing or unusable recipient from this list’s keyserver? Verify the returned fingerprints through a trusted channel.')) return;
+        const listName = await saveList(false);
+        if (!listName) return;
+        document.getElementById('modalKeySummary').innerText = refresh ? 'Fetching and checking keys…' : 'Checking keys…';
+        document.getElementById('modalKeyResults').innerHTML = '';
+        try {
+            const response = await fetch(`/api/newsletter/lists/${encodeURIComponent(listName)}/gpg-check`, {
+                method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({refresh})
+            });
+            const data = await response.json();
+            if (!response.ok || !data.success) throw new Error(data.message || 'Key check failed.');
+            document.getElementById('modalKeySummary').innerText = `${data.usable}/${data.total} usable${data.refreshed ? ` · ${data.refreshed} fetched` : ''}`;
+            document.getElementById('modalKeyResults').innerHTML = data.results.map(item => `
+                <div class="rounded-lg border ${item.usable ? 'border-emerald-200 bg-emerald-50' : 'border-rose-200 bg-rose-50'} p-3">
+                    <div class="font-bold break-all ${item.usable ? 'text-emerald-800' : 'text-rose-800'}">${escapeHtml(item.email)}</div>
+                    <div class="mt-1 text-slate-600">${escapeHtml(item.reason)}</div>
+                    <div class="mt-1 font-mono break-all text-slate-500">${item.fingerprint ? escapeHtml(item.fingerprint) : 'No fingerprint'}</div>
+                    ${item.refresh_message ? `<div class="mt-1 text-slate-500">${escapeHtml(item.refresh_message)}</div>` : ''}
+                </div>`).join('');
+        } catch (error) {
+            document.getElementById('modalKeySummary').innerText = error.message;
+            document.getElementById('modalKeyResults').innerHTML = '';
+        }
     }
 
     async function deleteList(listName) {
@@ -1752,7 +1865,7 @@
 
     {% endif %}
 
-    {% if permissions.manage_smtp %}
+    {% if permissions.manage_smtp or permissions.manage_inbound_routes %}
     // --- Settings Tabs ---
     function switchNewsletterSettingsTab(tab) {
         document.querySelectorAll('.newsletter-settings-panel').forEach(panel => panel.classList.add('hidden'));
@@ -1770,7 +1883,7 @@
     // --- SMTP Management ---
     function openSmtpModal() {
         renderInboundRelaySettings();
-        switchNewsletterSettingsTab('smtp');
+        switchNewsletterSettingsTab('{% if permissions.manage_smtp %}smtp{% else %}inbound{% endif %}');
         document.getElementById('smtpModal').classList.remove('hidden');
     }
     function closeSmtpModal() { document.getElementById('smtpModal').classList.add('hidden'); }
@@ -2127,7 +2240,7 @@
                             <div class="font-bold text-sm text-slate-800 truncate">${escapeHtml(routeName)}</div>
                             <div class="text-xs text-slate-500 truncate">Read: ${escapeHtml(route.inbound_profile || 'not selected')} | Send: ${escapeHtml(route.outbound_profile || route.inbound_profile || 'auto')}</div>
                             <div class="text-xs text-slate-500 truncate">LDAP: ${escapeHtml(ldapProfile?.name || 'none')}</div>
-                            <div class="text-xs text-slate-500 truncate">Domain: ${escapeHtml(route.recipient_domain || 'default')} | Keys: ${escapeHtml(route.recipient_keyserver || 'send profile')}</div>
+                            <div class="text-xs text-slate-500 truncate">List domains are configured per list | Keys: ${escapeHtml(route.recipient_keyserver || 'send profile')}</div>
                         </div>
                         <span class="text-[11px] font-bold px-2 py-0.5 rounded-full ${route.enabled === false ? 'bg-slate-200 text-slate-600' : 'bg-emerald-100 text-emerald-700'}">${route.enabled === false ? 'Disabled' : 'Enabled'}</span>
                     </div>
@@ -2178,7 +2291,6 @@
         if (outboundProfile) outboundProfile.innerHTML = profileOptionsHtml(route.outbound_profile || '', true);
         const ldapProfile = document.getElementById('routeLdapProfile');
         if (ldapProfile) ldapProfile.innerHTML = ldapProfileOptionsHtml(route.ldap_profile || '');
-        setValue('routeRecipientDomain', route.recipient_domain || '');
         setValue('routeRecipientKeyserver', route.recipient_keyserver || '');
         setValue('inboundMailboxAllowedSenders', routeText(route.allowed_senders));
         setValue('inboundMailboxSignerFingerprints', routeText(route.allowed_signer_fingerprints));
@@ -2214,7 +2326,6 @@
             inbound_profile: valueOf('inboundMailboxProfile'),
             outbound_profile: valueOf('outboundMailboxProfile'),
             ldap_profile: valueOf('routeLdapProfile'),
-            recipient_domain: valueOf('routeRecipientDomain').trim(),
             recipient_keyserver: valueOf('routeRecipientKeyserver').trim(),
             allowed_senders: routeArray(valueOf('inboundMailboxAllowedSenders')),
             allowed_signer_fingerprints: routeArray(valueOf('inboundMailboxSignerFingerprints')),
