@@ -36,6 +36,7 @@ from core.agent_gateway import agent_gateway_bp
 from core.version import get_version
 from core.module_registry import REQUIRED_MODULES, get_loaded_modules, get_module_registry, reset_module_registry, set_module_status
 from core.permissions import full_module_grants, has_module_access, has_permission
+from core.template_security import template_approval_valid
 from core.api_access import (
     api_key_source_allowed,
     effective_client_ip,
@@ -415,6 +416,10 @@ def run_scheduled_job(
         st = ScheduledTask.query.get(scheduled_task_id)
         if not st or not st.template:
             return {"success": False, "message": "Scheduled task or template was not found"}
+        if getattr(st.template, "type", "action") == "report" or not template_approval_valid(st.template):
+            st.last_status = "Template approval required"
+            db.session.commit()
+            return {"success": False, "message": "Scheduled execution requires an approved template with a valid approval seal"}
         if not manual_run and not st.is_active:
             return {"success": False, "message": "Scheduled task is disabled"}
 

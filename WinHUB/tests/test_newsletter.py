@@ -5,6 +5,7 @@ from pathlib import Path
 from unittest import mock
 
 from flask import Flask
+from sqlalchemy import event, select
 
 from core.database import NewsletterCampaign, NewsletterDelivery, Task, User, db
 from core.permissions import has_permission
@@ -115,18 +116,31 @@ class NewsletterQueueTests(unittest.TestCase):
             user = User(username="newsletter-operator", email="operator@example.com", is_admin=True)
             db.session.add(user)
             db.session.commit()
-            campaign = routes.enqueue_campaign(
-                user_id=user.id,
-                source="manual",
-                sender_email="sender@example.com",
-                subject="Maintenance",
-                body_text="Body",
-                body_html="<p>Body</p>",
-                attachments=[],
-                recipients=["a@example.com", "a@example.com", "b@example.com"],
-                selected_lists=["ops"],
-                use_gpg=True,
-            )
+            task_exists_before_campaign_insert = []
+
+            def record_parent_visibility(_mapper, connection, target):
+                task_exists_before_campaign_insert.append(connection.execute(
+                    select(Task.id).where(Task.id == target.task_id)
+                ).scalar_one_or_none())
+
+            event.listen(NewsletterCampaign, "before_insert", record_parent_visibility)
+            try:
+                campaign = routes.enqueue_campaign(
+                    user_id=user.id,
+                    source="manual",
+                    sender_email="sender@example.com",
+                    subject="Maintenance",
+                    body_text="Body",
+                    body_html="<p>Body</p>",
+                    attachments=[],
+                    recipients=["a@example.com", "a@example.com", "b@example.com"],
+                    selected_lists=["ops"],
+                    use_gpg=True,
+                )
+            finally:
+                event.remove(NewsletterCampaign, "before_insert", record_parent_visibility)
+
+            self.assertEqual(task_exists_before_campaign_insert, [campaign.task_id])
             self.assertEqual(campaign.status, "Queued")
             self.assertEqual(NewsletterDelivery.query.filter_by(campaign_id=campaign.id).count(), 2)
             self.assertEqual(db.session.get(Task, campaign.task_id).status, "Queued")

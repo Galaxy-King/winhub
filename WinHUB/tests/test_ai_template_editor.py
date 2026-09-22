@@ -14,6 +14,7 @@ from flask import Blueprint, Flask, session
 from core.ai_template_contract import SYSTEM_PROMPT, parse_bundle, bundle_hash, report_fixture
 from core.ai_templates import process_ai_template_queue
 from core.database import db, AiTemplateDraft, User, TaskTemplate, AgentTask
+from core.template_security import ai_template_validation_valid
 from modules.Infrastructure.ai_editor import register_ai_editor
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -96,6 +97,7 @@ class TemplateContractTests(unittest.TestCase):
         self.assertIn('you can save an unvalidated, unapproved draft', script)
         self.assertIn('Open saved template', modal)
         self.assertIn('openNewAiTemplateGenerator()', deploy)
+        self.assertIn('run_own_draft_templates', modal + deploy)
         self.assertIn("localStorage.setItem('infra_selected_template'", script)
         self.assertIsNone(re.search(r'[А-Яа-яІіЇїЄє]', modal + script))
 
@@ -254,11 +256,90 @@ class AiEditorApiTests(unittest.TestCase):
         self.assertEqual(action.created_by, self.user.username)
         self.assertEqual(json.loads(action.payload)['__report_template_id'], report.id)
         self.assertEqual(first.json['template_ids'], [report.id, action.id])
+        action_marker = json.loads(action.payload)['__ai_generated']
+        report_marker = json.loads(report.payload)['__ai_generated']
+        self.assertTrue(ai_template_validation_valid(action.payload))
+        self.assertTrue(ai_template_validation_valid(report.payload))
+        self.assertEqual(action_marker['language'], 'powershell')
+        self.assertEqual(report_marker['language'], 'jinja')
         from modules.Infrastructure import routes
         with self.app.test_request_context('/api/infrastructure/tasks/create', method='POST', json={'template_id': action.id, 'launch_reason': 'Test approval policy'}):
             session.update(user_id=self.user.id, username=self.user.username, is_admin=False)
-            with mock.patch.object(routes, 'require_permission', return_value=None), mock.patch.object(routes, 'can', return_value=True):
+            with mock.patch.object(routes, 'require_permission', return_value=None):
                 self.assertEqual(routes.create_task()[1], 403)
+
+    def test_explicitly_authorized_owner_can_test_run_only_exact_validated_ai_code(self):
+        row_id = self.generate()
+        saved = self.client.post(f'/api/infrastructure/ai-editor/drafts/{row_id}/save')
+        self.assertEqual(saved.status_code, 201, saved.json)
+        action = TaskTemplate.query.filter_by(type='action').first()
+        payload = json.loads(action.payload)
+        payload.pop('__report_template_id', None)
+        action.payload = json.dumps(payload)
+        self.user.allowed_modules = json.dumps([
+            'Infrastructure:manage_templates',
+            'Infrastructure:use_ai_templates',
+            'Infrastructure:run_tasks',
+            'Infrastructure:run_own_draft_templates',
+        ])
+        db.session.commit()
+
+        from modules.Infrastructure import routes
+        request_payload = {
+            'template_id': action.id,
+            'action': 'run_script',
+            'target_type': 'hosts',
+            'target_ids': ['host-1'],
+            'title': 'Private AI canary',
+            'launch_reason': 'Validate private AI draft on a permitted canary host',
+        }
+        with self.app.test_request_context('/api/infrastructure/tasks/create', method='POST', json=request_payload):
+            session.update(user_id=self.user.id, username=self.user.username, is_admin=False)
+            with mock.patch.object(routes.WinHubCore, 'dispatch_task', return_value='job-1') as dispatch:
+                response = routes.create_task()
+        self.assertEqual(response.status_code, 200, response.get_json())
+        self.assertEqual(response.get_json()['job_id'], 'job-1')
+        self.assertEqual(dispatch.call_args.args[3], ['host-1'])
+        self.assertEqual(dispatch.call_args.args[4]['script'], BUNDLE['code'])
+
+        payload['script'] += '\nWrite-Output "changed after validation"'
+        action.payload = json.dumps(payload)
+        db.session.commit()
+        with self.app.test_request_context('/api/infrastructure/tasks/create', method='POST', json=request_payload):
+            session.update(user_id=self.user.id, username=self.user.username, is_admin=False)
+            response, status = routes.create_task()
+        self.assertEqual(status, 403)
+        self.assertIn('must pass static validation', response.get_json()['message'])
+
+    def test_ai_apply_rejects_changed_code_and_later_edits_stale_the_marker(self):
+        row_id = self.generate()
+        from modules.Infrastructure import routes
+
+        changed = BUNDLE['code'] + '\nWrite-Output "changed"'
+        with self.app.test_request_context('/api/infrastructure/templates', method='POST', json={
+            'name': 'Changed AI draft', 'category': 'AI drafts', 'action': 'run_script',
+            'type': 'action', 'payload': {'script': changed}, 'ai_draft_id': row_id,
+        }):
+            session.update(user_id=self.user.id, username=self.user.username, is_admin=False)
+            response, status = routes.create_template()
+        self.assertEqual(status, 400)
+        self.assertIn('has not passed validation', response.get_json()['message'])
+
+        self.client.post(f'/api/infrastructure/ai-editor/drafts/{row_id}/save')
+        action = TaskTemplate.query.filter_by(type='action').first()
+        with self.app.test_request_context('/api/infrastructure/templates', method='POST', json={
+            'id': action.id, 'name': action.name, 'category': action.category,
+            'action': action.action_type, 'type': action.type, 'payload': {'script': changed},
+            'is_approved': False,
+        }):
+            session.update(user_id=self.user.id, username=self.user.username, is_admin=False)
+            response = routes.create_template()
+        self.assertEqual(response.status_code, 200, response.get_json())
+        db.session.refresh(action)
+        marker = json.loads(action.payload)['__ai_generated']
+        self.assertIs(marker['validation_ok'], False)
+        self.assertEqual(marker['validation_status'], 'stale_after_edit')
+        self.assertFalse(ai_template_validation_valid(action.payload))
 
     def test_unavailable_validator_allows_only_unapproved_draft_save(self):
         row_id = self.generate()

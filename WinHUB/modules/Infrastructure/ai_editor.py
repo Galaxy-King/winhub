@@ -11,6 +11,7 @@ from core.ai_templates import check_draft, serialize_draft
 from core.database import AiTemplateDraft, TaskTemplate, User, db
 from core.permissions import has_permission
 from core.sensitive_data import mask_sensitive_text
+from core.template_security import ai_template_source_hash
 
 
 def editor_user():
@@ -66,8 +67,18 @@ def draft_validation_ok(row, bundle):
 def stamp_ai_origin(payload, draft_id):
     user = editor_user()
     row = owned_draft(draft_id, user) if user else None
-    validated_result(row)
-    payload['__ai_generated'] = {'draft_id': row.id, 'language': row.language}
+    bundle = validated_result(row)
+    source = bundle['code']
+    if payload.get('script') != source:
+        raise ValueError('The saved code differs from the validated AI draft')
+    payload['__ai_generated'] = {
+        'draft_id': row.id,
+        'language': row.language,
+        'validation_ok': True,
+        'validation_status': 'checked',
+        'bundle_hash': bundle_hash(bundle),
+        'source_hash': ai_template_source_hash(row.language, source),
+    }
     return payload
 
 
@@ -212,22 +223,33 @@ def register_ai_editor(bp):
                 return jsonify(success=True, template_ids=json.loads(row.saved_template_ids),
                                validation_ok=validation_ok)
             ids = []
-            marker = {
+            marker_base = {
                 'draft_id': row.id,
-                'language': row.language,
                 'validation_ok': validation_ok,
                 'validation_status': str(validation.get('status') or 'not_checked'),
                 'bundle_hash': bundle_hash(bundle),
             }
+            def marker(language, source):
+                return {
+                    **marker_base,
+                    'language': language,
+                    'source_hash': ai_template_source_hash(language, source),
+                }
             companion = None
             if bundle['report_template']:
                 companion = TaskTemplate(name=(bundle['name'] + ' — report')[:150], category='AI drafts',
                     type='report', action_type='aggregation_report', created_by=user.username, is_approved=False,
-                    payload=json.dumps({'script': bundle['report_template'], '__ai_generated': marker}, ensure_ascii=False))
+                    payload=json.dumps({
+                        'script': bundle['report_template'],
+                        '__ai_generated': marker('jinja', bundle['report_template']),
+                    }, ensure_ascii=False))
                 db.session.add(companion)
                 db.session.flush()
                 ids.append(companion.id)
-            payload = {'script': bundle['code'], '__ai_generated': marker}
+            payload = {
+                'script': bundle['code'],
+                '__ai_generated': marker(row.language, bundle['code']),
+            }
             if companion:
                 payload['__report_template_id'] = companion.id
             template = TaskTemplate(name=bundle['name'], category='AI drafts',
@@ -243,7 +265,7 @@ def register_ai_editor(bp):
             write_infra_audit('ai_templates_saved_unapproved', 'ai_template_draft', row.id, {
                 'template_ids': ids,
                 'validation_ok': validation_ok,
-                'validation_status': marker['validation_status'],
+                'validation_status': marker_base['validation_status'],
             })
             return jsonify(success=True, template_ids=ids, validation_ok=validation_ok), 201
         except (ValueError, TypeError) as exc:

@@ -1657,7 +1657,11 @@ def enqueue_campaign(*, user_id, source, sender_email, subject, body_text, body_
         status="Queued",
         total_count=len(recipients),
     )
+    # NewsletterCampaign has a database FK to Task, but there is intentionally no
+    # ORM relationship between the generic task log and campaign snapshot. Flush
+    # the parent explicitly so PostgreSQL never receives the campaign INSERT first.
     db.session.add(task)
+    db.session.flush()
     db.session.add(campaign)
     for recipient in sorted(set(recipients)):
         db.session.add(NewsletterDelivery(
