@@ -15,8 +15,6 @@ Inbound route читає дозволений mailbox, decrypts message, виз�
 - allowlist LDAP groups;
 - outbound policy entry лише для потрібних hosts.
 
-New installations повинні налаштовувати mailbox routes у UI. Legacy env polling використовуйте лише для migration compatibility.
-
-Legacy route без `NEWSLETTER_INBOUND_ALLOWED_FINGERPRINTS` не приймає листи.
+Mailbox, IMAP credentials, folders, allowed senders, signer fingerprints і target lists/groups налаштовуються через **Newsletter → Settings → Mail Profiles / Inbound Relay**. Застарілі `NEWSLETTER_INBOUND_*` mailbox variables автоматично прибираються з `/etc/winhub/winhub.env` під час update, коли UI route вже існує або legacy mailbox вимкнений. Активна legacy-конфігурація без UI route тимчасово зберігається з warning, щоб не перервати доставку. Інтервал перевірки маршрутів задає актуальна змінна `NEWSLETTER_ROUTE_POLL_SECONDS`.
 
 Ніколи не ставте wildcard allowed senders у production без окремого ізольованого security design.

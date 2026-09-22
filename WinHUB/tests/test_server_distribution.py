@@ -118,6 +118,55 @@ class ServerDistributionTests(unittest.TestCase):
         self.run_bash(command, SERVER, env_file)
         self.assertIn("HISTORY_SEARCH_KEY=existing-dedicated-key\n", env_file.read_text())
 
+    def test_update_prunes_legacy_newsletter_env_and_migrates_poll_interval(self):
+        updater = (SERVER / "deploy/debian/update_winhub.sh").read_text()
+        function = updater.split("reconcile_deprecated_env() {", 1)[1].split("\nsync_env_file()", 1)[0]
+        command = 'ENV_FILE="$1"\nreconcile_deprecated_env() {' + function + "\nreconcile_deprecated_env"
+        env_file = self.root / "existing.env"
+        newsletter_data = self.root / "newsletter-data"
+        newsletter_data.mkdir()
+        (newsletter_data / "inbound_relay.json").write_text('{"mailboxes": [{"id": "route-1"}]}\n')
+        env_file.write_text(
+            "SMTP_PASSWORD=keep-this-secret\n"
+            f"NEWSLETTER_DATA_DIR={newsletter_data}\n"
+            "NEWSLETTER_INBOUND_ENABLED=true\n"
+            "NEWSLETTER_INBOUND_IMAP_HOST=mail.example.com\n"
+            "NEWSLETTER_INBOUND_IMAP_PASSWORD=remove-this-secret\n"
+            "NEWSLETTER_INBOUND_POLL_SECONDS=10\n"
+        )
+
+        result = self.run_bash(command, env_file)
+        updated = env_file.read_text()
+        self.assertIn("SMTP_PASSWORD=keep-this-secret\n", updated)
+        self.assertIn("NEWSLETTER_ROUTE_POLL_SECONDS=10\n", updated)
+        self.assertNotIn("NEWSLETTER_INBOUND_", updated)
+        self.assertNotIn("remove-this-secret", result.stdout)
+
+        self.run_bash(command, env_file)
+        self.assertEqual(updated, env_file.read_text())
+
+    def test_update_preserves_active_legacy_newsletter_mailbox_without_ui_route(self):
+        updater = (SERVER / "deploy/debian/update_winhub.sh").read_text()
+        function = updater.split("reconcile_deprecated_env() {", 1)[1].split("\nsync_env_file()", 1)[0]
+        command = 'ENV_FILE="$1"\nreconcile_deprecated_env() {' + function + "\nreconcile_deprecated_env"
+        env_file = self.root / "legacy.env"
+        env_file.write_text(
+            f"NEWSLETTER_DATA_DIR={self.root / 'missing-newsletter-data'}\n"
+            "NEWSLETTER_INBOUND_ENABLED=true\n"
+            "NEWSLETTER_INBOUND_IMAP_HOST=mail.example.com\n"
+            "NEWSLETTER_INBOUND_IMAP_PASSWORD=keep-until-ui-migration\n"
+            "NEWSLETTER_INBOUND_POLL_SECONDS=15\n"
+        )
+
+        result = self.run_bash(command, env_file)
+        updated = env_file.read_text()
+        self.assertIn("NEWSLETTER_INBOUND_ENABLED=true\n", updated)
+        self.assertIn("NEWSLETTER_INBOUND_IMAP_PASSWORD=keep-until-ui-migration\n", updated)
+        self.assertNotIn("NEWSLETTER_INBOUND_POLL_SECONDS", updated)
+        self.assertIn("NEWSLETTER_ROUTE_POLL_SECONDS=15\n", updated)
+        self.assertIn("legacy Newsletter inbound variables were preserved", result.stderr)
+        self.assertNotIn("keep-until-ui-migration", result.stderr)
+
 
 if __name__ == "__main__":
     unittest.main()
