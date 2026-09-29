@@ -18,6 +18,94 @@ trap 'if [[ -n "${TMP_DIR}" ]]; then rm -rf -- "${TMP_DIR}"; fi' EXIT
 export APP_DIR ENV_FILE
 UPDATE_LOG_DIR="${UPDATE_LOG_DIR:-/var/log/winhub/updates}"
 
+reconcile_deprecated_env() {
+  if [[ ! -f "${ENV_FILE}" ]]; then
+    return
+  fi
+
+  python3 - "${ENV_FILE}" <<'PY'
+import json
+import re
+import sys
+from pathlib import Path
+
+env_path = Path(sys.argv[1])
+key_re = re.compile(r"^\s*([A-Za-z_][A-Za-z0-9_]*)\s*=")
+deprecated = {
+    "NEWSLETTER_INBOUND_ENABLED",
+    "NEWSLETTER_INBOUND_IMAP_HOST",
+    "NEWSLETTER_INBOUND_IMAP_PORT",
+    "NEWSLETTER_INBOUND_IMAP_SSL",
+    "NEWSLETTER_INBOUND_IMAP_USER",
+    "NEWSLETTER_INBOUND_IMAP_PASSWORD",
+    "NEWSLETTER_INBOUND_IMAP_FOLDER",
+    "NEWSLETTER_INBOUND_PROCESSED_FOLDER",
+    "NEWSLETTER_INBOUND_FAILED_FOLDER",
+    "NEWSLETTER_INBOUND_POLL_SECONDS",
+    "NEWSLETTER_INBOUND_STARTUP_DELAY_SECONDS",
+    "NEWSLETTER_INBOUND_ALLOWED_SENDERS",
+    "NEWSLETTER_INBOUND_ALLOWED_FINGERPRINTS",
+    "NEWSLETTER_INBOUND_LISTS",
+    "NEWSLETTER_INBOUND_LDAP_GROUPS",
+    "NEWSLETTER_INBOUND_SENDER_PROFILE",
+    "NEWSLETTER_INBOUND_GPG_PASSPHRASE",
+}
+
+lines = env_path.read_text(encoding="utf-8", errors="replace").splitlines()
+existing_keys = set()
+values = {}
+old_poll_seconds = None
+for line in lines:
+    match = key_re.match(line)
+    if not match:
+        continue
+    key = match.group(1)
+    existing_keys.add(key)
+    values[key] = line.split("=", 1)[1].strip().strip("\"'")
+    if key == "NEWSLETTER_INBOUND_POLL_SECONDS":
+        raw = line.split("=", 1)[1].strip().strip("\"'")
+        if raw.isdigit() and int(raw) >= 10:
+            old_poll_seconds = raw
+
+legacy_enabled = values.get("NEWSLETTER_INBOUND_ENABLED", "").lower() in {"1", "true", "yes", "on"}
+newsletter_data_dir = Path(values.get("NEWSLETTER_DATA_DIR") or "/var/lib/winhub/newsletter")
+has_ui_routes = False
+try:
+    inbound_settings = json.loads((newsletter_data_dir / "inbound_relay.json").read_text(encoding="utf-8"))
+    has_ui_routes = bool(isinstance(inbound_settings, dict) and inbound_settings.get("mailboxes"))
+except (OSError, ValueError):
+    pass
+
+# Never discard a still-active legacy mailbox before it has a UI replacement.
+# The poll interval is a safe rename and is migrated in either case.
+prunable = deprecated if not legacy_enabled or has_ui_routes else {"NEWSLETTER_INBOUND_POLL_SECONDS"}
+if legacy_enabled and not has_ui_routes:
+    print("[WinHUB] WARNING: legacy Newsletter inbound variables were preserved because no UI route exists. Configure Newsletter -> Settings -> Inbound Relay and run update again.", file=sys.stderr)
+
+removed = []
+kept = []
+for line in lines:
+    match = key_re.match(line)
+    if match and match.group(1) in prunable:
+        removed.append(match.group(1))
+        continue
+    kept.append(line)
+
+if old_poll_seconds and "NEWSLETTER_ROUTE_POLL_SECONDS" not in existing_keys:
+    kept.extend([
+        "",
+        "# Migrated legacy Newsletter polling interval by WinHUB update",
+        f"NEWSLETTER_ROUTE_POLL_SECONDS={old_poll_seconds}",
+    ])
+
+if removed:
+    env_path.write_text("\n".join(kept).rstrip() + "\n", encoding="utf-8")
+    print("[WinHUB] Env reconciliation removed deprecated variables: " + ", ".join(sorted(set(removed))))
+if old_poll_seconds and "NEWSLETTER_ROUTE_POLL_SECONDS" not in existing_keys:
+    print("[WinHUB] Env reconciliation migrated polling interval to NEWSLETTER_ROUTE_POLL_SECONDS")
+PY
+}
+
 sync_env_file() {
   local example_file="${APP_DIR}/deploy/debian/winhub.env.example"
   if [[ ! -f "${example_file}" ]]; then
@@ -197,6 +285,7 @@ fi
 echo "[WinHUB] Deploying server components from ${RELEASE_SRC}"
 winhub_sync_server_files "${RELEASE_SRC}" "${APP_DIR}"
 
+reconcile_deprecated_env
 sync_env_file
 enforce_production_security_env
 

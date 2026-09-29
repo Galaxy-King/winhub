@@ -1,7 +1,7 @@
 """Add endpoint clone detection and identity split state.
 
 Revision ID: 20260929_01
-Revises: 20260921_01
+Revises: 20260922_01
 """
 
 from alembic import op
@@ -9,7 +9,7 @@ import sqlalchemy as sa
 
 
 revision = "20260929_01"
-down_revision = "20260921_01"
+down_revision = "20260922_01"
 branch_labels = None
 depends_on = None
 

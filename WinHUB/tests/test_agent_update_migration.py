@@ -39,6 +39,17 @@ spec.loader.exec_module(helpers)
 
 
 class UpdateMigrationTests(unittest.TestCase):
+    def test_gpo_identity_reset_is_a_real_installer_function(self):
+        script = (REPO / "WinHUBAgentWindows/deploy/gpo/install-winhub-agent.ps1").read_text()
+        definition = script.index('function Reset-ServerBoundIdentity')
+        invocation = script.index('Reset-ServerBoundIdentity -Epoch')
+        here_string_start = script.rfind("@'", 0, definition)
+        here_string_end = script.rfind("'@", 0, definition)
+
+        self.assertLess(definition, invocation)
+        self.assertGreater(here_string_end, here_string_start,
+                           'Reset-ServerBoundIdentity must not be embedded in the watchdog here-string')
+
     def test_signed_prepare_binds_expected_hash_for_legacy_invocation(self):
         for platform, filename in (("windows", "update-service.ps1"), ("linux", "update-linux-agent.sh")):
             script = helpers.updater_bootstrap_script(platform, "ab" * 32)

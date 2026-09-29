@@ -36,6 +36,10 @@ MODULE_INTERNAL_PERMISSION_CATALOG = {
         {"id": "send_campaigns", "name": "Send mailings"},
         {"id": "manage_lists", "name": "Manage mailing lists"},
         {"id": "manage_smtp", "name": "Manage SMTP profiles"},
+        {"id": "manage_inbound_routes", "name": "Manage inbound routes and LDAP"},
+        {"id": "check_recipient_keys", "name": "Check recipient encryption keys"},
+        {"id": "refresh_recipient_keys", "name": "Import or refresh recipient keys"},
+        {"id": "view_all_campaigns", "name": "View all users' campaigns"},
     ],
     "HistoryAudit": [
         {"id": "view_history", "name": "View history"},
@@ -104,6 +108,10 @@ PERMISSION_ALIASES = {
             "send_campaigns",
             "manage_lists",
             "manage_smtp",
+            "manage_inbound_routes",
+            "check_recipient_keys",
+            "refresh_recipient_keys",
+            "view_all_campaigns",
         },
         "delete": {
             "manage_lists",
@@ -134,6 +142,10 @@ EXPLICIT_ONLY_PERMISSIONS = {
         "delete_tasks",
         "delete_hosts",
         "delete_groups",
+    },
+    "Newsletter": {
+        "refresh_recipient_keys",
+        "view_all_campaigns",
     },
 }
 
