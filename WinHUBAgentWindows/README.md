@@ -59,6 +59,14 @@ The release script builds NativeAOT by default. Use `-ManagedSingleFile` only wh
 
 ## Agent configs
 
+Перед створенням Windows VM template зупиніть службу та виконайте з elevated PowerShell:
+
+```powershell
+& 'C:\Program Files\WinHUBAgent\WinHUBAgent.exe' --prepare-clone-template PREPARE-CLONE
+```
+
+Команда зберігає runtime config, але прибирає WinHUB token, DPAPI identity key, hardware ID, task-signing state, bootstrap secret і journals. Після клонування кожній VM потрібний окремий bootstrap config. Нові агенти також підтримують контрольоване розділення вже запущених clone identities у Review Center.
+
 Use two config files:
 
 - `winhub_agent.conf` is the runtime config. It does not contain secrets.

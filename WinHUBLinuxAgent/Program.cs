@@ -20,6 +20,14 @@ if (args.Any(arg => arg.Equals("--self-test", StringComparison.OrdinalIgnoreCase
     return;
 }
 
+int prepareCloneIndex = Array.FindIndex(args, arg => arg.Equals("--prepare-clone-template", StringComparison.OrdinalIgnoreCase));
+if (prepareCloneIndex >= 0)
+{
+    if (prepareCloneIndex + 1 >= args.Length) throw new ArgumentException("Usage: --prepare-clone-template PREPARE-CLONE");
+    Worker.PrepareCloneTemplate(args[prepareCloneIndex + 1]);
+    return;
+}
+
 int migrateStateIndex = Array.FindIndex(args, arg => arg.Equals("--migrate-task-signing-state", StringComparison.OrdinalIgnoreCase));
 if (migrateStateIndex >= 0)
 {

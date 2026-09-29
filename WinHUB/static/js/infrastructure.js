@@ -4437,12 +4437,13 @@ function switchNodeTab(tab, save = true) {
 }
 
 function switchReviewTab(tab, save = true) {
-    if (!['pending', 'duplicates', 'rejected'].includes(tab)) tab = 'pending';
+    if (!['conflicts', 'pending', 'duplicates', 'rejected'].includes(tab)) tab = 'pending';
     if (save) {
         localStorage.setItem(infraStateKeys.reviewTab, tab);
         writeInfraState(scopedInfraState('hosts', { nodeTab: 'review', reviewTab: tab }));
     }
     const panels = {
+        conflicts: document.getElementById('nodesIdentityConflictsPanel'),
         pending: document.getElementById('nodesPendingPanel'),
         duplicates: document.getElementById('nodesApprovedDuplicatesPanel'),
         rejected: document.getElementById('nodesRejectedPanel'),
@@ -6105,6 +6106,38 @@ async function acceptEndpointDuplicatePair(leftId, rightId) {
     const data = await res.json().catch(() => ({}));
     if (!res.ok || !data.success) {
         alert(data.message || 'Failed to accept duplicate pair.');
+        return;
+    }
+    reloadKeepingNodeContext('review');
+}
+async function splitIdentityConflict(conflictId, targetSessionId, hostname) {
+    const suggested = hostname ? `${hostname} clone` : '';
+    const displayName = prompt('Display name for the new independent endpoint:', suggested);
+    if (displayName === null) return;
+    if (!confirm('Rotate the selected running VM to a new endpoint identity? Task delivery remains quarantined until it reconnects.')) return;
+    const res = await fetch('/api/infrastructure/identity-conflict/' + encodeURIComponent(conflictId) + '/split', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({target_session_id: targetSessionId, display_name: displayName})
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok || !data.success) {
+        alert(data.message || 'Failed to start identity split.');
+        return;
+    }
+    alert(`Identity split queued. New endpoint: ${data.new_endpoint_id}`);
+    reloadKeepingNodeContext('review');
+}
+async function dismissIdentityConflict(conflictId) {
+    if (!confirm('Dismiss this conflict only if the duplicate agent was removed or reset externally. It will reopen if both sessions continue polling.')) return;
+    const res = await fetch('/api/infrastructure/identity-conflict/' + encodeURIComponent(conflictId) + '/resolve', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({resolution: 'external'})
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok || !data.success) {
+        alert(data.message || 'Failed to resolve identity conflict.');
         return;
     }
     reloadKeepingNodeContext('review');

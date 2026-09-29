@@ -28,10 +28,52 @@
     {% if permissions.manage_hosts %}
     <div id="nodesReviewPanel" class="hidden space-y-4">
         <div class="wh-soft-panel bg-white p-2 rounded-2xl border border-slate-200 shadow-sm flex flex-wrap gap-2 w-fit">
+            <a href="?view=hosts&nodeTab=review&reviewTab=conflicts" onclick="handleReviewTabClick(event, 'conflicts')" id="reviewTab-conflicts" class="review-tab-btn inline-flex items-center px-4 py-2 rounded-xl text-[10px] font-black uppercase text-slate-700 hover:text-rose-700">Clone Conflicts <span class="review-tab-count ml-1">{{ identity_conflicts|length }}</span></a>
             <a href="?view=hosts&nodeTab=review&reviewTab=pending" onclick="handleReviewTabClick(event, 'pending')" id="reviewTab-pending" class="review-tab-btn is-active inline-flex items-center px-4 py-2 rounded-xl text-[10px] font-black uppercase bg-amber-600 text-white shadow-sm">Pending Approval <span class="review-tab-count ml-1">{{ pending_agents|length }}</span></a>
             <a href="?view=hosts&nodeTab=review&reviewTab=duplicates" onclick="handleReviewTabClick(event, 'duplicates')" id="reviewTab-duplicates" class="review-tab-btn inline-flex items-center px-4 py-2 rounded-xl text-[10px] font-black uppercase text-slate-700 hover:text-rose-700">Identity Duplicates <span class="review-tab-count ml-1">{{ approved_duplicate_pairs|length }}</span></a>
             <a href="?view=hosts&nodeTab=review&reviewTab=rejected" onclick="handleReviewTabClick(event, 'rejected')" id="reviewTab-rejected" class="review-tab-btn inline-flex items-center px-4 py-2 rounded-xl text-[10px] font-black uppercase text-slate-700 hover:text-rose-700">Rejected Hosts <span class="review-tab-count ml-1">{{ rejected_agents|length }}</span></a>
         </div>
+
+    <div id="nodesIdentityConflictsPanel" class="review-subpanel hidden bg-white rounded-[2rem] border border-rose-200 shadow-sm overflow-hidden">
+        <div class="px-5 py-4 bg-rose-50 border-b border-rose-100">
+            <p class="text-xs font-black text-rose-800 uppercase tracking-widest">Cloned Agent Identities</p>
+            <p class="text-[11px] font-bold text-rose-700/80 mt-1">Task delivery is paused while multiple systems share one agent identity.</p>
+        </div>
+        <div class="divide-y divide-slate-100">
+            {% for conflict in identity_conflicts %}
+            <div class="p-5">
+                <div class="flex flex-col lg:flex-row lg:items-start justify-between gap-4">
+                    <div>
+                        <div class="font-black text-slate-800">{{ conflict.display_name or conflict.hostname }}</div>
+                        <div class="text-[10px] font-mono text-slate-400 break-all mt-1">{{ conflict.endpoint_id }}</div>
+                        <div class="text-xs font-bold text-rose-700 mt-2">{{ conflict.reason }}</div>
+                        <div class="text-[10px] text-slate-400 mt-1">Detected: {{ conflict.detected_at }}</div>
+                    </div>
+                    <button onclick='dismissIdentityConflict({{ conflict.id|tojson }})' class="px-3 py-2 bg-white border border-slate-200 rounded-xl text-[10px] font-black uppercase text-slate-600 hover:bg-slate-50">Dismiss if resolved externally</button>
+                </div>
+                <div class="grid grid-cols-1 xl:grid-cols-2 gap-3 mt-4">
+                    {% for instance in conflict.instances %}
+                    <div class="rounded-2xl border border-slate-200 bg-slate-50 p-4">
+                        <div class="font-black text-slate-800">{{ instance.hostname or 'Unknown host' }}</div>
+                        <div class="text-xs font-mono text-slate-600 mt-1">{{ instance.ip or 'IP unavailable' }}</div>
+                        <div class="text-[10px] text-slate-400 mt-1 break-all">Session: {{ instance.session_id }}</div>
+                        <div class="text-[10px] text-slate-400 mt-1">Agent {{ instance.agent_version or 'unknown' }} · Last seen {{ instance.last_seen }}</div>
+                        {% if instance.can_split %}
+                        <button onclick='splitIdentityConflict({{ conflict.id|tojson }}, {{ instance.session_id|tojson }}, {{ instance.hostname|tojson }})' class="mt-3 px-3 py-2 bg-rose-600 text-white rounded-xl text-[10px] font-black uppercase hover:bg-rose-700">Split this VM identity</button>
+                        {% else %}
+                        <div class="mt-3 text-[10px] font-bold text-amber-700">Upgrade this agent before remote split.</div>
+                        {% endif %}
+                    </div>
+                    {% else %}
+                    <div class="text-sm text-slate-500">No active sessions. Start the affected agents or resolve the conflict externally.</div>
+                    {% endfor %}
+                </div>
+            </div>
+            {% else %}
+            <div class="px-6 py-10 text-center text-slate-500 text-sm font-bold">No cloned identity conflicts.</div>
+            {% endfor %}
+        </div>
+    </div>
 
     <div id="nodesPendingPanel" class="review-subpanel bg-white rounded-[2rem] border border-slate-200 shadow-sm overflow-hidden">
         <div class="px-5 py-4 bg-amber-50/50 border-b border-amber-100 flex flex-col sm:flex-row sm:items-center justify-between gap-3">

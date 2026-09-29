@@ -121,6 +121,14 @@ After successful migration the agent deletes `winhub_agent.bootstrap.conf`. Runt
 /var/lib/winhub-agent
 ```
 
+Перед перетворенням системи на VM template зупиніть службу й очистьте enrollment identity:
+
+```bash
+sudo /opt/winhub-linux-agent/WinHUBLinuxAgent --prepare-clone-template PREPARE-CLONE
+```
+
+Runtime config зберігається, але token, RSA identity, task-signing state, bootstrap secret і journals прибираються. Після клонування надайте кожній VM окремий bootstrap config. Якщо дві запущені VM все ж мають спільну identity, новий агент повідомляє session identity; сервер карантинить задачі й дозволяє адміністратору розділити одну session через Review Center.
+
 Нові задачі та невідправлені результати зберігаються у `/var/lib/winhub-agent/execution-journal` з правами `0600/0700`. Повторюється доставка, не виконання. Після аварії перервана задача повертає `UNKNOWN` у журналі помилки: можливі часткові зміни на хості. Старий `/var/lib/winhub-agent/pending-results` також читається для доставки результатів попередньої версії. Межі місткості, архівація та rollback описані в release gates. `RestartAfterConsecutivePollFailures` задає кількість невдалих poll перед перезапуском через systemd; `0` вимикає цю поведінку.
 
 Enrollment key видаляється після збереження токена, а shared TaskHmacSecret — при старті strict-v2 агента. Після відкликання доступу потрібне відновлення адміністратором. Для виконання та прибирання дочірніх процесів потрібен `/usr/bin/setsid` із `util-linux`.

@@ -1,5 +1,13 @@
 # WinHUB macOS Agent
 
+Перед створенням macOS VM template зупиніть LaunchDaemon і виконайте:
+
+```bash
+sudo /Library/PrivilegedHelperTools/com.winhub.agent/WinHUBMacAgent --prepare-clone-template PREPARE-CLONE
+```
+
+Enrollment identity і journals буде прибрано без зміни runtime config; після клонування кожній VM потрібний окремий bootstrap config. Спільний Unix Worker підтримує session-based clone detection і підписаний remote identity split.
+
 Production endpoint agent for Apple Silicon (`osx-arm64`) and macOS 14+. It is a
 self-contained .NET 10 LTS Native AOT LaunchDaemon and uses the WinHUB enrollment, signed-request,
 Task Signature v2, polling, telemetry, result queue and managed-update protocols.

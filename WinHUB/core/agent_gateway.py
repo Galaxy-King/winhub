@@ -7,7 +7,7 @@ import hashlib
 import ipaddress
 import base64
 import time
-from datetime import datetime
+from datetime import datetime, timedelta
 from functools import lru_cache
 from threading import Lock
 from flask import Blueprint, request, jsonify
@@ -15,7 +15,12 @@ from sqlalchemy.orm import load_only
 from cryptography.exceptions import InvalidSignature
 from cryptography.hazmat.primitives import hashes, serialization
 from cryptography.hazmat.primitives.asymmetric import padding, rsa
-from core.database import db, Endpoint, AgentTask, RegistrationHistory, TelemetryHistory, ConnectionIpHistory, EndpointGroup, EndpointMetric, TriggerRule, User, TaskTemplate, ScheduledTask
+from core.database import (
+    db, Endpoint, EndpointDuplicateException, EndpointInstance,
+    EndpointIdentityConflict, EndpointIdentityCommand, AgentTask,
+    RegistrationHistory, TelemetryHistory, ConnectionIpHistory, EndpointGroup,
+    EndpointMetric, TriggerRule, User, TaskTemplate, ScheduledTask,
+)
 from core.security import sec_manager
 from core.host_security import apply_endpoint_encryption_status
 from core.sdk import WinHubCore
@@ -36,6 +41,157 @@ agent_signature_nonce_cache = {}
 agent_signature_nonce_cache_lock = Lock()
 pending_task_miss_cache = {}
 pending_task_miss_cache_lock = Lock()
+INSTANCE_SESSION_MAX_LENGTH = 64
+INSTANCE_BOOT_MAX_LENGTH = 128
+INSTANCE_CAPABILITIES_MAX_LENGTH = 255
+INSTANCE_LEASE_SECONDS = max(60, int(getattr(Config, "AGENT_INSTANCE_LEASE_SECONDS", 240) or 240))
+
+
+def bounded_identity_value(value, max_length):
+    value = str(value or "").strip()
+    if not value or len(value) > max_length:
+        return ""
+    return value
+
+
+def endpoint_pair_key(left_id, right_id):
+    values = sorted([str(left_id or "").strip(), str(right_id or "").strip()])
+    if not values[0] or not values[1] or values[0] == values[1]:
+        return None
+    return tuple(values)
+
+
+def duplicate_pair_is_accepted(left_id, right_id):
+    pair = endpoint_pair_key(left_id, right_id)
+    if not pair:
+        return False
+    return EndpointDuplicateException.query.filter_by(
+        endpoint_a_id=pair[0], endpoint_b_id=pair[1]
+    ).first() is not None
+
+
+def active_identity_conflict(endpoint_id):
+    return EndpointIdentityConflict.query.filter(
+        EndpointIdentityConflict.endpoint_id == str(endpoint_id),
+        EndpointIdentityConflict.status.in_(["Open", "Resolving"]),
+    ).order_by(EndpointIdentityConflict.detected_at.desc()).first()
+
+
+def record_endpoint_instance(agent, data):
+    """Track concurrent agent processes and open a fail-closed clone conflict.
+
+    A service restart alone does not trigger a conflict: a previous session must
+    send another request after the new session first appeared. This produces the
+    A -> B -> A/B evidence required to distinguish concurrency from replacement.
+    """
+    session_id = bounded_identity_value(data.get("instance_session_id"), INSTANCE_SESSION_MAX_LENGTH)
+    if not session_id:
+        return None, active_identity_conflict(agent.id)
+
+    now = datetime.utcnow()
+    EndpointInstance.query.filter(
+        EndpointInstance.endpoint_id == agent.id,
+        EndpointInstance.last_seen < now - timedelta(days=7),
+    ).delete(synchronize_session=False)
+    source_ip = current_client_ip()
+    fingerprint = bounded_identity_value(data.get("instance_fingerprint"), 64).lower()
+    if fingerprint and (len(fingerprint) != 64 or any(ch not in "0123456789abcdef" for ch in fingerprint)):
+        fingerprint = ""
+    boot_id = bounded_identity_value(data.get("boot_session_id"), INSTANCE_BOOT_MAX_LENGTH)
+    capabilities = bounded_identity_value(data.get("identity_capabilities"), INSTANCE_CAPABILITIES_MAX_LENGTH)
+    instance = EndpointInstance.query.filter_by(endpoint_id=agent.id, session_id=session_id).first()
+    is_new = instance is None
+    if instance is None:
+        instance = EndpointInstance(
+            endpoint_id=agent.id,
+            session_id=session_id,
+            first_seen=now,
+        )
+        db.session.add(instance)
+    instance.last_seen = now
+    instance.boot_id = boot_id or None
+    instance.instance_fingerprint = fingerprint or None
+    instance.hostname = str(getattr(agent, "hostname", "") or "")[:100]
+    instance.connection_ip = source_ip[:64] if source_ip else None
+    instance.agent_version = str(data.get("agent_version") or "")[:50]
+    instance.capabilities = capabilities or None
+    db.session.flush()
+
+    cutoff = now - timedelta(seconds=INSTANCE_LEASE_SECONDS)
+    peers = EndpointInstance.query.filter(
+        EndpointInstance.endpoint_id == agent.id,
+        EndpointInstance.session_id != session_id,
+        EndpointInstance.last_seen >= cutoff,
+    ).all()
+    conflict = active_identity_conflict(agent.id)
+    if not conflict:
+        for peer in peers:
+            # A new session cannot convict a stale predecessor. If that
+            # predecessor polls again, this condition becomes true.
+            if is_new or peer.last_seen < instance.first_seen:
+                continue
+            conflict = EndpointIdentityConflict(
+                endpoint_id=agent.id,
+                status="Open",
+                reason="Concurrent agent sessions are using the same endpoint identity.",
+                detected_at=now,
+                updated_at=now,
+            )
+            db.session.add(conflict)
+            agent.identity_warning = "Cloned agent identity detected. Tasks are quarantined until an administrator splits or resolves the identity."
+            db.session.add(RegistrationHistory(
+                hw_id=agent.id,
+                hostname=agent.hostname,
+                ip_address=source_ip,
+                event_type="Identity Conflict Detected",
+            ))
+            break
+    elif conflict:
+        conflict.updated_at = now
+    return instance, conflict
+
+
+def pending_identity_command(endpoint_id, session_id):
+    if not session_id:
+        return None
+    now = datetime.utcnow()
+    return EndpointIdentityCommand.query.filter(
+        EndpointIdentityCommand.endpoint_id == endpoint_id,
+        EndpointIdentityCommand.target_session_id == session_id,
+        EndpointIdentityCommand.status.in_(["Pending", "Delivered"]),
+        EndpointIdentityCommand.expires_at >= now,
+    ).order_by(EndpointIdentityCommand.created_at.asc()).first()
+
+
+def complete_identity_command_for_new_endpoint(agent, data):
+    command = EndpointIdentityCommand.query.filter_by(
+        new_endpoint_id=agent.id, status="Delivered"
+    ).first()
+    if not command:
+        return
+    command.status = "Completed"
+    command.completed_at = datetime.utcnow()
+    conflict = EndpointIdentityConflict.query.get(command.conflict_id)
+    if conflict:
+        conflict.status = "Resolved"
+        conflict.resolution = "Split"
+        conflict.resolved_by = command.created_by
+        conflict.resolved_at = datetime.utcnow()
+        conflict.updated_at = datetime.utcnow()
+    EndpointInstance.query.filter_by(
+        endpoint_id=command.endpoint_id,
+        session_id=command.target_session_id,
+    ).delete(synchronize_session=False)
+    old_endpoint = Endpoint.query.get(command.endpoint_id)
+    if old_endpoint:
+        old_endpoint.identity_warning = None
+    agent.identity_warning = None
+    db.session.add(RegistrationHistory(
+        hw_id=agent.id,
+        hostname=agent.hostname,
+        ip_address=current_client_ip(),
+        event_type="Identity Split Completed",
+    ))
 
 def update_scheduled_task_completion_status(job_id):
     scheduled_task = ScheduledTask.query.filter_by(last_job_id=job_id).first()
@@ -83,6 +239,7 @@ TASK_RESULT_COLUMNS = (
     AgentTask.id,
     AgentTask.job_id,
     AgentTask.endpoint_id,
+    AgentTask.instance_session_id,
     AgentTask.title,
     AgentTask.payload,
     AgentTask.status,
@@ -112,12 +269,17 @@ def current_client_ip():
     return request.remote_addr or ""
 
 
-def update_agent_connection(agent):
+def update_agent_connection(agent, instance_session_id=None):
     current_ip = current_client_ip()
     changed = False
     if current_ip and current_ip != (getattr(agent, "connection_ip", None) or ""):
         agent.connection_ip = current_ip
-        db.session.add(ConnectionIpHistory(endpoint_id=agent.id, ip_address=current_ip, source="agent"))
+        db.session.add(ConnectionIpHistory(
+            endpoint_id=agent.id,
+            instance_session_id=bounded_identity_value(instance_session_id, INSTANCE_SESSION_MAX_LENGTH) or None,
+            ip_address=current_ip,
+            source="agent",
+        ))
         agent.ip_address = current_ip
         changed = True
     return changed
@@ -620,7 +782,7 @@ def find_approved_duplicate_endpoint(hw_id, hostname, source_ip, fingerprint):
         endpoint_fingerprints.discard("")
         if fingerprints and fingerprints.intersection(endpoint_fingerprints):
             reasons.append("identity")
-        if "identity" in reasons:
+        if "identity" in reasons and not duplicate_pair_is_accepted(hw_id, endpoint.id):
             return endpoint, reasons
     return None, []
 
@@ -638,6 +800,8 @@ def find_approved_hostname_stale_endpoint(hw_id, hostname, agent_version):
     newest_version = (0, 0, 0, 0)
     for endpoint in approved:
         if str(endpoint.hostname or "").strip().upper() != hostname_key:
+            continue
+        if duplicate_pair_is_accepted(hw_id, endpoint.id):
             continue
         endpoint_version = agent_version_tuple(getattr(endpoint, "agent_version", "") or "")
         if newest_match is None or endpoint_version > newest_version:
@@ -672,18 +836,10 @@ def find_approved_endpoint_by_previous_token(previous_auth_token, previous_hw_id
     return None, []
 
 
-def should_adopt_duplicate_enrollment(reasons):
-    reason_set = set(reasons or [])
-    return "identity" in reason_set or "token_proof" in reason_set
-
-
-def duplicate_enrollment_requires_rejection(reasons):
-    reason_set = set(reasons or [])
-    return bool(reason_set.intersection({"identity", "token_proof"}))
-
-
 def duplicate_enrollment_review_status(reasons):
-    return "Rejected" if duplicate_enrollment_requires_rejection(reasons) else "Pending"
+    # Duplicate evidence is a review signal, never authorization to delete,
+    # replace, or permanently reject an endpoint automatically.
+    return "Pending"
 
 
 def endpoint_reenroll_allowed(agent):
@@ -693,59 +849,6 @@ def endpoint_reenroll_allowed(agent):
     if getattr(allowed_until, "tzinfo", None):
         allowed_until = allowed_until.replace(tzinfo=None)
     return allowed_until >= datetime.utcnow()
-
-
-def adopt_duplicate_endpoint_identity(existing_endpoint, new_hw_id, raw_token, data, source_ip, fingerprint, network_info, host_info, agent_version):
-    old_id = existing_endpoint.id
-    groups = list(existing_endpoint.groups)
-    inherited_ip = source_ip or getattr(existing_endpoint, "connection_ip", None) or existing_endpoint.ip_address
-    inherited_public_key = get_agent_public_key(existing_endpoint)
-    adopted = Endpoint(
-        id=new_hw_id,
-        hostname=data.get("hostname", existing_endpoint.hostname),
-        auth_token=raw_token,
-        public_key_pem=inherited_public_key,
-        public_key_pem_plain=inherited_public_key,
-        task_signing_private_key=getattr(existing_endpoint, "task_signing_private_key", None),
-        task_signing_public_key=getattr(existing_endpoint, "task_signing_public_key", None),
-        task_signing_key_id=getattr(existing_endpoint, "task_signing_key_id", None),
-        task_signing_sequence=int(getattr(existing_endpoint, "task_signing_sequence", 0) or 0),
-        task_signature_v2_seen_at=getattr(existing_endpoint, "task_signature_v2_seen_at", None),
-        os_version=data.get("os_version", existing_endpoint.os_version),
-        os_type=data.get("os_type", existing_endpoint.os_type or "Windows"),
-        connection_ip=inherited_ip,
-        ip_address=inherited_ip,
-        approval_status="Approved",
-        agent_version=agent_version or existing_endpoint.agent_version,
-        network_info=network_info,
-        host_info=host_info,
-        first_seen=existing_endpoint.first_seen,
-        last_enrollment_at=datetime.utcnow(),
-        last_enrollment_ip=source_ip,
-        enrollment_attempts=int(existing_endpoint.enrollment_attempts or 0) + 1,
-        identity_fingerprint=fingerprint,
-        identity_warning=None,
-        last_seen=datetime.utcnow(),
-        is_blocked=bool(existing_endpoint.is_blocked),
-    )
-    apply_endpoint_encryption_status(adopted, host_info)
-    adopted.groups = groups
-    db.session.add(adopted)
-    db.session.flush()
-
-    AgentTask.query.filter_by(endpoint_id=old_id).update({"endpoint_id": new_hw_id})
-    TelemetryHistory.query.filter_by(endpoint_id=old_id).update({"endpoint_id": new_hw_id})
-    EndpointMetric.query.filter_by(endpoint_id=old_id).update({"endpoint_id": new_hw_id})
-    ConnectionIpHistory.query.filter_by(endpoint_id=old_id).update({"endpoint_id": new_hw_id})
-    db.session.add(RegistrationHistory(
-        hw_id=new_hw_id,
-        hostname=adopted.hostname,
-        ip_address=source_ip,
-        event_type="Adopted Identity"
-    ))
-    db.session.add(ConnectionIpHistory(endpoint_id=new_hw_id, ip_address=source_ip, source="identity_adoption"))
-    db.session.delete(existing_endpoint)
-    return adopted
 
 
 def trim_result_log(value):
@@ -861,50 +964,16 @@ def enroll_agent():
 
     agent = Endpoint.query.get(hw_id)
     adopted_identity = False
-    if (
-        agent
-        and getattr(agent, "approval_status", "Pending") != "Approved"
-        and duplicate_endpoint
-        and should_adopt_duplicate_enrollment(duplicate_reasons)
-    ):
-        db.session.delete(agent)
-        db.session.flush()
-        agent = adopt_duplicate_endpoint_identity(
-            duplicate_endpoint,
-            hw_id,
-            raw_token,
-            data,
-            source_ip,
-            fingerprint,
-            network_info,
-            host_info,
-            agent_version,
-        )
-        adopted_identity = True
     if agent and agent.is_blocked:
         return jsonify({"status": "error", "message": "Blocked"}), 403
     if (
         agent
         and getattr(agent, "approval_status", "Approved") == "Approved"
-        and not adopted_identity
         and not getattr(Config, "AGENT_ALLOW_REENROLL_EXISTING", False)
         and not endpoint_reenroll_allowed(agent)
     ):
         return jsonify({"status": "error", "message": "Endpoint already enrolled. Delete or reset the endpoint record before re-enrollment."}), 409
-    if not agent and duplicate_endpoint and should_adopt_duplicate_enrollment(duplicate_reasons):
-        agent = adopt_duplicate_endpoint_identity(
-            duplicate_endpoint,
-            hw_id,
-            raw_token,
-            data,
-            source_ip,
-            fingerprint,
-            network_info,
-            host_info,
-            agent_version,
-        )
-        adopted_identity = True
-    elif not agent:
+    if not agent:
         agent = Endpoint(id=hw_id, hostname=hostname, auth_token=raw_token,
                          os_version=data.get('os_version'), os_type=os_type, connection_ip=source_ip, ip_address=source_ip)
         agent.approval_status = duplicate_enrollment_review_status(duplicate_reasons) if duplicate_endpoint else "Pending"
@@ -928,7 +997,7 @@ def enroll_agent():
             hw_id=hw_id,
             hostname=hostname,
             ip_address=source_ip,
-            event_type=("Rejected Duplicate" if duplicate_enrollment_requires_rejection(duplicate_reasons) else "Pending Duplicate Review") if duplicate_endpoint else "Pending Approval"
+            event_type="Pending Duplicate Review" if duplicate_endpoint else "Pending Approval"
         ))
         db.session.add(ConnectionIpHistory(endpoint_id=hw_id, ip_address=source_ip, source="enrollment"))
     else:
@@ -989,63 +1058,65 @@ def agent_poll():
         signature_ok, signature_reason = verify_or_bind_agent_key(agent, data, "/api/agent/poll", data.get("auth_token"))
         if not signature_ok:
             return jsonify(agent_signature_error_payload(signature_reason, data)), 403
-        source_ip = current_client_ip() or getattr(agent, "connection_ip", None) or agent.ip_address
-        duplicate_endpoint, duplicate_reasons = find_approved_duplicate_endpoint(
-            agent.id,
-            agent.hostname,
-            source_ip,
-            {
-                getattr(agent, "identity_fingerprint", None),
-                endpoint_stable_identity_fingerprint(agent),
-            },
-        )
-        if duplicate_endpoint and should_adopt_duplicate_enrollment(duplicate_reasons):
-            existing_network_info = agent.network_info or "[]"
-            existing_host_info = agent.host_info or "{}"
-            pending_hostname = agent.hostname
-            pending_os_version = agent.os_version
-            pending_os_type = agent.os_type
-            pending_fingerprint = getattr(agent, "identity_fingerprint", None)
-            db.session.delete(agent)
-            db.session.flush()
-            agent = adopt_duplicate_endpoint_identity(
-                duplicate_endpoint,
-                data.get("hw_id"),
-                data.get("auth_token"),
-                {
-                    "hostname": pending_hostname,
-                    "os_version": pending_os_version,
-                    "os_type": pending_os_type,
-                },
-                source_ip,
-                pending_fingerprint,
-                existing_network_info,
-                existing_host_info,
-                str(data.get("agent_version") or duplicate_endpoint.agent_version or "")[:50],
-            )
-            db.session.commit()
+        complete_identity_command_for_new_endpoint(agent, data)
+        record_endpoint_instance(agent, data)
     if getattr(agent, "approval_status", "Approved") != "Approved":
         agent.last_seen = datetime.utcnow()
-        update_agent_connection(agent)
+        update_agent_connection(agent, data.get("instance_session_id"))
         db.session.commit()
         return jsonify({"status": "pending_approval", **agent_poll_timing("pending")}), 200
 
-    task = get_pending_task_for_agent(agent.id)
+    task = None
     signature_ok, signature_reason = (
-        verify_or_bind_agent_key(agent, data, "/api/agent/poll", data.get("auth_token"))
-        if task
-        else verify_poll_signature_cached(agent, data, data.get("auth_token"))
+        verify_poll_signature_cached(agent, data, data.get("auth_token"))
     )
     if not signature_ok:
         return jsonify(agent_signature_error_payload(signature_reason, data)), 403
-    if task:
-        remember_poll_signature(agent, data, data.get("auth_token"))
+    complete_identity_command_for_new_endpoint(agent, data)
+    instance, identity_conflict = record_endpoint_instance(agent, data)
+    session_id = instance.session_id if instance else ""
+    supports_identity_split = "identity-split-v1" in str(data.get("identity_capabilities") or "").lower()
+
+    command = pending_identity_command(agent.id, session_id)
+    if command and supports_identity_split:
+        payload = {
+            "command_id": command.id,
+            "target_session_id": command.target_session_id,
+            "new_endpoint_id": command.new_endpoint_id,
+            "new_auth_token": command.new_auth_token,
+        }
+        response = {
+            "status": "identity_split",
+            "task_id": command.id,
+            "action": "identity_split",
+            "payload": payload,
+            "timeout_seconds": 300,
+            "task_signature_v2": sign_task_message_v2(agent, command.id, "identity_split", payload, 300),
+            **agent_poll_timing("task"),
+        }
+        command.status = "Delivered"
+        command.delivered_at = datetime.utcnow()
+        db.session.commit()
+        return jsonify(response)
+
+    if identity_conflict:
+        update_agent_connection(agent, session_id)
+        agent.last_seen = datetime.utcnow()
+        db.session.commit()
+        return jsonify({
+            "status": "identity_conflict",
+            "conflict_id": identity_conflict.id,
+            "message": "Cloned agent identity detected. Task delivery is quarantined pending administrator resolution.",
+            **agent_poll_timing("pending"),
+        })
+
+    task = get_pending_task_for_agent(agent.id)
 
     now = datetime.utcnow()
     needs_commit = bool(getattr(agent, "_public_key_plain_backfilled", False))
     refresh_seen = not agent.last_seen or (now - agent.last_seen).total_seconds() > 60
     agent_version = str(data.get('agent_version') or '').strip()[:50]
-    if refresh_seen and update_agent_connection(agent):
+    if refresh_seen and update_agent_connection(agent, session_id):
         needs_commit = True
     if agent_version and agent_version != (agent.agent_version or ""):
         agent.agent_version = agent_version
@@ -1077,6 +1148,7 @@ def agent_poll():
         resp = {"status": "upgrade_required", "required_task_signature": "rsa-pss-sha256-v2", **agent_poll_timing("idle")}
     elif task:
         task.status = "PickedUp"
+        task.instance_session_id = session_id or None
 
         # --- БРОНЕБІЙНИЙ ПАРСИНГ PAYLOAD ДЛЯ АГЕНТА ---
         try:
@@ -1139,7 +1211,8 @@ def agent_result():
     signature_ok, signature_reason = verify_or_bind_agent_key(agent, data, "/api/agent/result", data.get("auth_token"))
     if not signature_ok:
         return jsonify(agent_signature_error_payload(signature_reason, data)), 403
-    update_agent_connection(agent)
+    instance, _identity_conflict = record_endpoint_instance(agent, data)
+    update_agent_connection(agent, data.get("instance_session_id"))
     acknowledged_key_id = str(data.get("task_signature_v2_key_id") or "").strip()
     try:
         acknowledged_sequence = int(data.get("task_signature_v2_sequence") or 0)
@@ -1242,10 +1315,12 @@ def agent_telemetry():
     if isinstance(host_inventory, dict):
         agent.host_info = json.dumps(host_inventory, ensure_ascii=False)
         apply_endpoint_encryption_status(agent, host_inventory)
-    update_agent_connection(agent)
+    instance, _identity_conflict = record_endpoint_instance(agent, data)
+    update_agent_connection(agent, data.get("instance_session_id"))
 
     telemetry = TelemetryHistory(
         endpoint_id=agent.id,
+        instance_session_id=instance.session_id if instance else None,
         cpu_usage=data.get('cpu', 0.0),
         ram_usage=data.get('ram', 0.0),
         disk_c_free=data.get('disk_c', 0.0)

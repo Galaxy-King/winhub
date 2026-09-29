@@ -255,6 +255,51 @@ class EndpointDuplicateException(db.Model):
         db.UniqueConstraint('endpoint_a_id', 'endpoint_b_id', name='uq_endpoint_duplicate_exception_pair'),
     )
 
+class EndpointInstance(db.Model):
+    __tablename__ = 'endpoint_instances'
+    id = db.Column(db.String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
+    endpoint_id = db.Column(db.String(100), db.ForeignKey('endpoints.id', ondelete="CASCADE"), nullable=False, index=True)
+    session_id = db.Column(db.String(64), nullable=False)
+    boot_id = db.Column(db.String(128))
+    instance_fingerprint = db.Column(db.String(64), index=True)
+    hostname = db.Column(db.String(100))
+    connection_ip = db.Column(db.String(64), index=True)
+    agent_version = db.Column(db.String(50))
+    capabilities = db.Column(db.String(255))
+    first_seen = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
+    last_seen = db.Column(db.DateTime, default=datetime.utcnow, nullable=False, index=True)
+
+    __table_args__ = (
+        db.UniqueConstraint('endpoint_id', 'session_id', name='uq_endpoint_instance_session'),
+    )
+
+class EndpointIdentityConflict(db.Model):
+    __tablename__ = 'endpoint_identity_conflicts'
+    id = db.Column(db.String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
+    endpoint_id = db.Column(db.String(100), db.ForeignKey('endpoints.id', ondelete="CASCADE"), nullable=False, index=True)
+    status = db.Column(db.String(20), default="Open", nullable=False, index=True)
+    reason = db.Column(db.String(255), nullable=False)
+    detected_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False, index=True)
+    updated_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
+    resolved_at = db.Column(db.DateTime)
+    resolution = db.Column(db.String(50))
+    resolved_by = db.Column(db.String(100))
+
+class EndpointIdentityCommand(db.Model):
+    __tablename__ = 'endpoint_identity_commands'
+    id = db.Column(db.String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
+    conflict_id = db.Column(db.String(36), db.ForeignKey('endpoint_identity_conflicts.id', ondelete="CASCADE"), nullable=False, index=True)
+    endpoint_id = db.Column(db.String(100), db.ForeignKey('endpoints.id', ondelete="CASCADE"), nullable=False, index=True)
+    target_session_id = db.Column(db.String(64), nullable=False, index=True)
+    new_endpoint_id = db.Column(db.String(100), db.ForeignKey('endpoints.id', ondelete="CASCADE"), nullable=False, unique=True)
+    new_auth_token = db.Column(EncryptedText, nullable=False)
+    status = db.Column(db.String(20), default="Pending", nullable=False, index=True)
+    created_by = db.Column(db.String(100))
+    created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
+    expires_at = db.Column(db.DateTime, nullable=False, index=True)
+    delivered_at = db.Column(db.DateTime)
+    completed_at = db.Column(db.DateTime)
+
 class AgentTask(db.Model):
     __tablename__ = 'agent_tasks'
     id = db.Column(db.String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
@@ -264,6 +309,7 @@ class AgentTask(db.Model):
     endpoint_hostname_snapshot = db.Column(db.String(100), nullable=True, index=True)
     endpoint_name_snapshot = db.Column(db.String(120), nullable=True, index=True)
     endpoint_groups_snapshot = db.Column(db.Text)
+    instance_session_id = db.Column(db.String(64), nullable=True, index=True)
 
     title = db.Column(db.String(150), default="Untitled Task")
     launch_reason = db.Column(EncryptedText, nullable=True)
@@ -287,6 +333,7 @@ class TelemetryHistory(db.Model):
     __tablename__ = 'telemetry_history'
     id = db.Column(db.Integer, primary_key=True)
     endpoint_id = db.Column(db.String(100), db.ForeignKey('endpoints.id', ondelete="CASCADE"), index=True)
+    instance_session_id = db.Column(db.String(64), nullable=True, index=True)
 
     cpu_usage = db.Column(db.Float)
     ram_usage = db.Column(db.Float)
@@ -299,6 +346,7 @@ class ConnectionIpHistory(db.Model):
     __tablename__ = 'connection_ip_history'
     id = db.Column(db.Integer, primary_key=True)
     endpoint_id = db.Column(db.String(100), db.ForeignKey('endpoints.id', ondelete="CASCADE"), index=True)
+    instance_session_id = db.Column(db.String(64), nullable=True, index=True)
     ip_address = db.Column(EncryptedString)
     source = db.Column(db.String(50), default="agent")
     timestamp = db.Column(db.DateTime, default=datetime.utcnow, index=True)

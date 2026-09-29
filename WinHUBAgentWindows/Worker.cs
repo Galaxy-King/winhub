@@ -25,10 +25,10 @@ using WinHUB.Security;
 namespace WinHUBAgent
 {
     // --- МОДЕЛІ ДАНИХ ---
-    public record EnrollPayload(string global_token, string hw_id, string hostname, string os_version, string os_type, string agent_version, NetworkInterfaceInfo[] network_interfaces, HostInventoryInfo host_info, string previous_auth_token, string previous_hw_id, string agent_public_key_pem, string agent_key_fingerprint, string body_hash, string signed_at, string signed_nonce, string signature);
-    public record PollPayload(string hw_id, string auth_token, string agent_version, string agent_public_key_pem, string agent_key_fingerprint, string task_signature_capabilities, string body_hash, string signed_at, string signed_nonce, string signature);
-    public record TelemetryPayload(string hw_id, string auth_token, string agent_version, double cpu, double ram, double disk_c, HostInventoryInfo? host_info, string agent_public_key_pem, string agent_key_fingerprint, string body_hash, string signed_at, string signed_nonce, string signature);
-    public record ResultPayload(string hw_id, string auth_token, string agent_version, string task_id, string status, string log, string agent_public_key_pem, string agent_key_fingerprint, string task_signature_v2_key_id, long task_signature_v2_sequence, string body_hash, string signed_at, string signed_nonce, string signature);
+    public record EnrollPayload(string global_token, string hw_id, string hostname, string os_version, string os_type, string agent_version, NetworkInterfaceInfo[] network_interfaces, HostInventoryInfo host_info, string previous_auth_token, string previous_hw_id, string agent_public_key_pem, string agent_key_fingerprint, string identity_capabilities, string instance_session_id, string boot_session_id, string instance_fingerprint, string body_hash, string signed_at, string signed_nonce, string signature);
+    public record PollPayload(string hw_id, string auth_token, string agent_version, string agent_public_key_pem, string agent_key_fingerprint, string task_signature_capabilities, string identity_capabilities, string instance_session_id, string boot_session_id, string instance_fingerprint, string body_hash, string signed_at, string signed_nonce, string signature);
+    public record TelemetryPayload(string hw_id, string auth_token, string agent_version, double cpu, double ram, double disk_c, HostInventoryInfo? host_info, string agent_public_key_pem, string agent_key_fingerprint, string identity_capabilities, string instance_session_id, string boot_session_id, string instance_fingerprint, string body_hash, string signed_at, string signed_nonce, string signature);
+    public record ResultPayload(string hw_id, string auth_token, string agent_version, string task_id, string status, string log, string agent_public_key_pem, string agent_key_fingerprint, string task_signature_v2_key_id, long task_signature_v2_sequence, string identity_capabilities, string instance_session_id, string boot_session_id, string instance_fingerprint, string body_hash, string signed_at, string signed_nonce, string signature);
     public record NetworkInterfaceInfo(string name, string description, string type, string status, string mac, string[] ipv4, string[] ipv6, string[] gateways, string[] dns_servers, bool dhcp_enabled, long speed_mbps);
     public record VolumeInfo(string name, string label, string format, string type, long total_gb, long free_gb, bool ready);
     public record BitLockerInventoryInfo(string status, int encrypted_percentage, string protection_status, string conversion_status, string raw_summary);
@@ -73,6 +73,13 @@ namespace WinHUBAgent
         public long TaskSigningLastSequence { get; set; }
     }
 
+    public class IdentitySplitState
+    {
+        public string HardwareId { get; set; } = "";
+        public string AuthToken { get; set; } = "";
+        public string PrivateKeyBase64 { get; set; } = "";
+    }
+
     public static class AgentBuildInfo
     {
         public static readonly string Version =
@@ -89,6 +96,7 @@ namespace WinHUBAgent
     [JsonSerializable(typeof(AgentConfig))] // Додано для конфігу
     [JsonSerializable(typeof(AgentSecrets))]
     [JsonSerializable(typeof(TaskSigningState))]
+    [JsonSerializable(typeof(IdentitySplitState))]
     [JsonSerializable(typeof(string))]
     [JsonSerializable(typeof(NetworkInterfaceInfo))]
     [JsonSerializable(typeof(NetworkInterfaceInfo[]))]
@@ -115,6 +123,7 @@ namespace WinHUBAgent
         private readonly string UpdatesDirectory;
         private readonly string HardwareIdFilePath;
         private readonly string AgentIdentityKeyFilePath;
+        private readonly string IdentitySplitStateFilePath;
         private readonly string LogsDirectory;
         private string TaskSigningStateFilePath => Path.Combine(DataDirectory, "task-signing-state.json");
         private ExecutionJournal? _executionJournal;
@@ -125,6 +134,10 @@ namespace WinHUBAgent
         private RSA? AgentIdentityKey;
         private string AgentPublicKeyPem = string.Empty;
         private string AgentKeyFingerprint = string.Empty;
+        private readonly string InstanceSessionId = Guid.NewGuid().ToString("N");
+        private readonly string BootSessionId = CreateBootSessionId();
+        private string InstanceFingerprint = string.Empty;
+        private const string IdentityCapabilities = "identity-session-v1,identity-split-v1";
         private DateTime _lastInventoryUtc = DateTime.MinValue;
         private HostInventoryInfo? _cachedHostInventory;
 
@@ -172,6 +185,7 @@ namespace WinHUBAgent
             UpdatesDirectory = Path.Combine(DataDirectory, "updates");
             HardwareIdFilePath = Path.Combine(DataDirectory, "agent.hwid");
             AgentIdentityKeyFilePath = Path.Combine(DataDirectory, "agent_identity.key");
+            IdentitySplitStateFilePath = Path.Combine(DataDirectory, "identity-split.pending");
             LogsDirectory = Path.Combine(DataDirectory, "logs");
 
             var handler = new HttpClientHandler
@@ -342,11 +356,13 @@ namespace WinHUBAgent
             // Завантажуємо налаштування з файлу
             EnsureLocalFileSecurity();
             _logger.LogInformation("WinHUB Agent Service starting...");
+            RecoverPendingIdentitySplit();
             LoadConfig();
             RemoveProtectedSecret("TaskHmacSecret");
 
             HardwareId = GetOrCreateHardwareId();
             EnsureAgentIdentityKey();
+            InstanceFingerprint = CreateInstanceFingerprint();
             _executionJournal = new ExecutionJournal(Path.Combine(DataDirectory, "execution-journal"), HardwareId, HardenFileAcl, HardenDirectoryAcl);
             _executionJournal.RecoverInterrupted();
             FriendlyOsName = GetFriendlyOsName();
@@ -525,7 +541,7 @@ namespace WinHUBAgent
                 var drive = DriveInfo.GetDrives().FirstOrDefault(d => d.Name.StartsWith("C", StringComparison.OrdinalIgnoreCase) && d.IsReady);
                 if (drive != null) diskCFree = (float)Math.Round(drive.AvailableFreeSpace / (1024.0 * 1024.0 * 1024.0), 2);
 
-                var unsignedPayload = new TelemetryPayload(HardwareId, AuthToken, AgentBuildInfo.Version, Math.Round(cpuUsage, 2), ramUsage, diskCFree, GetCachedHostInventory(false), AgentPublicKeyPem, AgentKeyFingerprint, "", "", "", "");
+                var unsignedPayload = new TelemetryPayload(HardwareId, AuthToken, AgentBuildInfo.Version, Math.Round(cpuUsage, 2), ramUsage, diskCFree, GetCachedHostInventory(false), AgentPublicKeyPem, AgentKeyFingerprint, IdentityCapabilities, InstanceSessionId, BootSessionId, InstanceFingerprint, "", "", "", "");
                 string unsignedJson = JsonSerializer.Serialize(unsignedPayload, AppJsonSerializerContext.Default.TelemetryPayload);
                 string bodyHash = ComputeAgentBodyHash(unsignedJson);
                 var signature = CreateAgentSignature("/api/agent/telemetry", AuthToken, AgentBuildInfo.Version, bodyHash);
@@ -558,7 +574,7 @@ namespace WinHUBAgent
                         await Task.Delay(TimeSpan.FromSeconds(30), stoppingToken);
                         continue;
                     }
-                    var unsignedPayload = new EnrollPayload(enrollmentToken, HardwareId, Environment.MachineName, FriendlyOsName, "Windows", AgentBuildInfo.Version, GetNetworkInterfaces(), GetCachedHostInventory(true), previousAuthToken, previousHwId, AgentPublicKeyPem, AgentKeyFingerprint, "", "", "", "");
+                    var unsignedPayload = new EnrollPayload(enrollmentToken, HardwareId, Environment.MachineName, FriendlyOsName, "Windows", AgentBuildInfo.Version, GetNetworkInterfaces(), GetCachedHostInventory(true), previousAuthToken, previousHwId, AgentPublicKeyPem, AgentKeyFingerprint, IdentityCapabilities, InstanceSessionId, BootSessionId, InstanceFingerprint, "", "", "", "");
                     string unsignedJson = JsonSerializer.Serialize(unsignedPayload, AppJsonSerializerContext.Default.EnrollPayload);
                     string bodyHash = ComputeAgentBodyHash(unsignedJson);
                     var signature = CreateAgentSignature("/api/agent/enroll", previousAuthToken, AgentBuildInfo.Version, bodyHash);
@@ -575,18 +591,8 @@ namespace WinHUBAgent
                         string approvalStatus = result.RootElement.TryGetProperty("approval_status", out var approvalEl)
                             ? approvalEl.GetString() ?? ""
                             : "";
-                        bool hasPreviousTokenProof = !string.IsNullOrWhiteSpace(previousAuthToken);
-                        bool shouldReplaceToken = !hasPreviousTokenProof || approvalStatus.Equals("Approved", StringComparison.OrdinalIgnoreCase);
-
-                        if (shouldReplaceToken)
-                        {
-                            SaveToken(newToken);
-                            AuthToken = newToken;
-                        }
-                        else
-                        {
-                            _logger.LogWarning($"Enrollment returned {approvalStatus}. Preserving previous approved token for future identity proof.");
-                        }
+                        SaveToken(newToken);
+                        AuthToken = newToken;
 
                         RemoveProtectedSecret("GlobalApiKey");
                         _logger.LogInformation($"Enrollment successful. Approval status: {approvalStatus}.");
@@ -611,7 +617,7 @@ namespace WinHUBAgent
             try
             {
                 if (_executionPersistenceFault) throw new IOException("Execution journal persistence failed. No more tasks will run until administrator recovery and service restart.");
-                var unsignedPayload = new PollPayload(HardwareId, AuthToken, AgentBuildInfo.Version, AgentPublicKeyPem, AgentKeyFingerprint, "rsa-pss-sha256-v2", "", "", "", "");
+                var unsignedPayload = new PollPayload(HardwareId, AuthToken, AgentBuildInfo.Version, AgentPublicKeyPem, AgentKeyFingerprint, "rsa-pss-sha256-v2", IdentityCapabilities, InstanceSessionId, BootSessionId, InstanceFingerprint, "", "", "", "");
                 string unsignedJson = JsonSerializer.Serialize(unsignedPayload, AppJsonSerializerContext.Default.PollPayload);
                 string bodyHash = ComputeAgentBodyHash(unsignedJson);
                 var signature = CreateAgentSignature("/api/agent/poll", AuthToken, AgentBuildInfo.Version, bodyHash);
@@ -642,6 +648,25 @@ namespace WinHUBAgent
                 using var result = JsonDocument.Parse(await response.Content.ReadAsStringAsync(stoppingToken));
                 string status = result.RootElement.GetProperty("status").GetString() ?? "";
                 PollTiming timing = ReadPollTiming(result.RootElement);
+
+                if (status == "identity_split")
+                {
+                    if (!ValidateTaskSignature(result.RootElement))
+                    {
+                        _logger.LogError("Identity split rejected because the server signature was invalid.");
+                        return timing;
+                    }
+                    ApplyIdentitySplit(result.RootElement.GetProperty("payload"));
+                    _logger.LogWarning("Identity split state was installed. Restarting the service with the new endpoint identity.");
+                    Environment.Exit(75);
+                    return timing;
+                }
+
+                if (status == "identity_conflict")
+                {
+                    _logger.LogError("Server quarantined task delivery because another running system is using this agent identity.");
+                    return timing;
+                }
 
                 if (status == "task")
                 {
@@ -882,7 +907,8 @@ namespace WinHUBAgent
                     SecretsFilePath,
                     HardwareIdFilePath,
                     AgentIdentityKeyFilePath,
-                    TaskSigningStateFilePath
+                    TaskSigningStateFilePath,
+                    IdentitySplitStateFilePath
                 })
                 {
                     HardenFileAcl(path);
@@ -1080,7 +1106,7 @@ try {
         {
             try
             {
-                var unsignedPayload = new ResultPayload(HardwareId, AuthToken, AgentBuildInfo.Version, pending.TaskId, pending.Status, pending.Log, AgentPublicKeyPem, AgentKeyFingerprint, pending.KeyId, pending.Sequence, "", "", "", "");
+                var unsignedPayload = new ResultPayload(HardwareId, AuthToken, AgentBuildInfo.Version, pending.TaskId, pending.Status, pending.Log, AgentPublicKeyPem, AgentKeyFingerprint, pending.KeyId, pending.Sequence, IdentityCapabilities, InstanceSessionId, BootSessionId, InstanceFingerprint, "", "", "", "");
                 string unsignedJson = JsonSerializer.Serialize(unsignedPayload, AppJsonSerializerContext.Default.ResultPayload);
                 string bodyHash = ComputeAgentBodyHash(unsignedJson);
                 var signature = CreateAgentSignature("/api/agent/result", AuthToken, AgentBuildInfo.Version, bodyHash);
@@ -1139,6 +1165,37 @@ try {
         }
 
         public static void RunProductionSelfTest() => ProductionSecurityTests.Run(CanonicalizeJson);
+
+        public static void PrepareCloneTemplate(string confirmation)
+        {
+            if (!string.Equals(confirmation, "PREPARE-CLONE", StringComparison.Ordinal))
+                throw new ArgumentException("Usage: --prepare-clone-template PREPARE-CLONE");
+            using var identity = WindowsIdentity.GetCurrent();
+            if (!new WindowsPrincipal(identity).IsInRole(WindowsBuiltInRole.Administrator))
+                throw new UnauthorizedAccessException("Preparing a VM template requires an elevated Administrator shell.");
+            string dataDirectory = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData), "WinHUB");
+            string[] files = { "agent.token", "agent.secrets", "agent.hwid", "agent_identity.key", "task-signing-state.json", "identity-split.pending" };
+            foreach (string name in files)
+            {
+                string path = Path.Combine(dataDirectory, name);
+                ProductionSecurity.RejectLinks(path);
+                if (File.Exists(path)) File.Delete(path);
+            }
+            foreach (string name in new[] { "execution-journal", "pending-results" })
+            {
+                string path = Path.Combine(dataDirectory, name);
+                ProductionSecurity.RejectLinks(path);
+                if (Directory.Exists(path)) Directory.Delete(path, recursive: true);
+            }
+            string bootstrap = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "winhub_agent.bootstrap.conf");
+            ProductionSecurity.RejectLinks(bootstrap);
+            if (File.Exists(bootstrap)) File.Delete(bootstrap);
+            Directory.CreateDirectory(dataDirectory);
+            SecureWindowsPath(dataDirectory, isDirectory: true);
+            string marker = Path.Combine(dataDirectory, "clone-template-prepared");
+            ProductionSecurity.AtomicWrite(marker, Encoding.UTF8.GetBytes(DateTimeOffset.UtcNow.ToString("O")), path => SecureWindowsPath(path, isDirectory: false));
+            Console.WriteLine("WinHUB agent identity removed. Provision a fresh bootstrap configuration after cloning.");
+        }
 
         private static string CanonicalizeJson(JsonElement element)
         {
@@ -1230,6 +1287,85 @@ try {
                 AgentKeyFingerprint = "";
                 throw new InvalidDataException("Agent identity key could not be loaded or persisted. Refusing unsigned requests.", ex);
             }
+        }
+
+        private void ApplyIdentitySplit(JsonElement payload)
+        {
+            string targetSession = payload.GetProperty("target_session_id").GetString() ?? "";
+            string newHardwareId = payload.GetProperty("new_endpoint_id").GetString() ?? "";
+            string newAuthToken = payload.GetProperty("new_auth_token").GetString() ?? "";
+            if (!CryptographicOperations.FixedTimeEquals(Encoding.UTF8.GetBytes(targetSession), Encoding.UTF8.GetBytes(InstanceSessionId)))
+                throw new InvalidDataException("Identity split was addressed to another agent session.");
+            if (!newHardwareId.StartsWith("WINHUB-", StringComparison.OrdinalIgnoreCase) || newHardwareId.Length > 128 ||
+                newHardwareId.Any(c => !char.IsAsciiLetterOrDigit(c) && c != '-'))
+                throw new InvalidDataException("Server supplied an invalid replacement endpoint ID.");
+            if (!newAuthToken.StartsWith("agt_", StringComparison.Ordinal) || newAuthToken.Length > 255)
+                throw new InvalidDataException("Server supplied an invalid replacement token.");
+
+            using RSA replacementKey = RSA.Create(3072);
+            var state = new IdentitySplitState
+            {
+                HardwareId = newHardwareId,
+                AuthToken = newAuthToken,
+                PrivateKeyBase64 = Convert.ToBase64String(replacementKey.ExportPkcs8PrivateKey()),
+            };
+            byte[] protectedState = ProtectedData.Protect(
+                JsonSerializer.SerializeToUtf8Bytes(state, AppJsonSerializerContext.Default.IdentitySplitState),
+                null,
+                DataProtectionScope.LocalMachine);
+            ProductionSecurity.AtomicWrite(IdentitySplitStateFilePath, protectedState, HardenFileAcl);
+            RecoverPendingIdentitySplit();
+        }
+
+        private void RecoverPendingIdentitySplit()
+        {
+            if (!File.Exists(IdentitySplitStateFilePath)) return;
+            byte[] protectedState = ProductionSecurity.ReadBytes(IdentitySplitStateFilePath, 131072);
+            byte[] rawState = ProtectedData.Unprotect(protectedState, null, DataProtectionScope.LocalMachine);
+            IdentitySplitState state = JsonSerializer.Deserialize(rawState, AppJsonSerializerContext.Default.IdentitySplitState)
+                ?? throw new InvalidDataException("Pending identity split state is invalid.");
+            if (!state.HardwareId.StartsWith("WINHUB-", StringComparison.OrdinalIgnoreCase) ||
+                !state.AuthToken.StartsWith("agt_", StringComparison.Ordinal))
+                throw new InvalidDataException("Pending identity split values are invalid.");
+            byte[] privateKey = Convert.FromBase64String(state.PrivateKeyBase64);
+            using RSA validationKey = RSA.Create();
+            validationKey.ImportPkcs8PrivateKey(privateKey, out _);
+            if (validationKey.KeySize < 3072) throw new InvalidDataException("Pending identity split key is too small.");
+            byte[] protectedKey = ProtectedData.Protect(privateKey, null, DataProtectionScope.LocalMachine);
+            ProductionSecurity.AtomicWrite(AgentIdentityKeyFilePath, protectedKey, HardenFileAcl);
+            SaveToken(state.AuthToken);
+            ProductionSecurity.AtomicWrite(HardwareIdFilePath, Encoding.UTF8.GetBytes(state.HardwareId), HardenFileAcl);
+            if (File.Exists(TaskSigningStateFilePath)) File.Delete(TaskSigningStateFilePath);
+            ArchiveIdentityBoundDirectory("execution-journal");
+            ArchiveIdentityBoundDirectory("pending-results");
+            File.Delete(IdentitySplitStateFilePath);
+        }
+
+        private void ArchiveIdentityBoundDirectory(string name)
+        {
+            string source = Path.Combine(DataDirectory, name);
+            if (!Directory.Exists(source)) return;
+            string destination = Path.Combine(DataDirectory, $"{name}.pre-split-{DateTimeOffset.UtcNow:yyyyMMddHHmmss}-{Guid.NewGuid():N}");
+            Directory.Move(source, destination);
+            HardenDirectoryAcl(destination);
+        }
+
+        private static string CreateBootSessionId()
+        {
+            long bootTicks = DateTime.UtcNow.Subtract(TimeSpan.FromMilliseconds(Environment.TickCount64)).Ticks;
+            return Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes($"windows|{bootTicks}"))).ToLowerInvariant();
+        }
+
+        private static string CreateInstanceFingerprint()
+        {
+            string source = string.Join("|", new[]
+            {
+                "windows-instance-v1",
+                GetMachineGuid(),
+                Environment.MachineName,
+                string.Join(",", GetStableMacAddresses())
+            });
+            return Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(source))).ToLowerInvariant();
         }
 
         private (string SignedAt, string Nonce, string Signature) CreateAgentSignature(string path, string authToken, string agentVersion, string bodyHash)

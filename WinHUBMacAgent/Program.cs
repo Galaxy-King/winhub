@@ -17,6 +17,14 @@ if (args.Any(arg => arg.Equals("--self-test", StringComparison.OrdinalIgnoreCase
     return;
 }
 
+int prepareCloneIndex = Array.FindIndex(args, arg => arg.Equals("--prepare-clone-template", StringComparison.OrdinalIgnoreCase));
+if (prepareCloneIndex >= 0)
+{
+    if (prepareCloneIndex + 1 >= args.Length) throw new ArgumentException("Usage: --prepare-clone-template PREPARE-CLONE");
+    Worker.PrepareCloneTemplate(args[prepareCloneIndex + 1]);
+    return;
+}
+
 if (!OperatingSystem.IsMacOS())
     throw new PlatformNotSupportedException("WinHUBMacAgent can only run on macOS.");
 
