@@ -19,6 +19,14 @@ if (args.Any(arg => arg.Equals("--self-test", StringComparison.OrdinalIgnoreCase
     return;
 }
 
+int prepareCloneIndex = Array.FindIndex(args, arg => arg.Equals("--prepare-clone-template", StringComparison.OrdinalIgnoreCase));
+if (prepareCloneIndex >= 0)
+{
+    if (prepareCloneIndex + 1 >= args.Length) throw new ArgumentException("Usage: --prepare-clone-template PREPARE-CLONE");
+    Worker.PrepareCloneTemplate(args[prepareCloneIndex + 1]);
+    return;
+}
+
 int validateConfigIndex = Array.FindIndex(args, arg => arg.Equals("--validate-config", StringComparison.OrdinalIgnoreCase));
 if (validateConfigIndex >= 0)
 {
@@ -46,7 +54,7 @@ if (extractIndex >= 0)
     return;
 }
 
-if (args.Length != 0) throw new ArgumentException("Unknown command. Supported: --version, --self-test, --validate-config, --extract-update. No service was started.");
+if (args.Length != 0) throw new ArgumentException("Unknown command. Supported: --version, --self-test, --prepare-clone-template, --validate-config, --extract-update. No service was started.");
 
 var builder = Host.CreateDefaultBuilder(args)
     .UseWindowsService(options =>

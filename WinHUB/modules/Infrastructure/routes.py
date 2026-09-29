@@ -10,6 +10,7 @@ import smtplib
 import ssl
 import ast
 import re
+import secrets
 from decimal import Decimal, InvalidOperation
 import subprocess
 import tempfile
@@ -31,7 +32,7 @@ from werkzeug.exceptions import HTTPException
 from werkzeug.utils import secure_filename
 from apscheduler.triggers.cron import CronTrigger
 
-from core.database import db, User, Endpoint, EndpointGroup, EndpointDuplicateException, AgentTask, TaskTemplate, TelemetryHistory, ConnectionIpHistory, ScheduledTask, EndpointMetric, AgentUpdateRollout, TriggerRule, AggregatedJob, AiReportRequest, ApiKey, RegistrationHistory, AuditLog, ReportRevision, ReportDelivery, HistorySearchToken, endpoint_group_m2m
+from core.database import db, User, Endpoint, EndpointGroup, EndpointDuplicateException, EndpointInstance, EndpointIdentityConflict, EndpointIdentityCommand, AgentTask, TaskTemplate, TelemetryHistory, ConnectionIpHistory, ScheduledTask, EndpointMetric, AgentUpdateRollout, TriggerRule, AggregatedJob, AiReportRequest, ApiKey, RegistrationHistory, AuditLog, ReportRevision, ReportDelivery, HistorySearchToken, endpoint_group_m2m
 from core.sdk import WinHubCore
 from core.task_reason import validate_launch_reason
 from core.admin import send_notification_email
@@ -204,18 +205,6 @@ def endpoint_duplicate_pair_accepted(left, right, ignored_pairs=None):
     pair_key = endpoint_pair_key(getattr(left, "id", None), getattr(right, "id", None))
     if pair_key and ignored_pairs and pair_key in ignored_pairs:
         return True
-    if bool(getattr(left, "identity_duplicate_allowed", False)) and bool(getattr(right, "identity_duplicate_allowed", False)):
-        return True
-
-    left_status = getattr(left, "approval_status", "Approved") or "Approved"
-    right_status = getattr(right, "approval_status", "Approved") or "Approved"
-    left_hostname = str(getattr(left, "hostname", "") or "").strip().upper()
-    right_hostname = str(getattr(right, "hostname", "") or "").strip().upper()
-    if left_status == "Approved" and right_status == "Approved" and left_hostname and left_hostname == right_hostname:
-        left_alias = str(getattr(left, "display_name", "") or "").strip().upper()
-        right_alias = str(getattr(right, "display_name", "") or "").strip().upper()
-        if (left_alias and left_alias != left_hostname) or (right_alias and right_alias != right_hostname):
-            return True
     return False
 
 
@@ -225,12 +214,6 @@ def effective_endpoint_identity_warning(endpoint):
         return None
     if (getattr(endpoint, "approval_status", "Approved") or "Approved") != "Approved":
         return warning
-    if bool(getattr(endpoint, "identity_duplicate_allowed", False)):
-        return None
-    hostname = str(getattr(endpoint, "hostname", "") or "").strip().upper()
-    display_name = str(getattr(endpoint, "display_name", "") or "").strip().upper()
-    if hostname and display_name and display_name != hostname:
-        return None
     return warning
 
 
@@ -274,11 +257,8 @@ def allow_hostname_duplicate_pairs_for_approved_agent(agent, created_by=None):
                 created_by=created_by,
             ))
             created += 1
-        match.identity_duplicate_allowed = True
         match.identity_warning = None
 
-    if matches:
-        agent.identity_duplicate_allowed = True
     return created
 
 
@@ -2865,7 +2845,38 @@ def index():
             })
         else:
             approved_by_hostname[hostname_key] = agent
-    stats["review"] = len(pending_agents) + len(rejected_agents) + len(approved_duplicate_pairs)
+    visible_agent_ids = {str(agent.id) for agent in agents}
+    open_identity_conflicts = EndpointIdentityConflict.query.filter(
+        EndpointIdentityConflict.status.in_(["Open", "Resolving"]),
+        EndpointIdentityConflict.endpoint_id.in_(visible_agent_ids),
+    ).order_by(EndpointIdentityConflict.detected_at.desc()).all() if visible_agent_ids else []
+    identity_conflicts = []
+    for conflict in open_identity_conflicts:
+        endpoint = next((item for item in agents if str(item.id) == str(conflict.endpoint_id)), None)
+        cutoff = datetime.utcnow() - timedelta(seconds=max(60, int(getattr(Config, "AGENT_INSTANCE_LEASE_SECONDS", 240) or 240)))
+        instances = EndpointInstance.query.filter(
+            EndpointInstance.endpoint_id == conflict.endpoint_id,
+            EndpointInstance.last_seen >= cutoff,
+        ).order_by(EndpointInstance.last_seen.desc()).all()
+        identity_conflicts.append({
+            "id": conflict.id,
+            "endpoint_id": conflict.endpoint_id,
+            "hostname": (endpoint.hostname if endpoint else None) or conflict.endpoint_id,
+            "display_name": (endpoint.display_name if endpoint else None) or "",
+            "reason": conflict.reason,
+            "detected_at": to_kyiv_time_short(conflict.detected_at),
+            "instances": [{
+                "session_id": item.session_id,
+                "hostname": item.hostname or "",
+                "ip": item.connection_ip or "",
+                "agent_version": item.agent_version or "",
+                "fingerprint": item.instance_fingerprint or "",
+                "capabilities": item.capabilities or "",
+                "can_split": "identity-split-v1" in str(item.capabilities or "").lower(),
+                "last_seen": to_kyiv_time_short(item.last_seen),
+            } for item in instances],
+        })
+    stats["review"] = len(pending_agents) + len(rejected_agents) + len(approved_duplicate_pairs) + len(identity_conflicts)
 
     is_admin = session.get('is_admin')
     user = current_user()
@@ -2974,6 +2985,7 @@ def index():
                            pending_agents=pending_agents,
                            rejected_agents=rejected_agents,
                            approved_duplicate_pairs=approved_duplicate_pairs,
+                           identity_conflicts=identity_conflicts,
                            scheduled_tasks=scheduled_tasks, trigger_rules=trigger_rules, stats=stats,
                            latest_agent_versions=latest_versions,
                            agent_package_platforms=AGENT_PACKAGE_PLATFORMS,
@@ -5710,15 +5722,7 @@ def fleet_center():
         query = query.filter(~Endpoint.groups.any())
 
     has_key_expr = or_(Endpoint.public_key_pem_plain.isnot(None), Endpoint.public_key_pem.isnot(None))
-    active_identity_warning_expr = and_(
-        Endpoint.identity_warning.isnot(None),
-        or_(Endpoint.identity_duplicate_allowed.is_(False), Endpoint.identity_duplicate_allowed.is_(None)),
-        or_(
-            Endpoint.display_name.is_(None),
-            Endpoint.display_name == "",
-            func.upper(Endpoint.display_name) == func.upper(Endpoint.hostname),
-        ),
-    )
+    active_identity_warning_expr = Endpoint.identity_warning.isnot(None)
     outdated_clauses = platform_agent_version_clauses(latest_versions, current=False)
     current_clauses = platform_agent_version_clauses(latest_versions, current=True)
     if status_filter == "outdated":
@@ -7490,6 +7494,11 @@ def merge_duplicate_host():
         return jsonify({"success": False, "message": "Endpoint record not found"}), 404
     if not WinHubCore.can_manage_host(session.get("user_id"), keep_id, "manage_hosts") or not WinHubCore.can_manage_host(session.get("user_id"), remove_id, "manage_hosts"):
         return jsonify({"success": False, "message": "Access denied"}), 403
+    if EndpointIdentityConflict.query.filter(
+        EndpointIdentityConflict.endpoint_id.in_([keep_id, remove_id]),
+        EndpointIdentityConflict.status.in_(["Open", "Resolving"]),
+    ).first():
+        return jsonify({"success": False, "message": "Resolve the active cloned identity conflict before merging endpoint records"}), 409
 
     allowed_hosts = WinHubCore.get_allowed_hosts(session.get("user_id"), "manage_hosts")
     annotate_endpoint_duplicates(allowed_hosts)
@@ -7574,8 +7583,6 @@ def create_duplicate_exception():
             created_by=session.get("username"),
         )
         db.session.add(existing)
-    left.identity_duplicate_allowed = True
-    right.identity_duplicate_allowed = True
     left.identity_warning = None
     right.identity_warning = None
     db.session.commit()
@@ -7592,6 +7599,142 @@ def create_duplicate_exception():
         status="Success"
     )
     return jsonify({"success": True, "endpoint_a_id": pair_key[0], "endpoint_b_id": pair_key[1]})
+
+
+@infrastructure_bp.route('/api/infrastructure/identity-conflict/<conflict_id>/split', methods=['POST'])
+def split_endpoint_identity(conflict_id):
+    denied = require_permission("manage_hosts")
+    if denied:
+        return denied
+    conflict = EndpointIdentityConflict.query.get(conflict_id)
+    if not conflict or conflict.status not in ("Open", "Resolving"):
+        return jsonify({"success": False, "message": "Open identity conflict not found"}), 404
+    if not WinHubCore.can_manage_host(session.get("user_id"), conflict.endpoint_id, "manage_hosts"):
+        return jsonify({"success": False, "message": "Access denied"}), 403
+
+    payload = request.get_json(silent=True) or {}
+    target_session_id = str(payload.get("target_session_id") or "").strip()
+    instance = EndpointInstance.query.filter_by(
+        endpoint_id=conflict.endpoint_id,
+        session_id=target_session_id,
+    ).first()
+    lease_seconds = max(60, int(getattr(Config, "AGENT_INSTANCE_LEASE_SECONDS", 240) or 240))
+    if not instance or not instance.last_seen or instance.last_seen < datetime.utcnow() - timedelta(seconds=lease_seconds):
+        return jsonify({"success": False, "message": "Selected agent session is no longer active"}), 409
+    if "identity-split-v1" not in str(instance.capabilities or "").lower():
+        return jsonify({"success": False, "message": "Selected agent must be upgraded before remote identity split"}), 409
+
+    now = datetime.utcnow()
+    expired_commands = EndpointIdentityCommand.query.filter(
+        EndpointIdentityCommand.conflict_id == conflict.id,
+        EndpointIdentityCommand.status.in_(["Pending", "Delivered"]),
+        EndpointIdentityCommand.expires_at < now,
+    ).all()
+    for expired in expired_commands:
+        expired.status = "Expired"
+        stale_clone = Endpoint.query.get(expired.new_endpoint_id)
+        if stale_clone and not stale_clone.last_seen and AgentTask.query.filter_by(endpoint_id=stale_clone.id).count() == 0:
+            db.session.delete(stale_clone)
+
+    existing_command = EndpointIdentityCommand.query.filter(
+        EndpointIdentityCommand.conflict_id == conflict.id,
+        EndpointIdentityCommand.target_session_id == target_session_id,
+        EndpointIdentityCommand.status.in_(["Pending", "Delivered"]),
+        EndpointIdentityCommand.expires_at >= now,
+    ).first()
+    if existing_command:
+        return jsonify({
+            "success": True,
+            "command_id": existing_command.id,
+            "new_endpoint_id": existing_command.new_endpoint_id,
+            "status": existing_command.status,
+        })
+
+    source = Endpoint.query.get(conflict.endpoint_id)
+    if not source:
+        return jsonify({"success": False, "message": "Endpoint not found"}), 404
+    new_endpoint_id = "WINHUB-" + secrets.token_hex(32)
+    new_auth_token = "agt_" + secrets.token_urlsafe(32)
+    display_name = str(payload.get("display_name") or "").strip()[:120]
+    clone = Endpoint(
+        id=new_endpoint_id,
+        hostname=instance.hostname or source.hostname,
+        display_name=display_name or None,
+        auth_token=new_auth_token,
+        os_version=source.os_version,
+        os_type=source.os_type,
+        connection_ip=instance.connection_ip,
+        ip_address=instance.connection_ip,
+        approval_status="Approved",
+        agent_version=instance.agent_version or source.agent_version,
+        identity_fingerprint=instance.instance_fingerprint,
+        first_seen=datetime.utcnow(),
+        last_seen=None,
+        identity_warning="Identity split prepared; waiting for the selected agent session.",
+        is_blocked=False,
+    )
+    clone.groups = list(source.groups)
+    db.session.add(clone)
+    db.session.flush()
+    command = EndpointIdentityCommand(
+        conflict_id=conflict.id,
+        endpoint_id=source.id,
+        target_session_id=target_session_id,
+        new_endpoint_id=new_endpoint_id,
+        new_auth_token=new_auth_token,
+        status="Pending",
+        created_by=session.get("username"),
+        expires_at=datetime.utcnow() + timedelta(minutes=30),
+    )
+    db.session.add(command)
+    conflict.status = "Resolving"
+    conflict.updated_at = datetime.utcnow()
+    db.session.commit()
+    WinHubCore.audit(
+        user_id=session.get("user_id"),
+        module="Infrastructure",
+        action="Split Endpoint Identity Requested",
+        details={
+            "conflict_id": conflict.id,
+            "endpoint_id": source.id,
+            "target_session_id": target_session_id,
+            "new_endpoint_id": new_endpoint_id,
+        },
+        status="Success",
+    )
+    return jsonify({"success": True, "command_id": command.id, "new_endpoint_id": new_endpoint_id})
+
+
+@infrastructure_bp.route('/api/infrastructure/identity-conflict/<conflict_id>/resolve', methods=['POST'])
+def resolve_endpoint_identity_conflict(conflict_id):
+    denied = require_permission("manage_hosts")
+    if denied:
+        return denied
+    conflict = EndpointIdentityConflict.query.get(conflict_id)
+    if not conflict or conflict.status not in ("Open", "Resolving"):
+        return jsonify({"success": False, "message": "Open identity conflict not found"}), 404
+    if not WinHubCore.can_manage_host(session.get("user_id"), conflict.endpoint_id, "manage_hosts"):
+        return jsonify({"success": False, "message": "Access denied"}), 403
+    if EndpointIdentityCommand.query.filter(
+        EndpointIdentityCommand.conflict_id == conflict.id,
+        EndpointIdentityCommand.status.in_(["Pending", "Delivered"]),
+    ).first():
+        return jsonify({"success": False, "message": "An identity split is already in progress"}), 409
+    conflict.status = "Resolved"
+    conflict.resolution = "Dismissed"
+    conflict.resolved_by = session.get("username")
+    conflict.resolved_at = datetime.utcnow()
+    conflict.updated_at = datetime.utcnow()
+    endpoint = Endpoint.query.get(conflict.endpoint_id)
+    if endpoint:
+        endpoint.identity_warning = None
+    db.session.commit()
+    WinHubCore.audit(
+        user_id=session.get("user_id"), module="Infrastructure",
+        action="Dismiss Endpoint Identity Conflict",
+        details={"conflict_id": conflict.id, "endpoint_id": conflict.endpoint_id}, status="Success",
+    )
+    return jsonify({"success": True})
 
 @infrastructure_bp.route('/api/infrastructure/group', methods=['POST'])
 def create_group():

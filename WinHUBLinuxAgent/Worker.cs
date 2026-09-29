@@ -15,10 +15,10 @@ using WinHUB.Security;
 
 namespace WinHUBLinuxAgent;
 
-public record EnrollPayload(string global_token, string hw_id, string hostname, string os_version, string os_type, string agent_version, NetworkInterfaceInfo[] network_interfaces, HostInventoryInfo host_info, string previous_auth_token, string previous_hw_id, string agent_public_key_pem, string agent_key_fingerprint, string body_hash, string signed_at, string signed_nonce, string signature);
-public record PollPayload(string hw_id, string auth_token, string agent_version, string agent_public_key_pem, string agent_key_fingerprint, string task_signature_capabilities, string body_hash, string signed_at, string signed_nonce, string signature);
-public record TelemetryPayload(string hw_id, string auth_token, string agent_version, double cpu, double ram, double disk_c, HostInventoryInfo? host_info, string agent_public_key_pem, string agent_key_fingerprint, string body_hash, string signed_at, string signed_nonce, string signature);
-public record ResultPayload(string hw_id, string auth_token, string agent_version, string task_id, string status, string log, string agent_public_key_pem, string agent_key_fingerprint, string task_signature_v2_key_id, long task_signature_v2_sequence, string body_hash, string signed_at, string signed_nonce, string signature);
+public record EnrollPayload(string global_token, string hw_id, string hostname, string os_version, string os_type, string agent_version, NetworkInterfaceInfo[] network_interfaces, HostInventoryInfo host_info, string previous_auth_token, string previous_hw_id, string agent_public_key_pem, string agent_key_fingerprint, string identity_capabilities, string instance_session_id, string boot_session_id, string instance_fingerprint, string body_hash, string signed_at, string signed_nonce, string signature);
+public record PollPayload(string hw_id, string auth_token, string agent_version, string agent_public_key_pem, string agent_key_fingerprint, string task_signature_capabilities, string identity_capabilities, string instance_session_id, string boot_session_id, string instance_fingerprint, string body_hash, string signed_at, string signed_nonce, string signature);
+public record TelemetryPayload(string hw_id, string auth_token, string agent_version, double cpu, double ram, double disk_c, HostInventoryInfo? host_info, string agent_public_key_pem, string agent_key_fingerprint, string identity_capabilities, string instance_session_id, string boot_session_id, string instance_fingerprint, string body_hash, string signed_at, string signed_nonce, string signature);
+public record ResultPayload(string hw_id, string auth_token, string agent_version, string task_id, string status, string log, string agent_public_key_pem, string agent_key_fingerprint, string task_signature_v2_key_id, long task_signature_v2_sequence, string identity_capabilities, string instance_session_id, string boot_session_id, string instance_fingerprint, string body_hash, string signed_at, string signed_nonce, string signature);
 public record PendingResult(string task_id, string status, string log, string task_signature_v2_key_id, long task_signature_v2_sequence, string created_at);
 public record NetworkInterfaceInfo(string name, string description, string type, string status, string mac, string[] ipv4, string[] ipv6, string[] gateways, string[] dns_servers, bool dhcp_enabled, long speed_mbps);
 public record VolumeInfo(string name, string label, string format, string type, long total_gb, long free_gb, bool ready);
@@ -67,6 +67,13 @@ public class TaskSigningState
     public long TaskSigningLastSequence { get; set; } = 0;
 }
 
+public class IdentitySplitState
+{
+    public string HardwareId { get; set; } = "";
+    public string AuthToken { get; set; } = "";
+    public string PrivateKeyBase64 { get; set; } = "";
+}
+
 public static class AgentBuildInfo
 {
     public static readonly string Version =
@@ -84,6 +91,7 @@ public static class AgentBuildInfo
 [JsonSerializable(typeof(AgentConfig))]
 [JsonSerializable(typeof(AgentSecrets))]
 [JsonSerializable(typeof(TaskSigningState))]
+[JsonSerializable(typeof(IdentitySplitState))]
 [JsonSerializable(typeof(NetworkInterfaceInfo))]
 [JsonSerializable(typeof(NetworkInterfaceInfo[]))]
 [JsonSerializable(typeof(VolumeInfo))]
@@ -136,6 +144,7 @@ public class Worker : BackgroundService
     private string HardwareIdFilePath => Path.Combine(DataDirectory, "agent.hwid");
     private string AgentIdentityKeyFilePath => Path.Combine(DataDirectory, "agent_identity.key");
     private string TaskSigningStateFilePath => Path.Combine(DataDirectory, "task-signing-state.json");
+    private string IdentitySplitStateFilePath => Path.Combine(DataDirectory, "identity-split.pending");
     private ExecutionJournal? _executionJournal;
     private bool _executionPersistenceFault;
     private string HardwareId = "";
@@ -144,6 +153,10 @@ public class Worker : BackgroundService
     private RSA? AgentIdentityKey;
     private string AgentPublicKeyPem = "";
     private string AgentKeyFingerprint = "";
+    private readonly string InstanceSessionId = Guid.NewGuid().ToString("N");
+    private readonly string BootSessionId = CreateBootSessionId();
+    private string InstanceFingerprint = "";
+    private const string IdentityCapabilities = "identity-session-v1,identity-split-v1";
     private DateTime _lastInventoryUtc = DateTime.MinValue;
     private HostInventoryInfo? _cachedHostInventory;
     private (ulong Idle, ulong Total)? _previousCpuTimes;
@@ -172,23 +185,25 @@ public class Worker : BackgroundService
         Directory.CreateDirectory(DataDirectory);
         RestrictPath(DataDirectory, UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute);
         Directory.CreateDirectory(UpdatesDirectory);
-        Directory.CreateDirectory(PendingResultsDirectory);
         RestrictPath(UpdatesDirectory, UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute);
-        RestrictPath(PendingResultsDirectory, UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute);
         ProductionSecurity.RejectLinks(ConfigDirectory);
         Directory.CreateDirectory(ConfigDirectory);
         RestrictPath(ConfigDirectory, UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute);
-        foreach (string file in new[] { ConfigFilePath, BootstrapConfigFilePath, TokenFilePath, SecretsFilePath, HardwareIdFilePath, AgentIdentityKeyFilePath, TaskSigningStateFilePath })
+        foreach (string file in new[] { ConfigFilePath, BootstrapConfigFilePath, TokenFilePath, SecretsFilePath, HardwareIdFilePath, AgentIdentityKeyFilePath, TaskSigningStateFilePath, IdentitySplitStateFilePath })
         {
             ProductionSecurity.RejectLinks(file);
             if (File.Exists(file)) RestrictPath(file, UnixFileMode.UserRead | UnixFileMode.UserWrite);
         }
+        RecoverPendingIdentitySplit();
+        Directory.CreateDirectory(PendingResultsDirectory);
+        RestrictPath(PendingResultsDirectory, UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute);
         LoadConfig();
         ValidateStartupSecurity();
         if (!OperatingSystem.IsMacOS()) RemoveProtectedSecret("TaskHmacSecret");
 
         HardwareId = GetOrCreateHardwareId();
         EnsureAgentIdentityKey();
+        InstanceFingerprint = CreateInstanceFingerprint();
         if (!OperatingSystem.IsMacOS())
         {
             _executionJournal = new ExecutionJournal(Path.Combine(DataDirectory, "execution-journal"), HardwareId,
@@ -558,7 +573,7 @@ public class Worker : BackgroundService
                     continue;
                 }
 
-                var unsignedPayload = new EnrollPayload(enrollmentToken, HardwareId, Environment.MachineName, FriendlyOsName, OperatingSystem.IsMacOS() ? "macOS" : "Linux", AgentBuildInfo.Version, GetNetworkInterfaces(), GetCachedHostInventory(true), previousAuthToken, previousHwId, AgentPublicKeyPem, AgentKeyFingerprint, "", "", "", "");
+                var unsignedPayload = new EnrollPayload(enrollmentToken, HardwareId, Environment.MachineName, FriendlyOsName, OperatingSystem.IsMacOS() ? "macOS" : "Linux", AgentBuildInfo.Version, GetNetworkInterfaces(), GetCachedHostInventory(true), previousAuthToken, previousHwId, AgentPublicKeyPem, AgentKeyFingerprint, IdentityCapabilities, InstanceSessionId, BootSessionId, InstanceFingerprint, "", "", "", "");
                 var payload = SignPayload(unsignedPayload, "/api/agent/enroll", previousAuthToken, AppJsonSerializerContext.Default.EnrollPayload);
                 using var response = await _httpClient.PostAsync($"{_config.ServerUrl}/api/agent/enroll", JsonContent(payload), stoppingToken);
                 UpdateServerClockOffset(response);
@@ -567,12 +582,8 @@ public class Worker : BackgroundService
                     using var doc = JsonDocument.Parse(await response.Content.ReadAsStringAsync(stoppingToken));
                     string newToken = doc.RootElement.GetProperty("auth_token").GetString() ?? "";
                     string approvalStatus = doc.RootElement.TryGetProperty("approval_status", out var approvalEl) ? approvalEl.GetString() ?? "" : "";
-                    bool shouldReplaceToken = string.IsNullOrWhiteSpace(previousAuthToken) || approvalStatus.Equals("Approved", StringComparison.OrdinalIgnoreCase);
-                    if (shouldReplaceToken)
-                    {
-                        SaveToken(newToken);
-                        AuthToken = newToken;
-                    }
+                    SaveToken(newToken);
+                    AuthToken = newToken;
                     RemoveProtectedSecret("GlobalApiKey");
                     _logger.LogInformation("Enrollment key removed from local secret state after successful enrollment.");
                     _logger.LogInformation("Enrollment successful. Approval status: {Status}", approvalStatus);
@@ -595,7 +606,7 @@ public class Worker : BackgroundService
         try
         {
             if (_executionPersistenceFault) throw new IOException("Execution journal persistence failed. No more tasks will run until administrator recovery and service restart.");
-            var unsignedPayload = new PollPayload(HardwareId, AuthToken, AgentBuildInfo.Version, AgentPublicKeyPem, AgentKeyFingerprint, "rsa-pss-sha256-v2", "", "", "", "");
+            var unsignedPayload = new PollPayload(HardwareId, AuthToken, AgentBuildInfo.Version, AgentPublicKeyPem, AgentKeyFingerprint, "rsa-pss-sha256-v2", IdentityCapabilities, InstanceSessionId, BootSessionId, InstanceFingerprint, "", "", "", "");
             var payload = SignPayload(unsignedPayload, "/api/agent/poll", AuthToken, AppJsonSerializerContext.Default.PollPayload);
             using var response = await _httpClient.PostAsync($"{_config.ServerUrl}/api/agent/poll", JsonContent(payload), stoppingToken);
             UpdateServerClockOffset(response);
@@ -623,6 +634,23 @@ public class Worker : BackgroundService
             JsonElement root = doc.RootElement;
             PollTiming timing = ReadPollTiming(root);
             string status = root.GetProperty("status").GetString() ?? "";
+            if (status == "identity_split")
+            {
+                if (!ValidateTaskSignature(root))
+                {
+                    _logger.LogError("Identity split rejected because the server signature was invalid.");
+                    return timing;
+                }
+                ApplyIdentitySplit(root.GetProperty("payload"));
+                _logger.LogWarning("Identity split state was installed. Restarting with the new endpoint identity.");
+                Environment.Exit(75);
+                return timing;
+            }
+            if (status == "identity_conflict")
+            {
+                _logger.LogError("Server quarantined task delivery because another running system is using this agent identity.");
+                return timing;
+            }
             if (status != "task")
             {
                 LogPollStatus(status);
@@ -786,7 +814,7 @@ public class Worker : BackgroundService
         if (string.IsNullOrEmpty(AuthToken)) return;
         try
         {
-            var unsignedPayload = new TelemetryPayload(HardwareId, AuthToken, AgentBuildInfo.Version, Math.Round(GetCpuUsage(), 2), Math.Round(GetRamUsage(), 2), Math.Round(GetRootFreeGb(), 2), GetCachedHostInventory(false), AgentPublicKeyPem, AgentKeyFingerprint, "", "", "", "");
+            var unsignedPayload = new TelemetryPayload(HardwareId, AuthToken, AgentBuildInfo.Version, Math.Round(GetCpuUsage(), 2), Math.Round(GetRamUsage(), 2), Math.Round(GetRootFreeGb(), 2), GetCachedHostInventory(false), AgentPublicKeyPem, AgentKeyFingerprint, IdentityCapabilities, InstanceSessionId, BootSessionId, InstanceFingerprint, "", "", "", "");
             var payload = SignPayload(unsignedPayload, "/api/agent/telemetry", AuthToken, AppJsonSerializerContext.Default.TelemetryPayload);
             using var response = await _httpClient.PostAsync($"{_config.ServerUrl}/api/agent/telemetry", JsonContent(payload), stoppingToken);
             UpdateServerClockOffset(response);
@@ -1057,7 +1085,7 @@ public class Worker : BackgroundService
         {
             var unsignedPayload = new ResultPayload(HardwareId, AuthToken, AgentBuildInfo.Version,
                 pending.TaskId, pending.Status, pending.Log, AgentPublicKeyPem, AgentKeyFingerprint,
-                pending.KeyId, pending.Sequence, "", "", "", "");
+                pending.KeyId, pending.Sequence, IdentityCapabilities, InstanceSessionId, BootSessionId, InstanceFingerprint, "", "", "", "");
             var payload = SignPayload(unsignedPayload, "/api/agent/result", AuthToken, AppJsonSerializerContext.Default.ResultPayload);
             using var response = await _httpClient.PostAsync($"{_config.ServerUrl}/api/agent/result", JsonContent(payload), stoppingToken);
             UpdateServerClockOffset(response);
@@ -1141,6 +1169,10 @@ public class Worker : BackgroundService
                     AgentKeyFingerprint,
                     pending.task_signature_v2_key_id,
                     pending.task_signature_v2_sequence,
+                    IdentityCapabilities,
+                    InstanceSessionId,
+                    BootSessionId,
+                    InstanceFingerprint,
                     "",
                     "",
                     "",
@@ -1296,6 +1328,37 @@ public class Worker : BackgroundService
     }
 
     public static void RunProductionSelfTest() => ProductionSecurityTests.Run(CanonicalJson);
+
+    public static void PrepareCloneTemplate(string confirmation)
+    {
+        if (!string.Equals(confirmation, "PREPARE-CLONE", StringComparison.Ordinal))
+            throw new ArgumentException("Usage: --prepare-clone-template PREPARE-CLONE");
+        if (!OperatingSystem.IsWindows() && !string.Equals(Environment.UserName, "root", StringComparison.Ordinal))
+            throw new UnauthorizedAccessException("Preparing a VM template requires root.");
+        string configDirectory = OperatingSystem.IsMacOS() ? "/Library/Application Support/WinHUB/Config" : "/etc/winhub-agent";
+        string dataDirectory = OperatingSystem.IsMacOS() ? "/Library/Application Support/WinHUB/Data" : "/var/lib/winhub-agent";
+        foreach (string name in new[] { "agent.token", "agent.secrets", "agent.hwid", "agent_identity.key", "task-signing-state.json", "identity-split.pending" })
+        {
+            string path = Path.Combine(dataDirectory, name);
+            ProductionSecurity.RejectLinks(path);
+            if (File.Exists(path)) File.Delete(path);
+        }
+        foreach (string name in new[] { "execution-journal", "pending-results" })
+        {
+            string path = Path.Combine(dataDirectory, name);
+            ProductionSecurity.RejectLinks(path);
+            if (Directory.Exists(path)) Directory.Delete(path, recursive: true);
+        }
+        string bootstrap = Path.Combine(configDirectory, "winhub_agent.bootstrap.conf");
+        ProductionSecurity.RejectLinks(bootstrap);
+        if (File.Exists(bootstrap)) File.Delete(bootstrap);
+        Directory.CreateDirectory(dataDirectory);
+        RestrictPath(dataDirectory, UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute);
+        string marker = Path.Combine(dataDirectory, "clone-template-prepared");
+        ProductionSecurity.AtomicWrite(marker, Encoding.UTF8.GetBytes(DateTimeOffset.UtcNow.ToString("O")),
+            path => RestrictPath(path, UnixFileMode.UserRead | UnixFileMode.UserWrite));
+        Console.WriteLine("WinHUB agent identity removed. Provision a fresh bootstrap configuration after cloning.");
+    }
 
     private static string CanonicalJson(JsonElement element)
     {
@@ -1640,6 +1703,100 @@ public class Worker : BackgroundService
             AgentKeyFingerprint = "";
             throw new InvalidDataException("Agent identity key could not be loaded or persisted. Refusing unsigned requests.", ex);
         }
+    }
+
+    private void ApplyIdentitySplit(JsonElement payload)
+    {
+        string targetSession = payload.GetProperty("target_session_id").GetString() ?? "";
+        string newHardwareId = payload.GetProperty("new_endpoint_id").GetString() ?? "";
+        string newAuthToken = payload.GetProperty("new_auth_token").GetString() ?? "";
+        if (!CryptographicOperations.FixedTimeEquals(Encoding.UTF8.GetBytes(targetSession), Encoding.UTF8.GetBytes(InstanceSessionId)))
+            throw new InvalidDataException("Identity split was addressed to another agent session.");
+        if (!newHardwareId.StartsWith("WINHUB-", StringComparison.OrdinalIgnoreCase) || newHardwareId.Length > 128 ||
+            newHardwareId.Any(c => !char.IsAsciiLetterOrDigit(c) && c != '-'))
+            throw new InvalidDataException("Server supplied an invalid replacement endpoint ID.");
+        if (!newAuthToken.StartsWith("agt_", StringComparison.Ordinal) || newAuthToken.Length > 255)
+            throw new InvalidDataException("Server supplied an invalid replacement token.");
+
+        using RSA replacementKey = RSA.Create(3072);
+        var state = new IdentitySplitState
+        {
+            HardwareId = newHardwareId,
+            AuthToken = newAuthToken,
+            PrivateKeyBase64 = Convert.ToBase64String(replacementKey.ExportPkcs8PrivateKey()),
+        };
+        ProductionSecurity.AtomicWrite(
+            IdentitySplitStateFilePath,
+            JsonSerializer.SerializeToUtf8Bytes(state, AppJsonSerializerContext.Default.IdentitySplitState),
+            path => RestrictPath(path, UnixFileMode.UserRead | UnixFileMode.UserWrite));
+        RecoverPendingIdentitySplit();
+    }
+
+    private void RecoverPendingIdentitySplit()
+    {
+        if (!File.Exists(IdentitySplitStateFilePath)) return;
+        IdentitySplitState state = JsonSerializer.Deserialize(
+            ProductionSecurity.ReadBytes(IdentitySplitStateFilePath, 131072),
+            AppJsonSerializerContext.Default.IdentitySplitState)
+            ?? throw new InvalidDataException("Pending identity split state is invalid.");
+        if (!state.HardwareId.StartsWith("WINHUB-", StringComparison.OrdinalIgnoreCase) ||
+            state.HardwareId.Length > 128 || state.HardwareId.Any(c => !char.IsAsciiLetterOrDigit(c) && c != '-') ||
+            !state.AuthToken.StartsWith("agt_", StringComparison.Ordinal) || state.AuthToken.Length > 255)
+            throw new InvalidDataException("Pending identity split values are invalid.");
+        byte[] privateKey = Convert.FromBase64String(state.PrivateKeyBase64);
+        using RSA validationKey = RSA.Create();
+        validationKey.ImportPkcs8PrivateKey(privateKey, out _);
+        if (validationKey.KeySize < 3072)
+            throw new InvalidDataException("Pending identity split key is too small.");
+        ProductionSecurity.AtomicWrite(AgentIdentityKeyFilePath, privateKey,
+            path => RestrictPath(path, UnixFileMode.UserRead | UnixFileMode.UserWrite));
+        SaveToken(state.AuthToken);
+        ProductionSecurity.AtomicWrite(HardwareIdFilePath, Encoding.UTF8.GetBytes(state.HardwareId),
+            path => RestrictPath(path, UnixFileMode.UserRead | UnixFileMode.UserWrite));
+        if (File.Exists(TaskSigningStateFilePath)) File.Delete(TaskSigningStateFilePath);
+        ArchiveIdentityBoundDirectory("execution-journal");
+        ArchiveIdentityBoundDirectory("pending-results");
+        File.Delete(IdentitySplitStateFilePath);
+    }
+
+    private void ArchiveIdentityBoundDirectory(string name)
+    {
+        string source = Path.Combine(DataDirectory, name);
+        if (!Directory.Exists(source)) return;
+        string destination = Path.Combine(DataDirectory, $"{name}.pre-split-{DateTimeOffset.UtcNow:yyyyMMddHHmmss}-{Guid.NewGuid():N}");
+        Directory.Move(source, destination);
+        RestrictPath(destination, UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute);
+    }
+
+    private static string CreateBootSessionId()
+    {
+        string source = OperatingSystem.IsMacOS()
+            ? RunCommandSnapshot("/usr/sbin/sysctl", "-n kern.boottime", 3, 300)
+            : ReadFirstExistingText("/proc/sys/kernel/random/boot_id").Trim();
+        if (string.IsNullOrWhiteSpace(source))
+            source = DateTime.UtcNow.Subtract(TimeSpan.FromMilliseconds(Environment.TickCount64)).Ticks.ToString();
+        return Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(source))).ToLowerInvariant();
+    }
+
+    private static string CreateInstanceFingerprint()
+    {
+        string platformId = OperatingSystem.IsMacOS()
+            ? RunCommandSnapshot("/usr/sbin/ioreg", "-rd1 -c IOPlatformExpertDevice", 5, 8000)
+            : ReadFirstExistingText("/etc/machine-id", "/var/lib/dbus/machine-id").Trim();
+        string[] macs;
+        try
+        {
+            macs = NetworkInterface.GetAllNetworkInterfaces()
+                .Where(nic => nic.NetworkInterfaceType is not (NetworkInterfaceType.Loopback or NetworkInterfaceType.Tunnel))
+                .Select(nic => nic.GetPhysicalAddress().ToString().Trim().ToUpperInvariant())
+                .Where(value => !string.IsNullOrWhiteSpace(value))
+                .Distinct(StringComparer.Ordinal)
+                .OrderBy(value => value, StringComparer.Ordinal)
+                .ToArray();
+        }
+        catch { macs = Array.Empty<string>(); }
+        string source = string.Join("|", new[] { OperatingSystem.IsMacOS() ? "macos-instance-v1" : "linux-instance-v1", platformId, Environment.MachineName, string.Join(",", macs) });
+        return Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(source))).ToLowerInvariant();
     }
 
     private EnrollPayload SignPayload(EnrollPayload value, string path, string token, System.Text.Json.Serialization.Metadata.JsonTypeInfo<EnrollPayload> typeInfo)
