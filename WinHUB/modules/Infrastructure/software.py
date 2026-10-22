@@ -30,7 +30,7 @@ def interactive(permission):
     if denied:
         return denied
     if session.get('api_key_auth'):
-        return jsonify(success=False, message='Software доступний лише через інтерактивну сесію.'), 403
+        return jsonify(success=False, message='Software requires an interactive session.'), 403
 
 
 def registry():
@@ -38,7 +38,7 @@ def registry():
     if denied:
         return denied
     if session.get('api_key_auth'):
-        return jsonify(success=False, message='Software API keys не підтримуються.'), 403
+        return jsonify(success=False, message='API key access to Software is not supported.'), 403
     with service.LOCAL_LOCK:
         control = service.lock_control()
         service.import_legacy(control)
@@ -83,14 +83,14 @@ def package_write(package_id=None):
         if request.method == 'DELETE':
             row = db.session.get(SoftwarePackage, package_id)
             if not row:
-                return jsonify(success=False, message='Програму не знайдено.'), 404
+                return jsonify(success=False, message='Application not found.'), 404
             db.session.delete(row)
             # Immutable blobs are retained: active deployments/history may reference them.
             helpers().write_infra_audit('Software Delete', 'software_package', package_id, {})
             db.session.commit()
             return jsonify(success=True)
         if package_id and not db.session.get(SoftwarePackage, package_id):
-            return jsonify(success=False, message='Програму не знайдено.'), 404
+            return jsonify(success=False, message='Application not found.'), 404
         package_id = package_id or str(uuid.uuid4())
         try:
             record = service.save_package(package_id, request.form, request.files.get('file'), helpers().current_user())
@@ -102,7 +102,7 @@ def package_write(package_id=None):
             return jsonify(success=False, message=str(exc)), 400
         except OSError:
             db.session.rollback()
-            return jsonify(success=False, message='Не вдалося підготувати пакет. Перевірте поля, доступ до OMV, SHA-256, HTTPS і ліміти.'), 400
+            return jsonify(success=False, message='Package preparation failed. Check the fields, OMV access, SHA-256, HTTPS and limits.'), 400
         helpers().write_infra_audit('Software Save', 'software_package', package_id,
                                    dict(name=record['name'], version=record['version'], sha256=record.get('sha256')))
         db.session.commit()
@@ -116,15 +116,15 @@ def create_deployment():
     data = request.get_json(silent=True)
     try:
         if not isinstance(data, dict):
-            raise ValueError('Очікується JSON-об’єкт.')
+            raise ValueError('A JSON object is required.')
         reason = validate_launch_reason(data.get('launch_reason'))
         operation = data.get('operation', 'install')
         if operation not in ('install', 'update', 'uninstall', 'detect'):
-            raise ValueError('Невідома дія Software.')
+            raise ValueError('Unknown Software operation.')
         def array(key):
             value = data.get(key, [])
             if not isinstance(value, list) or len(value) > 1000 or any(not isinstance(x, str) for x in value):
-                raise ValueError('Очікується список ідентифікаторів: ' + key)
+                raise ValueError('Expected a list of IDs: ' + key)
             return list(dict.fromkeys(value))
         ids = array('package_ids')
         if not ids and data.get('package_id'):
@@ -137,63 +137,63 @@ def create_deployment():
         for group_id in set(groups):
             group = db.session.get(EndpointGroup, group_id)
             if not group or not group_action_allowed(helpers().current_user(), group_id, 'run_tasks'):
-                raise PermissionError('Немає доступу до однієї з вибраних груп.')
+                raise PermissionError('Access denied to one of the selected groups.')
             target_ids.update(h.id for h in group.endpoints)
         if not target_ids or len(target_ids) > 1000:
-            raise ValueError('Виберіть від 1 до 1000 хостів.')
+            raise ValueError('Select between 1 and 1000 endpoints.')
         if 'expected_target_ids' in data and set(array('expected_target_ids')) != target_ids:
-            raise ValueError('Склад груп змінився після попереднього перегляду. Оновіть цілі та повторіть підтвердження.')
+            raise ValueError('Group membership changed after the preview. Refresh targets and confirm again.')
         allowed = WinHubCore.authorized_target_ids(session['user_id'], target_ids)
         if target_ids - allowed:
-            raise PermissionError('У виборі є хости без дозволу на запуск. Перегляньте цілі.')
+            raise PermissionError('Some selected endpoints are outside your execution permissions. Review your targets.')
         hosts = Endpoint.query.filter(Endpoint.id.in_(target_ids)).all()
         if any(h.is_blocked or h.approval_status != 'Approved' for h in hosts):
-            raise PermissionError('У виборі є заблоковані або непогоджені хости.')
+            raise PermissionError('The selection includes blocked or unapproved endpoints.')
         if any((h.os_type or '').lower() != 'windows' for h in hosts):
-            raise ValueError('Ці рецепти Software підтримують лише Windows. Виключіть Linux/macOS із цілей.')
+            raise ValueError('These Software recipes support Windows only. Remove Linux and macOS endpoints from the selection.')
         base_url = helpers().usable_agent_public_base_url() or request.url_root.rstrip('/')
         if urlsplit(base_url).scheme != 'https':
-            raise ValueError('Для доставки ПЗ потрібен HTTPS WinHUB.')
+            raise ValueError('Software delivery requires HTTPS on WinHUB.')
         with service.LOCAL_LOCK:
             control = service.lock_control()
             service.import_legacy(control)
             packages = service.catalogue()
             known = {p['id'] for p in packages}
             if set(ids) - known:
-                raise ValueError('Одна з програм більше не існує. Оновіть каталог.')
+                raise ValueError('One of the applications no longer exists. Refresh the catalogue.')
             if set(sets) - {s for p in packages for s in p.get('sets', [])}:
-                raise ValueError('Набір більше не існує. Оновіть каталог.')
+                raise ValueError('The software set no longer exists. Refresh the catalogue.')
             chosen = [p for p in packages if p['id'] in ids or set(p.get('sets', [])) & set(sets)]
             chosen.sort(key=lambda p: (p.get('order', 100), p['name'].casefold(), p['id']))
             if 'expected_packages' in data:
                 expected = data['expected_packages']
                 actual = [dict(id=p['id'], revision=service.recipe_hash(p)) for p in chosen]
                 if expected != actual:
-                    raise ValueError('Склад набору або версія програми змінилися. Оновіть каталог і повторіть підтвердження.')
+                    raise ValueError('The software set or an application version changed. Refresh the catalogue and confirm again.')
             if not chosen or len(chosen) > 100 or len(chosen) * len(hosts) > 10000:
-                raise ValueError('Виберіть до 100 програм; не більше 10000 операцій за запуск.')
+                raise ValueError('Select up to 100 applications and no more than 10000 operations per deployment.')
             if (SoftwareDeployment.query.filter(SoftwareDeployment.status.in_(('Running', 'Paused', 'Cancelling'))).count() >= 50
                     or SoftwareStep.query.filter(SoftwareStep.status.in_(('Queued', 'Active'))).count() + len(chosen) * len(hosts) > 20000):
-                raise ValueError('Черга заповнена: до 50 активних розгортань і 20000 незавершених операцій. Дочекайтеся завершення або скасуйте зайве.')
+                raise ValueError('Queue capacity reached: 50 active deployments or 20000 unfinished operations. Wait for completion or cancel pending operations.')
             plans = []
             for package in chosen:
                 if not service.public_package(package)['approved']:
-                    raise ValueError('Спочатку superadmin має погодити рецепт: ' + package['name'])
+                    raise ValueError('Superadmin approval is required for: ' + package['name'])
                 snapshot = dict(package)
                 snapshot['resolved_script'] = service.resolve_recipe(package, operation)
                 snapshot.setdefault('timeout_seconds', 1800)
                 snapshot.setdefault('expected_exit_codes', '0,3010')
                 if operation not in ('uninstall', 'detect') and snapshot.get('blob_sha256'):
                     if not service.blob_path(snapshot['blob_sha256']).is_file():
-                        raise ValueError('Відсутній підготовлений файл: ' + package['name'])
+                        raise ValueError('Prepared package file is missing: ' + package['name'])
                 elif operation not in ('uninstall', 'detect') and snapshot.get('external_url'):
-                    raise ValueError('Спочатку підготуйте пакет з OMV: ' + package['name'])
+                    raise ValueError('Prepare the OMV package first: ' + package['name'])
                 snapshot.pop('external_url', None)
                 snapshot.pop('approved_hash', None)
                 plans.append(dict(package=snapshot, operation=operation, base_url=base_url))
             parallelism = int(data.get('parallelism', 2))
             if not 1 <= parallelism <= service.settings(control)['max_hosts']:
-                raise ValueError('Кількість паралельних хостів перевищує глобальний ліміт.')
+                raise ValueError('Concurrent endpoints exceed the global limit.')
             deployment = SoftwareDeployment(id=str(uuid.uuid4()), actor_user_id=session['user_id'],
                                             created_by=helpers().current_actor_label(), launch_reason=reason,
                                             parallelism=parallelism, expires_at=datetime.utcnow() + timedelta(days=1))
@@ -223,10 +223,10 @@ def register(bp):
         if denied:
             return denied
         if not helpers().current_user().is_admin:
-            return jsonify(success=False, message='Налаштування сховища доступні лише superadmin.'), 403
+            return jsonify(success=False, message='Only a superadmin can change storage settings.'), 403
         data = request.get_json(silent=True)
         if not isinstance(data, dict):
-            return jsonify(success=False, message='Очікується JSON-об’єкт.'), 400
+            return jsonify(success=False, message='A JSON object is required.'), 400
         try:
             with service.LOCAL_LOCK:
                 control = service.lock_control()
@@ -235,14 +235,14 @@ def register(bp):
                     if key in data:
                         value = int(data[key])
                         if not 1 <= value <= upper:
-                            raise ValueError('Неприпустимий ліміт: ' + key)
+                            raise ValueError('Invalid limit: ' + key)
                         cfg[key] = value
                 if 'source_origin' in data:
                     origin = str(data['source_origin']).strip().rstrip('/')
                     parsed = urlsplit(origin)
                     if origin and (parsed.scheme != 'https' or not parsed.hostname or parsed.username or parsed.password
                                    or parsed.path or parsed.query or parsed.fragment):
-                        raise ValueError('Вкажіть лише HTTPS-адресу OMV з портом, без шляху.')
+                        raise ValueError('Enter an OMV HTTPS origin with a port and no path.')
                     cfg['source_origin'] = origin
                 if 'ca_bundle' in data:
                     cfg['ca_bundle'] = str(data['ca_bundle']).strip()[:1024]
@@ -253,7 +253,7 @@ def register(bp):
                 return jsonify(success=True)
         except (ValueError, TypeError):
             db.session.rollback()
-            return jsonify(success=False, message='Перевірте HTTPS-адресу та числові ліміти.'), 400
+            return jsonify(success=False, message='Check the HTTPS address and numeric limits.'), 400
 
     @bp.route('/api/infrastructure/software/deployments', methods=['GET', 'POST'])
     def software_deployments():
@@ -296,15 +296,15 @@ def register(bp):
             row = db.session.get(SoftwareDeployment, deployment_id)
             user = helpers().current_user()
             if not row or (row.actor_user_id != user.id and not user.is_admin):
-                return jsonify(success=False, message='Немає доступу.'), 403
+                return jsonify(success=False, message='Access denied.'), 403
             data = request.get_json(silent=True)
             if not isinstance(data, dict):
-                return jsonify(success=False, message='Очікується JSON-об’єкт.'), 400
+                return jsonify(success=False, message='A JSON object is required.'), 400
             action = data.get('action')
             if action == 'resolve':
                 step = SoftwareStep.query.filter_by(id=data.get('step_id'), deployment_id=row.id, status='Active').first()
                 if not user.is_admin or not step or not step.message or data.get('execution_stopped') is not True:
-                    return jsonify(success=False, message='Потрібне підтвердження superadmin, що виконання на хості завершено.'), 403
+                    return jsonify(success=False, message='A superadmin must confirm that execution has stopped on the endpoint.'), 403
                 try:
                     reason = validate_launch_reason(data.get('launch_reason'))
                 except ValueError as exc:
@@ -312,13 +312,13 @@ def register(bp):
                 task = db.session.get(AgentTask, step.task_id)
                 if task and task.status in service.ACTIVE:
                     task.status, task.finished_at = 'Error', datetime.utcnow()
-                    task.result_log = 'Оператор підтвердив завершення виконання на хості. ' + reason
+                    task.result_log = 'The operator confirmed that execution has stopped on the endpoint. ' + reason
                 step.token_hash = None
                 helpers().write_infra_audit('Software Resolve Stalled', 'software_step', step.id, {'reason': reason})
                 db.session.commit()
                 return jsonify(success=True)
             if action not in ('pause', 'resume', 'cancel') or row.status not in ('Running', 'Paused'):
-                return jsonify(success=False, message='Дія недоступна.'), 400
+                return jsonify(success=False, message='This action is unavailable.'), 400
             row.status = 'Paused' if action == 'pause' else 'Cancelling' if action == 'cancel' else 'Running'
             if action in ('pause', 'cancel'):
                 for step in SoftwareStep.query.filter_by(deployment_id=row.id, status='Active').all():
@@ -329,10 +329,10 @@ def register(bp):
                         step.status = 'Queued' if action == 'pause' else 'Skipped'
                         step.token_hash = None
                         if action == 'cancel':
-                            step.message, task.finished_at = 'Скасовано до отримання агентом.', datetime.utcnow()
+                            step.message, task.finished_at = 'Cancelled before pickup by the agent.', datetime.utcnow()
             if action == 'cancel':
                 for step in SoftwareStep.query.filter_by(deployment_id=row.id, status='Queued').all():
-                    step.status, step.message = 'Skipped', 'Наступні операції скасовано оператором.'
+                    step.status, step.message = 'Skipped', 'Pending operations were cancelled by the operator.'
                     if step.task_id:
                         task = db.session.get(AgentTask, step.task_id)
                         if task and task.status == 'SoftwareQueued':

@@ -1,36 +1,36 @@
 <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
-    <label>Назва програми<input name="name" required maxlength="160" class="sw-input" placeholder="WireGuard"></label>
-    <label>Версія<input name="version" required maxlength="80" class="sw-input" placeholder="1.1.1"></label>
-    <label>Набори ПЗ через кому<input name="sets" class="sw-input" placeholder="Стандарт, Мережа"></label>
-    <label>Порядок у наборі<input name="order" type="number" min="0" max="10000" value="100" class="sw-input"><span class="text-xs text-slate-500">Менше число — раніше. За однакового числа — за назвою.</span></label>
-    <label class="md:col-span-2">Посилання на інсталятор у Files Manager OMV<input name="external_url" type="url" class="sw-input" placeholder="https://omv.internal:3670/api/public/dl/…/package.msi"></label>
-    <label>Тип інсталятора<select name="package_type" class="sw-input"><option value="msi">MSI — готове тихе встановлення</option><option value="exe">EXE</option><option value="zip">ZIP</option><option value="custom">Лише скрипт</option><option value="ps1">PS1</option><option value="bat">BAT</option></select></label>
-    <label>Перевірений SHA-256 (необов’язково)<input name="sha256" maxlength="64" class="sw-input" placeholder="WinHUB обчислить під час підготовки"></label>
+    <label>Application name<input name="name" required maxlength="160" class="sw-input" placeholder="WireGuard"></label>
+    <label>Version<input name="version" required maxlength="80" class="sw-input" placeholder="1.1.1"></label>
+    <label>Software sets, comma separated<input name="sets" class="sw-input" placeholder="Standard, Networking"></label>
+    <label>Installation order<input name="order" type="number" min="0" max="10000" value="100" class="sw-input"><span class="text-xs text-slate-500">Lower numbers run first. Applications with the same number are ordered by name.</span></label>
+    <label class="md:col-span-2">OMV Files Manager download link<input name="external_url" type="url" class="sw-input" placeholder="https://omv.internal:3670/api/public/dl/…/package.msi"></label>
+    <label>Package type<select name="package_type" class="sw-input"><option value="msi">MSI — automatic silent installation</option><option value="exe">EXE</option><option value="zip">ZIP</option><option value="custom">Script only</option><option value="ps1">PS1</option><option value="bat">BAT</option></select></label>
+    <label>Expected SHA-256 (optional)<input name="sha256" maxlength="64" class="sw-input" placeholder="Calculated by WinHUB during preparation"></label>
 </div>
 <p id="swPreparedInfo" class="text-sm text-slate-500"></p>
 <details class="rounded-xl border border-slate-200 p-4">
-    <summary class="cursor-pointer font-bold">Скрипти дій · для MSI встановлення заповнюється автоматично</summary>
-    <p class="text-sm text-slate-500 my-3">PowerShell. Шлях до файла: {file}, папка ZIP: {extract_dir}. Назва й версія: $PackageName, $PackageVersion. Для дочірнього інсталятора дочекайтеся завершення та поверніть його код через exit.</p>
+    <summary class="cursor-pointer font-bold">Action scripts · MSI installation is generated automatically</summary>
+    <p class="text-sm text-slate-500 my-3">PowerShell: {file} is the package path; {extract_dir} is the ZIP directory. Use $PackageName and $PackageVersion for metadata. Wait for child installers and return their exit code using exit.</p>
     <div class="space-y-3">
-        <label class="block">Встановлення<textarea name="install_command" class="sw-input font-mono" rows="5" placeholder="Для MSI можна залишити порожнім"></textarea></label>
-        <label class="block">Оновлення<textarea name="update_command" class="sw-input font-mono" rows="5" placeholder="Окрема команда оновлення"></textarea></label>
-        <label class="block">Видалення<textarea name="uninstall_command" class="sw-input font-mono" rows="5" placeholder="Команда тихого видалення"></textarea></label>
+        <label class="block">Install<textarea name="install_command" class="sw-input font-mono" rows="5" placeholder="Leave empty for automatic MSI installation"></textarea></label>
+        <label class="block">Update<textarea name="update_command" class="sw-input font-mono" rows="5" placeholder="Separate update command"></textarea></label>
+        <label class="block">Uninstall<textarea name="uninstall_command" class="sw-input font-mono" rows="5" placeholder="Silent uninstall command"></textarea></label>
     </div>
 </details>
 <details class="rounded-xl border border-slate-200 p-4">
-    <summary class="cursor-pointer font-bold">Перевірка результату та розширені параметри</summary>
+    <summary class="cursor-pointer font-bold">Detection and advanced settings</summary>
     <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mt-4">
-        <label>Перевірка встановленого стану<select name="detection_type" class="sw-input"><option value="none">Без перевірки</option><option value="command">PowerShell: exit 0 — потрібна версія встановлена</option><option value="file_exists">Файл існує</option><option value="folder_exists">Каталог існує</option><option value="registry_key_exists">Ключ реєстру існує</option></select></label>
-        <label>Архітектура<select name="architecture" class="sw-input"><option value="any">Будь-яка</option><option value="x64">x64</option><option value="x86">x86</option><option value="arm64">arm64</option></select></label>
-        <label class="md:col-span-2">Скрипт перевірки або шлях<textarea name="detection_value" class="sw-input font-mono" rows="4"></textarea></label>
-        <label>Успішні коди завершення<input name="expected_exit_codes" value="0,3010" class="sw-input"></label>
-        <label>Таймаут операції, секунд<input name="timeout_seconds" type="number" min="60" max="86400" value="1800" class="sw-input"></label>
-        <label>Погоджений шаблон Workspace: встановлення<select name="install_template_id" class="sw-input"><option value="">Власний скрипт у цій картці</option></select><span class="text-xs">Якщо задано, використовується замість скрипта вище.</span></label>
-        <label>Шаблон Workspace: оновлення<select name="update_template_id" class="sw-input"><option value="">Власний скрипт у цій картці</option></select></label>
-        <label>Шаблон Workspace: видалення<select name="uninstall_template_id" class="sw-input"><option value="">Власний скрипт у цій картці</option></select></label>
-        <label>Або файл із комп’ютера<input name="file" type="file" class="sw-input"></label>
-        <label class="flex items-center gap-2"><input name="prepare" type="checkbox" value="1">Повторно завантажити файл OMV</label>
-        <label class="md:col-span-2">Опис<textarea name="notes" class="sw-input" rows="2"></textarea></label>
+        <label>Detection rule<select name="detection_type" class="sw-input"><option value="none">No detection</option><option value="command">PowerShell: exit 0 when the required version is installed</option><option value="file_exists">File exists</option><option value="folder_exists">Directory exists</option><option value="registry_key_exists">Registry key exists</option></select></label>
+        <label>Architecture<select name="architecture" class="sw-input"><option value="any">Any</option><option value="x64">x64</option><option value="x86">x86</option><option value="arm64">arm64</option></select></label>
+        <label class="md:col-span-2">Detection script or path<textarea name="detection_value" class="sw-input font-mono" rows="4"></textarea></label>
+        <label>Successful exit codes<input name="expected_exit_codes" value="0,3010" class="sw-input"></label>
+        <label>Operation timeout, seconds<input name="timeout_seconds" type="number" min="60" max="86400" value="1800" class="sw-input"></label>
+        <label>Approved Workspace template: install<select name="install_template_id" class="sw-input"><option value="">Use the script in this application card</option></select><span class="text-xs">When selected, replaces the inline script above.</span></label>
+        <label>Workspace template: update<select name="update_template_id" class="sw-input"><option value="">Use the script in this application card</option></select></label>
+        <label>Workspace template: uninstall<select name="uninstall_template_id" class="sw-input"><option value="">Use the script in this application card</option></select></label>
+        <label>Or upload a local file<input name="file" type="file" class="sw-input"></label>
+        <label class="flex items-center gap-2"><input name="prepare" type="checkbox" value="1">Download the OMV file again</label>
+        <label class="md:col-span-2">Description<textarea name="notes" class="sw-input" rows="2"></textarea></label>
     </div>
 </details>
-{% if is_admin %}<label class="flex items-center gap-3 p-4 rounded-xl bg-amber-50"><input name="approve" type="checkbox" value="1"><span>Я перевірив джерело та рецепти й погоджую цю версію для запуску</span></label>{% endif %}
+{% if is_admin %}<label class="flex items-center gap-3 p-4 rounded-xl bg-amber-50"><input name="approve" type="checkbox" value="1"><span>I have reviewed the source and recipes and approve this version for deployment</span></label>{% endif %}

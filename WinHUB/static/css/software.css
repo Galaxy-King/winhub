@@ -1,18 +1,59 @@
-#view-software { color: #1e293b; }
-#view-software .sw-panel { background: white; border: 1px solid #cbd5e1; border-radius: 1.5rem; padding: 1.5rem; }
-#view-software .sw-input { display: block; width: 100%; margin-top: .35rem; padding: .7rem .85rem; background: #f8fafc; color: #0f172a; border: 1px solid #cbd5e1; border-radius: .7rem; font-size: .9rem; }
+/* Match the shared WinHUB tactical theme; never combine light cards with inherited light text. */
+#view-software {
+    --sw-text: #e8f6ff;
+    --sw-muted: #b3c6dc;
+    --sw-line: #31516c;
+    --sw-surface: #111c30;
+    color: var(--sw-text);
+    color-scheme: dark;
+}
+#view-software .sw-panel { min-width: 0; background: linear-gradient(160deg, #13243a, #0c1628); color: var(--sw-text); border: 1px solid var(--sw-line); border-radius: 1rem; padding: 1.5rem; }
+#view-software .sw-input { display: block; box-sizing: border-box; width: 100%; min-width: 0; margin-top: .35rem; padding: .7rem .85rem; background: #091426 !important; color: var(--sw-text) !important; border: 1px solid #42617c !important; border-radius: .7rem; font-size: .9rem; }
+#view-software .sw-input::placeholder { color: #a7bdd4 !important; opacity: 1; }
+#view-software .sw-input option { background: #091426; color: var(--sw-text); }
 #view-software label { font-size: .9rem; }
-#view-software .sw-button { padding: .6rem .9rem; border: 1px solid #cbd5e1; border-radius: .7rem; background: white; color: #334155; font-size: .85rem; font-weight: 700; }
-#view-software .sw-button:hover { background: #eef2ff; border-color: #818cf8; }
-#view-software .sw-primary { background: #4338ca; color: white; border-color: #4338ca; }
-#view-software .sw-primary:hover { background: #3730a3; }
-#view-software button:disabled { opacity: .55; cursor: wait; }
-#view-software .sw-card { display: flex; align-items: center; flex-wrap: wrap; gap: .65rem; border: 1px solid #cbd5e1; border-radius: .8rem; padding: .85rem; background: #fff; }
-#view-software .sw-selected { border-color: #818cf8; background: #eef2ff; }
-#view-software .sw-set { display: inline-flex; align-items: center; gap: .5rem; background: #f1f5f9; border: 1px solid #cbd5e1; border-radius: 1rem; padding: .45rem .75rem; cursor: pointer; }
-#view-software input[type=checkbox] { width: 1rem; height: 1rem; accent-color: #4338ca; flex-shrink: 0; }
-#view-software :focus-visible { outline: 3px solid #818cf8; outline-offset: 2px; }
-#view-software .sw-panel { min-width: 0; }
+#view-software .sw-button { padding: .6rem .9rem; border: 1px solid #42617c; border-radius: .7rem; background: #172d46; color: var(--sw-text); font-size: .85rem; font-weight: 700; }
+#view-software .sw-button:hover { background: #204361; border-color: #67d9ef; }
+#view-software .sw-button[aria-current=page] { background: #164464; border-color: #67d9ef; color: #fff; }
+#view-software .sw-primary { background: #075985; color: #fff; border-color: #38bdf8; }
+#view-software .sw-primary:hover { background: #0369a1; }
+#view-software button:disabled { opacity: .6; cursor: not-allowed; }
+#view-software .sw-card { display: flex; align-items: center; flex-wrap: wrap; gap: .65rem; border: 1px solid var(--sw-line); border-radius: .8rem; padding: .85rem; background: #101e32; color: var(--sw-text); }
+#view-software .sw-selected { border-color: #52cde4; background: #12384d; }
+#view-software .sw-set { display: inline-flex; align-items: center; gap: .5rem; background: #172d46; color: var(--sw-text); border: 1px solid #42617c; border-radius: 1rem; padding: .45rem .75rem; cursor: pointer; }
+#view-software input[type=checkbox] { width: 1rem; height: 1rem; accent-color: #38bdf8; flex-shrink: 0; }
+#view-software :focus-visible { outline: 3px solid #67e8f9; outline-offset: 3px; }
+#view-software .sw-muted { color: var(--sw-muted); }
+#view-software .sw-target-actions { display: flex; flex-wrap: wrap; gap: .75rem; }
+#view-software .sw-target-button { flex: 1; min-width: 150px; text-align: left; padding: 1rem; }
+#view-software .sw-target-button strong, #view-software .sw-target-button span { display: block; }
+#view-software .sw-target-button span { margin-top: .35rem; color: var(--sw-muted); font-size: .8rem; font-weight: 400; }
+#view-software .sw-target-summary { padding: .85rem 1rem; border: 1px solid var(--sw-line); border-radius: .7rem; background: #0b192c; color: #d4e7f8; overflow-wrap: anywhere; font-size: .875rem; }
+body.sw-target-modal-open { overflow: hidden; }
+#view-software .sw-modal { position: fixed; inset: 0; z-index: 160; margin: 0 !important; padding: 1.25rem; background: rgba(2, 6, 16, .84); backdrop-filter: blur(6px); align-items: center; justify-content: center; }
+#view-software .sw-modal:not(.hidden) { display: flex; }
+#view-software .sw-modal-card { display: flex; flex-direction: column; width: min(1100px, 100%); height: min(760px, calc(100dvh - 2.5rem)); min-height: 0; background: #0e1b2e; color: var(--sw-text); border: 1px solid #4a7898; border-radius: 1rem; box-shadow: 0 24px 80px #0009; overflow: hidden; }
+#view-software .sw-modal-header { display: flex; align-items: flex-start; justify-content: space-between; gap: 1rem; padding: 1.25rem; border-bottom: 1px solid var(--sw-line); }
+#view-software .sw-modal-header h3 { font-size: 1.25rem; font-weight: 800; color: var(--sw-text); }
+#view-software .sw-modal-header p { margin-top: .35rem; color: var(--sw-muted); font-size: .85rem; }
+#view-software .sw-modal-toolbar { display: flex; align-items: center; gap: .75rem; padding: 1rem 1.25rem; border-bottom: 1px solid var(--sw-line); }
+#view-software .sw-modal-toolbar .sw-input { flex: 1; margin: 0; }
+#view-software .sw-modal-toolbar button { flex-shrink: 0; }
+#view-software .sw-picker-columns { display: grid; grid-template-columns: minmax(0, 1.2fr) minmax(0, 1fr); flex: 1; min-height: 0; }
+#view-software .sw-picker-pane { display: flex; flex-direction: column; min-width: 0; min-height: 0; }
+#view-software .sw-picker-pane > h4, #view-software .sw-picker-selected-header { padding: .85rem 1rem; border-bottom: 1px solid var(--sw-line); font-weight: 700; min-height: 65px; }
+#view-software .sw-picker-selected-header { display: flex; align-items: center; justify-content: space-between; gap: .5rem; }
+#view-software .sw-picker-chosen { border-left: 1px solid var(--sw-line); background: #091426; }
+#view-software .sw-picker-list { flex: 1; min-height: 0; overflow: auto; padding: .75rem; }
+#view-software .sw-picker-row { display: flex; align-items: center; justify-content: space-between; gap: .75rem; padding: .8rem; margin-bottom: .5rem; background: #15283f; border: 1px solid #34546f; border-radius: .65rem; color: var(--sw-text); overflow-wrap: anywhere; }
+#view-software label.sw-picker-row { justify-content: flex-start; cursor: pointer; }
+#view-software .sw-picker-row-selected { border-color: #67d9ef; background: #164056; }
+#view-software .sw-picker-row-text { min-width: 0; }
+#view-software .sw-picker-row-text strong, #view-software .sw-picker-row-text span { display: block; }
+#view-software .sw-picker-row-text span { font-size: .8rem; margin-top: .25rem; }
+#view-software .sw-picker-empty { padding: 1rem; font-size: .9rem; }
+#view-software .sw-modal-footer { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 1rem; padding: 1rem 1.25rem; border-top: 1px solid var(--sw-line); background: #101f34; }
+#view-software .sw-modal-footer p { flex: 1; min-width: 200px; color: var(--sw-muted); font-size: .8rem; }
 @media (min-width: 1100px) {
     #swPanel-library:not(.hidden) { grid-template-columns: minmax(0, 1.1fr) minmax(0, 1fr); }
     #swPanel-library.sw-catalog-only:not(.hidden) { grid-template-columns: minmax(0, 1fr); }
@@ -20,4 +61,12 @@
 @media (max-width: 640px) {
     #view-software .sw-card > label { flex-basis: 100%; width: 100%; }
     #view-software .sw-card > button { flex: 1; }
+    #view-software .sw-modal { padding: .5rem; }
+    #view-software .sw-modal-card { height: calc(100dvh - 1rem); }
+    #view-software .sw-modal-header, #view-software .sw-modal-toolbar, #view-software .sw-modal-footer { padding: .8rem; }
+    #view-software .sw-picker-columns { grid-template-columns: minmax(0, 1fr); grid-template-rows: minmax(0, 1.3fr) minmax(0, 1fr); }
+    #view-software .sw-picker-chosen { border-left: 0; border-top: 1px solid var(--sw-line); }
+    #view-software .sw-picker-pane > h4, #view-software .sw-picker-selected-header { padding: .5rem .8rem; min-height: 45px; }
+    #view-software .sw-modal-footer .sw-target-actions { width: 100%; }
+    #view-software .sw-modal-footer button { flex: 1; }
 }

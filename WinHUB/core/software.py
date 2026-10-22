@@ -63,7 +63,7 @@ def blob_dir():
 
 def blob_path(digest):
     if not re.fullmatch('[a-f0-9]{64}', str(digest or '')):
-        raise ValueError('Пакет ще не підготовлено. Збережіть його з файлом або посиланням OMV.')
+        raise ValueError('The package is not prepared yet. Save it with a file or an OMV link.')
     return blob_dir() / digest
 
 
@@ -79,14 +79,14 @@ def store_blob(stream, expected='', max_bytes=None):
                     continue
                 size += len(chunk)
                 if size > limit:
-                    raise ValueError('Файл перевищує налаштований ліміт пакета.')
+                    raise ValueError('The file exceeds the configured package size limit.')
                 digest.update(chunk)
                 output.write(chunk)
         if not size:
-            raise ValueError('Порожній інсталятор.')
+            raise ValueError('The installer file is empty.')
         value = digest.hexdigest()
         if expected and not secrets.compare_digest(value, expected.lower()):
-            raise ValueError('SHA-256 файла не збігається з очікуваним.')
+            raise ValueError('The file SHA-256 does not match the expected value.')
         destination = blob_path(value)
         if not destination.exists():
             os.replace(temporary, destination)
@@ -99,13 +99,13 @@ def store_blob(stream, expected='', max_bytes=None):
 def prepare_url(url, expected=''):
     cfg = settings()
     if str(Config.OUTBOUND_POLICY_MODE).lower() != 'enforce':
-        raise ValueError('Для підготовки OMV потрібен OUTBOUND_POLICY_MODE=enforce та дозволений хост.')
+        raise ValueError('OMV preparation requires OUTBOUND_POLICY_MODE=enforce and an allowlisted host.')
     origin = urlsplit(cfg['source_origin'])
     parsed = urlsplit(url)
     if (parsed.scheme != 'https' or not parsed.hostname or parsed.username or parsed.password
             or parsed.fragment or '\\' in url or any(ord(c) < 32 for c in url)
             or (parsed.scheme, parsed.hostname, parsed.port) != (origin.scheme, origin.hostname, origin.port)):
-        raise ValueError('Посилання повинно належати налаштованому HTTPS-сховищу OMV.')
+        raise ValueError('The link must belong to the configured OMV HTTPS origin.')
     # A private OMV must also be explicitly permitted by OUTBOUND_ALLOWED_HOSTS.
     started = time.monotonic()
     class NoRedirect(HTTPRedirectHandler):
@@ -117,31 +117,31 @@ def prepare_url(url, expected=''):
         with pinned_outbound_url(url, purpose='Software package preparation'):
             with opener.open(Request(url, headers={'Accept-Encoding': 'identity'}), timeout=30) as response:
                 if response.status != 200:
-                    raise ValueError('OMV не повернув файл (очікується HTTP 200 без перенаправлень).')
+                    raise ValueError('OMV did not return a file: HTTP 200 without redirects is required.')
                 if ('text/html' in response.headers.get('Content-Type', '').lower()
                         or response.headers.get('Content-Encoding', 'identity').lower() != 'identity'):
-                    raise ValueError('OMV повинен повернути файл без HTML та HTTP-стиснення.')
+                    raise ValueError('OMV must return a file without HTML or HTTP content encoding.')
                 expected_length = response.headers.get('Content-Length')
                 if expected_length and (not expected_length.isdigit() or int(expected_length) > cfg['max_package_mib'] * 1024 * 1024):
-                    raise ValueError('Неприпустимий розмір пакета OMV.')
+                    raise ValueError('Invalid OMV package size.')
                 def chunks():
                     received = 0
                     # read1 performs at most one underlying read, allowing the
                     # body deadline check between partial/slow responses.
                     while True:
                         if time.monotonic() - started > 300:
-                            raise ValueError('Перевищено час підготовки пакета (5 хвилин).')
+                            raise ValueError('Package preparation timed out after 5 minutes.')
                         chunk = response.read1(256 * 1024)
                         if not chunk:
                             break
                         received += len(chunk)
                         yield chunk
                     if expected_length and received != int(expected_length):
-                        raise ValueError('Файл OMV отримано не повністю.')
+                        raise ValueError('The OMV download is incomplete.')
                 return store_blob(chunks(), expected)
     except (URLError, ssl.SSLError, HTTPException):
         # Exception text may contain the OMV public-link capability.
-        raise ValueError('Не вдалося отримати файл OMV. Перевірте доступ, HTTPS-сертифікат і розмір.') from None
+        raise ValueError('OMV download failed. Check connectivity, the HTTPS certificate and file size.') from None
 
 
 def import_legacy(control):
@@ -153,7 +153,7 @@ def import_legacy(control):
         if not isinstance(old, dict) or not old.get('id') or db.session.get(SoftwarePackage, old['id']):
             continue
         record = dict(old)
-        record['sets'] = [old.get('category') or 'Загальні']
+        record['sets'] = [old.get('category') or 'General']
         filename = str(old.get('filename') or '')
         if filename and Path(filename).name == filename:
             path = Path(routes.SOFTWARE_PACKAGES_DIR) / filename
@@ -206,29 +206,29 @@ def save_package(package_id, form, upload, user):
         if key in form:
             record[key] = str(form[key]).strip()[:limit]
     if not record.get('name') or not record.get('version'):
-        raise ValueError('Вкажіть назву та версію програми.')
+        raise ValueError('Application name and version are required.')
     record.setdefault('package_type', 'msi')
     if record['package_type'] not in ('msi', 'exe', 'zip', 'ps1', 'bat', 'custom'):
-        raise ValueError('Непідтримуваний тип пакета.')
+        raise ValueError('Unsupported package type.')
     record.setdefault('architecture', 'any')
     if record['architecture'] not in ('any', 'x64', 'x86', 'arm64'):
-        raise ValueError('Непідтримувана архітектура.')
+        raise ValueError('Unsupported architecture.')
     if record.get('detection_type', 'none') not in ('none', 'command', 'file_exists', 'folder_exists', 'registry_key_exists'):
-        raise ValueError('Невідомий тип перевірки стану.')
+        raise ValueError('Unknown detection type.')
     if record.get('detection_type', 'none') != 'none' and not record.get('detection_value'):
-        raise ValueError('Вкажіть скрипт або шлях перевірки стану.')
+        raise ValueError('Enter a detection script or path.')
     record.setdefault('expected_exit_codes', '0,3010')
     if not re.fullmatch(r'-?\d+(?:\s*,\s*-?\d+)*', record['expected_exit_codes']):
-        raise ValueError('Коди завершення: цілі числа через кому.')
+        raise ValueError('Exit codes must be comma-separated integers.')
     if any(not -2147483648 <= int(code) <= 2147483647 for code in record['expected_exit_codes'].split(',')):
-        raise ValueError('Код завершення виходить за межі Int32.')
+        raise ValueError('An exit code is outside the Int32 range.')
     record['timeout_seconds'] = max(60, min(86400, int(form.get('timeout_seconds') or record.get('timeout_seconds') or 1800)))
     record['order'] = max(0, min(10000, int(form.get('order') or record.get('order') or 100)))
-    names = str(form.get('sets', ','.join(record.get('sets') or [record.get('category') or 'Загальні'])))
-    record['sets'] = list(dict.fromkeys(x.strip()[:80] for x in names.split(',') if x.strip()))[:30] or ['Загальні']
+    names = str(form.get('sets', ','.join(record.get('sets') or [record.get('category') or 'General'])))
+    record['sets'] = list(dict.fromkeys(x.strip()[:80] for x in names.split(',') if x.strip()))[:30] or ['General']
     expected = str(form.get('sha256') or '').strip().lower()
     if expected and not re.fullmatch('[a-f0-9]{64}', expected):
-        raise ValueError('SHA-256 повинен містити 64 шістнадцяткові символи.')
+        raise ValueError('SHA-256 must contain 64 hexadecimal characters.')
     if upload and upload.filename:
         digest, size = store_blob(iter(lambda: upload.stream.read(256 * 1024), b''), expected)
         record.update(blob_sha256=digest, sha256=digest, size=size, preparation='Ready',
@@ -237,7 +237,7 @@ def save_package(package_id, form, upload, user):
                                        or record['version'] != previous.get('version')
                                        or not record.get('blob_sha256') or form.get('prepare') == '1'):
         if not settings()['source_origin']:
-            raise ValueError('Спочатку налаштуйте адресу сховища OMV.')
+            raise ValueError('Configure the OMV storage origin first.')
         record.update(blob_sha256=None, sha256=expected, size=0,
                       preparation='Queued', preparation_id=str(uuid.uuid4()),
                       preparation_expected=expected, preparation_error='',
@@ -246,12 +246,12 @@ def save_package(package_id, form, upload, user):
         if record['package_type'] == 'msi' and (record.get('blob_sha256') or record.get('external_url')):
             record['install_command'] = 'Start-Process msiexec.exe -ArgumentList @("/i", "`"{file}`"", "/qn", "/norestart") -Wait -PassThru | ForEach-Object { $global:LASTEXITCODE = $_.ExitCode }'
         else:
-            raise ValueError('Вкажіть скрипт встановлення або погоджений шаблон Workspace.')
+            raise ValueError('Enter an install script or select an approved Workspace template.')
     if recipe_hash(record) != recipe_hash(previous):
         record.pop('approved_hash', None)
     if form.get('approve') == '1':
         if not user.is_admin:
-            raise PermissionError('Погоджувати рецепт може лише superadmin.')
+            raise PermissionError('Only a superadmin can approve a recipe.')
         record['approved_hash'] = recipe_hash(record)
     record['updated_by'] = user.username
     row = old or SoftwarePackage(id=package_id)
@@ -286,7 +286,7 @@ def process_preparation():
     try:
         prepared = prepare_url(record['external_url'], record.get('preparation_expected', ''))
     except (ValueError, OSError):
-        error = 'Перевірте HTTPS, доступ до OMV, OUTBOUND_ALLOWED_HOSTS, очікуваний SHA-256 та ліміти.'
+        error = 'Check HTTPS, OMV access, OUTBOUND_ALLOWED_HOSTS, the expected SHA-256 and size limits.'
     with LOCAL_LOCK:
         lock_control()
         row = db.session.get(SoftwarePackage, record['id'])
@@ -323,26 +323,26 @@ def run_preparation_job():
 def resolve_recipe(record, operation):
     if operation == 'detect':
         if record.get('detection_type', 'none') == 'none' or not record.get('detection_value'):
-            raise ValueError('Не налаштовано перевірку стану: ' + record['name'])
+            raise ValueError('Detection is not configured for: ' + record['name'])
         return ''
     template_id = record.get(operation + '_template_id')
     if template_id:
         template = db.session.get(TaskTemplate, template_id)
         if (not template or template.type != 'action' or template.action_type != 'run_script'
                 or not template_approval_valid(template)):
-            raise ValueError('Потрібен чинний погоджений action/run_script шаблон Workspace.')
+            raise ValueError('A currently approved action/run_script Workspace template is required.')
         payload = json.loads(template.payload or '{}')
         if not isinstance(payload, dict):
-            raise ValueError('Шаблон Workspace має містити JSON-об’єкт зі script.')
+            raise ValueError('The Workspace template must contain a JSON object with a script.')
         if payload.get('variables_schema') or payload.get('__ai_generated'):
-            raise ValueError('Для Software виберіть шаблон без змінних та AI provenance; використайте окремий погоджений рецепт.')
+            raise ValueError('Select a Software template without variables or AI provenance; use a separately approved recipe.')
         script = payload.get('script')
         if not isinstance(script, str) or not script.strip() or '{{' in script or '{%' in script:
-            raise ValueError('Шаблон Software повинен містити готовий PowerShell-скрипт без Jinja-підстановок.')
+            raise ValueError('The Software template must contain a complete PowerShell script without Jinja substitutions.')
         return script
     script = record.get(operation + '_command')
     if not script:
-        raise ValueError(f'Для «{record["name"]}» не налаштовано дію {operation}.')
+        raise ValueError(f'Operation {operation} is not configured for {record["name"]}.')
     return script
 
 
@@ -384,12 +384,12 @@ function Test-SoftwareState {
 try {
     New-Item -ItemType Directory -Force -Path $WorkDir | Out-Null
     if ($cfg.operation -eq 'detect') {
-        if (Test-SoftwareState) { Write-Output 'Потрібну версію встановлено.'; exit 0 }
-        Write-Output 'Потрібну версію не знайдено.'
+        if (Test-SoftwareState) { Write-Output 'The required version is installed.'; exit 0 }
+        Write-Output 'The required version was not found.'
         exit 1
     }
     if ($cfg.operation -eq 'install' -and (Test-SoftwareState)) {
-        Write-Output 'Потрібний стан уже досягнуто; пропущено.'
+        Write-Output 'The required state is already satisfied; skipped.'
         exit 0
     }
     if ($cfg.url) {
@@ -404,11 +404,11 @@ try {
             } catch {
                 $code = 0
                 if ($_.Exception.Response) { $code = [int]$_.Exception.Response.StatusCode }
-                if ($code -ne 429) { throw 'Не вдалося завантажити пакет із WinHUB.' }
+                if ($code -ne 429) { throw 'Package download from WinHUB failed.' }
                 Start-Sleep -Seconds 15
             }
         }
-        if (-not $downloaded) { throw 'Завантаження не завершене.' }
+        if (-not $downloaded) { throw 'The download did not complete.' }
         if ((Get-FileHash -LiteralPath $PackageFile -Algorithm SHA256).Hash.ToLowerInvariant() -ne $cfg.sha256) { throw 'SHA-256 mismatch' }
         if ($cfg.package_type -eq 'zip') { Expand-Archive -LiteralPath $PackageFile -DestinationPath $ExtractDir -Force }
     }
@@ -419,14 +419,14 @@ try {
     & $PowerShellExe -NoProfile -NonInteractive -File $RecipePath -PackageFile $PackageFile -ExtractDir $ExtractDir -WorkDir $WorkDir -PackageName $PackageName -PackageVersion $PackageVersion | Out-Host
     $code = $LASTEXITCODE
     $expected = @($cfg.expected_exit_codes -split ',' | ForEach-Object { [int]$_.Trim() })
-    if ($expected -notcontains $code) { throw "Неочікуваний код завершення: $code" }
+    if ($expected -notcontains $code) { throw "Unexpected exit code: $code" }
     if ($code -eq 3010) { Write-Output 'WINHUB_REBOOT_REQUIRED'; exit 0 }
     if ($cfg.detection_type -and $cfg.detection_type -ne 'none') {
         $detected = Test-SoftwareState
-        if ($cfg.operation -ne 'uninstall' -and -not $detected) { throw 'Перевірка встановленої версії не пройшла.' }
-        if ($cfg.operation -eq 'uninstall' -and $detected) { throw 'Після видалення програма досі визначається.' }
+        if ($cfg.operation -ne 'uninstall' -and -not $detected) { throw 'Installed version detection failed.' }
+        if ($cfg.operation -eq 'uninstall' -and $detected) { throw 'The application is still detected after uninstall.' }
     }
-    Write-Output 'Операцію завершено.'
+    Write-Output 'Operation completed.'
     exit 0
 } catch {
     Write-Output ('Software error: ' + $_.Exception.Message)
@@ -457,7 +457,7 @@ def process_queue():
                 step.status = task.status if task else 'Error'
                 step.token_hash = None
                 if task and task.status == 'Success' and 'WINHUB_REBOOT_REQUIRED' in (task.result_log or ''):
-                    step.status, step.message = 'RebootRequired', 'Потрібне перезавантаження; наступні програми не запускаються.'
+                    step.status, step.message = 'RebootRequired', 'A reboot is required; subsequent applications will not start.'
                 continue
             if task.status == 'Pending' and step.started_at < now - timedelta(minutes=2):
                 # Same task is held again; gateway locks it before pickup.
@@ -467,7 +467,7 @@ def process_queue():
             # until an authenticated result or explicit operator cancellation.
             plan = json.loads(step.snapshot)
             if step.started_at + timedelta(seconds=plan['package']['timeout_seconds'] + 300) < now:
-                step.message = 'Немає результату після таймауту. Перевірте хост перед ручним завершенням.'
+                step.message = 'No result after the timeout. Check the endpoint before resolving manually.'
             busy.add(step.endpoint_id)
         db.session.flush()
         for deployment in deployments:
@@ -481,10 +481,10 @@ def process_queue():
                 if step.status != 'Queued':
                     continue
                 if any(s.status in ('Error', 'Cancelled', 'Skipped', 'RebootRequired') for s in previous):
-                    step.status, step.message = 'Skipped', 'Зупинено після помилки або запиту перезавантаження.'
+                    step.status, step.message = 'Skipped', 'Stopped after an error or reboot request.'
                     continue
                 if deployment.expires_at < now:
-                    step.status, step.message = 'Skipped', 'Строк очікування завершився.'
+                    step.status, step.message = 'Skipped', 'The waiting period expired.'
                     continue
                 if deployment.status != 'Running' or any(s.status != 'Success' for s in previous):
                     continue
@@ -497,7 +497,7 @@ def process_queue():
                 permitted = (actor and actor.is_active and has_permission(actor, 'Infrastructure', 'run_tasks')
                              and step.endpoint_id in allowed_host_ids_for_action(actor, 'run_tasks'))
                 if not host or host.is_blocked or host.approval_status != 'Approved' or not permitted:
-                    step.status, step.message = 'Error', 'Хост недоступний для запуску або права відкликано.'
+                    step.status, step.message = 'Error', 'The endpoint is unavailable for execution or permission was revoked.'
                     continue
                 if (host.last_seen or datetime.min) < now - timedelta(minutes=2):
                     continue

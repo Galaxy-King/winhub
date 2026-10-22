@@ -1,68 +1,96 @@
 <!-- Software: catalogue, destinations and durable deployment queue. -->
 <section id="view-software" class="hidden space-y-5">
     <div class="wh-blue-panel p-6 rounded-3xl flex flex-wrap items-center justify-between gap-4">
-        <div><h3 class="text-lg font-black">Software · встановлення ПЗ</h3><p class="text-sm mt-1">Оберіть програми або набір. WinHUB доставить файли й виконає встановлення по черзі.</p></div>
-        <button type="button" onclick="loadSoftwareRegistry()" class="px-4 py-2 rounded-xl bg-white/15 border border-white/30">Оновити</button>
+        <div><h3 class="text-lg font-black">Software deployment</h3><p class="text-sm mt-1">Select applications or a software set. WinHUB delivers packages and installs them in order.</p></div>
+        <button type="button" onclick="loadSoftwareRegistry()" class="px-4 py-2 rounded-xl bg-white/15 border border-white/30">Refresh</button>
     </div>
-    <nav class="flex flex-wrap gap-2" aria-label="Розділи Software">
-        <button type="button" onclick="switchSoftwareTab('library')" class="sw-button">Встановлення</button>
-        {% if permissions.run_tasks %}<button type="button" onclick="switchSoftwareTab('progress')" class="sw-button">Розгортання</button>{% endif %}
-        {% if permissions.manage_software %}<button type="button" onclick="newSoftwarePackage()" class="sw-button">+ Додати програму</button>{% endif %}
-        {% if is_admin %}<button type="button" onclick="switchSoftwareTab('settings')" class="sw-button">Сховище та ліміти</button>{% endif %}
+    <nav class="flex flex-wrap gap-2" aria-label="Software sections">
+        <button type="button" onclick="switchSoftwareTab('library')" data-sw-panel="library" aria-current="page" class="sw-button">Install</button>
+        {% if permissions.run_tasks %}<button type="button" onclick="switchSoftwareTab('progress')" data-sw-panel="progress" class="sw-button">Deployments</button>{% endif %}
+        {% if permissions.manage_software %}<button type="button" onclick="newSoftwarePackage()" data-sw-panel="editor" class="sw-button">+ Add application</button>{% endif %}
+        {% if is_admin %}<button type="button" onclick="switchSoftwareTab('settings')" data-sw-panel="settings" class="sw-button">Storage and limits</button>{% endif %}
     </nav>
     <div id="swNotice" role="status" aria-live="polite" class="hidden p-4 rounded-xl bg-indigo-50 text-indigo-900 whitespace-pre-wrap"></div>
     <div id="swPanel-library" class="grid grid-cols-1 xl:grid-cols-2 gap-5 {% if not permissions.run_tasks %}sw-catalog-only{% endif %}">
         <div class="sw-panel space-y-4">
-            <h4 class="font-black text-lg">1. Що встановити</h4>
-            <p class="text-sm text-slate-500">Набір вибирає всі програми, що входять до нього. Повторення прибираються автоматично.</p>
-            <input id="swSearch" type="search" oninput="renderSoftwareRegistry()" placeholder="Знайти програму або версію" aria-label="Пошук програм" class="sw-input">
+            <h4 class="font-black text-lg">1. Select software</h4>
+            <p class="text-sm text-slate-500">Selecting a set includes all its applications. Duplicates are removed automatically.</p>
+            <input id="swSearch" type="search" oninput="renderSoftwareRegistry()" placeholder="Search applications or versions" aria-label="Search software" class="sw-input">
             <div id="swSets" class="flex flex-wrap gap-2"></div>
-            <div id="softwarePackageList" class="space-y-2 max-h-[520px] overflow-y-auto">Завантаження каталогу…</div>
+            <div id="softwarePackageList" class="space-y-2 max-h-[520px] overflow-y-auto">Loading catalogue…</div>
         </div>
         {% if permissions.run_tasks %}
         <div class="sw-panel space-y-4">
-            <h4 class="font-black text-lg">2. Куди встановити</h4>
-            <p class="text-sm text-slate-500">Поєднуйте групи та окремі хости. Для цього набору рецептів потрібна Windows.</p>
-            <div id="swHostGroups" class="space-y-2 max-h-40 overflow-y-auto"></div>
-            <input type="search" id="swHostSearch" oninput="renderSoftwareTargets()" placeholder="Знайти хост" aria-label="Пошук хостів" class="sw-input">
-            <div id="softwareTargetsList" class="max-h-56 overflow-y-auto space-y-2"></div>
-            <h4 class="font-black text-lg pt-2">3. Перевірити й запустити</h4>
+            <h4 class="font-black text-lg">2. Select targets</h4>
+            <p class="text-sm text-slate-500">Combine individual endpoints and endpoint groups. These recipes support Windows.</p>
+            <div class="sw-target-actions">
+                <button type="button" id="swChooseEndpoints" class="sw-button sw-target-button" onclick="swOpenTargets('endpoints')" aria-haspopup="dialog">
+                    <strong>Select endpoints</strong><span id="swEndpointsCount">0 individually selected</span>
+                </button>
+                <button type="button" id="swChooseGroups" class="sw-button sw-target-button" onclick="swOpenTargets('groups')" aria-haspopup="dialog">
+                    <strong>Select groups</strong><span id="swGroupsCount">0 groups selected</span>
+                </button>
+            </div>
+            <div id="swTargetsSummary" class="sw-target-summary" aria-live="polite">No targets selected.</div>
+            <h4 class="font-black text-lg pt-2">3. Review and deploy</h4>
             <div class="grid grid-cols-2 gap-3">
-                <label>Дія<select id="swOperation" class="sw-input" onchange="swUpdatePreview()"><option value="install">Встановити</option><option value="update">Оновити</option><option value="uninstall">Видалити</option><option value="detect">Перевірити стан</option></select></label>
-                <label>Хостів одночасно<input type="number" id="swParallelism" min="1" max="2" value="2" class="sw-input" onchange="swUpdatePreview()"></label>
+                <label>Action<select id="swOperation" class="sw-input" onchange="swUpdatePreview()"><option value="install">Install</option><option value="update">Update</option><option value="uninstall">Uninstall</option><option value="detect">Detect status</option></select></label>
+                <label>Concurrent endpoints<input type="number" id="swParallelism" min="1" max="2" value="2" class="sw-input" onchange="swUpdatePreview()"></label>
             </div>
             <div id="swPreview" class="p-4 rounded-xl bg-slate-50 text-sm whitespace-pre-wrap" aria-live="polite"></div>
-            <button type="button" id="softwareRunButton" onclick="runSoftwareInstall()" class="sw-button sw-primary w-full">Перевірити вибір і запустити</button>
-            <p class="text-xs text-slate-500">На одному хості — одна програма за раз. Помилка або запит перезавантаження зупиняє наступні програми цього хоста. Офлайн-хости очікують до 24 годин.</p>
+            <button type="button" id="softwareRunButton" onclick="runSoftwareInstall()" class="sw-button sw-primary w-full">Review and deploy</button>
+            <p class="text-xs text-slate-500">One application at a time on each endpoint. Errors or a required reboot stop subsequent applications on that endpoint. Offline endpoints wait up to 24 hours.</p>
         </div>
         {% endif %}
     </div>
-    <div id="swPanel-progress" class="hidden sw-panel space-y-4"><h4 class="font-black text-lg">Розгортання</h4><p class="text-sm text-slate-500">Оновлюється кожні 5 секунд. Пауза та скасування наступних операцій не переривають поточний інсталятор.</p><div id="swDeployments" class="space-y-4"></div></div>
+    <div id="swPanel-progress" class="hidden sw-panel space-y-4"><h4 class="font-black text-lg">Deployments</h4><p class="text-sm text-slate-500">Refreshes every 5 seconds. Pausing or cancelling pending operations does not interrupt an installer already running.</p><div id="swDeployments" class="space-y-4"></div></div>
     {% if permissions.manage_software %}
     <div id="swPanel-editor" class="hidden sw-panel space-y-4">
-        <h4 id="swEditorTitle" class="font-black text-lg">Додати програму</h4>
+        <h4 id="swEditorTitle" class="font-black text-lg">Add application</h4>
         <form id="swPackageForm" class="space-y-4" onsubmit="swSavePackage(event)">
             <input name="package_id" type="hidden">
             {% include 'tabs/_software_form_fields.html' %}
-            <p class="text-sm text-slate-500">Збереження з посиланням OMV ставить підготовку локальної копії у фонову чергу. Статус і SHA-256 з’являться в каталозі. Наявні розгортання використовують свої зафіксовані копії.</p>
-            <div class="flex gap-3"><button id="swSaveButton" class="sw-button sw-primary" type="submit">Зберегти та підготувати пакет</button><button type="button" class="sw-button" onclick="switchSoftwareTab('library')">Закрити</button></div>
+            <p class="text-sm text-slate-500">An OMV link queues package preparation in the background. Preparation status and SHA-256 appear in the catalogue. Existing deployments keep their original package snapshots.</p>
+            <div class="flex gap-3"><button id="swSaveButton" class="sw-button sw-primary" type="submit">Save and prepare package</button><button type="button" class="sw-button" onclick="switchSoftwareTab('library')">Close</button></div>
         </form>
     </div>
     {% endif %}
     {% if is_admin %}
     <div id="swPanel-settings" class="hidden sw-panel space-y-4">
-        <h4 class="font-black text-lg">Сховище OMV та спільні ліміти</h4>
-        <p class="text-sm text-slate-500">OMV доступний лише серверу WinHUB. Агенти отримують файли через HTTPS WinHUB.</p>
+        <h4 class="font-black text-lg">OMV storage and global limits</h4>
+        <p class="text-sm text-slate-500">Only the WinHUB server needs access to OMV. Agents download packages over HTTPS from WinHUB.</p>
         <form id="swSettingsForm" class="grid grid-cols-1 md:grid-cols-2 gap-4" onsubmit="swSaveSettings(event)">
-            <label>HTTPS-адреса OMV з портом<input name="source_origin" class="sw-input" placeholder="https://omv.internal:3670"></label>
-            <label>CA bundle на сервері (необов’язково)<input name="ca_bundle" class="sw-input" placeholder="/etc/ssl/certs/company-ca.pem"></label>
-            <label>Хостів одночасно для всіх запусків<input name="max_hosts" type="number" min="1" max="20" class="sw-input" required></label>
-            <label>Одночасних завантажень<input name="max_downloads" type="number" min="1" max="20" class="sw-input" required></label>
-            <label>Загальна швидкість, MiB/с<input name="bandwidth_mib" type="number" min="1" max="1000" class="sw-input" required></label>
-            <label>Максимальний розмір пакета, MiB<input name="max_package_mib" type="number" min="1" max="16384" class="sw-input" required></label>
-            <p class="text-sm text-slate-500 md:col-span-2">Для приватного OMV також додайте його hostname/IP до OUTBOUND_ALLOWED_HOSTS. HTTPS перевіряється завжди; власний CA встановлюється на сервері та, для WinHUB, на кінцевих хостах.</p>
-            <button type="submit" class="sw-button sw-primary">Зберегти налаштування</button>
+            <label>OMV HTTPS address including port<input name="source_origin" class="sw-input" placeholder="https://omv.internal:3670"></label>
+            <label>Server CA bundle (optional)<input name="ca_bundle" class="sw-input" placeholder="/etc/ssl/certs/company-ca.pem"></label>
+            <label>Concurrent endpoints across all deployments<input name="max_hosts" type="number" min="1" max="20" class="sw-input" required></label>
+            <label>Concurrent downloads<input name="max_downloads" type="number" min="1" max="20" class="sw-input" required></label>
+            <label>Total bandwidth, MiB/s<input name="bandwidth_mib" type="number" min="1" max="1000" class="sw-input" required></label>
+            <label>Maximum package size, MiB<input name="max_package_mib" type="number" min="1" max="16384" class="sw-input" required></label>
+            <p class="text-sm text-slate-500 md:col-span-2">For private OMV storage, add its hostname or IP to OUTBOUND_ALLOWED_HOSTS. TLS verification is always enabled. Install your private CA on the server and, for WinHUB downloads, on endpoints.</p>
+            <button type="submit" class="sw-button sw-primary">Save settings</button>
         </form>
+    </div>
+    {% endif %}
+    {% if permissions.run_tasks %}
+    <div id="swTargetModal" class="sw-modal hidden" role="dialog" aria-modal="true" aria-labelledby="swTargetTitle" aria-describedby="swTargetDescription" onclick="if(event.target === this) swCloseTargets()">
+        <div class="sw-modal-card">
+            <header class="sw-modal-header">
+                <div><h3 id="swTargetTitle">Select endpoints</h3><p id="swTargetDescription">Choose targets, then confirm your selection.</p></div>
+                <button type="button" class="sw-button" onclick="swCloseTargets()" aria-label="Close target selection">Close</button>
+            </header>
+            <div class="sw-modal-toolbar">
+                <input id="swTargetPickerSearch" class="sw-input" type="search" placeholder="Search endpoints" aria-label="Search targets" oninput="swRenderTargetPicker()">
+                <button type="button" class="sw-button" onclick="swSelectVisibleTargets()">Select visible</button>
+            </div>
+            <div class="sw-picker-columns">
+                <div class="sw-picker-pane"><h4 id="swTargetListTitle">Available endpoints</h4><div id="swTargetPickerList" class="sw-picker-list"></div></div>
+                <div class="sw-picker-pane sw-picker-chosen"><div class="sw-picker-selected-header"><h4>Selected <span id="swTargetDraftCount">0</span></h4><button type="button" class="sw-button" onclick="swClearDraftTargets()">Clear</button></div><div id="swTargetPickerSelected" class="sw-picker-list"></div></div>
+            </div>
+            <footer class="sw-modal-footer">
+                <p id="swTargetDraftSummary" aria-live="polite"></p>
+                <div class="sw-target-actions"><button type="button" class="sw-button" onclick="swCloseTargets()">Cancel</button><button type="button" class="sw-button sw-primary" onclick="swConfirmTargets()">Use selected</button></div>
+            </footer>
+        </div>
     </div>
     {% endif %}
 </section>

@@ -6414,7 +6414,7 @@ def cleanup_tasks():
 def delete_job(job_id):
     from core.database import SoftwareDeployment
     if db.session.get(SoftwareDeployment, job_id):
-        return jsonify(success=False, message='Історію Software не можна видаляти через звичайну чергу.'), 409
+        return jsonify(success=False, message='Software history cannot be deleted through the ordinary task queue.'), 409
     denied = require_interactive_superadmin()
     if denied:
         return denied
@@ -6441,7 +6441,7 @@ def delete_job(job_id):
 def cancel_pending_job(job_id):
     from core.database import SoftwareDeployment
     if db.session.get(SoftwareDeployment, job_id):
-        return jsonify(success=False, message='Керуйте розгортанням у Software; повторний запуск створюйте через каталог.'), 409
+        return jsonify(success=False, message='Manage this deployment in Software; create retries through the catalogue.'), 409
     denied = require_permission("run_tasks")
     if denied: return denied
     if not can_access_report(job_id, "run_tasks"):
@@ -6528,7 +6528,7 @@ def cancel_agent_update_rollout(rollout_id):
 def finalize_job_report(job_id):
     from core.database import SoftwareDeployment
     if db.session.get(SoftwareDeployment, job_id):
-        return jsonify(success=False, message='Керуйте розгортанням у Software; повторний запуск створюйте через каталог.'), 409
+        return jsonify(success=False, message='Manage this deployment in Software; create retries through the catalogue.'), 409
     denied = require_permission("run_tasks")
     if denied: return denied
     if not can_access_report(job_id, "run_tasks"):
@@ -6568,7 +6568,7 @@ def finalize_job_report(job_id):
 def retry_failed_job(job_id):
     from core.database import SoftwareDeployment
     if db.session.get(SoftwareDeployment, job_id):
-        return jsonify(success=False, message='Керуйте розгортанням у Software; повторний запуск створюйте через каталог.'), 409
+        return jsonify(success=False, message='Manage this deployment in Software; create retries through the catalogue.'), 409
     denied = require_permission("run_tasks")
     if denied: return denied
     if session.get("api_key_auth"):

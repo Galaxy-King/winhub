@@ -1,8 +1,8 @@
 /* Software uses DOM text nodes for all catalogue, group and host supplied text. */
-const swState = {packages: [], hosts: [], sets: new Set(), packagesSelected: new Set(), hostsSelected: new Set(), settings: {}, panel: 'library', polling: false, pages: {}, canViewQueue: false};
-const swLabels = {Queued: 'Очікує', Active: 'Виконується', Success: 'Успішно', Error: 'Помилка',
-    Skipped: 'Пропущено', RebootRequired: 'Потрібне перезавантаження', Cancelled: 'Скасовано',
-    Running: 'Триває', Paused: 'Призупинено', Cancelling: 'Завершуються поточні операції'};
+const swState = {packages: [], hosts: [], sets: new Set(), packagesSelected: new Set(), hostsSelected: new Set(), settings: {}, panel: 'library', polling: false, pages: {}, canViewQueue: false, groups: [], groupsSelected: new Set(), targetDraft: null, targetFocus: null};
+const swLabels = {Queued: 'Queued', Active: 'Running', Success: 'Success', Error: 'Error',
+    Skipped: 'Skipped', RebootRequired: 'Reboot required', Cancelled: 'Cancelled',
+    Running: 'Running', Paused: 'Paused', Cancelling: 'Finishing active operations'};
 
 function swElement(tag, text, cls) {
     const node = document.createElement(tag);
@@ -22,7 +22,7 @@ async function swRequest(url, options={}) {
     const csrf = document.querySelector('meta[name="csrf-token"]')?.content;
     const res = await fetch(url, {...options, headers: {...(csrf ? {'X-CSRF-Token': csrf} : {}), ...options.headers}});
     const data = await res.json().catch(() => ({}));
-    if (!res.ok || !data.success) throw new Error(data.message || `Помилка сервера (${res.status}).`);
+    if (!res.ok || !data.success) throw new Error(data.message || `Server error (${res.status}).`);
     return data;
 }
 
@@ -39,22 +39,13 @@ async function loadSoftwareRegistry() {
             const field = packageForm?.elements[name];
             if (!field) return;
             const selected = field.value;
-            field.replaceChildren(new Option('Власний скрипт у цій картці', ''));
+            field.replaceChildren(new Option('Use the script in this application card', ''));
             (data.templates || []).forEach(template => field.add(new Option(`${template.category || 'Workspace'} / ${template.name}`, template.id)));
             field.value = selected;
         });
-        const selectedGroups = new Set([...document.querySelectorAll('.sw-group:checked')].map(n => n.value));
-        const groupList = document.getElementById('swHostGroups');
-        if (groupList) {
-            groupList.replaceChildren();
-            (data.groups || []).forEach(group => {
-                const label = swElement('label', undefined, 'flex items-center gap-2');
-                const check = swElement('input'); check.type = 'checkbox'; check.className = 'sw-group';
-                check.value = group.id; check.checked = selectedGroups.has(group.id);
-                check.addEventListener('change', renderSoftwareTargets);
-                label.append(check, swElement('span', group.name)); groupList.append(label);
-            });
-        }
+        swState.groups = data.groups || [];
+        const groupIds = new Set(swState.groups.map(group => group.id));
+        swState.groupsSelected = new Set([...swState.groupsSelected].filter(id => groupIds.has(id)));
         const known = new Set(swState.packages.map(p => p.id));
         swState.packagesSelected = new Set([...swState.packagesSelected].filter(id => known.has(id)));
         const availableSets = new Set(swState.packages.flatMap(p => p.sets || []));
@@ -76,7 +67,12 @@ async function loadSoftwareRegistry() {
 }
 
 function switchSoftwareTab(panel) {
+    if (swState.targetDraft) swCloseTargets();
     swState.panel = panel;
+    document.querySelectorAll('[data-sw-panel]').forEach(button => {
+        if (button.dataset.swPanel === panel) button.setAttribute('aria-current', 'page');
+        else button.removeAttribute('aria-current');
+    });
     ['library', 'editor', 'settings', 'progress'].forEach(name => {
         document.getElementById(`swPanel-${name}`)?.classList.toggle('hidden', panel !== name);
     });
@@ -88,9 +84,8 @@ function swChosenPackages() {
     return swState.packages.filter(p => swState.packagesSelected.has(p.id) || (p.sets || []).some(s => swState.sets.has(s)));
 }
 
-function swChosenHosts() {
-    const groups = new Set([...document.querySelectorAll('.sw-group:checked')].map(n => n.value));
-    return swState.hosts.filter(h => swState.hostsSelected.has(h.id) || (h.groups || []).some(id => groups.has(id)));
+function swChosenHosts(hostIds=swState.hostsSelected, groupIds=swState.groupsSelected) {
+    return swState.hosts.filter(h => hostIds.has(h.id) || (h.groups || []).some(id => groupIds.has(id)));
 }
 
 function renderSoftwareRegistry() {
@@ -117,7 +112,7 @@ function renderSoftwareRegistry() {
             const check = swElement('input'); check.type = 'checkbox'; check.checked = chosen.has(p.id);
             const fromSet = (p.sets || []).some(s => swState.sets.has(s));
             check.disabled = fromSet;
-            if (fromSet) check.title = 'Програма вибрана через набір. Зніміть вибір набору, щоб виключити її.';
+            if (fromSet) check.title = 'Included through a software set. Deselect that set to exclude this application.';
             check.addEventListener('change', () => {
                 if (check.checked) swState.packagesSelected.add(p.id); else swState.packagesSelected.delete(p.id);
                 renderSoftwareRegistry();
@@ -125,59 +120,171 @@ function renderSoftwareRegistry() {
             const details = swElement('span', undefined, 'min-w-0');
             details.append(swElement('strong', `${p.name} · ${p.version}`, 'block'),
                 swElement('span', (p.sets || []).join(' · '), 'block text-xs text-slate-500'),
-                swElement('span', `${p.approved ? 'Погоджено' : 'Потрібне погодження'} · ${p.prepared ? `${(p.size / 1048576).toFixed(1)} MiB у WinHUB` : p.preparation === 'Preparing' ? 'Завантажується з OMV…' : p.preparation === 'Queued' ? 'У черзі підготовки' : p.preparation === 'Error' ? 'Помилка підготовки' : p.external_url ? 'Потрібна підготовка файла' : 'Без файла'}`, 'block text-xs mt-1'));
+                swElement('span', `${p.approved ? 'Approved' : 'Approval required'} · ${p.prepared ? `${(p.size / 1048576).toFixed(1)} MiB cached in WinHUB` : p.preparation === 'Preparing' ? 'Downloading from OMV…' : p.preparation === 'Queued' ? 'Preparation queued' : p.preparation === 'Error' ? 'Preparation failed' : p.external_url ? 'Preparation required' : 'Script only'}`, 'block text-xs mt-1'));
             label.append(check, details); row.append(label);
             if (window.WinhubCanManageSoftware) {
-                const edit = swElement('button', 'Змінити', 'sw-button'); edit.type = 'button';
+                const edit = swElement('button', 'Edit', 'sw-button'); edit.type = 'button';
                 edit.addEventListener('click', () => swEditPackage(p)); row.append(edit);
-                const remove = swElement('button', 'Видалити', 'sw-button text-rose-700'); remove.type = 'button';
+                const remove = swElement('button', 'Delete', 'sw-button text-rose-700'); remove.type = 'button';
                 remove.addEventListener('click', () => swDeletePackage(p)); row.append(remove);
             }
             list.append(row);
         });
-    if (!list.childElementCount) list.append(swElement('p', 'Програм не знайдено. Додайте програму або змініть пошук.', 'text-slate-500 p-4'));
+    if (!list.childElementCount) list.append(swElement('p', 'No applications found. Add an application or change your search.', 'text-slate-500 p-4'));
     swUpdatePreview();
 }
 
 function renderSoftwareTargets() {
-    const list = document.getElementById('softwareTargetsList');
-    if (!list) return;
-    const q = (document.getElementById('swHostSearch')?.value || '').toLocaleLowerCase();
-    const selectedGroups = new Set([...document.querySelectorAll('.sw-group:checked')].map(n => n.value));
-    list.replaceChildren();
-    swState.hosts.filter(h => `${h.name} ${h.id}`.toLocaleLowerCase().includes(q)).forEach(h => {
-        const label = swElement('label', undefined, 'flex items-center gap-3 p-2 rounded-lg bg-slate-50');
-        const fromGroup = (h.groups || []).some(id => selectedGroups.has(id));
-        const check = swElement('input'); check.type = 'checkbox'; check.checked = swState.hostsSelected.has(h.id) || fromGroup;
-        check.disabled = fromGroup;
-        if (fromGroup) check.title = 'Хост вибраний через групу.';
-        check.addEventListener('change', () => {
-            if (check.checked) swState.hostsSelected.add(h.id); else swState.hostsSelected.delete(h.id);
-            swUpdatePreview();
-        });
-        label.append(check, swElement('span', `${h.name} · ${h.os_type || 'невідома ОС'}`)); list.append(label);
-    });
+    const endpoints = document.getElementById('swEndpointsCount');
+    const groups = document.getElementById('swGroupsCount');
+    const summary = document.getElementById('swTargetsSummary');
+    if (endpoints) endpoints.textContent = `${swState.hostsSelected.size} individually selected`;
+    if (groups) groups.textContent = `${swState.groupsSelected.size} groups selected`;
+    if (summary) {
+        const hosts = swChosenHosts();
+        const names = hosts.slice(0, 3).map(h => h.name).join(', ');
+        summary.textContent = hosts.length ? `${hosts.length} unique endpoints: ${names}${hosts.length > 3 ? ` and ${hosts.length - 3} more` : ''}` : 'No targets selected. Choose endpoints or groups.';
+    }
     swUpdatePreview();
 }
+
+function swOpenTargets(mode) {
+    const modal = document.getElementById('swTargetModal');
+    if (!modal || !['endpoints', 'groups'].includes(mode)) return;
+    swState.targetFocus = document.activeElement;
+    swState.targetDraft = {mode, hosts: new Set(swState.hostsSelected), groups: new Set(swState.groupsSelected)};
+    document.getElementById('swTargetTitle').textContent = mode === 'groups' ? 'Select endpoint groups' : 'Select endpoints';
+    document.getElementById('swTargetDescription').textContent = mode === 'groups'
+        ? 'Choose one or more groups. Their endpoints are combined with individual selections without duplicates.'
+        : 'Choose individual endpoints. Group selections are retained separately.';
+    document.getElementById('swTargetListTitle').textContent = mode === 'groups' ? 'Available groups' : 'Available endpoints';
+    const search = document.getElementById('swTargetPickerSearch');
+    search.value = ''; search.placeholder = mode === 'groups' ? 'Search groups' : 'Search endpoints';
+    modal.classList.remove('hidden');
+    document.body.classList.add('sw-target-modal-open');
+    swRenderTargetPicker();
+    search.focus();
+}
+
+function swCloseTargets() {
+    document.getElementById('swTargetModal')?.classList.add('hidden');
+    document.body.classList.remove('sw-target-modal-open');
+    swState.targetDraft = null;
+    swState.targetFocus?.focus();
+    swState.targetFocus = null;
+}
+
+function swConfirmTargets() {
+    const draft = swState.targetDraft;
+    if (!draft) return;
+    const hosts = new Set(swState.hosts.map(h => h.id)), groups = new Set(swState.groups.map(g => g.id));
+    swState.hostsSelected = new Set([...draft.hosts].filter(id => hosts.has(id)));
+    swState.groupsSelected = new Set([...draft.groups].filter(id => groups.has(id)));
+    swCloseTargets();
+    renderSoftwareTargets();
+}
+
+function swPickerItems() {
+    const draft = swState.targetDraft;
+    if (!draft) return [];
+    const query = (document.getElementById('swTargetPickerSearch')?.value || '').trim().toLocaleLowerCase();
+    return (draft.mode === 'groups' ? swState.groups : swState.hosts)
+        .filter(item => `${item.name} ${item.id} ${item.os_type || ''}`.toLocaleLowerCase().includes(query));
+}
+
+function swRenderTargetPicker() {
+    const draft = swState.targetDraft;
+    if (!draft) return;
+    const selected = draft.mode === 'groups' ? draft.groups : draft.hosts;
+    const all = draft.mode === 'groups' ? swState.groups : swState.hosts;
+    const list = document.getElementById('swTargetPickerList');
+    const chosen = document.getElementById('swTargetPickerSelected');
+    list.replaceChildren(); chosen.replaceChildren();
+    for (const item of swPickerItems()) {
+        const row = swElement('label', undefined, `sw-picker-row ${selected.has(item.id) ? 'sw-picker-row-selected' : ''}`);
+        const check = swElement('input'); check.type = 'checkbox'; check.checked = selected.has(item.id);
+        check.addEventListener('change', () => {
+            if (check.checked) selected.add(item.id); else selected.delete(item.id);
+            // Keep the focused checkbox in place while updating the selected pane.
+            row.classList.toggle('sw-picker-row-selected', check.checked);
+            swRenderPickerSelection();
+        });
+        const text = swElement('span', undefined, 'sw-picker-row-text');
+        text.append(swElement('strong', item.name || item.id));
+        const description = draft.mode === 'groups' ? `${swState.hosts.filter(h => (h.groups || []).includes(item.id)).length} eligible endpoints` : item.os_type || 'Unknown OS';
+        text.append(swElement('span', description, 'sw-muted'));
+        row.append(check, text); list.append(row);
+    }
+    if (!list.childElementCount) list.append(swElement('p', 'No matching targets.', 'sw-muted sw-picker-empty'));
+    swRenderPickerSelection();
+}
+
+function swRenderPickerSelection() {
+    const draft = swState.targetDraft;
+    if (!draft) return;
+    const selected = draft.mode === 'groups' ? draft.groups : draft.hosts;
+    const all = draft.mode === 'groups' ? swState.groups : swState.hosts;
+    const chosen = document.getElementById('swTargetPickerSelected');
+    chosen.replaceChildren();
+    for (const item of all.filter(item => selected.has(item.id))) {
+        const row = swElement('div', undefined, 'sw-picker-row');
+        const remove = swElement('button', 'Remove', 'sw-button'); remove.type = 'button';
+        remove.setAttribute('aria-label', `Remove ${item.name || item.id}`);
+        remove.addEventListener('click', () => { selected.delete(item.id); swRenderTargetPicker(); });
+        row.append(swElement('strong', item.name || item.id), remove); chosen.append(row);
+    }
+    if (!chosen.childElementCount) chosen.append(swElement('p', 'Nothing selected yet.', 'sw-muted sw-picker-empty'));
+    document.getElementById('swTargetDraftCount').textContent = selected.size;
+    const effective = swChosenHosts(draft.hosts, draft.groups);
+    document.getElementById('swTargetDraftSummary').textContent = `${selected.size} ${draft.mode === 'groups' ? 'groups' : 'individual endpoints'} selected · ${effective.length} unique endpoints in total. Changes apply only after confirmation.`;
+}
+
+function swSelectVisibleTargets() {
+    const draft = swState.targetDraft;
+    if (!draft) return;
+    const selected = draft.mode === 'groups' ? draft.groups : draft.hosts;
+    swPickerItems().forEach(item => selected.add(item.id));
+    swRenderTargetPicker();
+}
+
+function swClearDraftTargets() {
+    const draft = swState.targetDraft;
+    if (!draft) return;
+    (draft.mode === 'groups' ? draft.groups : draft.hosts).clear();
+    swRenderTargetPicker();
+}
+
+document.addEventListener('keydown', event => {
+    if (!swState.targetDraft) return;
+    if (event.key === 'Escape') { event.preventDefault(); swCloseTargets(); return; }
+    if (event.key !== 'Tab') return;
+    const nodes = [...document.querySelectorAll('#swTargetModal button, #swTargetModal input')].filter(n => !n.disabled && n.getClientRects().length);
+    const first = nodes[0], last = nodes[nodes.length - 1];
+    if (!document.getElementById('swTargetModal')?.contains(document.activeElement)) {
+        event.preventDefault(); (event.shiftKey ? last : first)?.focus();
+    }
+    else if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last?.focus(); }
+    else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first?.focus(); }
+});
 
 function swUpdatePreview() {
     const node = document.getElementById('swPreview');
     if (!node) return;
     const packages = swChosenPackages(), hosts = swChosenHosts();
-    node.textContent = `${packages.length} програм · ${hosts.length} унікальних хостів · ${packages.length * hosts.length} операцій\n` +
-        `Порядок: ${packages.map(p => p.name + ' ' + p.version).join(' → ') || 'нічого не вибрано'}\n` +
-        `Глобальний ліміт: ${swState.settings.max_hosts || 2} хостів, ${swState.settings.max_downloads || 2} завантажень, ${swState.settings.bandwidth_mib || 10} MiB/с.\n` +
-        (hosts.some(h => (h.os_type || '').toLowerCase() !== 'windows') ? '⚠ У виборі є не-Windows хости: виключіть їх або змініть групи.' : '');
+    node.textContent = `${packages.length} applications · ${hosts.length} unique endpoints · ${packages.length * hosts.length} operations\n` +
+        `Order: ${packages.map(p => p.name + ' ' + p.version).join(' → ') || 'nothing selected'}\n` +
+        `Global limit: ${swState.settings.max_hosts || 2} endpoints, ${swState.settings.max_downloads || 2} downloads, ${swState.settings.bandwidth_mib || 10} MiB/s.\n` +
+        (hosts.some(h => (h.os_type || '').toLowerCase() !== 'windows') ? 'Warning: non-Windows endpoints are selected. Remove them or change the selected groups.' : '');
 }
 
 async function runSoftwareInstall() {
     const packages = swChosenPackages(), hosts = swChosenHosts();
-    if (!packages.length || !hosts.length) return swNotice('Виберіть програми та цільові хости або групи.', true);
-    if (hosts.some(h => (h.os_type || '').toLowerCase() !== 'windows')) return swNotice('Ці рецепти підтримують Windows. Виключіть інші ОС із цілей.', true);
-    if (packages.some(p => !p.approved)) return swNotice('Спочатку superadmin має погодити всі вибрані рецепти.', true);
+    if (!packages.length || !hosts.length) return swNotice('Select applications and target endpoints or groups.', true);
+    if (hosts.some(h => (h.os_type || '').toLowerCase() !== 'windows')) return swNotice('These recipes support Windows. Remove other operating systems from your targets.', true);
+    if (packages.some(p => !p.approved)) return swNotice('A superadmin must approve every selected recipe before deployment.', true);
     const operation = document.getElementById('swOperation').value;
-    const verbs = {install: 'Встановити', update: 'Оновити', uninstall: 'Видалити', detect: 'Перевірити стан'};
-    const summary = `${verbs[operation]}:\n${packages.map(p => `${p.name} ${p.version}`).join('\n')}\n\nНа хостах:\n${hosts.map(h => h.name).join(', ')}\n\nПричина запуску:`;
+    const verbs = {install: 'Install', update: 'Update', uninstall: 'Uninstall', detect: 'Detect status'};
+    const summary = `${verbs[operation]}:\n${packages.map(p => `${p.name} ${p.version}`).join('\n')}\n\nTarget endpoints:\n${hosts.map(h => h.name).join(', ')}\n\nLaunch reason:`;
     const launchReason = await askTaskLaunchReason(summary);
     if (launchReason === null) return;
     const button = document.getElementById('softwareRunButton'); button.disabled = true;
@@ -185,10 +292,10 @@ async function runSoftwareInstall() {
         const data = await swRequest('/api/infrastructure/software/deployments', {method: 'POST',
             headers: {'Content-Type': 'application/json'}, body: JSON.stringify({operation,
                 package_ids: [...swState.packagesSelected], sets: [...swState.sets],
-                target_ids: [...swState.hostsSelected], group_ids: [...document.querySelectorAll('.sw-group:checked')].map(n => n.value),
+                target_ids: [...swState.hostsSelected], group_ids: [...swState.groupsSelected],
                 expected_target_ids: hosts.map(h => h.id), expected_packages: packages.map(p => ({id:p.id, revision:p.revision})),
                 parallelism: Number(document.getElementById('swParallelism').value), launch_reason: launchReason})});
-        swNotice(`Розгортання створено: ${data.packages} програм на ${data.targets} хостах. Черга запускається автоматично.`);
+        swNotice(`Deployment created: ${data.packages} applications on ${data.targets} endpoints. The queue starts automatically.`);
         switchSoftwareTab('progress');
     } catch (error) { swNotice(error.message, true); }
     finally { button.disabled = false; }
@@ -197,7 +304,7 @@ async function runSoftwareInstall() {
 function newSoftwarePackage() {
     const form = document.getElementById('swPackageForm'); if (!form) return;
     form.reset(); form.elements.package_id.value = '';
-    document.getElementById('swEditorTitle').textContent = 'Додати програму';
+    document.getElementById('swEditorTitle').textContent = 'Add application';
     document.getElementById('swPreparedInfo').textContent = '';
     switchSoftwareTab('editor');
 }
@@ -208,32 +315,32 @@ function swEditPackage(pkg) {
     Object.entries(pkg).forEach(([key,value]) => {
         const field = form.elements[key];
         if (field?.tagName === 'SELECT' && key.endsWith('_template_id') && value && ![...field.options].some(o => o.value === value)) {
-            field.add(new Option('Недоступний або непогоджений шаблон Workspace', value));
+            field.add(new Option('Unavailable or unapproved Workspace template', value));
         }
         if (field && field.type !== 'file' && field.type !== 'checkbox') field.value = key === 'sets' ? value.join(', ') : value ?? '';
     });
     form.elements.package_id.value = pkg.id;
     // Expected hash is only for a newly supplied file, never accidentally reuse an old version's hash.
     form.elements.sha256.value = '';
-    document.getElementById('swEditorTitle').textContent = `Змінити: ${pkg.name}`;
-    document.getElementById('swPreparedInfo').textContent = pkg.prepared ? `Підготовлено: ${pkg.version}, SHA-256 ${pkg.sha256}. Без нового файла чи повторної підготовки копія зберігається.` : 'Файл ще не підготовлено.';
+    document.getElementById('swEditorTitle').textContent = `Edit: ${pkg.name}`;
+    document.getElementById('swPreparedInfo').textContent = pkg.prepared ? `Prepared: ${pkg.version}, SHA-256 ${pkg.sha256}. The existing copy is retained unless a new file or preparation is requested.` : 'Package not prepared yet.';
 }
 
 async function swSavePackage(event) {
     event.preventDefault();
     const form = event.currentTarget, id = form.elements.package_id.value;
-    const button = document.getElementById('swSaveButton'); button.disabled = true; button.textContent = 'Підготовка…';
+    const button = document.getElementById('swSaveButton'); button.disabled = true; button.textContent = 'Preparing…';
     try {
         await swRequest('/api/infrastructure/software-packages' + (id ? '/' + encodeURIComponent(id) : ''),
             {method: id ? 'PUT' : 'POST', body: new FormData(form)});
         await loadSoftwareRegistry(); switchSoftwareTab('library');
-        swNotice('Програму збережено. Пакет OMV готується у фоні; дочекайтеся статусу «MiB у WinHUB». Без погодження superadmin запуск недоступний.');
+        swNotice('Application saved. OMV preparation runs in the background; wait until the package is cached in WinHUB. Superadmin approval is required before deployment.');
     } catch (error) { swNotice(error.message, true); }
-    finally { button.disabled = false; button.textContent = 'Зберегти та підготувати пакет'; }
+    finally { button.disabled = false; button.textContent = 'Save and prepare package'; }
 }
 
 async function swDeletePackage(pkg) {
-    if (!confirm(`Прибрати «${pkg.name}» з каталогу? Історія й файли поточних розгортань збережуться.`)) return;
+    if (!confirm(`Remove “${pkg.name}” from the catalogue? Deployment history and files used by existing deployments will be retained.`)) return;
     try {
         await swRequest('/api/infrastructure/software-packages/' + encodeURIComponent(pkg.id), {method: 'DELETE'});
         await loadSoftwareRegistry();
@@ -247,7 +354,7 @@ async function swSaveSettings(event) {
     try {
         await swRequest('/api/infrastructure/software/settings', {method: 'PUT', headers: {'Content-Type': 'application/json'},
             body: JSON.stringify(Object.fromEntries(new FormData(form)))});
-        await loadSoftwareRegistry(); swNotice('Налаштування збережено. Нові ліміти застосовуються до наступних операцій.');
+        await loadSoftwareRegistry(); swNotice('Settings saved. New limits apply to subsequent operations.');
     } catch (error) { swNotice(error.message, true); }
     finally { button.disabled = false; }
 }
@@ -268,15 +375,15 @@ async function swLoadDeployments() {
             card.append(swElement('strong', `${swLabels[deployment.status] || deployment.status} · ${new Date(deployment.created_at).toLocaleString('uk-UA')}`));
             const done = deployment.completed;
             const progress = swElement('progress'); progress.max = deployment.total || 1; progress.value = done;
-            progress.setAttribute('aria-label', 'Завершені операції'); progress.className = 'w-full';
-            card.append(progress, swElement('p', `${done} / ${deployment.total} операцій завершено`, 'text-sm text-slate-500'));
+            progress.setAttribute('aria-label', 'Completed operations'); progress.className = 'w-full';
+            card.append(progress, swElement('p', `${done} / ${deployment.total} operations completed`, 'text-sm text-slate-500'));
             if (['Running','Paused'].includes(deployment.status)) {
                 const controls = swElement('div', undefined, 'flex gap-2');
-                [['pause','Призупинити'],['resume','Продовжити'],['cancel','Скасувати наступні']].forEach(([action,label]) => {
+                [['pause','Pause'],['resume','Resume'],['cancel','Cancel pending']].forEach(([action,label]) => {
                     if (action === 'pause' && deployment.status === 'Paused' || action === 'resume' && deployment.status !== 'Paused') return;
                     const button = swElement('button', label, 'sw-button'); button.type = 'button';
                     button.addEventListener('click', async () => {
-                        if (action === 'cancel' && !confirm('Скасувати всі операції цього запуску, що ще очікують? Поточні інсталятори завершаться.')) return;
+                        if (action === 'cancel' && !confirm('Cancel all pending operations in this deployment? Installers already running will finish.')) return;
                         button.disabled = true;
                         try { await swRequest(`/api/infrastructure/software/deployments/${encodeURIComponent(deployment.id)}`,
                             {method:'PATCH', headers:{'Content-Type':'application/json'}, body:JSON.stringify({action})});
@@ -287,11 +394,11 @@ async function swLoadDeployments() {
                 }); card.append(controls);
             }
             const detail = swElement('details'); detail.dataset.deployment = deployment.id; detail.open = expanded.has(deployment.id);
-            detail.append(swElement('summary', 'Хости та програми', 'cursor-pointer font-bold'));
+            detail.append(swElement('summary', 'Endpoints and applications', 'cursor-pointer font-bold'));
             if (deployment.page || deployment.has_more) {
                 const pager = swElement('div', undefined, 'flex items-center gap-2 py-2');
-                pager.append(swElement('span', `Сторінка ${deployment.page + 1}`, 'text-sm'));
-                [['Попередня', -1], ['Наступна', 1]].forEach(([label, delta]) => {
+                pager.append(swElement('span', `Page ${deployment.page + 1}`, 'text-sm'));
+                [['Previous', -1], ['Next', 1]].forEach(([label, delta]) => {
                     const button = swElement('button', label, 'sw-button'); button.type = 'button';
                     button.disabled = delta < 0 ? !deployment.page : !deployment.has_more;
                     button.addEventListener('click', async () => {
@@ -305,10 +412,10 @@ async function swLoadDeployments() {
                 const row = swElement('div', undefined, 'text-sm py-2 border-b border-slate-100');
                 row.append(swElement('span', `${host?.name || step.host} · ${step.name}: ${swLabels[step.status] || step.status}${step.message ? ' — ' + step.message : ''}`));
                 if (step.resolve_allowed) {
-                    const resolve = swElement('button', 'Завершити вручну', 'sw-button ml-2'); resolve.type = 'button';
+                    const resolve = swElement('button', 'Resolve manually', 'sw-button ml-2'); resolve.type = 'button';
                     resolve.addEventListener('click', async () => {
-                        if (!confirm('Спочатку перевірте хост: інсталятор і його дочірні процеси повинні бути завершені. Підтверджуєте, що виконання зупинено?')) return;
-                        const reason = await askTaskLaunchReason('Причина ручного завершення після перевірки хоста:');
+                        if (!confirm('Check the endpoint first: the installer and all child processes must have stopped. Confirm that execution has stopped?')) return;
+                        const reason = await askTaskLaunchReason('Reason for manual resolution after checking the endpoint:');
                         if (reason === null) return;
                         try {
                             await swRequest(`/api/infrastructure/software/deployments/${encodeURIComponent(deployment.id)}`,
@@ -318,7 +425,7 @@ async function swLoadDeployments() {
                     }); row.append(resolve);
                 }
                 if (step.task_id && swState.canViewQueue) {
-                    const log = swElement('button', 'Журнал', 'sw-button ml-2'); log.type = 'button';
+                    const log = swElement('button', 'View log', 'sw-button ml-2'); log.type = 'button';
                     log.addEventListener('click', () => {
                         if (typeof viewTaskDetails === 'function') viewTaskDetails(step.task_id);
                         else switchView('queue');
@@ -328,11 +435,11 @@ async function swLoadDeployments() {
             });
             card.append(detail); list.append(card);
         }
-        if (!list.childElementCount) list.append(swElement('p', 'Розгортань ще немає. Виберіть програми й хости у вкладці «Встановлення».'));
+        if (!list.childElementCount) list.append(swElement('p', 'No deployments yet. Select applications and endpoints in the Install tab.'));
     } catch (error) { swNotice(error.message, true); }
     finally { swState.polling = false; }
 }
 
 setInterval(() => { if (swState.panel === 'progress') swLoadDeployments(); }, 5000);
 
-setInterval(() => { if (swState.packages.some(p => ['Queued', 'Preparing'].includes(p.preparation)) && swState.panel === 'library' && !document.getElementById('view-software')?.classList.contains('hidden')) loadSoftwareRegistry(); }, 5000);
+setInterval(() => { if (swState.packages.some(p => ['Queued', 'Preparing'].includes(p.preparation)) && !swState.targetDraft && swState.panel === 'library' && !document.getElementById('view-software')?.classList.contains('hidden')) loadSoftwareRegistry(); }, 5000);
