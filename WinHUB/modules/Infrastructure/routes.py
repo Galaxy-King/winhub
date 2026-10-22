@@ -2712,7 +2712,7 @@ def auto_email_checker_thread(app):
 @infrastructure_bp.before_request
 def check_access_and_start_thread():
     global auto_thread_started
-    if request.path.startswith("/api/public/agent-packages/") or request.path.startswith("/api/public/software-packages/"):
+    if request.path.startswith("/api/public/agent-packages/") or request.path.startswith("/api/public/software-packages/") or request.path.startswith("/api/public/software-delivery/"):
         return None
     if not auto_thread_started:
         with auto_thread_lock:
@@ -5163,503 +5163,36 @@ def planned_agent_update_rollout_jobs(allowed_host_ids):
     return planned_jobs
 
 
+# Legacy Software URLs remain available, but all writes/runs use the bounded service.
+from modules.Infrastructure.software import register as register_software
+register_software(infrastructure_bp)
+
 @infrastructure_bp.route('/api/public/software-packages/<package_id>/download', methods=['GET'])
 def download_software_package_public(package_id):
-    package = find_software_package(package_id)
-    if not package:
-        return jsonify({"success": False, "message": "Software package not found"}), 404
-    filename = package.get("filename")
-    if not filename:
-        return jsonify({"success": False, "message": "Software package file missing"}), 404
-    return send_from_directory(SOFTWARE_PACKAGES_DIR, filename, as_attachment=True)
-
-
-def package_form_text(name, limit=4096):
-    return str(request.form.get(name) or "").strip()[:limit]
-
-
-def write_uploaded_software_file(upload, package_id, fallback_name):
-    os.makedirs(SOFTWARE_PACKAGES_DIR, exist_ok=True)
-    original_filename = secure_filename(upload.filename) or fallback_name
-    filename = f"{package_id}_{original_filename}"
-    path = os.path.join(SOFTWARE_PACKAGES_DIR, filename)
-    sha256 = hashlib.sha256()
-    size = 0
-    with open(path, "wb") as f:
-        while True:
-            chunk = upload.stream.read(1024 * 1024)
-            if not chunk:
-                break
-            sha256.update(chunk)
-            size += len(chunk)
-            f.write(chunk)
-    return {
-        "source": "upload",
-        "original_filename": original_filename,
-        "filename": filename,
-        "sha256": sha256.hexdigest(),
-        "size": size,
-    }
-
-
-def software_package_form_record(package_id, existing=None):
-    existing = existing or {}
-    upload = request.files.get("file")
-    external_url = package_form_text("external_url", 2048)
-    name = package_form_text("name", 160)
-    version = package_form_text("version", 80)
-    package_type = package_form_text("package_type", 32).lower() or "exe"
-    install_command = package_form_text("install_command", 12000)
-    if package_type not in ("msi", "exe", "zip", "ps1", "bat", "custom"):
-        raise ValueError("Unsupported package type")
-    if not name:
-        raise ValueError("Package name is required")
-    if not version:
-        raise ValueError("Version is required")
-    if not install_command:
-        raise ValueError("Install command for all users is required")
-
-    file_data = {}
-    sha256_value = package_form_text("sha256", 128).lower()
-    remove_file = package_form_text("remove_file", 16).lower() in ("1", "true", "yes")
-    if upload and upload.filename:
-        old_filename = existing.get("filename")
-        file_data = write_uploaded_software_file(upload, package_id, f"{name}-{version}")
-        if old_filename and old_filename != file_data.get("filename"):
-            try:
-                os.remove(os.path.join(SOFTWARE_PACKAGES_DIR, old_filename))
-            except OSError:
-                pass
-    elif external_url:
-        if sha256_value and not re.fullmatch(r"[A-Fa-f0-9]{64}", sha256_value):
-            raise ValueError("External URL SHA256 must be 64 hex characters")
-        if remove_file and existing.get("filename"):
-            try:
-                os.remove(os.path.join(SOFTWARE_PACKAGES_DIR, existing.get("filename")))
-            except OSError:
-                pass
-        file_data = {
-            "source": "external_url",
-            "external_url": external_url,
-            "original_filename": "",
-            "filename": "",
-            "sha256": sha256_value,
-            "size": 0,
-        }
-    elif existing.get("external_url") and not remove_file:
-        file_data = {
-            "source": "external_url",
-            "external_url": existing.get("external_url", ""),
-            "original_filename": "",
-            "filename": "",
-            "sha256": existing.get("sha256", ""),
-            "size": 0,
-        }
-    elif existing.get("filename") and not remove_file:
-        file_data = {
-            "source": "upload",
-            "external_url": "",
-            "original_filename": existing.get("original_filename", ""),
-            "filename": existing.get("filename", ""),
-            "sha256": existing.get("sha256", ""),
-            "size": int(existing.get("size") or 0),
-        }
-    elif remove_file:
-        if not external_url:
-            raise ValueError("Select a replacement file or provide external URL before removing the current file")
-        if existing.get("filename"):
-            try:
-                os.remove(os.path.join(SOFTWARE_PACKAGES_DIR, existing.get("filename")))
-            except OSError:
-                pass
-        file_data = {
-            "source": "external_url" if external_url else "",
-            "external_url": external_url,
-            "original_filename": "",
-            "filename": "",
-            "sha256": sha256_value,
-            "size": 0,
-        }
-    else:
-        raise ValueError("Upload a file or provide external URL")
-
-    record = dict(existing)
-    record.update({
-        "id": package_id,
-        "name": name,
-        "version": version,
-        "vendor": package_form_text("vendor", 160),
-        "category": package_form_text("category", 120) or "General",
-        "package_type": package_type,
-        "architecture": package_form_text("architecture", 32) or "any",
-        "external_url": file_data.get("external_url", external_url),
-        "original_filename": file_data.get("original_filename", ""),
-        "filename": file_data.get("filename", ""),
-        "sha256": file_data.get("sha256", ""),
-        "size": file_data.get("size", 0),
-        "source": file_data.get("source", "upload" if file_data.get("filename") else "external_url"),
-        "install_command": install_command,
-        "user_install_command": package_form_text("user_install_command", 12000),
-        "uninstall_command": package_form_text("uninstall_command", 12000),
-        "detection_type": package_form_text("detection_type", 40) or "none",
-        "detection_value": package_form_text("detection_value", 4096),
-        "expected_exit_codes": package_form_text("expected_exit_codes", 120) or "0,3010",
-        "timeout_seconds": max(30, min(86400, int(request.form.get("timeout_seconds") or existing.get("timeout_seconds") or 1800))),
-        "notes": package_form_text("notes", 4096),
-        "updated_by": session.get("username"),
-        "updated_at": datetime.utcnow().isoformat() + "Z",
-    })
-    if not record.get("uploaded_at"):
-        record["uploaded_by"] = session.get("username")
-        record["uploaded_at"] = record["updated_at"]
-    return record
-
+    # Permanent anonymous installer links are no longer issued.
+    return Response(status=410)
 
 @infrastructure_bp.route('/api/infrastructure/software-packages', methods=['GET', 'POST'])
 def software_packages():
-    if request.method == "GET":
-        denied = require_any_permission("run_tasks", "manage_software")
-        if denied: return denied
-        packages = load_software_packages()
-        for package in packages:
-            if package.get("filename"):
-                package["download_url"] = software_package_public_url(package["id"])
-        return jsonify({"success": True, "packages": packages})
-
-    denied = require_permission("manage_software")
-    if denied: return denied
-    try:
-        package_id = str(uuid.uuid4())
-        packages = load_software_packages()
-        record = software_package_form_record(package_id)
-        packages.insert(0, record)
-        save_software_packages(packages[:200])
-        if record.get("filename"):
-            record["download_url"] = software_package_public_url(package_id)
-        write_infra_audit("Software Package Upload", "software_package", package_id, {"name": record.get("name"), "version": record.get("version"), "sha256": record.get("sha256"), "size": record.get("size")})
-        db.session.commit()
-        return jsonify({"success": True, "package": record})
-    except ValueError as e:
-        return jsonify({"success": False, "message": str(e)}), 400
-    except Exception as e:
-        db.session.rollback()
-        logging.getLogger("winhub").exception("Software package upload failed")
-        return jsonify({"success": False, "message": f"Software package upload failed: {e}"}), 500
-
+    from modules.Infrastructure.software import registry, package_write
+    return registry() if request.method == 'GET' else package_write()
 
 @infrastructure_bp.route('/api/infrastructure/software-packages/<package_id>', methods=['PUT', 'DELETE'])
 def software_package_detail(package_id):
-    denied = require_permission("manage_software")
-    if denied: return denied
-    packages = load_software_packages()
-    index = next((i for i, package in enumerate(packages) if package.get("id") == package_id), None)
-    if index is None:
-        return jsonify({"success": False, "message": "Software package not found"}), 404
-
-    if request.method == "DELETE":
-        filename = packages[index].get("filename")
-        if filename:
-            try:
-                os.remove(os.path.join(SOFTWARE_PACKAGES_DIR, filename))
-            except OSError:
-                pass
-        removed = packages.pop(index)
-        save_software_packages(packages)
-        write_infra_audit("Software Package Delete", "software_package", package_id, {"name": removed.get("name"), "version": removed.get("version")})
-        db.session.commit()
-        return jsonify({"success": True})
-
-    try:
-        record = software_package_form_record(package_id, packages[index])
-        packages[index] = record
-        save_software_packages(packages)
-        if record.get("filename"):
-            record["download_url"] = software_package_public_url(package_id)
-        write_infra_audit("Software Package Update", "software_package", package_id, {"name": record.get("name"), "version": record.get("version"), "sha256": record.get("sha256"), "size": record.get("size")})
-        db.session.commit()
-        return jsonify({"success": True, "package": record})
-    except ValueError as e:
-        return jsonify({"success": False, "message": str(e)}), 400
-    except Exception as e:
-        db.session.rollback()
-        logging.getLogger("winhub").exception("Software package update failed")
-        return jsonify({"success": False, "message": f"Software package update failed: {e}"}), 500
-
+    from modules.Infrastructure.software import package_write
+    return package_write(package_id)
 
 def ps_single(value):
-    return str(value or "").replace("'", "''")
+    return str(value or '').replace("'", "''")
 
-
-def build_software_install_script(package, install_scope="all", user_logins=None, operation="install"):
-    package_url = package.get("external_url") or software_package_public_url(package["id"])
-    operation = operation if operation in ("install", "uninstall") else "install"
-    user_logins = [
-        str(item).strip()
-        for item in (user_logins or [])
-        if str(item).strip()
-    ][:100]
-    user_csv = ",".join(user_logins)
-    selected_command = package.get("install_command") or ""
-    if operation == "uninstall":
-        selected_command = package.get("uninstall_command") or ""
-    elif install_scope == "users" and package.get("user_install_command"):
-        selected_command = package.get("user_install_command") or selected_command
-    placeholders = {
-        "{file}": "$PackageFile",
-        "{extract_dir}": "$ExtractDir",
-        "{package_dir}": "$WorkDir",
-        "{name}": package.get("name", ""),
-        "{version}": package.get("version", ""),
-        "{users}": user_csv,
-        "{user_list}": user_csv,
-        "{user_logins}": user_csv,
-    }
-    install_command = selected_command
-    for token, value in placeholders.items():
-        install_command = install_command.replace(token, value)
-    expected_codes = [
-        int(item.strip())
-        for item in str(package.get("expected_exit_codes") or "0,3010").split(",")
-        if item.strip().lstrip("-").isdigit()
-    ] or [0, 3010]
-    return f"""$ErrorActionPreference = 'Stop'
-$ProgressPreference = 'SilentlyContinue'
-$PackageName = '{ps_single(package.get("name"))}'
-$PackageVersion = '{ps_single(package.get("version"))}'
-$PackageUrl = '{ps_single(package_url)}'
-$PackageOriginalFilename = '{ps_single(package.get("original_filename") or "")}'
-$ExpectedSha256 = '{ps_single(package.get("sha256"))}'.ToLowerInvariant()
-$PackageType = '{ps_single(package.get("package_type"))}'.ToLowerInvariant()
-$SoftwareOperation = '{ps_single(operation)}'.ToLowerInvariant()
-$InstallScope = '{ps_single(install_scope)}'.ToLowerInvariant()
-$TargetUsersCsv = '{ps_single(user_csv)}'
-$TargetUsers = @($TargetUsersCsv -split ',' | ForEach-Object {{ $_.Trim() }} | Where-Object {{ $_ }})
-$DetectionType = '{ps_single(package.get("detection_type"))}'.ToLowerInvariant()
-$DetectionValue = @'
-{package.get("detection_value") or ""}
-'@.Trim()
-$InstallCommand = @'
-{install_command}
-'@.Trim()
-$ExpectedExitCodes = @({','.join(str(code) for code in expected_codes)})
-$WorkDir = Join-Path $env:ProgramData ("WinHUB\\software\\" + [guid]::NewGuid().ToString("N"))
-$ExtractDir = Join-Path $WorkDir "extracted"
-New-Item -ItemType Directory -Force -Path $WorkDir | Out-Null
-
-function Test-WinHUBDetection {{
-    param([string]$Type, [string]$Value)
-    if ([string]::IsNullOrWhiteSpace($Type) -or $Type -eq 'none') {{ return $false }}
-    if ($Type -eq 'file_exists') {{ return Test-Path -LiteralPath $Value -PathType Leaf }}
-    if ($Type -eq 'folder_exists') {{ return Test-Path -LiteralPath $Value -PathType Container }}
-    if ($Type -eq 'registry_key_exists') {{ return Test-Path -LiteralPath $Value }}
-    if ($Type -eq 'command') {{
-        $DetectionScript = Join-Path $env:TEMP ("winhub_detection_" + [guid]::NewGuid().ToString("N") + ".ps1")
-        try {{
-            Set-Content -LiteralPath $DetectionScript -Value $Value -Encoding UTF8
-            $Process = Start-Process -FilePath "powershell.exe" -ArgumentList @("-ExecutionPolicy", "Bypass", "-NoProfile", "-NonInteractive", "-File", $DetectionScript) -Wait -PassThru -WindowStyle Hidden
-            return $Process.ExitCode -eq 0
-        }} catch {{
-            return $false
-        }} finally {{
-            try {{ Remove-Item -LiteralPath $DetectionScript -Force -ErrorAction SilentlyContinue }} catch {{ }}
-        }}
-    }}
-    return $false
-}}
-
-try {{
-    Write-Host "[WinHUB] Software operation: $SoftwareOperation"
-    Write-Host "[WinHUB] Package: $PackageName $PackageVersion"
-    Write-Host "[WinHUB] Scope: $InstallScope"
-    if ($InstallScope -eq 'users') {{
-        if ($TargetUsers.Count -eq 0) {{ throw "Specific users scope requires at least one user login." }}
-        Write-Host "[WinHUB] Target users: $($TargetUsers -join ', ')"
-    }}
-    if ($SoftwareOperation -eq 'uninstall') {{
-        if ([string]::IsNullOrWhiteSpace($InstallCommand)) {{ throw "Uninstall command is empty." }}
-        Write-Host "[WinHUB] Running uninstall command"
-        Invoke-Expression $InstallCommand
-        $ExitCode = if ($null -ne $LASTEXITCODE) {{ [int]$LASTEXITCODE }} else {{ 0 }}
-        Write-Host "[WinHUB] Uninstaller exit code: $ExitCode"
-        if ($ExpectedExitCodes -notcontains $ExitCode) {{
-            throw "Uninstaller returned unexpected exit code $ExitCode. Expected: $($ExpectedExitCodes -join ', ')"
-        }}
-        Write-Host "[WinHUB] Software uninstall completed."
-        exit 0
-    }}
-    if (Test-WinHUBDetection -Type $DetectionType -Value $DetectionValue) {{
-        Write-Host "[WinHUB] Detection rule already matches. Nothing to install."
-        exit 0
-    }}
-
-    $FileName = [IO.Path]::GetFileName(([Uri]$PackageUrl).AbsolutePath)
-    if (-not [string]::IsNullOrWhiteSpace($PackageOriginalFilename)) {{ $FileName = $PackageOriginalFilename }}
-    if ([string]::IsNullOrWhiteSpace($FileName)) {{ $FileName = "package.bin" }}
-    $PackageFile = Join-Path $WorkDir $FileName
-    Write-Host "[WinHUB] Downloading $PackageUrl"
-    try {{
-        [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12 -bor [Net.SecurityProtocolType]::Tls11 -bor [Net.SecurityProtocolType]::Tls
-        [Net.ServicePointManager]::Expect100Continue = $false
-        if (-not [string]::IsNullOrWhiteSpace($ExpectedSha256)) {{
-            [System.Net.ServicePointManager]::ServerCertificateValidationCallback = {{ $true }}
-            Write-Host "[WinHUB] TLS certificate validation relaxed for this package download; SHA256 verification remains enforced."
-        }}
-    }} catch {{ }}
-
-    $Downloaded = $false
-    $DownloadErrors = New-Object System.Collections.Generic.List[string]
-
-    $Curl = Get-Command curl.exe -ErrorAction SilentlyContinue
-    if ($Curl) {{
-        try {{
-            Write-Host "[WinHUB] Download method: curl.exe"
-            $curlArgs = @("-L", "--fail", "--silent", "--show-error")
-            if (-not [string]::IsNullOrWhiteSpace($ExpectedSha256)) {{ $curlArgs += "-k" }}
-            $curlArgs += @("-o", $PackageFile, $PackageUrl)
-            $curlOutput = & $Curl.Source @curlArgs 2>&1
-            if ($LASTEXITCODE -eq 0 -and (Test-Path -LiteralPath $PackageFile)) {{
-                $Downloaded = $true
-            }} else {{
-                $DownloadErrors.Add("curl.exe exit $LASTEXITCODE $curlOutput")
-            }}
-        }} catch {{
-            $DownloadErrors.Add("curl.exe: $($_.Exception.Message)")
-        }}
-    }}
-
-    if (-not $Downloaded) {{
-        try {{
-            Write-Host "[WinHUB] Download method: WebClient"
-            $wc = New-Object System.Net.WebClient
-            $wc.DownloadFile($PackageUrl, $PackageFile)
-            if (Test-Path -LiteralPath $PackageFile) {{ $Downloaded = $true }}
-        }} catch {{
-            $inner = if ($_.Exception.InnerException) {{ $_.Exception.InnerException.Message }} else {{ "" }}
-            $DownloadErrors.Add("WebClient: $($_.Exception.Message) $inner")
-        }} finally {{
-            if ($wc) {{ $wc.Dispose() }}
-        }}
-    }}
-
-    if (-not $Downloaded) {{
-        try {{
-            Write-Host "[WinHUB] Download method: Invoke-WebRequest"
-            Invoke-WebRequest -Uri $PackageUrl -OutFile $PackageFile -UseBasicParsing
-            if (Test-Path -LiteralPath $PackageFile) {{ $Downloaded = $true }}
-        }} catch {{
-            $inner = if ($_.Exception.InnerException) {{ $_.Exception.InnerException.Message }} else {{ "" }}
-            $DownloadErrors.Add("Invoke-WebRequest: $($_.Exception.Message) $inner")
-        }}
-    }}
-
-    if (-not $Downloaded) {{
-        throw "Package download failed. $($DownloadErrors -join ' | ')"
-    }}
-
-    if (-not [string]::IsNullOrWhiteSpace($ExpectedSha256)) {{
-        $ActualSha256 = (Get-FileHash -Algorithm SHA256 -LiteralPath $PackageFile).Hash.ToLowerInvariant()
-        if ($ActualSha256 -ne $ExpectedSha256) {{
-            throw "SHA256 mismatch. Expected $ExpectedSha256, got $ActualSha256"
-        }}
-        Write-Host "[WinHUB] SHA256 verified: $ActualSha256"
-    }}
-
-    if ($PackageType -eq 'zip') {{
-        New-Item -ItemType Directory -Force -Path $ExtractDir | Out-Null
-        Expand-Archive -LiteralPath $PackageFile -DestinationPath $ExtractDir -Force
-        Write-Host "[WinHUB] Extracted to $ExtractDir"
-    }}
-
-    if ([string]::IsNullOrWhiteSpace($InstallCommand)) {{ throw "Install command is empty." }}
-    Write-Host "[WinHUB] Running install command"
-    Invoke-Expression $InstallCommand
-    $ExitCode = if ($null -ne $LASTEXITCODE) {{ [int]$LASTEXITCODE }} else {{ 0 }}
-    Write-Host "[WinHUB] Installer exit code: $ExitCode"
-    if ($ExpectedExitCodes -notcontains $ExitCode) {{
-        throw "Installer returned unexpected exit code $ExitCode. Expected: $($ExpectedExitCodes -join ', ')"
-    }}
-
-    if ($DetectionType -ne 'none' -and -not (Test-WinHUBDetection -Type $DetectionType -Value $DetectionValue)) {{
-        throw "Installation command completed, but detection rule does not match."
-    }}
-    Write-Host "[WinHUB] Software installation completed."
-    exit 0
-}} catch {{
-    Write-Error $_.Exception.Message
-    exit 1
-}} finally {{
-    try {{ Remove-Item -LiteralPath $WorkDir -Recurse -Force -ErrorAction SilentlyContinue }} catch {{ }}
-}}
-"""
-
+def build_software_install_script(package, install_scope='all', user_logins=None, operation='install'):
+    from core.software import make_script
+    return make_script(package, operation)
 
 @infrastructure_bp.route('/api/infrastructure/software/install', methods=['POST'])
 def run_software_install():
-    denied = require_permission("run_tasks")
-    if denied: return denied
-    data = request.get_json(silent=True)
-    try:
-        launch_reason = validate_launch_reason(data.get("launch_reason") if isinstance(data, dict) else None)
-    except ValueError as exc:
-        return jsonify(success=False, message=str(exc)), 400
-    package = find_software_package(str(data.get("package_id") or ""))
-    if not package:
-        return jsonify({"success": False, "message": "Software package not found"}), 404
-
-    allowed = [h for h in WinHubCore.get_allowed_hosts(session.get("user_id"), "run_tasks") if getattr(h, "approval_status", "Approved") == "Approved"]
-    allowed_by_id = {h.id: h for h in allowed}
-    target_mode = str(data.get("target_mode") or "selected")
-    if target_mode == "group":
-        group = EndpointGroup.query.get(data.get("group_id"))
-        if group and not group_action_allowed(current_user(), group.id, "run_tasks"):
-            return jsonify({"success": False, "message": "Task execution is denied for this group"}), 403
-        group_ids = {h.id for h in group.endpoints} if group else set()
-        target_ids = [host_id for host_id in allowed_by_id if host_id in group_ids]
-    else:
-        target_ids = [str(item) for item in (data.get("target_ids") or []) if str(item) in allowed_by_id]
-
-    target_ids = list(dict.fromkeys(target_ids))
-    if not target_ids:
-        return jsonify({"success": False, "message": "No eligible targets selected"}), 400
-
-    install_scope = str(data.get("install_scope") or "all").strip().lower()
-    if install_scope not in ("all", "users"):
-        return jsonify({"success": False, "message": "Unsupported install scope"}), 400
-    operation = str(data.get("operation") or "install").strip().lower()
-    if operation not in ("install", "uninstall"):
-        return jsonify({"success": False, "message": "Unsupported software operation"}), 400
-    if operation == "uninstall" and not package.get("uninstall_command"):
-        return jsonify({"success": False, "message": "This software package has no uninstall command"}), 400
-    if operation == "install" and install_scope == "users" and not package.get("user_install_command"):
-        return jsonify({"success": False, "message": "This software package has no specific-user install recipe"}), 400
-    raw_user_logins = data.get("user_logins") or []
-    if isinstance(raw_user_logins, str):
-        raw_user_logins = re.split(r"[\n,;]+", raw_user_logins)
-    user_logins = [
-        str(item).strip()
-        for item in raw_user_logins
-        if str(item).strip()
-    ][:100]
-    if install_scope == "users" and not user_logins:
-        return jsonify({"success": False, "message": "Specify at least one user login"}), 400
-
-    script = build_software_install_script(package, install_scope=install_scope, user_logins=user_logins, operation=operation)
-    payload = {"script": script}
-    scope_title = "users" if install_scope == "users" else "all users"
-    verb = "Uninstall" if operation == "uninstall" else "Install"
-    title = f"{verb} Software: {package.get('name')} {package.get('version')} ({scope_title})"
-    job_id, task_ids = dispatch_infrastructure_task(
-        session.get("user_id"),
-        "run_script",
-        target_ids,
-        payload,
-        title,
-        created_by=current_actor_label(),
-        launch_reason=launch_reason,
-    )
-    write_infra_audit("Software Dispatch", "software_package", package["id"], {"operation": operation, "targets": len(target_ids), "target_mode": target_mode, "install_scope": install_scope, "user_logins": user_logins})
-    db.session.commit()
-    return jsonify({"success": True, "job_id": job_id, "tasks": len(task_ids), "targets": len(target_ids)})
+    from modules.Infrastructure.software import create_deployment
+    return create_deployment()
 
 
 @infrastructure_bp.route('/api/infrastructure/fleet', methods=['GET'])
@@ -6861,13 +6394,16 @@ def cleanup_tasks():
         return jsonify({"success": False, "message": "Days must be a number between 1 and 3650"}), 400
 
     cutoff = datetime.utcnow() - timedelta(days=days)
-    expired_ids = db.session.query(AgentTask.id).filter(AgentTask.created_at < cutoff)
+    from core.database import SoftwareStep
+    protected_ids = db.session.query(SoftwareStep.task_id).filter(
+        SoftwareStep.task_id.isnot(None), SoftwareStep.status.in_(['Active', 'Queued']))
+    expired_ids = db.session.query(AgentTask.id).filter(AgentTask.created_at < cutoff, ~AgentTask.id.in_(protected_ids))
     HistorySearchToken.query.filter(
         HistorySearchToken.entity_type == "task",
         HistorySearchToken.entity_id.in_(expired_ids),
     ).delete(synchronize_session=False)
     deleted = AgentTask.query.filter(
-        AgentTask.created_at < cutoff
+        AgentTask.created_at < cutoff, ~AgentTask.id.in_(protected_ids)
     ).delete(synchronize_session=False)
 
     write_infra_audit("Cleanup Scoped Task History", "task", "bulk", {"days": days, "deleted": deleted})
@@ -6876,6 +6412,9 @@ def cleanup_tasks():
 
 @infrastructure_bp.route('/api/infrastructure/job/<job_id>', methods=['DELETE'])
 def delete_job(job_id):
+    from core.database import SoftwareDeployment
+    if db.session.get(SoftwareDeployment, job_id):
+        return jsonify(success=False, message='Історію Software не можна видаляти через звичайну чергу.'), 409
     denied = require_interactive_superadmin()
     if denied:
         return denied
@@ -6900,6 +6439,9 @@ def delete_job(job_id):
 
 @infrastructure_bp.route('/api/infrastructure/job/<job_id>/cancel-pending', methods=['POST'])
 def cancel_pending_job(job_id):
+    from core.database import SoftwareDeployment
+    if db.session.get(SoftwareDeployment, job_id):
+        return jsonify(success=False, message='Керуйте розгортанням у Software; повторний запуск створюйте через каталог.'), 409
     denied = require_permission("run_tasks")
     if denied: return denied
     if not can_access_report(job_id, "run_tasks"):
@@ -6984,6 +6526,9 @@ def cancel_agent_update_rollout(rollout_id):
 
 @infrastructure_bp.route('/api/infrastructure/job/<job_id>/finalize-report', methods=['POST'])
 def finalize_job_report(job_id):
+    from core.database import SoftwareDeployment
+    if db.session.get(SoftwareDeployment, job_id):
+        return jsonify(success=False, message='Керуйте розгортанням у Software; повторний запуск створюйте через каталог.'), 409
     denied = require_permission("run_tasks")
     if denied: return denied
     if not can_access_report(job_id, "run_tasks"):
@@ -7021,6 +6566,9 @@ def finalize_job_report(job_id):
 
 @infrastructure_bp.route('/api/infrastructure/job/<job_id>/retry-failed', methods=['POST'])
 def retry_failed_job(job_id):
+    from core.database import SoftwareDeployment
+    if db.session.get(SoftwareDeployment, job_id):
+        return jsonify(success=False, message='Керуйте розгортанням у Software; повторний запуск створюйте через каталог.'), 409
     denied = require_permission("run_tasks")
     if denied: return denied
     if session.get("api_key_auth"):

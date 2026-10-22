@@ -306,17 +306,32 @@ class LaunchReasonIntegrationTests(unittest.TestCase):
         self.assertEqual(TriggerRule.query.one().launch_reason, REASON)
 
     def test_software_tasks_keep_reason_out_of_script(self):
-        package = {'id': 'package-1', 'name': 'Fixture', 'version': '1', 'uninstall_command': 'echo uninstall'}
+        from core import software
+        from core.database import SoftwarePackage, SoftwareDeployment, SoftwareStep
+        package = {'id': 'package-1', 'name': 'Fixture', 'version': '1',
+                   'install_command': 'echo fixture', 'uninstall_command': 'echo fixture',
+                   'timeout_seconds': 1800, 'expected_exit_codes': '0,3010'}
+        package['approved_hash'] = software.recipe_hash(package)
+        db.session.add(SoftwarePackage(id=package['id'], record=json.dumps(package)))
+        control = software.lock_control()
+        cfg = software.settings(control)
+        cfg['imported'] = True
+        control.settings = json.dumps(cfg)
+        db.session.commit()
         for operation in ('install', 'uninstall'):
-            with mock.patch.object(routes, 'find_software_package', return_value=package), \
-                 mock.patch.object(routes, 'build_software_install_script', return_value='echo fixture'):
-                response = self.client.post('/api/infrastructure/software/install', json={
-                    'package_id': 'package-1', 'target_ids': ['host-1'], 'operation': operation, 'launch_reason': REASON,
-                })
+            response = self.client.post('/api/infrastructure/software/install', base_url='https://localhost', json={
+                'package_id': 'package-1', 'target_ids': ['host-1'], 'operation': operation, 'launch_reason': REASON,
+            })
             self.assertEqual(response.status_code, 200, response.json)
+        self.assertEqual(SoftwareDeployment.query.count(), 2)
+        for deployment in SoftwareDeployment.query.all():
+            self.assertEqual(deployment.launch_reason, REASON)
+        for step in SoftwareStep.query.all():
+            self.assertNotIn(REASON, step.snapshot)
+        software.process_queue()
         for task in AgentTask.query.all():
             self.assertEqual(task.launch_reason, REASON)
-            self.assertEqual(json.loads(task.payload), {'script': 'echo fixture'})
+            self.assertNotIn(REASON, task.payload)
 
     def test_update_prepare_and_execution_waves_have_same_reason(self):
         package = {'id': 'test-package', 'version': 'test', 'sha256': 'a' * 64}

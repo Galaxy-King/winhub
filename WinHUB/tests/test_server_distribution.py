@@ -68,6 +68,21 @@ class ServerDistributionTests(unittest.TestCase):
         manifest = json.loads((archive_path.parent / "winhub-v1.2.3.manifest.json").read_text())
         self.assertEqual(manifest["server_archive_sha256"], hashlib.sha256(archive_path.read_bytes()).hexdigest())
 
+    def test_software_delivery_on_main_and_agent_only_listeners(self):
+        env_file = self.root / 'software-listener.env'
+        env_file.write_text('AGENT_PUBLIC_PORT=9443\nAGENT_BACKEND_PORT=18444\nSERVER_PORT=18443\n')
+        output = self.root / 'software-nginx.conf'
+        self.run_bash('APP_DIR="$1" ENV_FILE="$2" bash "$1/deploy/debian/render_nginx_config.sh" "$3"',
+                      SERVER, env_file, output)
+        config = output.read_text()
+        blocks = config.split('location /api/public/software-delivery/ {')[1:]
+        self.assertEqual(len(blocks), 2)
+        for block in blocks:
+            location = block.split('}', 1)[0]
+            self.assertIn('127.0.0.1:18444', location)
+            self.assertIn('proxy_buffering off;', location)
+            self.assertIn('proxy_cache off;', location)
+
     def test_install_copy_accepts_monorepo_and_preserves_existing_runtime(self):
         target = self.root / "installed"
         for entry in ("data/keep.db", "venv/keep", ".env", "core/old_module.py"):

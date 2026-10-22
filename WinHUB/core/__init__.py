@@ -144,10 +144,14 @@ def _run_history_retention(now):
         ).delete(synchronize_session=False)
         counts["reports"] = AggregatedJob.query.filter(AggregatedJob.id.in_(report_ids)).delete(synchronize_session=False)
 
+    from core.database import SoftwareStep
+    protected_software_tasks = db.session.query(SoftwareStep.task_id).filter(
+        SoftwareStep.task_id.isnot(None), SoftwareStep.status.in_(['Active', 'Queued']))
     task_ids = _bounded_ids(
         AgentTask.query.filter(
             AgentTask.created_at < cutoff,
             or_(AgentTask.finished_at.is_(None), AgentTask.finished_at < cutoff),
+            ~AgentTask.id.in_(protected_software_tasks),
         ).order_by(AgentTask.created_at),
         AgentTask.id,
         batch_size,
@@ -239,7 +243,10 @@ def scheduled_cleanup(*args):
         changed_history_tasks = []
         # Очищення завислих задач
         zombie_threshold = now - timedelta(seconds=global_app.config.get('AGENT_TASK_TIMEOUT_SECONDS', 1800))
-        zombies = AgentTask.query.filter(AgentTask.status == "PickedUp", AgentTask.created_at < zombie_threshold).all()
+        from core.database import SoftwareStep
+        software_task_ids = db.session.query(SoftwareStep.task_id).filter(SoftwareStep.task_id.isnot(None))
+        zombies = AgentTask.query.filter(AgentTask.status == "PickedUp", AgentTask.created_at < zombie_threshold,
+                                         ~AgentTask.id.in_(software_task_ids)).all()
         for z in zombies:
             z.status = "Error"
             z.result_log = "TIMEOUT: Agent picked up the task but never returned a result."
@@ -533,6 +540,11 @@ def reload_scheduler_jobs(ignored_app=None):
     if not global_app: return
 
     scheduler.remove_all_jobs()
+    from core.software import run_queue_job, run_preparation_job
+    scheduler.add_job(func=run_queue_job, trigger="interval", seconds=5,
+                      id="software_queue", max_instances=1, coalesce=True, replace_existing=True)
+    scheduler.add_job(func=run_preparation_job, trigger="interval", seconds=5,
+                      id="software_preparation", max_instances=1, coalesce=True, replace_existing=True)
     scheduler.add_job(func=scheduled_cleanup, trigger="interval", minutes=10, id="sys_cleanup")
     scheduler.add_job(func=process_ai_templates_job, trigger="interval", seconds=5,
                       id="ai_templates", max_instances=1, coalesce=True, replace_existing=True)

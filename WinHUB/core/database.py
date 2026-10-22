@@ -333,6 +333,48 @@ class AgentTask(db.Model):
 
     endpoint = db.relationship('Endpoint', back_populates='tasks')
 
+class SoftwareControl(db.Model):
+    __tablename__ = 'software_control'
+    id = db.Column(db.Integer, primary_key=True)
+    settings = db.Column(EncryptedText, nullable=False, default='{}')
+
+
+class SoftwarePackage(db.Model):
+    __tablename__ = 'software_catalog'
+    id = db.Column(db.String(36), primary_key=True)
+    record = db.Column(EncryptedText, nullable=False)
+
+
+class SoftwareDeployment(db.Model):
+    __tablename__ = 'software_deployments'
+    id = db.Column(db.String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
+    actor_user_id = db.Column(db.Integer, nullable=False)
+    created_by = db.Column(db.String(100), nullable=False)
+    launch_reason = db.Column(EncryptedText, nullable=False)
+    status = db.Column(db.String(20), nullable=False, default='Running')
+    parallelism = db.Column(db.Integer, nullable=False, default=2)
+    created_at = db.Column(db.DateTime, nullable=False, default=datetime.utcnow)
+    expires_at = db.Column(db.DateTime, nullable=False)
+
+
+class SoftwareStep(db.Model):
+    __tablename__ = 'software_steps'
+    id = db.Column(db.String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
+    deployment_id = db.Column(db.String(36), db.ForeignKey('software_deployments.id'), nullable=False, index=True)
+    endpoint_id = db.Column(db.String(100), nullable=False, index=True)
+    position = db.Column(db.Integer, nullable=False)
+    package_name = db.Column(db.String(160), nullable=False, default='Software')
+    snapshot = db.Column(EncryptedText, nullable=False)
+    status = db.Column(db.String(20), nullable=False, default='Queued', index=True)
+    task_id = db.Column(db.String(36), nullable=True, index=True)
+    started_at = db.Column(db.DateTime, nullable=True)
+    token_hash = db.Column(db.String(64), nullable=True)
+    token_until = db.Column(db.DateTime, nullable=True)
+    download_lease = db.Column(db.String(36), nullable=True)
+    download_until = db.Column(db.DateTime, nullable=True)
+    message = db.Column(db.String(255), nullable=True)
+
+
 class TelemetryHistory(db.Model):
     __tablename__ = 'telemetry_history'
     id = db.Column(db.Integer, primary_key=True)
