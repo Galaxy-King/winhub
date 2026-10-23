@@ -3,7 +3,7 @@
     <label>Version<input name="version" required maxlength="80" class="sw-input" placeholder="1.1.1"></label>
     <label>Software sets, comma separated<input name="sets" class="sw-input" placeholder="Standard, Networking"></label>
     <label>Installation order<input name="order" type="number" min="0" max="10000" value="100" class="sw-input"><span class="text-xs text-slate-500">Lower numbers run first. Applications with the same number are ordered by name.</span></label>
-    <label class="md:col-span-2">OMV Files Manager download link<input name="external_url" type="url" class="sw-input" placeholder="https://omv.internal:3670/api/public/dl/…/package.msi"></label>
+    <label class="md:col-span-2">Installer<select name="installer_id" id="swInstallerSelect" class="sw-input"><option value="">Script only / retain existing installer</option></select><span class="block text-xs mt-2">Prepare files in Installers first, then choose a ready installer here. Existing applications retain their current file unless you select another.</span></label>
     <label>Package type<select name="package_type" class="sw-input"><option value="msi">MSI — automatic silent installation</option><option value="exe">EXE</option><option value="zip">ZIP</option><option value="custom">Script only</option><option value="ps1">PS1</option><option value="bat">BAT</option></select></label>
     <label>Expected SHA-256 (optional)<input name="sha256" maxlength="64" class="sw-input" placeholder="Calculated by WinHUB during preparation"></label>
 </div>
@@ -33,4 +33,4 @@
         <label class="md:col-span-2">Description<textarea name="notes" class="sw-input" rows="2"></textarea></label>
     </div>
 </details>
-{% if is_admin %}<label class="flex items-center gap-3 p-4 rounded-xl bg-amber-50"><input name="approve" type="checkbox" value="1"><span>I have reviewed the source and recipes and approve this version for deployment</span></label>{% endif %}
+<p class="text-sm">Save first. A superadmin then uses <strong>Review and approve</strong> on the application card. Editing recipes or replacing the installer requires approval again.</p>

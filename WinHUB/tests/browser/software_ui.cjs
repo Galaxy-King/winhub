@@ -97,6 +97,10 @@ async function main() {
         if (output) await page.screenshot({path:path.join(output,'mobile.png'),fullPage:true});
         await page.keyboard.press('Escape');
         await page.setViewportSize({width:1440,height:1000});
+        await page.getByRole('button', {name:'Installers · Add / Test link', exact:true}).click();
+        await page.getByRole('button', {name:'Test download link', exact:true}).click();
+        assert((await page.locator('#swLinkTestResult').innerText()).includes('Enter an OMV download link first.'));
+        await page.getByRole('button', {name:'Install', exact:true}).click();
         await page.getByRole('button',{name:'Review and deploy',exact:true}).click();
         await page.getByText('Deployment created:',{exact:false}).waitFor();
         assert.deepEqual(payload.target_ids,['h1']);

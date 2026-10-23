@@ -3,7 +3,7 @@
 {% block title %}Endpoint Management - WinHUB{% endblock %}
 
 {% block extra_head %}
-<link rel="stylesheet" href="{{ url_for('static', filename='css/software.css', v=app_version ~ '-software-3') }}">
+<link rel="stylesheet" href="{{ url_for('static', filename='css/software.css', v=app_version ~ '-software-5') }}">
 <link rel="stylesheet" href="{{ url_for('static', filename='vendor/codemirror/5.65.16/codemirror.min.css', v=app_version) }}">
 <link rel="stylesheet" href="{{ url_for('static', filename='vendor/codemirror/5.65.16/theme/material-darker.min.css', v=app_version) }}">
 <link rel="stylesheet" href="{{ url_for('static', filename='css/infrastructure_inventory.css', v=app_version ~ '-inventory-1') }}">
@@ -1495,7 +1495,7 @@
 <link rel="stylesheet" href="{{ url_for('static', filename='css/task_launch_reason.css', v=app_version ~ '-reason-1') }}">
 <script nonce="{{ csp_nonce }}" src="{{ url_for('static', filename='js/task_launch_reason.js', v=app_version ~ '-reason-1') }}"></script>
 <script nonce="{{ csp_nonce }}" src="{{ url_for('static', filename='js/infrastructure.js', v=app_version ~ '-inventory-software-2') }}"></script>
-<script nonce="{{ csp_nonce }}" src="{{ url_for('static', filename='js/software.js', v=app_version ~ '-software-3') }}"></script>
+<script nonce="{{ csp_nonce }}" src="{{ url_for('static', filename='js/software.js', v=app_version ~ '-software-5') }}"></script>
 {% if permissions.use_ai_templates and permissions.manage_templates %}
 <link rel="stylesheet" href="{{ url_for('static', filename='css/ai_template_editor.css', v=app_version) }}">
 <script nonce="{{ csp_nonce }}" src="{{ url_for('static', filename='js/ai_template_editor.js', v=app_version) }}"></script>

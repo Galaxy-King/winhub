@@ -29,3 +29,8 @@ Reboot-required зупиняє наступні програми, без авт�
 Тестування використовує isolated Flask/SQLite і синтетичні байти: жодних реальних інсталяторів на endpoints. Nginx-конфігурацію перевірено на тимчасових сертифікатах і непривілейованих портах; synthetic PowerShell перевіряє коди завершення без реального встановлення. Потрібні окремі приймальні перевірки OMV, production Nginx, Windows trust store, реального MSI exit/reboot та встановлення на canary перед production rollout.
 
 [Інструкція оператора](../04-Endpoint-Management/07-Software.md).
+
+
+### Бібліотека інсталяторів та явне погодження
+
+Записи `kind=installer` використовують наявне зашифроване JSON-поле `software_catalog`, спільну чергу підготовки й immutable blobs. Вони вилучені зі списку deployable applications і розгортання наборів. Міграції SQL не потрібні: схема не змінена. Додаток копіює готові blob metadata вибраного installer; посилання не є живим зв'язком, автоматичного оновлення рецептів/погодження немає. POST installers потребує інтерактивного `manage_software`; POST approve додатково superadmin та точну revision. Approval аудіюється. Тест посилання не надає approval і не виконує скрипти.

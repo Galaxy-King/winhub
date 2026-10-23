@@ -31,6 +31,16 @@ async function loadSoftwareRegistry() {
     try {
         const data = await swRequest('/api/infrastructure/software-packages');
         swState.packages = data.packages || [];
+        swState.installers = data.installers || [];
+        swState.isAdmin = !!data.is_admin;
+        swRenderInstallers();
+        const installerSelect = document.getElementById('swInstallerSelect');
+        if (installerSelect) {
+            const selected = installerSelect.value;
+            installerSelect.replaceChildren(new Option('Script only / retain existing installer', ''));
+            swState.installers.filter(p => p.prepared).forEach(p => installerSelect.add(new Option(`${p.name} · ${p.version}`, p.id)));
+            installerSelect.value = selected;
+        }
         swState.hosts = data.hosts || [];
         swState.settings = data.settings || {};
         swState.canViewQueue = !!data.can_view_queue;
@@ -73,7 +83,7 @@ function switchSoftwareTab(panel) {
         if (button.dataset.swPanel === panel) button.setAttribute('aria-current', 'page');
         else button.removeAttribute('aria-current');
     });
-    ['library', 'editor', 'settings', 'progress'].forEach(name => {
+    ['library', 'editor', 'settings', 'progress', 'installers'].forEach(name => {
         document.getElementById(`swPanel-${name}`)?.classList.toggle('hidden', panel !== name);
     });
     if (panel === 'progress') swLoadDeployments();
@@ -125,6 +135,12 @@ function renderSoftwareRegistry() {
             if (window.WinhubCanManageSoftware) {
                 const edit = swElement('button', 'Edit', 'sw-button'); edit.type = 'button';
                 edit.addEventListener('click', () => swEditPackage(p)); row.append(edit);
+                if (swState.isAdmin && !p.approved) {
+                    const approve = swElement('button', 'Review and approve', 'sw-button'); approve.type = 'button';
+                    approve.addEventListener('click', () => swApprove(p)); row.append(approve);
+                }
+                if (p.preparation_error) details.append(swElement('span', `Download error: ${p.preparation_error} Next: open Installers to test the link, or Edit to replace the installer.`, 'block text-xs mt-2'));
+                details.append(swElement('span', p.approved ? 'Recipes approved. Choose targets to deploy.' : 'Next: save recipes, then ask a superadmin to Review and approve.', 'block text-xs mt-2'));
                 const remove = swElement('button', 'Delete', 'sw-button text-rose-700'); remove.type = 'button';
                 remove.addEventListener('click', () => swDeletePackage(p)); row.append(remove);
             }
@@ -159,7 +175,7 @@ function swOpenTargets(mode) {
         : 'Choose individual endpoints. Group selections are retained separately.';
     document.getElementById('swTargetListTitle').textContent = mode === 'groups' ? 'Available groups' : 'Available endpoints';
     const search = document.getElementById('swTargetPickerSearch');
-    search.value = ''; search.placeholder = mode === 'groups' ? 'Search groups' : 'Search endpoints';
+    search.value = ''; search.placeholder = mode === 'groups' ? 'Search groups' : 'Search name or IP address';
     modal.classList.remove('hidden');
     document.body.classList.add('sw-target-modal-open');
     swRenderTargetPicker();
@@ -189,7 +205,7 @@ function swPickerItems() {
     if (!draft) return [];
     const query = (document.getElementById('swTargetPickerSearch')?.value || '').trim().toLocaleLowerCase();
     return (draft.mode === 'groups' ? swState.groups : swState.hosts)
-        .filter(item => `${item.name} ${item.id} ${item.os_type || ''}`.toLocaleLowerCase().includes(query));
+        .filter(item => `${item.name} ${item.id} ${item.ip || ''} ${item.os_type || ''}`.toLocaleLowerCase().includes(query));
 }
 
 function swRenderTargetPicker() {
@@ -211,7 +227,7 @@ function swRenderTargetPicker() {
         });
         const text = swElement('span', undefined, 'sw-picker-row-text');
         text.append(swElement('strong', item.name || item.id));
-        const description = draft.mode === 'groups' ? `${swState.hosts.filter(h => (h.groups || []).includes(item.id)).length} eligible endpoints` : item.os_type || 'Unknown OS';
+        const description = draft.mode === 'groups' ? `${swState.hosts.filter(h => (h.groups || []).includes(item.id)).length} eligible endpoints` : `${item.online ? '● Online' : '○ Offline'} · ${item.ip || 'No IP'} · ${item.os_type || 'Unknown OS'}`;
         text.append(swElement('span', description, 'sw-muted'));
         row.append(check, text); list.append(row);
     }
@@ -304,6 +320,7 @@ async function runSoftwareInstall() {
 function newSoftwarePackage() {
     const form = document.getElementById('swPackageForm'); if (!form) return;
     form.reset(); form.elements.package_id.value = '';
+    document.getElementById('swLinkTestResult').textContent = 'Uses the saved storage settings. Tests access from the WinHUB server.';
     document.getElementById('swEditorTitle').textContent = 'Add application';
     document.getElementById('swPreparedInfo').textContent = '';
     switchSoftwareTab('editor');
@@ -323,7 +340,7 @@ function swEditPackage(pkg) {
     // Expected hash is only for a newly supplied file, never accidentally reuse an old version's hash.
     form.elements.sha256.value = '';
     document.getElementById('swEditorTitle').textContent = `Edit: ${pkg.name}`;
-    document.getElementById('swPreparedInfo').textContent = pkg.prepared ? `Prepared: ${pkg.version}, SHA-256 ${pkg.sha256}. The existing copy is retained unless a new file or preparation is requested.` : 'Package not prepared yet.';
+    document.getElementById('swPreparedInfo').textContent = pkg.preparation_error ? `Download failed: ${pkg.preparation_error} Use Installers to test and prepare a replacement, then select it above.` : pkg.prepared ? `Prepared: ${pkg.version}, SHA-256 ${pkg.sha256}. The existing copy is retained unless a new file or preparation is requested.` : 'Package not prepared yet.';
 }
 
 async function swSavePackage(event) {
@@ -334,7 +351,7 @@ async function swSavePackage(event) {
         await swRequest('/api/infrastructure/software-packages' + (id ? '/' + encodeURIComponent(id) : ''),
             {method: id ? 'PUT' : 'POST', body: new FormData(form)});
         await loadSoftwareRegistry(); switchSoftwareTab('library');
-        swNotice('Application saved. OMV preparation runs in the background; wait until the package is cached in WinHUB. Superadmin approval is required before deployment.');
+        swNotice('Application saved. OMV preparation runs in the background; wait until the package is cached in WinHUB. Use Review and approve on the application card (superadmin only).');
     } catch (error) { swNotice(error.message, true); }
     finally { button.disabled = false; button.textContent = 'Save and prepare package'; }
 }
@@ -442,4 +459,57 @@ async function swLoadDeployments() {
 
 setInterval(() => { if (swState.panel === 'progress') swLoadDeployments(); }, 5000);
 
-setInterval(() => { if (swState.packages.some(p => ['Queued', 'Preparing'].includes(p.preparation)) && !swState.targetDraft && swState.panel === 'library' && !document.getElementById('view-software')?.classList.contains('hidden')) loadSoftwareRegistry(); }, 5000);
+setInterval(() => { if ([...swState.packages, ...(swState.installers || [])].some(p => ['Queued', 'Preparing'].includes(p.preparation)) && !swState.targetDraft && ['library', 'installers'].includes(swState.panel) && !document.getElementById('view-software')?.classList.contains('hidden')) loadSoftwareRegistry(); }, 5000);
+
+async function swTestLink(button) {
+    const input = document.getElementById('swInstallerForm').elements.external_url;
+    const result = document.getElementById('swLinkTestResult');
+    const url = input.value.trim();
+    if (!url) { result.textContent = 'Enter an OMV download link first.'; input.focus(); return; }
+    button.disabled = true;
+    result.textContent = 'Testing access from the WinHUB server…';
+    try {
+        const data = await swRequest('/api/infrastructure/software/test-link', {
+            method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({url})
+        });
+        result.textContent = input.value.trim() === url ? data.message : 'The link changed. Test the new link again.';
+    } catch (error) { result.textContent = input.value.trim() === url ? error.message : 'The link changed. Test the new link again.'; }
+    finally { button.disabled = false; }
+}
+
+function swRenderInstallers() {
+    const list = document.getElementById('swInstallerList');
+    if (!list) return;
+    list.replaceChildren();
+    for (const p of swState.installers || []) {
+        const card = swElement('div', undefined, 'sw-panel space-y-2');
+        card.append(swElement('strong', `${p.name} · ${p.version}`), swElement('p',
+            p.prepared ? `Ready · ${(p.size / 1048576).toFixed(1)} MiB · SHA-256 ${p.sha256}` :
+            p.preparation === 'Error' ? `Download failed: ${p.preparation_error || 'Check storage settings and test the link.'}` : `Preparing: ${p.preparation || 'Queued'}`));
+        const retry = swElement('button', 'Test this link', 'sw-button'); retry.type = 'button';
+        retry.addEventListener('click', () => {
+            const form = document.getElementById('swInstallerForm');
+            ['name', 'version', 'package_type', 'external_url'].forEach(key => { form.elements[key].value = p[key] || ''; });
+            document.getElementById('swInstallerForm').elements.external_url.value = p.external_url || '';
+            swTestLink(retry);
+        });
+        card.append(retry); list.append(card);
+    }
+}
+async function swSaveInstaller(event) {
+    event.preventDefault();
+    const button = event.currentTarget.querySelector('[type="submit"]'); button.disabled = true;
+    try {
+        await swRequest('/api/infrastructure/software/installers', {method: 'POST', body: new FormData(event.currentTarget)});
+        await loadSoftwareRegistry(); swNotice('Installer queued. Wait for Ready before selecting it in an application.');
+    } catch (error) { swNotice(error.message, true); }
+    finally { button.disabled = false; }
+}
+async function swApprove(p) {
+    const review = [p.install_command, p.update_command, p.uninstall_command].join('\n\n');
+    if (!confirm(`Approve ${p.name} ${p.version}?\nInstaller SHA-256: ${p.sha256 || 'Script only'}\n\n${review}\n\nAlso review detection and Workspace templates in Edit before approving.`)) return;
+    try {
+        await swRequest(`/api/infrastructure/software/${encodeURIComponent(p.id)}/approve`, {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({revision: p.revision})});
+        await loadSoftwareRegistry(); swNotice('Application recipes approved.');
+    } catch (error) { swNotice(error.message, true); }
+}

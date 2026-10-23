@@ -5172,6 +5172,11 @@ def download_software_package_public(package_id):
     # Permanent anonymous installer links are no longer issued.
     return Response(status=410)
 
+@infrastructure_bp.route('/api/infrastructure/software/test-link', methods=['POST'])
+def software_test_link():
+    from modules.Infrastructure.software import test_source_link
+    return test_source_link()
+
 @infrastructure_bp.route('/api/infrastructure/software-packages', methods=['GET', 'POST'])
 def software_packages():
     from modules.Infrastructure.software import registry, package_write
@@ -7534,3 +7539,14 @@ def block_group_hosts(group_id):
     )
     db.session.commit()
     return jsonify({"success": True, "updated": updated})
+
+
+@infrastructure_bp.route('/api/infrastructure/software/installers', methods=['POST'])
+def software_installer_write():
+    from modules.Infrastructure.software import installer_write
+    return installer_write()
+
+@infrastructure_bp.route('/api/infrastructure/software/<package_id>/approve', methods=['POST'])
+def software_approve_package(package_id):
+    from modules.Infrastructure.software import approve_package
+    return approve_package(package_id)

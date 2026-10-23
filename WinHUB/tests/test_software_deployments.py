@@ -400,6 +400,45 @@ class SoftwareTests(unittest.TestCase):
         software.process_queue()
         self.assertEqual(step.status, 'Error')
 
+    def test_installer_library_binding_and_explicit_approval(self):
+        control = software.lock_control()
+        cfg = software.settings(control)
+        cfg['source_origin'] = 'https://omv.test'
+        control.settings = json.dumps(cfg)
+        db.session.commit()
+        response = self.client.post('/api/infrastructure/software/installers', data={
+            'name': 'WireGuard MSI', 'version': '1', 'external_url': 'https://omv.test/file', 'package_type': 'msi'})
+        self.assertEqual(response.status_code, 200, response.json)
+        registry = self.client.get('/api/infrastructure/software-packages').json
+        self.assertEqual(registry['packages'], [])
+        installer = registry['installers'][0]
+        with self.assertRaises(ValueError):
+            software.save_package('app1', {'name': 'App', 'version': '1', 'installer_id': installer['id']}, None, self.user)
+        digest, size = software.store_blob([b'msi fixture'])
+        with mock.patch.object(software, 'prepare_url', return_value=(digest, size)):
+            software.process_preparation()
+        package = software.save_package('app1', {'name': 'App', 'version': '1', 'installer_id': installer['id']}, None, self.user)
+        db.session.commit()
+        self.assertEqual(package['blob_sha256'], digest)
+        self.assertFalse(software.public_package(package)['approved'])
+        url = '/api/infrastructure/software/app1/approve'
+        self.assertEqual(self.client.post(url, json={'revision': 'stale'}).status_code, 409)
+        self.assertEqual(self.client.post(url, json={'revision': software.recipe_hash(package)}).status_code, 200)
+        record = json.loads(db.session.get(SoftwarePackage, 'app1').record)
+        self.assertTrue(software.public_package(record)['approved'])
+
+    def test_link_probe_api_and_safe_errors(self):
+        with mock.patch.object(software, 'prepare_url', return_value={'content_length': 42}) as probe:
+            response = self.client.post('/api/infrastructure/software/test-link', json={'url': 'https://omv.test/file'})
+            self.assertEqual(response.status_code, 200, response.json)
+            probe.assert_called_once_with('https://omv.test/file', probe=True)
+            self.assertEqual(response.json['content_length'], 42)
+        with mock.patch.object(software, 'prepare_url', side_effect=OSError('secret-url-token')):
+            response = self.client.post('/api/infrastructure/software/test-link', json={'url': 'https://omv.test/file'})
+            self.assertEqual(response.status_code, 400)
+            self.assertNotIn('secret-url-token', response.get_data(as_text=True))
+        self.assertEqual(self.client.post('/api/infrastructure/software/test-link', json={'url': 42}).status_code, 400)
+
     def test_source_policy_rejects_other_origin_http_and_missing_enforcement(self):
         control = software.lock_control()
         cfg = software.settings(control)
@@ -455,6 +494,8 @@ class SoftwareTests(unittest.TestCase):
         db.session.commit()
         try:
             with mock.patch.object(Config, 'OUTBOUND_POLICY_MODE', 'enforce'), mock.patch.object(Config, 'OUTBOUND_ALLOWED_HOSTS', '127.0.0.1'):
+                with mock.patch.object(software, 'store_blob', side_effect=AssertionError('Probe must not store files')):
+                    self.assertIsInstance(software.prepare_url(origin + '/file', probe=True), dict)
                 digest, size = software.prepare_url(origin + '/file')
                 self.assertEqual((digest, size), (hashlib.sha256(payload).hexdigest(), len(payload)))
                 for path in ('/redirect', '/html', '/truncated'):

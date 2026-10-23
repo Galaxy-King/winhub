@@ -45,11 +45,14 @@ def registry():
         db.session.commit()
     user = helpers().current_user()
     manager = has_permission(user, 'Infrastructure', 'manage_software')
-    packages = [service.public_package(p, manager) for p in service.catalogue()]
+    records = service.catalogue()
+    packages = [service.public_package(p, manager) for p in records if p.get('kind') != 'installer']
+    installers = [service.public_package(p, True) for p in records if p.get('kind') == 'installer'] if manager else []
     packages.sort(key=lambda p: (p.get('order', 100), p['name'].casefold(), p['id']))
     allowed = WinHubCore.get_allowed_hosts(user.id, 'run_tasks')
     hosts = [dict(id=h.id, name=h.display_name or h.hostname or h.id, os_type=h.os_type,
-                  groups=[g.id for g in h.groups]) for h in allowed
+                  groups=[g.id for g in h.groups], ip=h.ip_address or '',
+                  online=bool(h.last_seen and h.last_seen >= datetime.utcnow() - timedelta(minutes=5))) for h in allowed
              if h.approval_status == 'Approved' and not h.is_blocked]
     cfg = service.settings()
     if not user.is_admin:
@@ -68,9 +71,25 @@ def registry():
                     and not payload.get('variables_schema') and not payload.get('__ai_generated')
                     and '{{' not in payload['script'] and '{%' not in payload['script']):
                 templates.append(dict(id=template.id, name=template.name, category=template.category))
-    return jsonify(success=True, packages=packages, hosts=hosts, groups=groups, settings=cfg,
+    return jsonify(success=True, packages=packages, installers=installers, is_admin=user.is_admin, hosts=hosts, groups=groups, settings=cfg,
                    templates=templates,
                    can_view_queue=has_permission(user, 'Infrastructure', 'view_queue'))
+
+
+def test_source_link():
+    denied = interactive('manage_software')
+    if denied:
+        return denied
+    data = request.get_json(silent=True)
+    if not isinstance(data, dict) or not isinstance(data.get('url'), str) or not 0 < len(data['url']) <= 2048:
+        return jsonify(success=False, message='Enter a download link (up to 2048 characters).'), 400
+    try:
+        result = service.prepare_url(data['url'].strip(), probe=True)
+    except ValueError as exc:
+        return jsonify(success=False, message=str(exc)), 400
+    except OSError:
+        return jsonify(success=False, message='Cannot read the CA bundle or connect to OMV. Check the saved storage settings and server permissions.'), 400
+    return jsonify(success=True, message='Accessible from WinHUB: HTTPS verified, HTTP 200 and initial file bytes received. Full size and SHA-256 are checked during preparation.', **result)
 
 
 def package_write(package_id=None):
@@ -157,7 +176,7 @@ def create_deployment():
         with service.LOCAL_LOCK:
             control = service.lock_control()
             service.import_legacy(control)
-            packages = service.catalogue()
+            packages = [p for p in service.catalogue() if p.get('kind') != 'installer']
             known = {p['id'] for p in packages}
             if set(ids) - known:
                 raise ValueError('One of the applications no longer exists. Refresh the catalogue.')
@@ -177,6 +196,8 @@ def create_deployment():
                 raise ValueError('Queue capacity reached: 50 active deployments or 20000 unfinished operations. Wait for completion or cancel pending operations.')
             plans = []
             for package in chosen:
+                if package.get('kind') == 'installer':
+                    raise ValueError('Select an application, not an installer.')
                 if not service.public_package(package)['approved']:
                     raise ValueError('Superadmin approval is required for: ' + package['name'])
                 snapshot = dict(package)
@@ -401,3 +422,53 @@ def register(bp):
                                      'X-Accel-Buffering': 'no', 'X-Content-Type-Options': 'nosniff'})
         response.call_on_close(release)
         return response
+
+
+def installer_write():
+    denied = interactive('manage_software')
+    if denied:
+        return denied
+    form = request.form.to_dict()
+    if not form.get('external_url'):
+        return jsonify(success=False, message='Enter an OMV download link.'), 400
+    form.update(install_command='exit 0', version=form.get('version') or 'file', approve='0')
+    try:
+        with service.LOCAL_LOCK:
+            service.lock_control()
+            record = service.save_package(str(uuid.uuid4()), form, None, helpers().current_user())
+            record['kind'] = 'installer'
+            row = db.session.get(SoftwarePackage, record['id'])
+            row.record = json.dumps(record)
+            helpers().write_infra_audit('Software Installer Save', 'software_package', record['id'], {'name': record['name']})
+            db.session.commit()
+        return jsonify(success=True)
+    except (ValueError, OSError):
+        db.session.rollback()
+        return jsonify(success=False, message='Cannot queue installer. Check the link and saved storage settings.'), 400
+
+
+def approve_package(package_id):
+    denied = interactive('manage_software')
+    if denied:
+        return denied
+    user = helpers().current_user()
+    if not user.is_admin:
+        return jsonify(success=False, message='Only a superadmin can approve recipes.'), 403
+    data = request.get_json(silent=True)
+    if not isinstance(data, dict):
+        return jsonify(success=False, message='A JSON object is required.'), 400
+    with service.LOCAL_LOCK:
+        service.lock_control()
+        row = db.session.get(SoftwarePackage, package_id)
+        record = json.loads(row.record) if row else {}
+        if not record or record.get('kind') == 'installer':
+            return jsonify(success=False, message='Application not found.'), 404
+        if data.get('revision') != service.recipe_hash(record):
+            return jsonify(success=False, message='Application changed. Review the current recipe again.'), 409
+        if record.get('external_url') and not service.public_package(record)['prepared']:
+            return jsonify(success=False, message='Prepare the installer successfully before approving.'), 400
+        record['approved_hash'] = service.recipe_hash(record)
+        row.record = json.dumps(record)
+        helpers().write_infra_audit('Software Approve', 'software_package', package_id, {'revision': data['revision']})
+        db.session.commit()
+    return jsonify(success=True)

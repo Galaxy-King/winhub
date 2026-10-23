@@ -17,7 +17,7 @@ from http.client import HTTPException
 from datetime import datetime, timedelta
 from pathlib import Path
 from urllib.parse import urlsplit
-from urllib.error import URLError
+from urllib.error import HTTPError, URLError
 from urllib.request import HTTPRedirectHandler, HTTPSHandler, ProxyHandler, Request, build_opener
 
 from flask import current_app
@@ -96,7 +96,7 @@ def store_blob(stream, expected='', max_bytes=None):
             os.unlink(temporary)
 
 
-def prepare_url(url, expected=''):
+def prepare_url(url, expected='', *, probe=False):
     cfg = settings()
     if str(Config.OUTBOUND_POLICY_MODE).lower() != 'enforce':
         raise ValueError('OMV preparation requires OUTBOUND_POLICY_MODE=enforce and an allowlisted host.')
@@ -115,7 +115,7 @@ def prepare_url(url, expected=''):
         context = ssl.create_default_context(cafile=cfg['ca_bundle'] or None)
         opener = build_opener(ProxyHandler({}), NoRedirect(), HTTPSHandler(context=context))
         with pinned_outbound_url(url, purpose='Software package preparation'):
-            with opener.open(Request(url, headers={'Accept-Encoding': 'identity'}), timeout=30) as response:
+            with opener.open(Request(url, headers={'Accept-Encoding': 'identity'}), timeout=10 if probe else 30) as response:
                 if response.status != 200:
                     raise ValueError('OMV did not return a file: HTTP 200 without redirects is required.')
                 if ('text/html' in response.headers.get('Content-Type', '').lower()
@@ -124,6 +124,10 @@ def prepare_url(url, expected=''):
                 expected_length = response.headers.get('Content-Length')
                 if expected_length and (not expected_length.isdigit() or int(expected_length) > cfg['max_package_mib'] * 1024 * 1024):
                     raise ValueError('Invalid OMV package size.')
+                if probe:
+                    if not response.read1(1024):
+                        raise ValueError('The download response is empty.')
+                    return dict(content_length=int(expected_length) if expected_length else None)
                 def chunks():
                     received = 0
                     # read1 performs at most one underlying read, allowing the
@@ -139,7 +143,16 @@ def prepare_url(url, expected=''):
                     if expected_length and received != int(expected_length):
                         raise ValueError('The OMV download is incomplete.')
                 return store_blob(chunks(), expected)
-    except (URLError, ssl.SSLError, HTTPException):
+    except HTTPError as exc:
+        exc.close()
+        raise ValueError(f'OMV returned HTTP {exc.code}. A direct HTTP 200 download is required; redirects and login pages are not accepted.') from None
+    except ssl.SSLCertVerificationError:
+        raise ValueError('TLS certificate verification failed. Configure the issuing CA PEM bundle and use a hostname/IP listed in the certificate.') from None
+    except URLError as exc:
+        if isinstance(exc.reason, ssl.SSLCertVerificationError):
+            raise ValueError('TLS certificate verification failed. Configure the issuing CA PEM bundle and use a hostname/IP listed in the certificate.') from None
+        raise ValueError('Cannot connect to OMV. Check server DNS, routing, firewall and HTTPS port.') from None
+    except (ssl.SSLError, HTTPException):
         # Exception text may contain the OMV public-link capability.
         raise ValueError('OMV download failed. Check connectivity, the HTTPS certificate and file size.') from None
 
@@ -226,6 +239,15 @@ def save_package(package_id, form, upload, user):
     record['order'] = max(0, min(10000, int(form.get('order') or record.get('order') or 100)))
     names = str(form.get('sets', ','.join(record.get('sets') or [record.get('category') or 'General'])))
     record['sets'] = list(dict.fromkeys(x.strip()[:80] for x in names.split(',') if x.strip()))[:30] or ['General']
+    if form.get('installer_id'):
+        source = db.session.get(SoftwarePackage, str(form['installer_id']))
+        installer = json.loads(source.record) if source else {}
+        if installer.get('kind') != 'installer' or not public_package(installer)['prepared']:
+            raise ValueError('Choose a ready installer from Installers first.')
+        record.update(installer_id=installer['id'], blob_sha256=installer['blob_sha256'],
+                      sha256=installer['blob_sha256'], size=installer['size'], preparation='Ready',
+                      original_filename=installer.get('original_filename'), external_url='')
+        record['package_type'] = installer['package_type']
     expected = str(form.get('sha256') or '').strip().lower()
     if expected and not re.fullmatch('[a-f0-9]{64}', expected):
         raise ValueError('SHA-256 must contain 64 hexadecimal characters.')
