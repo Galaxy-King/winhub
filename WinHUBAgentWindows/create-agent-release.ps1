@@ -99,7 +99,10 @@ if (Test-Path -LiteralPath $zipPath) {
 }
 Compress-Archive -Path (Join-Path $publishDir "*") -DestinationPath $zipPath
 
-$hash = (Get-FileHash -LiteralPath $zipPath -Algorithm SHA256).Hash
+$hashStream = [IO.File]::OpenRead((Resolve-Path -LiteralPath $zipPath).Path)
+$hashAlgorithm = [Security.Cryptography.SHA256]::Create()
+try { $hash = [BitConverter]::ToString($hashAlgorithm.ComputeHash($hashStream)).Replace('-', '') }
+finally { $hashStream.Dispose(); $hashAlgorithm.Dispose() }
 $manifest = [ordered]@{
     version = $Version
     created_at_utc = (Get-Date).ToUniversalTime().ToString("o")

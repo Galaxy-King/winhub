@@ -1,7 +1,7 @@
 /* Software uses DOM text nodes for all catalogue, group and host supplied text. */
 const swState = {packages: [], hosts: [], sets: new Set(), packagesSelected: new Set(), hostsSelected: new Set(), settings: {}, panel: 'library', polling: false, pages: {}, canViewQueue: false, groups: [], groupsSelected: new Set(), targetDraft: null, targetFocus: null};
 const swLabels = {Queued: 'Queued', Active: 'Running', Success: 'Success', Error: 'Error',
-    Skipped: 'Skipped', RebootRequired: 'Reboot required', Cancelled: 'Cancelled',
+    Pending: 'Waiting for agent', PickedUp: 'Received by agent', SoftwareQueued: 'Waiting for capacity', Active: 'Preparing delivery', Skipped: 'Skipped', RebootRequired: 'Reboot required', Cancelled: 'Cancelled',
     Running: 'Running', Paused: 'Paused', Cancelling: 'Finishing active operations'};
 
 function swElement(tag, text, cls) {
@@ -139,7 +139,7 @@ function renderSoftwareRegistry() {
                     const approve = swElement('button', 'Review and approve', 'sw-button'); approve.type = 'button';
                     approve.addEventListener('click', () => swApprove(p)); row.append(approve);
                 }
-                if (p.preparation_error) details.append(swElement('span', `Download error: ${p.preparation_error} Next: open Installers to test the link, or Edit to replace the installer.`, 'block text-xs mt-2'));
+                if (!p.prepared && p.preparation_error) details.append(swElement('span', `Download error: ${p.preparation_error} Next: open Installers to test the link, or Edit to replace the installer.`, 'block text-xs mt-2'));
                 details.append(swElement('span', p.approved ? 'Recipes approved. Choose targets to deploy.' : 'Next: save recipes, then ask a superadmin to Review and approve.', 'block text-xs mt-2'));
                 const remove = swElement('button', 'Delete', 'sw-button text-rose-700'); remove.type = 'button';
                 remove.addEventListener('click', () => swDeletePackage(p)); row.append(remove);
@@ -334,6 +334,7 @@ function swEditPackage(pkg) {
         if (field?.tagName === 'SELECT' && key.endsWith('_template_id') && value && ![...field.options].some(o => o.value === value)) {
             field.add(new Option('Unavailable or unapproved Workspace template', value));
         }
+        if (key === 'update_requires_installer' && field) { field.value = value ? '1' : '0'; return; }
         if (field && field.type !== 'file' && field.type !== 'checkbox') field.value = key === 'sets' ? value.join(', ') : value ?? '';
     });
     form.elements.package_id.value = pkg.id;

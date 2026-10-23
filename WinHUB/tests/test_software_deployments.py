@@ -257,7 +257,12 @@ class SoftwareTests(unittest.TestCase):
         anonymous = self.app.test_client()
         self.assertEqual(anonymous.get(url).status_code, 403)
         self.assertEqual(anonymous.get(url, headers={'Authorization': 'Bearer invalid'}).status_code, 403)
-        headers = {'Authorization': 'Bearer ' + cfg['token']}
+        delivery = json.loads(task.payload)['__software_package']
+        self.assertEqual(delivery['path'], url)
+        self.assertNotIn('https://', delivery['path'])
+        self.assertTrue(cfg['agent_download'])
+        self.assertEqual(cfg['url'], '')
+        headers = {'Authorization': 'Bearer ' + delivery['token']}
         self.assertEqual(anonymous.get(url, headers=headers).status_code, 403)  # not picked up
         task.status = 'PickedUp'
         db.session.commit()
@@ -352,6 +357,32 @@ class SoftwareTests(unittest.TestCase):
             sess['api_key_auth'] = True
         self.assertEqual(self.launch(package).status_code, 403)
 
+    @unittest.skipUnless(os.name == 'nt' and shutil.which('powershell.exe'), 'Windows PowerShell required')
+    def test_agent_delivered_package_wrapper_executes_detect_and_rejects_bad_hash(self):
+        root = Path(self.temp.name)
+        source = root / 'downloaded.bin'
+        source.write_bytes(b'verified fixture')
+        digest = hashlib.sha256(source.read_bytes()).hexdigest()
+        record = dict(name='Fixture', version='1', sha256=digest, package_type='exe', detection_type='none',
+                      expected_exit_codes='0,3010', resolved_script='Write-Output "fixture recipe executed"')
+        wrapper = root / 'wrapper.ps1'
+        env = dict(os.environ, WINHUB_SOFTWARE_PACKAGE_FILE=str(source))
+        def run():
+            wrapper.write_text(software.make_script(record, 'install', agent_download=True), encoding='utf-8-sig')
+            return subprocess.run(['powershell.exe', '-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-File', str(wrapper)], env=env, capture_output=True, text=True, timeout=30)
+        result = run()
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertIn('fixture recipe executed', result.stdout)
+        record['sha256'] = '0' * 64
+        result = run()
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn('SHA-256 mismatch', result.stdout)
+        record.update(detection_type='file_exists', detection_value=str(source))
+        result = run()
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertIn('already satisfied', result.stdout)
+        self.assertFalse(list(root.glob('software_*')))
+
     def test_script_preserves_tls_and_captures_child_exit_and_quoted_metadata(self):
         script = software.make_script(dict(name="a'$(bad)", version='1', sha256='a'*64, package_type='msi',
                                            resolved_script='exit 3010', expected_exit_codes='0,3010'),
@@ -426,6 +457,13 @@ class SoftwareTests(unittest.TestCase):
         self.assertEqual(self.client.post(url, json={'revision': software.recipe_hash(package)}).status_code, 200)
         record = json.loads(db.session.get(SoftwarePackage, 'app1').record)
         self.assertTrue(software.public_package(record)['approved'])
+
+    def test_update_script_only_has_no_download_capability(self):
+        package = self.package(file=(io.BytesIO(b'msi'), 'fixture.msi'), update_command='exit 0', update_requires_installer='0')
+        self.launch(package, operation='update')
+        software.process_queue()
+        payload = json.loads(AgentTask.query.one().payload)
+        self.assertNotIn('__software_package', payload)
 
     def test_link_probe_api_and_safe_errors(self):
         with mock.patch.object(software, 'prepare_url', return_value={'content_length': 42}) as probe:

@@ -288,6 +288,9 @@ def scheduled_cleanup(*args):
             for changed_task in changed_history_tasks:
                 index_agent_task(changed_task)
 
+        from core.database import AgentContactHour
+        AgentContactHour.query.filter(AgentContactHour.hour < now - timedelta(days=30)).delete()
+
         # Telemetry has an independent, typically much shorter retention window.
         telemetry_days = int(global_app.config.get('TELEMETRY_RETENTION_DAYS', 30) or 0)
         if telemetry_days > 0:

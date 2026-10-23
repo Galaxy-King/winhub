@@ -235,6 +235,9 @@ class Endpoint(db.Model):
     identity_duplicate_allowed = db.Column(db.Boolean, default=False, index=True)
     reenroll_allowed_until = db.Column(db.DateTime, nullable=True, index=True)
 
+    last_poll_at = db.Column(db.DateTime, nullable=True)
+    next_contact_min = db.Column(db.DateTime, nullable=True)
+    next_contact_max = db.Column(db.DateTime, nullable=True)
     last_seen = db.Column(db.DateTime, default=datetime.utcnow, index=True)
     is_blocked = db.Column(db.Boolean, default=False, index=True)
 
@@ -245,6 +248,15 @@ class Endpoint(db.Model):
     tasks = db.relationship('AgentTask', back_populates='endpoint', passive_deletes=True)
     telemetry = db.relationship('TelemetryHistory', back_populates='endpoint', cascade="all, delete-orphan", lazy='dynamic')
     metrics = db.relationship('EndpointMetric', back_populates='endpoint', cascade="all, delete-orphan", lazy='dynamic')
+
+class AgentContactHour(db.Model):
+    __tablename__ = 'agent_contact_hours'
+    endpoint_id = db.Column(db.String(100), db.ForeignKey('endpoints.id', ondelete='CASCADE'), primary_key=True)
+    hour = db.Column(db.DateTime, primary_key=True)
+    contacts = db.Column(db.Integer, nullable=False, default=0)
+    late_contacts = db.Column(db.Integer, nullable=False, default=0)
+    max_gap_seconds = db.Column(db.Integer, nullable=False, default=0)
+
 
 class EndpointDuplicateException(db.Model):
     __tablename__ = 'endpoint_duplicate_exceptions'

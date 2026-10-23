@@ -138,3 +138,72 @@ systemctl show WINHUB_TASK_UNIT.service -p MemoryMax -p MemorySwapMax -p TasksMa
 - macOS managed compatibility build/self-test та NuGet vulnerable-package audit Windows/Linux (відомих vulnerable packages за поточними feeds не знайдено). Це не аудит вбудованого runtime/ОС або native Mac release.
 
 Жодна з цих перевірок не замінює ваші service install/update/rollback/power-loss випробування та незалежну security-перевірку. Commit/push/deployment автоматично не виконувалися.
+
+
+## Lean agent 2.0.1-rc.1
+
+Цей кандидат прибирає автономну performance/security telemetry, додає Software download через власний ServerUrl Windows-агента та виправляє durable identity split Windows/Linux. Сервер потребує міграції `20261023_01`. Старі агенти продовжують користуватися legacy telemetry; новий transport Software вимагає capability `software-delivery-v1`.
+
+### Оновлення існуючого сервера (SSH, root)
+
+Після push у `codex/software-deployments` виконайте на сервері (checkout поза `/opt/winhub`):
+
+```bash
+(
+set -e
+cd /root/winhub-software-update
+git switch codex/software-deployments
+git pull --ff-only
+bash WinHUB/deploy/debian/update_winhub.sh /root/winhub-software-update/WinHUB
+/opt/winhub/deploy/debian/healthcheck_winhub.sh
+systemctl status winhub winhub-agent --no-pager
+)
+```
+
+Якщо checkout відсутній, спочатку `git clone --branch codex/software-deployments --single-branch https://github.com/Galaxy-King/winhub.git /root/winhub-software-update`. Не копіюйте весь Git checkout у встановлену програму. Updater створює backup до заміни, застосовує міграції та healthcheck. Після оновлення відкрийте UI через Ctrl+F5.
+
+### Збірки та підписування
+
+Збирайте з повного checkout. Windows PowerShell із кореня Git:
+
+```powershell
+& .\WinHUBAgentWindows\create-agent-release.ps1 -Version 2.0.1-rc.1 -OutputDir (Join-Path (Get-Location) 'WinHUBAgentWindows\dist-agent')
+```
+
+Linux/WSL Bash із кореня Git:
+
+```bash
+bash WinHUBLinuxAgent/create-linux-agent-release.sh 2.0.1-rc.1 linux-x64
+```
+
+Якщо архів уже існує, не перезаписуйте його; використайте вже перевірений build або нову версію для інших bytes. Build archives unsigned. Новий ключ заради цього update не створюється: потрібен чинний publisher key, якому вже довіряють агенти. На signing-комп'ютері у PowerShell:
+
+```powershell
+$version = '2.0.1-rc.1'
+$python = '.\WinHUB\.venv\Scripts\python.exe'
+$publisher = '.\WinHUBLinuxAgent\tools\sign-release.py'
+$wm = Get-Content ".\WinHUBAgentWindows\dist-agent\WinHUBAgent-v$version-win-x64.manifest.json" -Raw | ConvertFrom-Json
+$lm = Get-Content ".\WinHUBLinuxAgent\dist-agent\WinHUBLinuxAgent-v$version-linux-x64.tar.gz.manifest.json" -Raw | ConvertFrom-Json
+$windowsSource = $wm.publish_directory
+$linuxSource = Join-Path (Resolve-Path '.\WinHUBLinuxAgent\dist-agent') (Split-Path -Leaf $lm.publish_directory)
+$keyPath = Read-Host 'Path to EXISTING publisher private PEM outside Git/cloud folders'
+[long]$windowsSerial = Read-Host 'Next unused Windows release serial greater than previous releases'
+[long]$linuxSerial = Read-Host 'Next unused Linux release serial greater than previous releases'
+& $python $publisher sign --source $windowsSource --output ".\WinHUBAgentWindows\dist-agent\signed\WinHUBAgent-v$version-win-x64.zip" --key $keyPath --platform windows --architecture x64 --version $version --serial $windowsSerial
+if ($LASTEXITCODE -ne 0) { throw 'Windows signing failed' }
+& $python $publisher sign --source $linuxSource --output ".\WinHUBLinuxAgent\dist-agent\signed\WinHUBLinuxAgent-v$version-linux-x64.tar.gz" --key $keyPath --platform linux --architecture x64 --version $version --serial $linuxSerial
+if ($LASTEXITCODE -ne 0) { throw 'Linux signing failed' }
+```
+
+Пароль вводиться локально інструменту підписування. Private key не переноситься на сервер або хости. У Fleet Center завантажте архіви з `dist-agent/signed/` із SHA-256, виведеними signer. Попередні release gates цього документа залишаються чинними.
+
+### Перевірка перед хвилями оновлення
+
+1. Оновіть один Windows endpoint, наприклад WIN-TER36170, і один Linux endpoint. Переконайтеся, що вони показують `2.0.1-rc.1`, надсилають poll і виконують просту підписану задачу. Не запускайте масове оновлення до цього.
+2. Стару невдалу Software deployment завершіть/скасуйте через Deployments. Створіть нову з одного хоста, паралельністю 1 та чинною Detection rule. Очікуйте результат пропуску вже встановленого WireGuard. Чистий install/uninstall перевіряйте на окремій тестовій ВМ, де VPN не є єдиним шляхом адміністрування.
+3. Перевірте новий deployment через локальний ServerUrl і окремо на зовнішньому endpoint. У журналі сервера мають бути delivery requests без відкритих URL-токенів. Не вимикайте pin/TLS.
+4. У Review Center для shared identity виберіть **Split this VM identity** для кожної додаткової сесії. Для п'яти ВМ потрібні чотири завершені split; остання лишається на первинній ідентичності. Перевірте кожну після перезапуску, окремо виконайте задачі й переконайтеся, що результати належать правильним ВМ. Keep both лише приймає схожі записи з незалежними credentials.
+5. Перевірте паспорт: останній poll, очікуване вікно наступного контакту й погодинні серверні спостереження. Відсутність observations означає unknown, а не доведене вимкнення хоста. Request detailed inventory повертає JSON у Task History; автоматичні CPU/RAM/security перевірки не відновлюються.
+6. Далі запускайте хвилі через Fleet Center з малим wave size і лімітом помилок. Перевіряйте Windows/Linux окремо. macOS shared code проходить managed validation; native release/signing перевіряються на Mac.
+
+Локальні тести та NativeAOT self-tests не є перевіркою реального production upgrade, клонованих ВМ чи встановлення WireGuard. Ці кроки виконуються оператором через SSH/Fleet Center за фактичними результатами.

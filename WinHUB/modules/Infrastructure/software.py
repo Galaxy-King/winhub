@@ -170,9 +170,6 @@ def create_deployment():
             raise PermissionError('The selection includes blocked or unapproved endpoints.')
         if any((h.os_type or '').lower() != 'windows' for h in hosts):
             raise ValueError('These Software recipes support Windows only. Remove Linux and macOS endpoints from the selection.')
-        base_url = helpers().usable_agent_public_base_url() or request.url_root.rstrip('/')
-        if urlsplit(base_url).scheme != 'https':
-            raise ValueError('Software delivery requires HTTPS on WinHUB.')
         with service.LOCAL_LOCK:
             control = service.lock_control()
             service.import_legacy(control)
@@ -211,7 +208,7 @@ def create_deployment():
                     raise ValueError('Prepare the OMV package first: ' + package['name'])
                 snapshot.pop('external_url', None)
                 snapshot.pop('approved_hash', None)
-                plans.append(dict(package=snapshot, operation=operation, base_url=base_url))
+                plans.append(dict(package=snapshot, operation=operation))
             parallelism = int(data.get('parallelism', 2))
             if not 1 <= parallelism <= service.settings(control)['max_hosts']:
                 raise ValueError('Concurrent endpoints exceed the global limit.')
@@ -301,7 +298,7 @@ def register(bp):
             result.append(dict(id=deployment.id, status=deployment.status, created_at=deployment.created_at.isoformat() + 'Z',
                                total=total, completed=total-counts.get('Queued', 0)-counts.get('Active', 0),
                                page=page, has_more=(page + 1) * 100 < total,
-                               steps=[dict(id=s.id, host=s.endpoint_id, position=s.position, status=s.status,
+                               steps=[dict(id=s.id, host=s.endpoint_id, position=s.position, status=(db.session.get(AgentTask, s.task_id).status if s.status == 'Active' and s.task_id and db.session.get(AgentTask, s.task_id) else s.status),
                                            name=s.package_name, message=s.message, task_id=s.task_id,
                                            resolve_allowed=bool(user.is_admin and s.status == 'Active' and s.message))
                                       for s in rows if s.endpoint_id in allowed]))

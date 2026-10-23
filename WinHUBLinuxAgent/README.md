@@ -185,3 +185,13 @@ sudo systemctl is-active winhub-linux-agent
 sudo systemctl status winhub-linux-agent --no-pager
 sudo journalctl -u winhub-linux-agent -n 50 --no-pager
 ```
+
+## Lean agent and clone recovery (2.0.1-rc.1)
+
+Automatic CPU/RAM/disk telemetry and periodic security inventory collection have been removed. Authenticated polls carry only a small host passport, identity and version; signatures, task journals and replay protection remain mandatory. `telemetry_after` is retained in the server protocol for older agents but is ignored by lean agents. Detailed inventory is an explicit signed `inventory` task with no script, available from the host card; its JSON result is in Task History. Collectors are bounded to one instance and a 120-second response deadline. Pending inventory has lower dispatch priority than ordinary tasks; it is not continuous monitoring.
+
+Identity splitting clears the old endpoint task signing key and sequence in both protected state and runtime config. Recovery remains durable if interrupted; the agent reloads the new identity in-process, without relying on service recovery exit code 75. Use Review Center to split every additional clone session (3+ supported); accepting similar host records alone does not rotate copied credentials. Old agents without `identity-split-v1` need a controlled upgrade before remote splitting.
+
+Windows Software downloads require `software-delivery-v1`: signed task metadata contains a relative delivery path, size, hash and temporary capability. The agent uses its own configured `ServerUrl` and existing pinned HTTPS client, with no redirects, cross-origin downloads or TLS bypass. Linux/macOS Software installation recipes remain unsupported.
+
+Update instructions and publisher signing: [release acceptance](../WinHUB-WiKi/guides/agents/AGENT_RELEASE_ACCEPTANCE_UA.md#lean-agent-201-rc1).

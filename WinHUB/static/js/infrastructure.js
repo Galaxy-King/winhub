@@ -4124,7 +4124,7 @@ async function mergeSelectedDuplicates(preference) {
 async function acceptSelectedDuplicatePairs() {
     const pairs = duplicateSelection();
     if (!pairs.length) return alert('Select duplicate pairs first.');
-    if (!confirm(`Keep both records for ${pairs.length} selected duplicate pair(s)? They will remain approved and will no longer be shown as identity duplicates.`)) return;
+    if (!confirm(`Keep both records for ${pairs.length} selected duplicate pair(s)? This accepts matching host details only; shared credentials still require identity splitting.`)) return;
     for (const pair of pairs) {
         const [first, second] = pair.split('|');
         if (!first || !second) continue;
@@ -5456,58 +5456,37 @@ async function viewHost(id) {
             </div>
         `).join('') || '<span class="text-slate-400 italic text-sm">No network inventory received</span>';
         const hostInfo = d.host_info || {};
-        const volumes = Array.isArray(hostInfo.volumes) ? hostInfo.volumes : [];
-        const security = hostInfo.security || {};
-        const encryption = d.encryption || {};
-        const bitlocker = security.bitlocker || {};
-        const fmtBool = (v) => v === true ? 'Yes' : (v === false ? 'No' : '-');
-        const fmtBytes = (gb) => Number.isFinite(Number(gb)) ? `${gb} GB` : '-';
-        const encryptionClass = encryption.level === 'encrypted'
-            ? 'bg-emerald-50 text-emerald-700 border-emerald-100'
-            : (encryption.level === 'partial' ? 'bg-amber-50 text-amber-700 border-amber-100' : (encryption.level === 'none' ? 'bg-rose-50 text-rose-700 border-rose-100' : 'bg-slate-100 text-slate-500 border-slate-200'));
+        const contact = d.contact || {};
         document.getElementById('mHostInfo').innerHTML = `
-            <div class="bg-white border border-slate-200 rounded-2xl p-3 space-y-2">
-                <div class="flex justify-between gap-3"><span class="text-slate-400 font-bold">FQDN</span><span class="text-slate-700 font-mono text-right break-all">${escapeHtml(hostInfo.fqdn || '-')}</span></div>
-                <div class="flex justify-between gap-3"><span class="text-slate-400 font-bold">Domain</span><span class="text-slate-700 text-right">${escapeHtml(hostInfo.domain_name || hostInfo.user_domain_name || '-')}</span></div>
-                <div class="flex justify-between gap-3"><span class="text-slate-400 font-bold">Domain Joined</span><span class="text-slate-700">${fmtBool(hostInfo.likely_domain_joined)}</span></div>
-                <div class="flex justify-between gap-3"><span class="text-slate-400 font-bold">CPU / RAM</span><span class="text-slate-700">${hostInfo.processor_count || '-'} cores / ${hostInfo.total_memory_mb ? Math.round(hostInfo.total_memory_mb / 1024) + ' GB' : '-'}</span></div>
-                <div class="flex justify-between gap-3"><span class="text-slate-400 font-bold">Timezone</span><span class="text-slate-700 text-right">${escapeHtml(hostInfo.timezone || '-')}</span></div>
-                <div class="flex justify-between gap-3"><span class="text-slate-400 font-bold">Boot UTC</span><span class="text-slate-700 font-mono text-[10px] text-right">${escapeHtml(hostInfo.boot_time_utc || '-')}</span></div>
-                <div class="flex justify-between gap-3"><span class="text-slate-400 font-bold">First Seen</span><span class="text-slate-700 font-mono text-[10px] text-right">${escapeHtml(d.first_seen || '-')}</span></div>
-                <div class="flex justify-between gap-3"><span class="text-slate-400 font-bold">Last Enrollment</span><span class="text-slate-700 font-mono text-[10px] text-right">${escapeHtml(d.last_enrollment_at || '-')}</span></div>
-                <div class="flex justify-between gap-3"><span class="text-slate-400 font-bold">Enroll IP</span><span class="text-slate-700 font-mono text-[10px] text-right">${escapeHtml(d.last_enrollment_ip || '-')}</span></div>
-                <div class="flex justify-between gap-3"><span class="text-slate-400 font-bold">Attempts</span><span class="text-slate-700 font-black">${d.enrollment_attempts || 0}</span></div>
-            </div>
-            ${identityWarning}
-            ${identityDuplicateWarning}
-            ${volumes.length ? volumes.map(v => `
-                <div class="bg-white border border-slate-200 rounded-2xl p-3">
-                    <div class="font-black text-slate-700">${escapeHtml(v.name || 'Volume')} ${v.label ? '/ ' + escapeHtml(v.label) : ''}</div>
-                    <div class="text-[10px] text-slate-400 font-bold mt-1">${escapeHtml(v.type || '-')} / ${escapeHtml(v.format || '-')} / ${v.ready ? 'Ready' : 'Not ready'}</div>
-                    <div class="font-mono text-[10px] text-slate-600 mt-2">Free: ${fmtBytes(v.free_gb)} / Total: ${fmtBytes(v.total_gb)}</div>
-                </div>
-            `).join('') : ''}
-        `;
-        document.getElementById('mSecurityInfo').innerHTML = `
-            <div class="bg-white border border-slate-200 rounded-2xl p-3 space-y-2">
-                <div class="flex justify-between gap-3 items-center"><span class="text-slate-400 font-bold">Encryption</span><span class="px-3 py-1 rounded-xl border text-[10px] font-black uppercase ${encryptionClass}">${escapeHtml(encryption.status || 'Unknown')}</span></div>
-                <div class="flex justify-between gap-3"><span class="text-slate-400 font-bold">Methods</span><span class="text-slate-700 text-right">${(encryption.methods || []).map(escapeHtml).join(', ') || '-'}</span></div>
-                <div class="flex justify-between gap-3"><span class="text-slate-400 font-bold">Pending Reboot</span><span class="${security.pending_reboot ? 'text-amber-600' : 'text-emerald-600'} font-black">${fmtBool(security.pending_reboot)}</span></div>
-                <div class="flex justify-between gap-3"><span class="text-slate-400 font-bold">Firewall Domain</span><span class="text-slate-700">${escapeHtml(security.firewall_domain || '-')}</span></div>
-                <div class="flex justify-between gap-3"><span class="text-slate-400 font-bold">Firewall Private</span><span class="text-slate-700">${escapeHtml(security.firewall_private || '-')}</span></div>
-                <div class="flex justify-between gap-3"><span class="text-slate-400 font-bold">Firewall Public</span><span class="text-slate-700">${escapeHtml(security.firewall_public || '-')}</span></div>
-                <div class="flex justify-between gap-3"><span class="text-slate-400 font-bold">Defender</span><span class="text-slate-700">${escapeHtml(security.defender_service_state || '-')}</span></div>
-                <div class="flex justify-between gap-3"><span class="text-slate-400 font-bold">VeraCrypt</span><span class="${security.veracrypt_detected ? 'text-emerald-600' : 'text-slate-500'} font-black">${fmtBool(security.veracrypt_detected)}</span></div>
-                <div class="flex justify-between gap-3"><span class="text-slate-400 font-bold">TrueCrypt</span><span class="${security.truecrypt_detected ? 'text-emerald-600' : 'text-slate-500'} font-black">${fmtBool(security.truecrypt_detected)}</span></div>
-                <div class="pt-2 border-t border-slate-100 grid grid-cols-2 gap-2 text-[10px]">
-                    <div><span class="text-slate-400 font-bold block">BitLocker Status</span><span class="text-slate-700 font-black uppercase">${escapeHtml(bitlocker.status || 'unknown')}</span></div>
-                    <div><span class="text-slate-400 font-bold block">Encrypted</span><span class="text-slate-700 font-black">${Number.isFinite(Number(bitlocker.encrypted_percentage)) && Number(bitlocker.encrypted_percentage) >= 0 ? Number(bitlocker.encrypted_percentage) + '%' : '-'}</span></div>
-                    <div><span class="text-slate-400 font-bold block">Protection</span><span class="text-slate-700 font-black uppercase">${escapeHtml(bitlocker.protection_status || 'unknown')}</span></div>
-                    <div><span class="text-slate-400 font-bold block">Conversion</span><span class="text-slate-700 font-black uppercase">${escapeHtml(bitlocker.conversion_status || 'unknown')}</span></div>
-                </div>
-                <div class="pt-2 border-t border-slate-100"><span class="text-slate-400 font-bold block mb-1">BitLocker</span><span class="font-mono text-[10px] text-slate-600 whitespace-pre-wrap break-words">${escapeHtml(security.bitlocker_summary || '-')}</span></div>
-            </div>
-        `;
+            <div class="rounded-2xl p-3 space-y-2 border border-slate-600">
+                <div>Domain: ${escapeHtml(hostInfo.domain_name || '-')}</div>
+                <div>Architecture: ${escapeHtml(hostInfo.os_architecture || '-')}</div>
+                <div>Last authenticated poll: ${escapeHtml(contact.last_poll || 'No contact history yet')}</div>
+                <div>Next contact expected: ${escapeHtml(contact.expected_min || '-')} — ${escapeHtml(contact.expected_max || '-')}</div>
+                <p>Expected time includes polling jitter; a running task can delay the next poll. Automatic performance telemetry is disabled on lean agents.</p>
+            </div>${identityWarning}${identityDuplicateWarning}`;
+        const history = document.getElementById('mSecurityInfo');
+        history.replaceChildren();
+        const legend = document.createElement('p');
+        legend.textContent = 'Server-observed contacts · last 24 hours (UTC). Bars show authenticated poll counts, not host uptime. Empty hours are unknown; late polls can indicate a network, agent or server interruption.';
+        history.append(legend);
+        const bars = document.createElement('div'); bars.style.cssText = 'display:flex;align-items:flex-end;gap:3px;height:90px;margin-top:12px';
+        const hours = contact.hours || [];
+        const peak = Math.max(1, ...hours.map(h => h.contacts));
+        const nowHour = new Date(); nowHour.setUTCMinutes(0,0,0);
+        for (let i = 23; i >= 0; i--) {
+            const stamp = new Date(nowHour.getTime() - i * 3600000).toISOString();
+            const h = hours.find(h => new Date(h.hour).getTime() === new Date(stamp).getTime());
+            const bar = document.createElement('div');
+            bar.style.cssText = `flex:1;min-width:2px;height:${h ? Math.max(5, h.contacts / peak * 80) : 3}px;background:${h ? h.late ? '#fbbf24' : '#34d399' : '#64748b'}`;
+            bar.title = `${stamp}: ${h ? `${h.contacts} contacts, ${h.late} late, max gap ${h.max_gap}s` : 'No observations'}`;
+            bar.setAttribute('aria-label', bar.title); bars.append(bar);
+        }
+        history.append(bars);
+        if (window.WinhubCanRequestInventory) {
+            const button = document.createElement('button'); button.className = 'sw-button mt-3'; button.textContent = 'Request detailed inventory';
+            button.addEventListener('click', () => requestDetailedHostInventory(d.id)); history.append(button);
+        }
 
         if (document.getElementById('btnBlockHost')) document.getElementById('btnBlockHost').innerText = d.is_blocked ? "Unblock Host" : "Block Host";
         if (document.getElementById('btnApproveHost')) document.getElementById('btnApproveHost').classList.toggle('hidden', approval === 'Approved');
@@ -5650,7 +5629,7 @@ async function mergeEndpointDuplicate(keepId, removeId) {
     reloadKeepingNodeContext('review');
 }
 async function acceptEndpointDuplicatePair(leftId, rightId) {
-    if (!confirm('Keep both endpoint records? Use this for real cloned servers that must stay as separate nodes. This pair will no longer be shown as an identity duplicate.')) return;
+    if (!confirm('Keep both endpoint records? Use this for real cloned servers that must stay as separate nodes. This accepts matching host details only. Shared agent credentials still require Split this VM identity.')) return;
     const res = await fetch('/api/infrastructure/host/duplicate-exception', {
         method: 'POST',
         headers: {'Content-Type': 'application/json'},
@@ -5941,3 +5920,14 @@ async function cleanupTasks(d) { await fetch('/api/infrastructure/tasks/cleanup'
 function confirmDeleteHostFromTable(id, n) { currentViewedHostId = id; const el = document.getElementById('confName'); if(el) el.innerText = n; openModal('confirmModal'); }
 function confirmDeleteHost() { const elName = document.getElementById('mName'); const elConf = document.getElementById('confName'); if(elName && elConf) elConf.innerText = elName.innerText; openModal('confirmModal'); }
 if(document.getElementById('finalDelBtn')) document.getElementById('finalDelBtn').onclick = async () => { await fetch('/api/infrastructure/host/' + currentViewedHostId, { method: 'DELETE' }); location.reload(); };
+
+async function requestDetailedHostInventory(id) {
+    const reason = await askTaskLaunchReason('Request detailed inventory? Results will appear in Task History.');
+    if (!reason) return;
+    try {
+        const response = await fetch(`/api/infrastructure/host/${encodeURIComponent(id)}/request-inventory`, {
+            method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({launch_reason:reason})});
+        const data = await response.json();
+        alert(response.ok && data.success ? 'Inventory queued. View the result in Task History.' : data.message || 'Inventory request failed.');
+    } catch { alert('Inventory request failed. Check the connection.'); }
+}

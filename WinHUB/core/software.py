@@ -190,7 +190,7 @@ def recipe_hash(record):
     keys = ('name', 'version', 'blob_sha256', 'package_type', 'architecture', 'install_command',
             'update_command', 'uninstall_command', 'detection_type', 'detection_value',
             'expected_exit_codes', 'timeout_seconds', 'install_template_id', 'update_template_id',
-            'uninstall_template_id')
+            'uninstall_template_id', 'update_requires_installer')
     return hashlib.sha256(json.dumps({k: record.get(k) for k in keys}, sort_keys=True,
                                      ensure_ascii=False).encode()).hexdigest()
 
@@ -211,6 +211,8 @@ def save_package(package_id, form, upload, user):
     old = db.session.get(SoftwarePackage, package_id)
     record = json.loads(old.record) if old else {'id': package_id}
     previous = dict(record)
+    if 'update_requires_installer' in form:
+        record['update_requires_installer'] = str(form['update_requires_installer']) == '1'
     for key, limit in dict(name=160, version=80, vendor=160, notes=4096, external_url=2048,
                            install_command=12000, update_command=12000, uninstall_command=12000,
                            detection_type=40, detection_value=4096, expected_exit_codes=120,
@@ -246,7 +248,7 @@ def save_package(package_id, form, upload, user):
             raise ValueError('Choose a ready installer from Installers first.')
         record.update(installer_id=installer['id'], blob_sha256=installer['blob_sha256'],
                       sha256=installer['blob_sha256'], size=installer['size'], preparation='Ready',
-                      original_filename=installer.get('original_filename'), external_url='')
+                      original_filename=installer.get('original_filename'), external_url='', preparation_error='')
         record['package_type'] = installer['package_type']
     expected = str(form.get('sha256') or '').strip().lower()
     if expected and not re.fullmatch('[a-f0-9]{64}', expected):
@@ -368,12 +370,12 @@ def resolve_recipe(record, operation):
     return script
 
 
-def make_script(record, operation, url='', token=''):
+def make_script(record, operation, url='', token='', *, agent_download=False):
     """Embed data as base64 JSON; only the reviewed recipe is executable code."""
     import base64
     data = {k: record.get(k) for k in ('name', 'version', 'sha256', 'package_type',
                                       'detection_type', 'detection_value', 'expected_exit_codes')}
-    data.update(url=url, token=token, operation=operation)
+    data.update(url=url, token=token, operation=operation, agent_download=agent_download)
     data['timeout_seconds'] = int(record.get('timeout_seconds') or 1800)
     encoded = base64.b64encode(json.dumps(data, ensure_ascii=False).encode()).decode()
     script = record['resolved_script']
@@ -391,6 +393,12 @@ $WorkDir = Join-Path $WorkRoot ('software_' + [guid]::NewGuid().ToString('N'))
 $PowerShellExe = Join-Path ([Environment]::GetFolderPath('System')) 'WindowsPowerShell\\v1.0\\powershell.exe'
 $ExtractDir = Join-Path $WorkDir 'extracted'
 $PackageFile = Join-Path $WorkDir ('package.' + $cfg.package_type)
+function Get-SoftwareSha256([string]$Path) {
+    $stream = [IO.File]::OpenRead($Path)
+    $sha = [Security.Cryptography.SHA256]::Create()
+    try { return [BitConverter]::ToString($sha.ComputeHash($stream)).Replace('-', '').ToLowerInvariant() }
+    finally { $stream.Dispose(); $sha.Dispose() }
+}
 function Test-SoftwareState {
     if ($cfg.detection_type -eq 'file_exists') { return Test-Path -LiteralPath $cfg.detection_value -PathType Leaf }
     if ($cfg.detection_type -eq 'folder_exists') { return Test-Path -LiteralPath $cfg.detection_value -PathType Container }
@@ -414,6 +422,12 @@ try {
         Write-Output 'The required state is already satisfied; skipped.'
         exit 0
     }
+    if ($cfg.agent_download) {
+        if (-not $env:WINHUB_SOFTWARE_PACKAGE_FILE -or -not (Test-Path -LiteralPath $env:WINHUB_SOFTWARE_PACKAGE_FILE -PathType Leaf)) { throw 'Verified agent package is missing.' }
+        Copy-Item -LiteralPath $env:WINHUB_SOFTWARE_PACKAGE_FILE -Destination $PackageFile
+        if ((Get-SoftwareSha256 $PackageFile) -ne $cfg.sha256) { throw 'SHA-256 mismatch' }
+        if ($cfg.package_type -eq 'zip') { Expand-Archive -LiteralPath $PackageFile -DestinationPath $ExtractDir -Force }
+    }
     if ($cfg.url) {
         [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
         $downloaded = $false
@@ -431,7 +445,7 @@ try {
             }
         }
         if (-not $downloaded) { throw 'The download did not complete.' }
-        if ((Get-FileHash -LiteralPath $PackageFile -Algorithm SHA256).Hash.ToLowerInvariant() -ne $cfg.sha256) { throw 'SHA-256 mismatch' }
+        if ((Get-SoftwareSha256 $PackageFile) -ne $cfg.sha256) { throw 'SHA-256 mismatch' }
         if ($cfg.package_type -eq 'zip') { Expand-Archive -LiteralPath $PackageFile -DestinationPath $ExtractDir -Force }
     }
     $global:LASTEXITCODE = 0
@@ -531,11 +545,13 @@ def process_queue():
                 step.token_hash = hashlib.sha256(token.encode()).hexdigest()
                 step.token_until = now + timedelta(seconds=plan['package']['timeout_seconds'] + 300)
                 task_id = step.task_id or str(uuid.uuid4())
-                download_url = plan['base_url'] + '/api/public/software-delivery/' + step.id
-                needs_file = bool(plan['package'].get('blob_sha256') and plan['operation'] not in ('uninstall', 'detect'))
-                script = make_script(plan['package'], plan['operation'], download_url if needs_file else '', token if needs_file else '')
-                payload = json.dumps(dict(script=script, __software_step_id=step.id,
-                                          __agent_timeout_seconds=plan['package']['timeout_seconds']))
+                download_url = '/api/public/software-delivery/' + step.id
+                needs_file = bool(plan['package'].get('blob_sha256') and plan['operation'] not in ('uninstall', 'detect') and not (plan['operation'] == 'update' and not plan['package'].get('update_requires_installer', True)))
+                script = make_script(plan['package'], plan['operation'], agent_download=needs_file)
+                task_payload = dict(script=script, __software_step_id=step.id, __agent_timeout_seconds=plan['package']['timeout_seconds'])
+                if needs_file:
+                    task_payload['__software_package'] = dict(path=download_url, token=token, sha256=plan['package']['blob_sha256'], size=plan['package']['size'])
+                payload = json.dumps(task_payload)
                 task = db.session.get(AgentTask, task_id)
                 if not task:
                     task = AgentTask(id=task_id, job_id=deployment.id, endpoint_id=host.id,

@@ -16,7 +16,7 @@ from cryptography.exceptions import InvalidSignature
 from cryptography.hazmat.primitives import hashes, serialization
 from cryptography.hazmat.primitives.asymmetric import padding, rsa
 from core.database import (
-    db, Endpoint, EndpointDuplicateException, EndpointInstance,
+    db, Endpoint, AgentContactHour, EndpointDuplicateException, EndpointInstance,
     EndpointIdentityConflict, EndpointIdentityCommand, AgentTask,
     RegistrationHistory, TelemetryHistory, ConnectionIpHistory, EndpointGroup,
     EndpointMetric, TriggerRule, User, TaskTemplate, ScheduledTask,
@@ -88,6 +88,8 @@ def record_endpoint_instance(agent, data):
     if not session_id:
         return None, active_identity_conflict(agent.id)
 
+    # Serialize concurrent clone observations for this endpoint across gateway workers.
+    Endpoint.query.filter_by(id=agent.id).with_for_update().first()
     now = datetime.utcnow()
     EndpointInstance.query.filter(
         EndpointInstance.endpoint_id == agent.id,
@@ -169,22 +171,31 @@ def complete_identity_command_for_new_endpoint(agent, data):
     ).first()
     if not command:
         return
+    Endpoint.query.filter_by(id=command.endpoint_id).with_for_update().first()
     command.status = "Completed"
     command.completed_at = datetime.utcnow()
-    conflict = EndpointIdentityConflict.query.get(command.conflict_id)
+    conflict = EndpointIdentityConflict.query.filter_by(id=command.conflict_id).with_for_update().first()
+    EndpointInstance.query.filter_by(endpoint_id=command.endpoint_id, session_id=command.target_session_id).delete(synchronize_session=False)
+    cutoff = datetime.utcnow() - timedelta(seconds=INSTANCE_LEASE_SECONDS)
+    remaining = EndpointInstance.query.filter(EndpointInstance.endpoint_id == command.endpoint_id, EndpointInstance.last_seen >= cutoff).count()
+    pending = EndpointIdentityCommand.query.filter(EndpointIdentityCommand.conflict_id == command.conflict_id,
+        EndpointIdentityCommand.status.in_(['Pending', 'Delivered']), EndpointIdentityCommand.expires_at >= datetime.utcnow()).count()
+    resolved = remaining <= 1 and pending == 0
     if conflict:
-        conflict.status = "Resolved"
-        conflict.resolution = "Split"
-        conflict.resolved_by = command.created_by
-        conflict.resolved_at = datetime.utcnow()
+        conflict.status = 'Resolved' if resolved else 'Resolving'
+        conflict.resolution = 'Split' if resolved else None
+        conflict.resolved_by = command.created_by if resolved else None
+        conflict.resolved_at = datetime.utcnow() if resolved else None
         conflict.updated_at = datetime.utcnow()
-    EndpointInstance.query.filter_by(
-        endpoint_id=command.endpoint_id,
-        session_id=command.target_session_id,
-    ).delete(synchronize_session=False)
-    old_endpoint = Endpoint.query.get(command.endpoint_id)
+    old_endpoint = db.session.get(Endpoint, command.endpoint_id)
     if old_endpoint:
-        old_endpoint.identity_warning = None
+        old_endpoint.identity_warning = None if resolved else 'More cloned sessions remain. Continue splitting each VM.'
+    # Every completed split is an explicitly authorized distinct node, including 3+ siblings.
+    sibling_ids = [command.endpoint_id] + [c.new_endpoint_id for c in EndpointIdentityCommand.query.filter_by(conflict_id=command.conflict_id, status='Completed').all()]
+    for sibling_id in set(sibling_ids) - {agent.id}:
+        left, right = sorted([sibling_id, agent.id])
+        if not EndpointDuplicateException.query.filter_by(endpoint_a_id=left, endpoint_b_id=right).first():
+            db.session.add(EndpointDuplicateException(endpoint_a_id=left, endpoint_b_id=right, reason='Administrator-authorized identity split', created_by=command.created_by))
     agent.identity_warning = None
     db.session.add(RegistrationHistory(
         hw_id=agent.id,
@@ -283,6 +294,36 @@ def update_agent_connection(agent, instance_session_id=None):
         agent.ip_address = current_ip
         changed = True
     return changed
+
+
+def record_agent_contact(agent, response):
+    """Aggregate authenticated polls by UTC hour, including lateness, not host uptime."""
+    now = datetime.utcnow()
+    hour = now.replace(minute=0, second=0, microsecond=0)
+    gap = max(0, int((now - agent.last_poll_at).total_seconds())) if agent.last_poll_at else 0
+    late = bool(agent.next_contact_max and now > agent.next_contact_max + timedelta(seconds=60))
+    values = dict(endpoint_id=agent.id, hour=hour, contacts=1, late_contacts=int(late), max_gap_seconds=gap)
+    # Atomic upsert avoids losing concurrent contact counts across gateway workers.
+    if db.engine.dialect.name in ('postgresql', 'sqlite'):
+        if db.engine.dialect.name == 'postgresql':
+            from sqlalchemy.dialects.postgresql import insert
+        else:
+            from sqlalchemy.dialects.sqlite import insert
+        from sqlalchemy import case
+        stmt = insert(AgentContactHour).values(**values)
+        stmt = stmt.on_conflict_do_update(index_elements=['endpoint_id', 'hour'], set_={
+            'contacts': AgentContactHour.contacts + 1,
+            'late_contacts': AgentContactHour.late_contacts + int(late),
+            'max_gap_seconds': case((AgentContactHour.max_gap_seconds < gap, gap), else_=AgentContactHour.max_gap_seconds)})
+        db.session.execute(stmt)
+    minimum = response.get('next_poll_after', 75)
+    maximum = minimum + response.get('poll_jitter_seconds', 30)
+    if response.get('status') == 'task':
+        maximum += response.get('timeout_seconds', 1800)
+    agent.last_poll_at = now
+    agent.next_contact_min = now + timedelta(seconds=minimum)
+    agent.next_contact_max = now + timedelta(seconds=maximum)
+    agent.last_seen = now
 
 
 def agent_poll_timing(mode="idle"):
@@ -598,17 +639,32 @@ def verify_poll_signature_cached(agent, data, auth_token):
     return ok, reason
 
 
-def get_pending_task_for_agent(endpoint_id):
+def get_pending_task_for_agent(endpoint_id, *, software_capable=True):
     now = time.monotonic()
     with pending_task_miss_cache_lock:
         missed_at = pending_task_miss_cache.get(endpoint_id)
     if missed_at and now - missed_at <= PENDING_TASK_MISS_CACHE_TTL_SECONDS:
         return None
 
-    task = AgentTask.query.options(load_only(*TASK_DELIVERY_COLUMNS)).filter_by(
-        endpoint_id=endpoint_id,
-        status="Pending",
-    ).order_by(AgentTask.created_at.asc()).with_for_update(skip_locked=True).first()
+    query = AgentTask.query.options(load_only(*TASK_DELIVERY_COLUMNS)).filter_by(
+        endpoint_id=endpoint_id, status="Pending",
+    ).order_by((AgentTask.action_type == 'inventory').asc(), AgentTask.created_at.asc()).with_for_update(skip_locked=True)
+    task = query.first()
+    if task and not software_capable:
+        try:
+            first_payload = json.loads(task.payload or '{}')
+        except (TypeError, ValueError):
+            first_payload = {}
+        if isinstance(first_payload, dict) and first_payload.get('__software_package'):
+            # An incompatible Software task must not prevent its own agent upgrade/preparation.
+            for candidate in query.limit(50).all():
+                try:
+                    candidate_payload = json.loads(candidate.payload or '{}')
+                except (TypeError, ValueError):
+                    candidate_payload = {}
+                if not isinstance(candidate_payload, dict) or not candidate_payload.get('__software_package'):
+                    task = candidate
+                    break
     with pending_task_miss_cache_lock:
         if task:
             pending_task_miss_cache.pop(endpoint_id, None)
@@ -1102,6 +1158,7 @@ def agent_poll():
     if identity_conflict:
         update_agent_connection(agent, session_id)
         agent.last_seen = datetime.utcnow()
+        record_agent_contact(agent, agent_poll_timing("pending"))
         db.session.commit()
         return jsonify({
             "status": "identity_conflict",
@@ -1110,11 +1167,20 @@ def agent_poll():
             **agent_poll_timing("pending"),
         })
 
-    task = get_pending_task_for_agent(agent.id)
+    task = get_pending_task_for_agent(agent.id, software_capable='software-delivery-v1' in str(data.get('identity_capabilities') or ''))
 
     now = datetime.utcnow()
     needs_commit = bool(getattr(agent, "_public_key_plain_backfilled", False))
     refresh_seen = not agent.last_seen or (now - agent.last_seen).total_seconds() > 60
+    if 'lean-agent-v1' in str(data.get('identity_capabilities') or '') and isinstance(data.get('host_info'), dict):
+        passport = {k: str(data['host_info'].get(k) or '')[:255] for k in ('machine_name', 'domain_name', 'os_description', 'os_architecture', 'process_architecture', 'collection_mode')}
+        encoded_passport = json.dumps(passport, ensure_ascii=False)
+        if agent.host_info != encoded_passport:
+            agent.host_info = encoded_passport
+            if passport.get("machine_name"):
+                agent.hostname = passport["machine_name"][:100]
+            apply_endpoint_encryption_status(agent, passport)
+            needs_commit = True
     agent_version = str(data.get('agent_version') or '').strip()[:50]
     if refresh_seen and update_agent_connection(agent, session_id):
         needs_commit = True
@@ -1138,6 +1204,17 @@ def agent_poll():
             needs_commit = True
         if preparation != "ready":
             task = None
+
+    if task:
+        try:
+            software_payload = json.loads(task.payload or '{}')
+        except (TypeError, ValueError):
+            software_payload = {}
+        if isinstance(software_payload, dict) and software_payload.get('__software_package') and 'software-delivery-v1' not in str(data.get('identity_capabilities') or ''):
+            task.result_log = 'Waiting for an agent with software-delivery-v1 support. Update this Windows agent.'
+            needs_commit = True
+            task = None
+            resp = {"status": "upgrade_required", "message": "Software delivery requires an updated Windows agent.", **agent_poll_timing("idle")}
 
     signature_mode = str(getattr(Config, "AGENT_TASK_SIGNATURE_MODE", "dual") or "dual").lower()
     if signature_mode not in {"hmac", "dual", "v2"}:
@@ -1196,8 +1273,8 @@ def agent_poll():
             )
         needs_commit = True
 
-    if needs_commit:
-        db.session.commit()
+    record_agent_contact(agent, resp)
+    db.session.commit()
 
     return jsonify(resp)
 

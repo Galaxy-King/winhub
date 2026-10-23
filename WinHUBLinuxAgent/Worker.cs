@@ -15,8 +15,8 @@ using WinHUB.Security;
 
 namespace WinHUBLinuxAgent;
 
-public record EnrollPayload(string global_token, string hw_id, string hostname, string os_version, string os_type, string agent_version, NetworkInterfaceInfo[] network_interfaces, HostInventoryInfo host_info, string previous_auth_token, string previous_hw_id, string agent_public_key_pem, string agent_key_fingerprint, string identity_capabilities, string instance_session_id, string boot_session_id, string instance_fingerprint, string body_hash, string signed_at, string signed_nonce, string signature);
-public record PollPayload(string hw_id, string auth_token, string agent_version, string agent_public_key_pem, string agent_key_fingerprint, string task_signature_capabilities, string identity_capabilities, string instance_session_id, string boot_session_id, string instance_fingerprint, string body_hash, string signed_at, string signed_nonce, string signature);
+public record EnrollPayload(string global_token, string hw_id, string hostname, string os_version, string os_type, string agent_version, NetworkInterfaceInfo[] network_interfaces, BasicHostInventoryInfo host_info, string previous_auth_token, string previous_hw_id, string agent_public_key_pem, string agent_key_fingerprint, string identity_capabilities, string instance_session_id, string boot_session_id, string instance_fingerprint, string body_hash, string signed_at, string signed_nonce, string signature);
+public record PollPayload(string hw_id, string auth_token, string agent_version, string agent_public_key_pem, string agent_key_fingerprint, string task_signature_capabilities, string identity_capabilities, string instance_session_id, string boot_session_id, string instance_fingerprint, string body_hash, string signed_at, string signed_nonce, string signature, BasicHostInventoryInfo? host_info = null);
 public record TelemetryPayload(string hw_id, string auth_token, string agent_version, double cpu, double ram, double disk_c, HostInventoryInfo? host_info, string agent_public_key_pem, string agent_key_fingerprint, string identity_capabilities, string instance_session_id, string boot_session_id, string instance_fingerprint, string body_hash, string signed_at, string signed_nonce, string signature);
 public record ResultPayload(string hw_id, string auth_token, string agent_version, string task_id, string status, string log, string agent_public_key_pem, string agent_key_fingerprint, string task_signature_v2_key_id, long task_signature_v2_sequence, string identity_capabilities, string instance_session_id, string boot_session_id, string instance_fingerprint, string body_hash, string signed_at, string signed_nonce, string signature);
 public record PendingResult(string task_id, string status, string log, string task_signature_v2_key_id, long task_signature_v2_sequence, string created_at);
@@ -25,6 +25,7 @@ public record VolumeInfo(string name, string label, string format, string type, 
 public record BitLockerInventoryInfo(string status, int encrypted_percentage, string protection_status, string conversion_status, string raw_summary);
 public record LinuxEncryptionInventoryInfo(string status, string[] methods, string root_device, string raw_summary);
 public record SecurityInventoryInfo(bool pending_reboot, string firewall_domain, string firewall_private, string firewall_public, string bitlocker_summary, BitLockerInventoryInfo bitlocker, string defender_service_state, bool veracrypt_detected, bool truecrypt_detected, LinuxEncryptionInventoryInfo? linux_encryption = null);
+public record BasicHostInventoryInfo(string machine_name, string domain_name, string os_description, string os_architecture, string process_architecture, string collection_mode);
 public record HostInventoryInfo(string machine_name, string fqdn, string domain_name, string user_domain_name, bool likely_domain_joined, string os_description, string os_architecture, string process_architecture, string timezone, int processor_count, ulong total_memory_mb, long uptime_seconds, string boot_time_utc, VolumeInfo[] volumes, SecurityInventoryInfo security);
 public readonly record struct PollTiming(int? NextPollAfterSeconds, int? PollJitterSeconds, int? TelemetryAfterSeconds);
 
@@ -99,7 +100,8 @@ public static class AgentBuildInfo
 [JsonSerializable(typeof(BitLockerInventoryInfo))]
 [JsonSerializable(typeof(LinuxEncryptionInventoryInfo))]
 [JsonSerializable(typeof(SecurityInventoryInfo))]
-[JsonSerializable(typeof(HostInventoryInfo))]
+[JsonSerializable(typeof(BasicHostInventoryInfo))]
+    [JsonSerializable(typeof(HostInventoryInfo))]
 internal partial class AppJsonSerializerContext : JsonSerializerContext { }
 
 public class Worker : BackgroundService
@@ -156,10 +158,9 @@ public class Worker : BackgroundService
     private readonly string InstanceSessionId = Guid.NewGuid().ToString("N");
     private readonly string BootSessionId = CreateBootSessionId();
     private string InstanceFingerprint = "";
-    private const string IdentityCapabilities = "identity-session-v1,identity-split-v1";
+    private const string IdentityCapabilities = "identity-session-v1,identity-split-v1,lean-agent-v1";
     private DateTime _lastInventoryUtc = DateTime.MinValue;
     private HostInventoryInfo? _cachedHostInventory;
-    private (ulong Idle, ulong Total)? _previousCpuTimes;
     private string _lastLoggedPollStatus = "";
     private long _serverClockOffsetSeconds;
     private int _serverClockOffsetKnown;
@@ -215,10 +216,9 @@ public class Worker : BackgroundService
         _logger.LogInformation("Hardware ID: {HardwareId}", HardwareId);
         _logger.LogInformation("OS Detected: {Os}", FriendlyOsName);
 
-        int telemetryIntervalSeconds = 300;
         int restartAfterPollFailures = GetRestartAfterConsecutivePollFailures();
         int startupDelaySeconds = GetStableDelaySeconds("startup-poll-spread-v1", GetStartupSpreadSeconds() + 1);
-        int telemetryDelaySeconds = GetStableDelaySeconds("startup-telemetry-spread-v1", telemetryIntervalSeconds + 1);
+
         int consecutivePollFailures = 0;
         _logger.LogInformation(
             "Polling cadence: base={Base}s, jitter=0-{Jitter}s, startup_delay={StartupDelay}s, restart_after_failures={RestartAfterFailures}",
@@ -245,16 +245,11 @@ public class Worker : BackgroundService
         }
 
         await FlushPendingResultsAsync(stoppingToken);
-        DateTime lastTelemetrySent = DateTime.UtcNow - TimeSpan.FromMinutes(5) + TimeSpan.FromSeconds(telemetryDelaySeconds);
+
         while (!stoppingToken.IsCancellationRequested)
         {
             await FlushJournalResultsAsync(stoppingToken);
             await FlushPendingResultsAsync(stoppingToken);
-            if ((DateTime.UtcNow - lastTelemetrySent).TotalSeconds >= telemetryIntervalSeconds)
-            {
-                await SendTelemetryAsync(stoppingToken);
-                lastTelemetrySent = DateTime.UtcNow;
-            }
 
             PollTiming? timing = await PollServerAsync(stoppingToken);
             if (timing.HasValue)
@@ -273,8 +268,6 @@ public class Worker : BackgroundService
                 else
                     _logger.LogWarning("Poll failure streak: {FailureCount}. Automatic recovery restart is disabled.", consecutivePollFailures);
             }
-            if (timing?.TelemetryAfterSeconds is int telemetryAfter)
-                telemetryIntervalSeconds = ClampSeconds(telemetryAfter, 60, 86400);
 
             int basePoll = timing?.NextPollAfterSeconds is int nextPollAfter
                 ? ClampSeconds(nextPollAfter, 10, 3600)
@@ -573,7 +566,7 @@ public class Worker : BackgroundService
                     continue;
                 }
 
-                var unsignedPayload = new EnrollPayload(enrollmentToken, HardwareId, Environment.MachineName, FriendlyOsName, OperatingSystem.IsMacOS() ? "macOS" : "Linux", AgentBuildInfo.Version, GetNetworkInterfaces(), GetCachedHostInventory(true), previousAuthToken, previousHwId, AgentPublicKeyPem, AgentKeyFingerprint, IdentityCapabilities, InstanceSessionId, BootSessionId, InstanceFingerprint, "", "", "", "");
+                var unsignedPayload = new EnrollPayload(enrollmentToken, HardwareId, Environment.MachineName, FriendlyOsName, OperatingSystem.IsMacOS() ? "macOS" : "Linux", AgentBuildInfo.Version, GetNetworkInterfaces(), GetBasicHostInventory(), previousAuthToken, previousHwId, AgentPublicKeyPem, AgentKeyFingerprint, IdentityCapabilities, InstanceSessionId, BootSessionId, InstanceFingerprint, "", "", "", "");
                 var payload = SignPayload(unsignedPayload, "/api/agent/enroll", previousAuthToken, AppJsonSerializerContext.Default.EnrollPayload);
                 using var response = await _httpClient.PostAsync($"{_config.ServerUrl}/api/agent/enroll", JsonContent(payload), stoppingToken);
                 UpdateServerClockOffset(response);
@@ -606,7 +599,7 @@ public class Worker : BackgroundService
         try
         {
             if (_executionPersistenceFault) throw new IOException("Execution journal persistence failed. No more tasks will run until administrator recovery and service restart.");
-            var unsignedPayload = new PollPayload(HardwareId, AuthToken, AgentBuildInfo.Version, AgentPublicKeyPem, AgentKeyFingerprint, "rsa-pss-sha256-v2", IdentityCapabilities, InstanceSessionId, BootSessionId, InstanceFingerprint, "", "", "", "");
+            var unsignedPayload = new PollPayload(HardwareId, AuthToken, AgentBuildInfo.Version, AgentPublicKeyPem, AgentKeyFingerprint, "rsa-pss-sha256-v2", IdentityCapabilities, InstanceSessionId, BootSessionId, InstanceFingerprint, "", "", "", "", GetBasicHostInventory());
             var payload = SignPayload(unsignedPayload, "/api/agent/poll", AuthToken, AppJsonSerializerContext.Default.PollPayload);
             using var response = await _httpClient.PostAsync($"{_config.ServerUrl}/api/agent/poll", JsonContent(payload), stoppingToken);
             UpdateServerClockOffset(response);
@@ -642,8 +635,14 @@ public class Worker : BackgroundService
                     return timing;
                 }
                 ApplyIdentitySplit(root.GetProperty("payload"));
-                _logger.LogWarning("Identity split state was installed. Restarting with the new endpoint identity.");
-                Environment.Exit(75);
+                _logger.LogWarning("Identity split state was installed. Continuing with the new endpoint identity.");
+                AgentIdentityKey?.Dispose();
+                LoadConfig();
+                HardwareId = GetOrCreateHardwareId();
+                LoadToken();
+                EnsureAgentIdentityKey();
+                _executionJournal = new ExecutionJournal(Path.Combine(DataDirectory, "execution-journal"), HardwareId, path => RestrictPath(path, UnixFileMode.UserRead | UnixFileMode.UserWrite), path => RestrictPath(path, UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute));
+                _executionJournal.RecoverInterrupted();
                 return timing;
             }
             if (status == "identity_conflict")
@@ -704,6 +703,12 @@ public class Worker : BackgroundService
             }
             if (root.TryGetProperty("payload", out var pl) && pl.TryGetProperty("script", out var s))
                 script = s.GetString() ?? "";
+            if (action == "inventory" && string.IsNullOrWhiteSpace(script))
+            {
+                try { await ReportResultAsync(taskId, "Success", await CollectRequestedInventoryAsync(stoppingToken), stoppingToken); }
+                catch (Exception ex) { await ReportResultAsync(taskId, "Error", "Inventory failed: " + ex.GetType().Name, stoppingToken); }
+                return timing;
+            }
             (string executionStatus, string logOutput) = await ExecuteShellAsync(script, timeoutSeconds, stoppingToken);
             await ReportResultAsync(taskId, executionStatus, logOutput, stoppingToken);
             _logger.LogInformation("Task completed. TaskId={TaskId}, Status={Status}", taskId, executionStatus);
@@ -809,25 +814,6 @@ public class Worker : BackgroundService
             .Any(value => value.Equals(action, StringComparison.OrdinalIgnoreCase));
     }
 
-    private async Task SendTelemetryAsync(CancellationToken stoppingToken)
-    {
-        if (string.IsNullOrEmpty(AuthToken)) return;
-        try
-        {
-            var unsignedPayload = new TelemetryPayload(HardwareId, AuthToken, AgentBuildInfo.Version, Math.Round(GetCpuUsage(), 2), Math.Round(GetRamUsage(), 2), Math.Round(GetRootFreeGb(), 2), GetCachedHostInventory(false), AgentPublicKeyPem, AgentKeyFingerprint, IdentityCapabilities, InstanceSessionId, BootSessionId, InstanceFingerprint, "", "", "", "");
-            var payload = SignPayload(unsignedPayload, "/api/agent/telemetry", AuthToken, AppJsonSerializerContext.Default.TelemetryPayload);
-            using var response = await _httpClient.PostAsync($"{_config.ServerUrl}/api/agent/telemetry", JsonContent(payload), stoppingToken);
-            UpdateServerClockOffset(response);
-            if (response.IsSuccessStatusCode)
-                _logger.LogInformation("Telemetry sent. CPU: {Cpu}% | RAM: {Ram}% | /: {Disk} GB", payload.cpu, payload.ram, payload.disk_c);
-            else
-                _logger.LogWarning("Telemetry rejected with {Status}: {Message}", response.StatusCode, await ReadServerErrorMessageAsync(response, stoppingToken));
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError("Failed to collect/send telemetry: {Message}", ex.Message);
-        }
-    }
 
     private async Task<(string Status, string Log)> ExecuteShellAsync(string scriptContent, int timeoutSeconds, CancellationToken stoppingToken)
     {
@@ -1414,6 +1400,26 @@ public class Worker : BackgroundService
         return builder.ToString();
     }
 
+    private readonly SemaphoreSlim _inventoryGate = new(1, 1);
+    private async Task<string> CollectRequestedInventoryAsync(CancellationToken cancellation)
+    {
+        if (!await _inventoryGate.WaitAsync(0, cancellation)) throw new InvalidOperationException("Inventory collection is still busy.");
+        var collection = Task.Run(() =>
+        {
+            try { return JsonSerializer.Serialize(GetCachedHostInventory(true), AppJsonSerializerContext.Default.HostInventoryInfo); }
+            finally { _inventoryGate.Release(); }
+        });
+        return await collection.WaitAsync(TimeSpan.FromSeconds(120), cancellation);
+    }
+
+    private static BasicHostInventoryInfo GetBasicHostInventory()
+    {
+        string domain = "";
+        try { domain = IPGlobalProperties.GetIPGlobalProperties().DomainName ?? ""; } catch { }
+        return new BasicHostInventoryInfo(Environment.MachineName, domain, RuntimeInformation.OSDescription,
+            RuntimeInformation.OSArchitecture.ToString(), RuntimeInformation.ProcessArchitecture.ToString(), "on-demand");
+    }
+
     private HostInventoryInfo GetCachedHostInventory(bool force)
     {
         if (!force && _cachedHostInventory != null && DateTime.UtcNow - _lastInventoryUtc < TimeSpan.FromMinutes(30))
@@ -1756,6 +1762,10 @@ public class Worker : BackgroundService
         if (File.Exists(TaskSigningStateFilePath)) File.Delete(TaskSigningStateFilePath);
         ArchiveIdentityBoundDirectory("execution-journal");
         ArchiveIdentityBoundDirectory("pending-results");
+        if (File.Exists(ConfigFilePath))
+        {
+            ProductionSecurity.AtomicWrite(ConfigFilePath, IdentitySplitRecovery.ResetTaskTrust(ProductionSecurity.ReadText(ConfigFilePath)), path => RestrictPath(path, UnixFileMode.UserRead | UnixFileMode.UserWrite));
+        }
         File.Delete(IdentitySplitStateFilePath);
     }
 
@@ -2115,81 +2125,6 @@ public class Worker : BackgroundService
         }
         catch { }
         return RuntimeInformation.OSDescription;
-    }
-
-    private double GetCpuUsage()
-    {
-        if (OperatingSystem.IsMacOS())
-        {
-            string snapshot = RunCommandSnapshot("/usr/bin/top", "-l 1 -n 0", 8, 5000);
-            var idleMatches = System.Text.RegularExpressions.Regex.Matches(
-                snapshot,
-                @"([0-9]+(?:\.[0-9]+)?)%\s*idle",
-                System.Text.RegularExpressions.RegexOptions.IgnoreCase);
-            if (idleMatches.Count == 0) return 0;
-
-            string idleText = idleMatches[idleMatches.Count - 1].Groups[1].Value;
-            return double.TryParse(
-                idleText,
-                System.Globalization.NumberStyles.Float,
-                System.Globalization.CultureInfo.InvariantCulture,
-                out double idle)
-                ? Math.Clamp(100.0 - idle, 0.0, 100.0)
-                : 0;
-        }
-
-        var current = ReadCpuTimes();
-        if (current == null) return 0;
-        if (_previousCpuTimes == null)
-        {
-            _previousCpuTimes = current;
-            return 0;
-        }
-        ulong idleDiff = current.Value.Idle - _previousCpuTimes.Value.Idle;
-        ulong totalDiff = current.Value.Total - _previousCpuTimes.Value.Total;
-        _previousCpuTimes = current;
-        return totalDiff == 0 ? 0 : Math.Max(0, Math.Min(100, (totalDiff - idleDiff) * 100.0 / totalDiff));
-    }
-
-    private static (ulong Idle, ulong Total)? ReadCpuTimes()
-    {
-        if (OperatingSystem.IsMacOS()) return null;
-        try
-        {
-            string[] parts = File.ReadLines("/proc/stat").First().Split(' ', StringSplitOptions.RemoveEmptyEntries);
-            ulong[] values = parts.Skip(1).Select(ulong.Parse).ToArray();
-            ulong idle = values.Length > 4 ? values[3] + values[4] : values[3];
-            ulong total = values.Aggregate(0UL, (a, b) => a + b);
-            return (idle, total);
-        }
-        catch { return null; }
-    }
-
-    private static double GetRamUsage()
-    {
-        if (OperatingSystem.IsMacOS())
-        {
-            double totalBytes = ReadSysctlNumber("hw.memsize");
-            string vm = RunCommandSnapshot("/usr/bin/vm_stat", "", 5, 12000);
-            double pageSize = 4096;
-            var pageSizeMatch = System.Text.RegularExpressions.Regex.Match(vm, @"page size of (\d+) bytes");
-            if (pageSizeMatch.Success) double.TryParse(pageSizeMatch.Groups[1].Value, out pageSize);
-            double freePages = ReadVmStatPages(vm, "Pages free") + ReadVmStatPages(vm, "Pages inactive") + ReadVmStatPages(vm, "Pages speculative");
-            return totalBytes <= 0 ? 0 : Math.Clamp((totalBytes - freePages * pageSize) * 100.0 / totalBytes, 0, 100);
-        }
-        double total = ReadMeminfoValueKb("MemTotal");
-        double available = ReadMeminfoValueKb("MemAvailable");
-        return total <= 0 ? 0 : (total - available) * 100.0 / total;
-    }
-
-    private static double GetRootFreeGb()
-    {
-        try
-        {
-            var drive = new DriveInfo("/");
-            return drive.AvailableFreeSpace / 1024.0 / 1024.0 / 1024.0;
-        }
-        catch { return 0; }
     }
 
     private static double ReadMeminfoValueKb(string key)

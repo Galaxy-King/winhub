@@ -13,6 +13,7 @@
     <p class="text-sm text-slate-500 my-3">PowerShell: {file} is the package path; {extract_dir} is the ZIP directory. Use $PackageName and $PackageVersion for metadata. Wait for child installers and return their exit code using exit.</p>
     <div class="space-y-3">
         <label class="block">Install<textarea name="install_command" class="sw-input font-mono" rows="5" placeholder="Leave empty for automatic MSI installation"></textarea></label>
+        <label class="block">Update installer<select name="update_requires_installer" class="sw-input"><option value="1">Download the selected installer</option><option value="0">Script only — do not download installer</option></select></label>
         <label class="block">Update<textarea name="update_command" class="sw-input font-mono" rows="5" placeholder="Separate update command"></textarea></label>
         <label class="block">Uninstall<textarea name="uninstall_command" class="sw-input font-mono" rows="5" placeholder="Silent uninstall command"></textarea></label>
     </div>

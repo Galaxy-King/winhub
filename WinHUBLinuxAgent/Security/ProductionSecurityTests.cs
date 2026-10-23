@@ -28,6 +28,29 @@ internal static class ProductionSecurityTests
             throw new InvalidOperationException("Security self-test accepted invalid input: " + name);
         }
 
+        using (var reset = JsonDocument.Parse(IdentitySplitRecovery.ResetTaskTrust("{\"ServerUrl\":\"https://local.test\",\"TaskSigningKeyId\":\"old\",\"TaskSigningPublicKeyPem\":\"old-pem\",\"TaskSigningLastSequence\":42,\"DeploymentSpecific\":true}")))
+        {
+            Check(reset.RootElement.GetProperty("TaskSigningKeyId").GetString() == "" && reset.RootElement.GetProperty("TaskSigningLastSequence").GetInt32() == 0, "Clone split clears old endpoint task signing identity");
+            Check(reset.RootElement.GetProperty("ServerUrl").GetString() == "https://local.test" && reset.RootElement.GetProperty("DeploymentSpecific").GetBoolean(), "Clone split preserves connection and deployment configuration");
+        }
+        const string softwarePath = "/api/public/software-delivery/12345678-1234-1234-1234-123456789abc";
+        Check(SoftwareDownload.Resolve("https://192.168.37.225", softwarePath).Host == "192.168.37.225", "Software uses local configured ServerUrl");
+        Check(SoftwareDownload.Resolve("https://public.test:55555", softwarePath).Port == 55555, "Software preserves configured public port");
+        foreach (string invalid in new[] { "https://evil.test" + softwarePath, "//evil.test/file", softwarePath + "?token=secret", "/api/public/software-delivery/../other", softwarePath + "/extra" })
+            Reject(() => SoftwareDownload.Resolve("https://winhub.test", invalid), "Software rejects alternate origin/path: " + invalid);
+        string downloadFixture = Path.Combine(Path.GetTempPath(), "winhub-software-test-" + Guid.NewGuid().ToString("N"));
+        try
+        {
+            using var client = new System.Net.Http.HttpClient(new SoftwareFixtureHandler());
+            string digest = Convert.ToHexString(SHA256.HashData(new byte[] { 1, 2, 3 }));
+            SoftwareDownload.FetchAsync(client, new Uri("https://winhub.test/file"), new string('a', 32), 3, digest, downloadFixture, CancellationToken.None).GetAwaiter().GetResult();
+            Check(File.ReadAllBytes(downloadFixture).SequenceEqual(new byte[] { 1, 2, 3 }), "Software bounded download and SHA-256 verified");
+            Reject(() => SoftwareDownload.FetchAsync(client, new Uri("https://winhub.test/file"), new string('a', 32), 3, new string('0', 64), downloadFixture, CancellationToken.None).GetAwaiter().GetResult(), "Software rejects wrong SHA-256");
+            Reject(() => SoftwareDownload.FetchAsync(client, new Uri("https://winhub.test/file"), new string('a', 32), 2, digest, downloadFixture, CancellationToken.None).GetAwaiter().GetResult(), "Software rejects wrong signed size");
+            Reject(() => SoftwareDownload.FetchAsync(client, new Uri("https://winhub.test/redirect"), new string('a', 32), 3, digest, downloadFixture, CancellationToken.None).GetAwaiter().GetResult(), "Software rejects redirect response");
+        }
+        finally { if (File.Exists(downloadFixture)) File.Delete(downloadFixture); }
+
         using RSA identity = RSA.Create(3072);
         using (var unicode = JsonDocument.Parse("{\"😀\":2,\"\\uE000\":1,\"text\":\"Привіт 😀\\n\"}"))
             Check(canonical(unicode.RootElement) == "{\"text\":\"Привіт 😀\\n\",\"\uE000\":1,\"😀\":2}", "Python-compatible Unicode values and property order");
@@ -311,4 +334,14 @@ internal static class ProductionSecurityTests
         finally { Directory.Delete(temporary, recursive: true); }
         Console.WriteLine($"Production security self-tests: {passed} passed. Live service/upgrade validation is separate.");
     }
+    private sealed class SoftwareFixtureHandler : System.Net.Http.HttpMessageHandler
+    {
+        protected override Task<System.Net.Http.HttpResponseMessage> SendAsync(System.Net.Http.HttpRequestMessage request, CancellationToken cancellationToken)
+        {
+            if (request.Headers.Authorization?.Scheme != "Bearer") throw new InvalidDataException("Missing scoped capability.");
+            return Task.FromResult(new System.Net.Http.HttpResponseMessage(request.RequestUri!.AbsolutePath == "/redirect" ? System.Net.HttpStatusCode.Found : System.Net.HttpStatusCode.OK)
+                { Content = new System.Net.Http.ByteArrayContent(new byte[] { 1, 2, 3 }) });
+        }
+    }
+
 }

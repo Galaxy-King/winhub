@@ -51,6 +51,10 @@
                     </div>
                     <button onclick='dismissIdentityConflict({{ conflict.id|tojson }})' class="px-3 py-2 bg-white border border-slate-200 rounded-xl text-[10px] font-black uppercase text-slate-600 hover:bg-slate-50">Dismiss if resolved externally</button>
                 </div>
+                <p class="text-xs mt-3">Keep each real VM as an independent endpoint. Split every extra running session; one stays on the original identity. Repeat for 3 or more clones. Matching hostname/MAC alone does not require rotating independent credentials.</p>
+                {% for command in conflict.commands %}
+                <p class="text-xs mt-2">{{ command.new_endpoint_id }}: {{ command.status }}{% if command.expired %} · timed out; review the agent before retrying{% endif %}</p>
+                {% endfor %}
                 <div class="grid grid-cols-1 xl:grid-cols-2 gap-3 mt-4">
                     {% for instance in conflict.instances %}
                     <div class="rounded-2xl border border-slate-200 bg-slate-50 p-4">

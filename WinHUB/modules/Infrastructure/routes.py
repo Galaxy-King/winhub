@@ -32,7 +32,7 @@ from werkzeug.exceptions import HTTPException
 from werkzeug.utils import secure_filename
 from apscheduler.triggers.cron import CronTrigger
 
-from core.database import db, User, Endpoint, EndpointGroup, EndpointDuplicateException, EndpointInstance, EndpointIdentityConflict, EndpointIdentityCommand, AgentTask, TaskTemplate, TelemetryHistory, ConnectionIpHistory, ScheduledTask, EndpointMetric, AgentUpdateRollout, TriggerRule, AggregatedJob, AiReportRequest, ApiKey, RegistrationHistory, AuditLog, ReportRevision, ReportDelivery, HistorySearchToken, endpoint_group_m2m
+from core.database import AgentContactHour, db, User, Endpoint, EndpointGroup, EndpointDuplicateException, EndpointInstance, EndpointIdentityConflict, EndpointIdentityCommand, AgentTask, TaskTemplate, TelemetryHistory, ConnectionIpHistory, ScheduledTask, EndpointMetric, AgentUpdateRollout, TriggerRule, AggregatedJob, AiReportRequest, ApiKey, RegistrationHistory, AuditLog, ReportRevision, ReportDelivery, HistorySearchToken, endpoint_group_m2m
 from core.sdk import WinHubCore
 from core.task_reason import validate_launch_reason
 from core.admin import send_notification_email
@@ -2864,6 +2864,10 @@ def index():
             "hostname": (endpoint.hostname if endpoint else None) or conflict.endpoint_id,
             "display_name": (endpoint.display_name if endpoint else None) or "",
             "reason": conflict.reason,
+            "status": conflict.status,
+            "commands": [dict(status=c.status, new_endpoint_id=c.new_endpoint_id, session_id=c.target_session_id,
+                              expired=bool(c.expires_at and c.expires_at < datetime.utcnow()))
+                         for c in EndpointIdentityCommand.query.filter_by(conflict_id=conflict.id).order_by(EndpointIdentityCommand.created_at).all()],
             "detected_at": to_kyiv_time_short(conflict.detected_at),
             "instances": [{
                 "session_id": item.session_id,
@@ -6740,6 +6744,14 @@ def host_operations(host_id):
             "agent_version": getattr(agent, "agent_version", None),
             "network_info": network_info,
             "host_info": host_info,
+            "contact": {
+                "last_poll": agent.last_poll_at.isoformat() + 'Z' if agent.last_poll_at else None,
+                "expected_min": agent.next_contact_min.isoformat() + 'Z' if agent.next_contact_min else None,
+                "expected_max": agent.next_contact_max.isoformat() + 'Z' if agent.next_contact_max else None,
+                "hours": [dict(hour=r.hour.isoformat() + 'Z', contacts=r.contacts, late=r.late_contacts, max_gap=r.max_gap_seconds)
+                          for r in AgentContactHour.query.filter(AgentContactHour.endpoint_id == agent.id,
+                          AgentContactHour.hour >= datetime.utcnow() - timedelta(hours=24)).order_by(AgentContactHour.hour).all()]
+            },
             "encryption": encryption_status_from_host_info(host_info),
             "groups": [{"id": g.id, "name": g.name} for g in agent.groups],
             "history": [
@@ -7136,8 +7148,10 @@ def create_duplicate_exception():
             created_by=session.get("username"),
         )
         db.session.add(existing)
-    left.identity_warning = None
-    right.identity_warning = None
+    from core.agent_gateway import active_identity_conflict
+    for endpoint in (left, right):
+        if not active_identity_conflict(endpoint.id):
+            endpoint.identity_warning = None
     db.session.commit()
 
     WinHubCore.audit(
@@ -7159,7 +7173,7 @@ def split_endpoint_identity(conflict_id):
     denied = require_permission("manage_hosts")
     if denied:
         return denied
-    conflict = EndpointIdentityConflict.query.get(conflict_id)
+    conflict = EndpointIdentityConflict.query.filter_by(id=conflict_id).with_for_update().first()
     if not conflict or conflict.status not in ("Open", "Resolving"):
         return jsonify({"success": False, "message": "Open identity conflict not found"}), 404
     if not WinHubCore.can_manage_host(session.get("user_id"), conflict.endpoint_id, "manage_hosts"):
@@ -7229,6 +7243,7 @@ def split_endpoint_identity(conflict_id):
     clone.groups = list(source.groups)
     db.session.add(clone)
     db.session.flush()
+    clone.last_seen = None  # SQLAlchemy insert default must not pretend this staged clone has contacted us.
     command = EndpointIdentityCommand(
         conflict_id=conflict.id,
         endpoint_id=source.id,
@@ -7550,3 +7565,32 @@ def software_installer_write():
 def software_approve_package(package_id):
     from modules.Infrastructure.software import approve_package
     return approve_package(package_id)
+
+
+@infrastructure_bp.route('/api/infrastructure/host/<host_id>/request-inventory', methods=['POST'])
+def request_host_inventory(host_id):
+    from core.task_reason import validate_launch_reason
+    denied = require_permission('run_tasks')
+    if denied:
+        return denied
+    if session.get('api_key_auth'):
+        return jsonify(success=False, message='Interactive session required.'), 403
+    if not WinHubCore.can_manage_host(session.get('user_id'), host_id, 'run_tasks'):
+        return jsonify(success=False, message='Access denied.'), 403
+    host = db.session.get(Endpoint, host_id)
+    if not host or host.approval_status != 'Approved' or host.is_blocked:
+        return jsonify(success=False, message='Approved endpoint required.'), 400
+    instance = EndpointInstance.query.filter_by(endpoint_id=host.id).order_by(EndpointInstance.last_seen.desc()).first()
+    if not instance or 'lean-agent-v1' not in str(instance.capabilities or ''):
+        return jsonify(success=False, message='Update the agent before requesting built-in inventory.'), 409
+    if AgentTask.query.filter(AgentTask.endpoint_id == host.id, AgentTask.action_type == 'inventory', AgentTask.status.in_(['Pending', 'PickedUp', 'Running'])).first():
+        return jsonify(success=False, message='An inventory request is already pending.'), 409
+    data = request.get_json(silent=True)
+    if not isinstance(data, dict):
+        return jsonify(success=False, message='A JSON object is required.'), 400
+    try:
+        reason = validate_launch_reason(data.get('launch_reason'))
+        job = WinHubCore.dispatch_task(session['user_id'], 'Infrastructure', 'inventory', [host.id], {'__agent_timeout_seconds': 120}, title='Requested host inventory', launch_reason=reason)
+    except (ValueError, PermissionError) as exc:
+        return jsonify(success=False, message=str(exc)), 400
+    return jsonify(success=True, job_id=job)

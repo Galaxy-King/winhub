@@ -25,14 +25,15 @@ using WinHUB.Security;
 namespace WinHUBAgent
 {
     // --- МОДЕЛІ ДАНИХ ---
-    public record EnrollPayload(string global_token, string hw_id, string hostname, string os_version, string os_type, string agent_version, NetworkInterfaceInfo[] network_interfaces, HostInventoryInfo host_info, string previous_auth_token, string previous_hw_id, string agent_public_key_pem, string agent_key_fingerprint, string identity_capabilities, string instance_session_id, string boot_session_id, string instance_fingerprint, string body_hash, string signed_at, string signed_nonce, string signature);
-    public record PollPayload(string hw_id, string auth_token, string agent_version, string agent_public_key_pem, string agent_key_fingerprint, string task_signature_capabilities, string identity_capabilities, string instance_session_id, string boot_session_id, string instance_fingerprint, string body_hash, string signed_at, string signed_nonce, string signature);
+    public record EnrollPayload(string global_token, string hw_id, string hostname, string os_version, string os_type, string agent_version, NetworkInterfaceInfo[] network_interfaces, BasicHostInventoryInfo host_info, string previous_auth_token, string previous_hw_id, string agent_public_key_pem, string agent_key_fingerprint, string identity_capabilities, string instance_session_id, string boot_session_id, string instance_fingerprint, string body_hash, string signed_at, string signed_nonce, string signature);
+    public record PollPayload(string hw_id, string auth_token, string agent_version, string agent_public_key_pem, string agent_key_fingerprint, string task_signature_capabilities, string identity_capabilities, string instance_session_id, string boot_session_id, string instance_fingerprint, string body_hash, string signed_at, string signed_nonce, string signature, BasicHostInventoryInfo? host_info = null);
     public record TelemetryPayload(string hw_id, string auth_token, string agent_version, double cpu, double ram, double disk_c, HostInventoryInfo? host_info, string agent_public_key_pem, string agent_key_fingerprint, string identity_capabilities, string instance_session_id, string boot_session_id, string instance_fingerprint, string body_hash, string signed_at, string signed_nonce, string signature);
     public record ResultPayload(string hw_id, string auth_token, string agent_version, string task_id, string status, string log, string agent_public_key_pem, string agent_key_fingerprint, string task_signature_v2_key_id, long task_signature_v2_sequence, string identity_capabilities, string instance_session_id, string boot_session_id, string instance_fingerprint, string body_hash, string signed_at, string signed_nonce, string signature);
     public record NetworkInterfaceInfo(string name, string description, string type, string status, string mac, string[] ipv4, string[] ipv6, string[] gateways, string[] dns_servers, bool dhcp_enabled, long speed_mbps);
     public record VolumeInfo(string name, string label, string format, string type, long total_gb, long free_gb, bool ready);
     public record BitLockerInventoryInfo(string status, int encrypted_percentage, string protection_status, string conversion_status, string raw_summary);
     public record SecurityInventoryInfo(bool pending_reboot, string firewall_domain, string firewall_private, string firewall_public, string bitlocker_summary, BitLockerInventoryInfo bitlocker, string defender_service_state, bool veracrypt_detected, bool truecrypt_detected);
+    public record BasicHostInventoryInfo(string machine_name, string domain_name, string os_description, string os_architecture, string process_architecture, string collection_mode);
     public record HostInventoryInfo(string machine_name, string fqdn, string domain_name, string user_domain_name, bool likely_domain_joined, string os_description, string os_architecture, string process_architecture, string timezone, int processor_count, ulong total_memory_mb, long uptime_seconds, string boot_time_utc, VolumeInfo[] volumes, SecurityInventoryInfo security);
     public readonly record struct PollTiming(int? NextPollAfterSeconds, int? PollJitterSeconds, int? TelemetryAfterSeconds);
 
@@ -103,6 +104,7 @@ namespace WinHUBAgent
     [JsonSerializable(typeof(VolumeInfo))]
     [JsonSerializable(typeof(VolumeInfo[]))]
     [JsonSerializable(typeof(SecurityInventoryInfo))]
+    [JsonSerializable(typeof(BasicHostInventoryInfo))]
     [JsonSerializable(typeof(HostInventoryInfo))]
     internal partial class AppJsonSerializerContext : JsonSerializerContext { }
 
@@ -137,12 +139,10 @@ namespace WinHUBAgent
         private readonly string InstanceSessionId = Guid.NewGuid().ToString("N");
         private readonly string BootSessionId = CreateBootSessionId();
         private string InstanceFingerprint = string.Empty;
-        private const string IdentityCapabilities = "identity-session-v1,identity-split-v1";
+        private const string IdentityCapabilities = "identity-session-v1,identity-split-v1,software-delivery-v1,lean-agent-v1";
         private DateTime _lastInventoryUtc = DateTime.MinValue;
         private HostInventoryInfo? _cachedHostInventory;
 
-        private ulong _prevSystemTime = 0;
-        private ulong _prevIdleTime = 0;
 
         [StructLayout(LayoutKind.Sequential)]
         private struct MEMORYSTATUSEX
@@ -372,11 +372,11 @@ namespace WinHUBAgent
 
             int pollIntervalSeconds = GetConfiguredPollIntervalSeconds();
             int pollJitterSeconds = GetPollJitterSeconds();
-            int telemetryIntervalSeconds = 300;
+
             int startupSpreadSeconds = GetStartupSpreadSeconds();
             int restartAfterPollFailures = GetRestartAfterConsecutivePollFailures();
             int startupDelaySeconds = GetStableDelaySeconds("startup-poll-spread-v1", startupSpreadSeconds + 1);
-            int telemetryDelaySeconds = GetStableDelaySeconds("startup-telemetry-spread-v1", telemetryIntervalSeconds + 1);
+
             int consecutivePollFailures = 0;
 
             _logger.LogInformation(
@@ -395,16 +395,10 @@ namespace WinHUBAgent
             }
             else RemoveProtectedSecret("GlobalApiKey");
 
-            DateTime lastTelemetrySent = DateTime.UtcNow - TimeSpan.FromMinutes(5) + TimeSpan.FromSeconds(telemetryDelaySeconds);
 
             while (!stoppingToken.IsCancellationRequested)
             {
                 await FlushJournalResultsAsync(stoppingToken);
-                if ((DateTime.UtcNow - lastTelemetrySent).TotalSeconds >= telemetryIntervalSeconds)
-                {
-                    await SendTelemetryAsync(stoppingToken);
-                    lastTelemetrySent = DateTime.UtcNow;
-                }
 
                 PollTiming? serverTiming = await PollServerAsync(stoppingToken);
                 if (serverTiming.HasValue)
@@ -430,11 +424,6 @@ namespace WinHUBAgent
                     {
                         _logger.LogWarning($"Poll failure streak: {consecutivePollFailures}. Automatic recovery restart is disabled.");
                     }
-                }
-
-                if (serverTiming?.TelemetryAfterSeconds is int telemetryAfter)
-                {
-                    telemetryIntervalSeconds = ClampSeconds(telemetryAfter, 60, 86400);
                 }
 
                 int basePoll = serverTiming?.NextPollAfterSeconds is int nextPollAfter
@@ -495,70 +484,6 @@ namespace WinHUBAgent
             return RandomNumberGenerator.GetInt32(minInclusive, maxInclusive + 1);
         }
 
-        private float GetCpuUsage()
-        {
-            if (!GetSystemTimes(out var idle, out var kernel, out var user)) return 0;
-
-            ulong sys = kernel.ToULong() + user.ToULong();
-            ulong idl = idle.ToULong();
-
-            if (_prevSystemTime == 0)
-            {
-                _prevSystemTime = sys;
-                _prevIdleTime = idl;
-                return 0;
-            }
-
-            ulong sysDiff = sys - _prevSystemTime;
-            ulong idlDiff = idl - _prevIdleTime;
-
-            _prevSystemTime = sys;
-            _prevIdleTime = idl;
-
-            if (sysDiff == 0) return 0;
-            return (float)((sysDiff - idlDiff) * 100.0 / sysDiff);
-        }
-
-        private async Task SendTelemetryAsync(CancellationToken stoppingToken)
-        {
-            if (string.IsNullOrEmpty(AuthToken)) return;
-
-            try
-            {
-                float cpuUsage = GetCpuUsage();
-                float ramUsage = 0;
-
-                MEMORYSTATUSEX memStatus = new MEMORYSTATUSEX();
-                memStatus.dwLength = (uint)Marshal.SizeOf<MEMORYSTATUSEX>();
-                if (GlobalMemoryStatusEx(ref memStatus))
-                {
-                    ulong total = memStatus.ullTotalPhys;
-                    ulong free = memStatus.ullAvailPhys;
-                    ramUsage = (float)Math.Round(((total - free) / (double)total) * 100, 2);
-                }
-
-                float diskCFree = 0;
-                var drive = DriveInfo.GetDrives().FirstOrDefault(d => d.Name.StartsWith("C", StringComparison.OrdinalIgnoreCase) && d.IsReady);
-                if (drive != null) diskCFree = (float)Math.Round(drive.AvailableFreeSpace / (1024.0 * 1024.0 * 1024.0), 2);
-
-                var unsignedPayload = new TelemetryPayload(HardwareId, AuthToken, AgentBuildInfo.Version, Math.Round(cpuUsage, 2), ramUsage, diskCFree, GetCachedHostInventory(false), AgentPublicKeyPem, AgentKeyFingerprint, IdentityCapabilities, InstanceSessionId, BootSessionId, InstanceFingerprint, "", "", "", "");
-                string unsignedJson = JsonSerializer.Serialize(unsignedPayload, AppJsonSerializerContext.Default.TelemetryPayload);
-                string bodyHash = ComputeAgentBodyHash(unsignedJson);
-                var signature = CreateAgentSignature("/api/agent/telemetry", AuthToken, AgentBuildInfo.Version, bodyHash);
-                var payload = unsignedPayload with { body_hash = bodyHash, signed_at = signature.SignedAt, signed_nonce = signature.Nonce, signature = signature.Signature };
-                string jsonString = JsonSerializer.Serialize(payload, AppJsonSerializerContext.Default.TelemetryPayload);
-                var content = new StringContent(jsonString, Encoding.UTF8, "application/json");
-
-                var response = await _httpClient.PostAsync($"{_config.ServerUrl}/api/agent/telemetry", content, stoppingToken);
-
-                if (response.IsSuccessStatusCode)
-                    _logger.LogInformation($"Telemetry sent. CPU: {payload.cpu}% | RAM: {payload.ram}% | C: {payload.disk_c} GB");
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError($"Failed to collect/send telemetry: {ex.Message}");
-            }
-        }
 
         private async Task EnrollAgentAsync(CancellationToken stoppingToken, string previousAuthToken = "", string previousHwId = "")
         {
@@ -574,7 +499,7 @@ namespace WinHUBAgent
                         await Task.Delay(TimeSpan.FromSeconds(30), stoppingToken);
                         continue;
                     }
-                    var unsignedPayload = new EnrollPayload(enrollmentToken, HardwareId, Environment.MachineName, FriendlyOsName, "Windows", AgentBuildInfo.Version, GetNetworkInterfaces(), GetCachedHostInventory(true), previousAuthToken, previousHwId, AgentPublicKeyPem, AgentKeyFingerprint, IdentityCapabilities, InstanceSessionId, BootSessionId, InstanceFingerprint, "", "", "", "");
+                    var unsignedPayload = new EnrollPayload(enrollmentToken, HardwareId, Environment.MachineName, FriendlyOsName, "Windows", AgentBuildInfo.Version, GetNetworkInterfaces(), GetBasicHostInventory(), previousAuthToken, previousHwId, AgentPublicKeyPem, AgentKeyFingerprint, IdentityCapabilities, InstanceSessionId, BootSessionId, InstanceFingerprint, "", "", "", "");
                     string unsignedJson = JsonSerializer.Serialize(unsignedPayload, AppJsonSerializerContext.Default.EnrollPayload);
                     string bodyHash = ComputeAgentBodyHash(unsignedJson);
                     var signature = CreateAgentSignature("/api/agent/enroll", previousAuthToken, AgentBuildInfo.Version, bodyHash);
@@ -617,7 +542,7 @@ namespace WinHUBAgent
             try
             {
                 if (_executionPersistenceFault) throw new IOException("Execution journal persistence failed. No more tasks will run until administrator recovery and service restart.");
-                var unsignedPayload = new PollPayload(HardwareId, AuthToken, AgentBuildInfo.Version, AgentPublicKeyPem, AgentKeyFingerprint, "rsa-pss-sha256-v2", IdentityCapabilities, InstanceSessionId, BootSessionId, InstanceFingerprint, "", "", "", "");
+                var unsignedPayload = new PollPayload(HardwareId, AuthToken, AgentBuildInfo.Version, AgentPublicKeyPem, AgentKeyFingerprint, "rsa-pss-sha256-v2", IdentityCapabilities, InstanceSessionId, BootSessionId, InstanceFingerprint, "", "", "", "", GetBasicHostInventory());
                 string unsignedJson = JsonSerializer.Serialize(unsignedPayload, AppJsonSerializerContext.Default.PollPayload);
                 string bodyHash = ComputeAgentBodyHash(unsignedJson);
                 var signature = CreateAgentSignature("/api/agent/poll", AuthToken, AgentBuildInfo.Version, bodyHash);
@@ -657,8 +582,14 @@ namespace WinHUBAgent
                         return timing;
                     }
                     ApplyIdentitySplit(result.RootElement.GetProperty("payload"));
-                    _logger.LogWarning("Identity split state was installed. Restarting the service with the new endpoint identity.");
-                    Environment.Exit(75);
+                    _logger.LogWarning("Identity split state was installed. Continuing with the new endpoint identity.");
+                    AgentIdentityKey?.Dispose();
+                    LoadConfig();
+                    HardwareId = GetOrCreateHardwareId();
+                    LoadToken();
+                    EnsureAgentIdentityKey();
+                    _executionJournal = new ExecutionJournal(Path.Combine(DataDirectory, "execution-journal"), HardwareId, HardenFileAcl, HardenDirectoryAcl);
+                    _executionJournal.RecoverInterrupted();
                     return timing;
                 }
 
@@ -711,7 +642,13 @@ namespace WinHUBAgent
                         await ReportResultAsync(taskId, "Error", "Unknown action is forbidden by the local agent.", stoppingToken);
                         return timing;
                     }
-                    (executionStatus, logOutput) = await ExecutePowerShellAsync(script, timeoutSeconds, stoppingToken);
+                    if (action == "inventory" && string.IsNullOrWhiteSpace(script))
+                    {
+                        try { await ReportResultAsync(taskId, "Success", await CollectRequestedInventoryAsync(stoppingToken), stoppingToken); }
+                    catch (Exception ex) { await ReportResultAsync(taskId, "Error", "Inventory failed: " + ex.GetType().Name, stoppingToken); }
+                        return timing;
+                    }
+                    (executionStatus, logOutput) = await ExecuteSoftwareOrScriptAsync(script, result.RootElement.GetProperty("payload"), timeoutSeconds, stoppingToken);
                     await ReportResultAsync(taskId, executionStatus, logOutput, stoppingToken);
                 }
                 return timing;
@@ -1009,7 +946,43 @@ namespace WinHUBAgent
             }
         }
 
-        private async Task<(string Status, string Log)> ExecutePowerShellAsync(string scriptContent, int timeoutSeconds, CancellationToken stoppingToken)
+        private async Task<(string Status, string Log)> ExecuteSoftwareOrScriptAsync(string script, JsonElement payload, int timeout, CancellationToken cancellation)
+        {
+            if (!payload.TryGetProperty("__software_package", out var package))
+                return await ExecutePowerShellAsync(script, timeout, cancellation);
+            string? directory = null;
+            try
+            {
+                string path = GetPayloadString(package, "path");
+                Uri uri = SoftwareDownload.Resolve(_config.ServerUrl, path);
+                string expected = NormalizeThumbprint(GetPayloadString(package, "sha256"));
+                string token = GetPayloadString(package, "token");
+                long size = package.GetProperty("size").GetInt64();
+                if (expected.Length != 64 || expected.Any(c => !Uri.IsHexDigit(c)) || size <= 0 || size > 16L * 1024 * 1024 * 1024 || token.Length < 20 || token.Length > 256 || token.Any(char.IsControl))
+                    throw new InvalidDataException("Invalid Software package metadata.");
+                directory = Path.Combine(DataDirectory, "tasks", "download_" + Guid.NewGuid().ToString("N"));
+                Directory.CreateDirectory(directory);
+                HardenDirectoryAcl(directory);
+                string file = Path.Combine(directory, "package.bin");
+                using var deadline = CancellationTokenSource.CreateLinkedTokenSource(cancellation);
+                deadline.CancelAfter(TimeSpan.FromSeconds(Math.Clamp(timeout, 60, 86400)));
+                await SoftwareDownload.FetchAsync(_httpClient, uri, token, size, expected, file, deadline.Token);
+                HardenFileAcl(file);
+                return await ExecutePowerShellAsync(script, timeout, deadline.Token, file);
+            }
+            catch (OperationCanceledException) { return ("Error", "Software download/execution cancelled or timed out."); }
+            catch (Exception ex)
+            {
+                // HttpRequestException can contain URLs; expose only safe classifications.
+                return ("Error", ex is InvalidDataException ? ex.Message : "Software transport failed. Check configured ServerUrl, network and certificate pin; no TLS bypass was used.");
+            }
+            finally
+            {
+                if (directory != null && Directory.Exists(directory)) Directory.Delete(directory, true);
+            }
+        }
+
+        private async Task<(string Status, string Log)> ExecutePowerShellAsync(string scriptContent, int timeoutSeconds, CancellationToken stoppingToken, string? softwarePackageFile = null)
         {
             if (string.IsNullOrEmpty(scriptContent)) return ("Error", "Empty script provided.");
 
@@ -1037,6 +1010,7 @@ namespace WinHUBAgent
                     StandardErrorEncoding = Encoding.UTF8
                 };
 
+                if (softwarePackageFile != null) psi.Environment["WINHUB_SOFTWARE_PACKAGE_FILE"] = softwarePackageFile;
                 foreach (string argument in new[] { "-ExecutionPolicy", "Bypass", "-NoProfile", "-NonInteractive", "-File", tempScriptFile })
                     psi.ArgumentList.Add(argument);
                 var capture = await WindowsTaskProcess.RunAsync(psi, timeoutSeconds,
@@ -1338,6 +1312,10 @@ try {
             if (File.Exists(TaskSigningStateFilePath)) File.Delete(TaskSigningStateFilePath);
             ArchiveIdentityBoundDirectory("execution-journal");
             ArchiveIdentityBoundDirectory("pending-results");
+            if (File.Exists(ConfigFilePath))
+            {
+                ProductionSecurity.AtomicWrite(ConfigFilePath, IdentitySplitRecovery.ResetTaskTrust(ProductionSecurity.ReadText(ConfigFilePath)), HardenFileAcl);
+            }
             File.Delete(IdentitySplitStateFilePath);
         }
 
@@ -1799,6 +1777,26 @@ try {
                 RegistryKeyExists(@"SOFTWARE\IDRIX\VeraCrypt") || InstalledSoftwareContains("VeraCrypt") || ServiceOrDriverExists("veracrypt"),
                 RegistryKeyExists(@"SOFTWARE\TrueCrypt") || InstalledSoftwareContains("TrueCrypt") || ServiceOrDriverExists("truecrypt")
             );
+        }
+
+        private readonly SemaphoreSlim _inventoryGate = new(1, 1);
+        private async Task<string> CollectRequestedInventoryAsync(CancellationToken cancellation)
+        {
+            if (!await _inventoryGate.WaitAsync(0, cancellation)) throw new InvalidOperationException("Inventory collection is still busy.");
+            var collection = Task.Run(() =>
+            {
+                try { return JsonSerializer.Serialize(GetCachedHostInventory(true), AppJsonSerializerContext.Default.HostInventoryInfo); }
+                finally { _inventoryGate.Release(); }
+            });
+            return await collection.WaitAsync(TimeSpan.FromSeconds(120), cancellation);
+        }
+
+        private static BasicHostInventoryInfo GetBasicHostInventory()
+        {
+            string domain = "";
+            try { domain = IPGlobalProperties.GetIPGlobalProperties().DomainName ?? ""; } catch { }
+            return new BasicHostInventoryInfo(Environment.MachineName, domain, RuntimeInformation.OSDescription,
+                RuntimeInformation.OSArchitecture.ToString(), RuntimeInformation.ProcessArchitecture.ToString(), "on-demand");
         }
 
         private HostInventoryInfo GetCachedHostInventory(bool force)

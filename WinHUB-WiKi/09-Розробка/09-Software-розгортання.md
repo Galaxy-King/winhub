@@ -34,3 +34,14 @@ Reboot-required зупиняє наступні програми, без авт�
 ### Бібліотека інсталяторів та явне погодження
 
 Записи `kind=installer` використовують наявне зашифроване JSON-поле `software_catalog`, спільну чергу підготовки й immutable blobs. Вони вилучені зі списку deployable applications і розгортання наборів. Міграції SQL не потрібні: схема не змінена. Додаток копіює готові blob metadata вибраного installer; посилання не є живим зв'язком, автоматичного оновлення рецептів/погодження немає. POST installers потребує інтерактивного `manage_software`; POST approve додатково superadmin та точну revision. Approval аудіюється. Тест посилання не надає approval і не виконує скрипти.
+
+
+### Lean protocol, contacts and clone lifecycle (2026-10-23)
+
+Windows Software now uses a relative path and signed download descriptor, consumed by the existing pinned agent HttpClient. The server capability still requires the active picked-up task and expires/revokes as before. SHA-256 and declared size are checked before PowerShell. No credentials or OMV source URLs enter the agent downloader. Old clients are capability-gated, not silently downgraded to unsigned or system-trust downloads.
+
+Lean agents no longer schedule telemetry. Basic host data accompanies authenticated polls; explicit inventory remains an ordinary authorized, journalled task with lower dispatch priority, one collector and a bounded response deadline. The host passport omits stale CPU/disk/security snapshots. Legacy telemetry endpoint/history remain for rolling upgrades.
+
+Migration `20261023_01` adds expected contact windows to endpoints and per-UTC-hour contact aggregates. Authenticated poll receipt is measured by the server; jitter and task timeout produce an estimated range, not a promise of liveness. The chart shows contacts and late observations, not invented uptime percentages. Missing buckets are unknown, including possible server outages. Aggregates retain 30 days.
+
+Clone completion locks the original endpoint and conflict before finalization; 3+ sessions keep quarantine until all additional active sessions/pending commands are resolved. Completed splits create pairwise distinct-host exceptions. A staged clone has no invented last contact. Agent split recovery resets per-endpoint task trust in runtime config as well as state and reloads in-process. Targeting remains session-specific; after a pre-delivery process restart an administrator must review the new session rather than rebinding by IP/MAC. Old timed-out requests are visible and require explicit retry; no unverified automatic adoption is introduced.

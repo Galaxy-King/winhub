@@ -98,7 +98,7 @@ Polling cadence:
 - `PollJitterSeconds` adds a random `0..N` second delay after every poll, preventing many agents from polling in the same second.
 - `StartupSpreadSeconds` adds a stable per-host startup delay before the first poll, so GPO deployments, service restarts, and mass updates do not create a synchronized request burst.
 - `RestartAfterConsecutivePollFailures` exits the agent after N failed polls in a row so Windows Service Recovery can restart it. Use `0` to disable this self-heal.
-- Newer servers can return `next_poll_after`, `poll_jitter_seconds`, and `telemetry_after` in `/api/agent/poll`; the agent treats those as bounded scheduling hints and falls back to the local config when they are absent.
+- Newer servers can return `next_poll_after`, `poll_jitter_seconds`, and `telemetry_after` in `/api/agent/poll`; poll interval/jitter are bounded scheduling hints with local fallback. Lean 2.0.1-rc.1 ignores telemetry_after and does not send automatic telemetry.
 
 Bootstrap config:
 
@@ -277,3 +277,13 @@ Run PowerShell as Administrator:
 cd "C:\Program Files\WinHUBAgent"
 .\uninstall-service.ps1
 ```
+
+## Lean agent and clone recovery (2.0.1-rc.1)
+
+Automatic CPU/RAM/disk telemetry and periodic security inventory collection have been removed. Authenticated polls carry only a small host passport, identity and version; signatures, task journals and replay protection remain mandatory. `telemetry_after` is retained in the server protocol for older agents but is ignored by lean agents. Detailed inventory is an explicit signed `inventory` task with no script, available from the host card; its JSON result is in Task History. Collectors are bounded to one instance and a 120-second response deadline. Pending inventory has lower dispatch priority than ordinary tasks; it is not continuous monitoring.
+
+Identity splitting clears the old endpoint task signing key and sequence in both protected state and runtime config. Recovery remains durable if interrupted; the agent reloads the new identity in-process, without relying on service recovery exit code 75. Use Review Center to split every additional clone session (3+ supported); accepting similar host records alone does not rotate copied credentials. Old agents without `identity-split-v1` need a controlled upgrade before remote splitting.
+
+Windows Software downloads require `software-delivery-v1`: signed task metadata contains a relative delivery path, size, hash and temporary capability. The agent uses its own configured `ServerUrl` and existing pinned HTTPS client, with no redirects, cross-origin downloads or TLS bypass. Linux/macOS Software installation recipes remain unsupported.
+
+Update instructions and publisher signing: [release acceptance](../WinHUB-WiKi/guides/agents/AGENT_RELEASE_ACCEPTANCE_UA.md#lean-agent-201-rc1).
