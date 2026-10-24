@@ -98,7 +98,7 @@
                 <input id="swTargetPickerSearch" class="sw-input" type="search" placeholder="Search name or IP address" aria-label="Search targets" oninput="swRenderTargetPicker()">
                 <button type="button" class="sw-button" onclick="swSelectVisibleTargets()">Select visible</button>
             </div>
-            <div class="sw-modal-toolbar"><input id="swTargetIps" class="sw-input" placeholder="IP addresses, separated by spaces or commas" aria-label="Select registered endpoints by IP"><button class="sw-button" type="button" onclick="swAddByIp()">Add by IP</button><p id="swIpResult" role="status"></p></div>
+            <div class="sw-modal-toolbar sw-ip-toolbar"><input id="swTargetIps" class="sw-input" placeholder="IP addresses, separated by spaces or commas" aria-label="Select registered endpoints by IP"><button class="sw-button" type="button" onclick="swAddByIp()">Add by IP</button><p id="swIpResult" role="status"></p></div>
             <div class="sw-picker-columns">
                 <div class="sw-picker-pane"><h4 id="swTargetListTitle">Available endpoints</h4><div id="swTargetPickerList" class="sw-picker-list"></div></div>
                 <div class="sw-picker-pane sw-picker-chosen"><div class="sw-picker-selected-header"><h4>Selected <span id="swTargetDraftCount">0</span></h4><button type="button" class="sw-button" onclick="swClearDraftTargets()">Clear</button></div><div id="swTargetPickerSelected" class="sw-picker-list"></div></div>

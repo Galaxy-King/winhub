@@ -71,8 +71,8 @@ body.sw-target-modal-open { overflow: hidden; }
     #view-software .sw-modal-footer button { flex: 1; }
 }
 
-.infra-queue-filters {flex-wrap:wrap; align-items:stretch!important}
-.infra-queue-filters > div {min-width:0; flex:1 1 780px; flex-wrap:wrap}
+.infra-queue-filters {flex-direction:row!important;flex-wrap:wrap; align-items:stretch!important}
+.infra-queue-filters > div {min-width:0; flex:1 1 780px; flex-direction:row!important;flex-wrap:wrap}
 .infra-queue-filters > div > div {min-width:0; max-width:100%; flex-wrap:wrap}
 .infra-queue-filters select {flex:0 1 220px; min-width:140px; max-width:100%}
 .infra-facts {display:grid; gap:12px; border-top:1px solid #29465c; padding-top:16px; margin-top:16px}
@@ -93,3 +93,8 @@ body.sw-target-modal-open { overflow: hidden; }
 .sw-failed {color:#fda4af;background:#4c1625;border:1px solid #fb7185}
 .sw-waiting {color:#fde68a;background:#493719;border:1px solid #d99b25}
 @media (max-width:480px) {.infra-facts > div {flex-direction:column;gap:4px}.infra-facts dd {text-align:left}}
+
+#view-software .sw-modal-toolbar.hidden {display:none}
+#view-software .sw-ip-toolbar {flex-wrap:wrap}
+#view-software .sw-ip-toolbar #swIpResult {flex-basis:100%;min-width:0;overflow-wrap:anywhere;font-size:12px;color:#fde68a}
+#view-software #swIpResult:empty {display:none}

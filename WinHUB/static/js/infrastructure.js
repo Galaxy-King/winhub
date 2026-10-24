@@ -5421,6 +5421,7 @@ async function viewHost(id) {
             ? '<span class="text-emerald-600 font-black uppercase tracking-widest">Enrolled</span>'
             : '<span class="text-violet-600 font-black uppercase tracking-widest">Missing</span>';
         document.getElementById('mSeen').innerText = d.last_seen || "-";
+        document.getElementById('mSeen').parentElement.classList.toggle('hidden', !!d.contact?.last_poll);
         const identityWarning = d.identity_warning ? `<div class="p-3 bg-rose-50 border border-rose-100 rounded-2xl text-xs font-bold text-rose-700">${escapeHtml(d.identity_warning)}</div>` : '';
         const identityDuplicates = (d.duplicate_matches || []).filter(match => match.strong_match);
         const identityDuplicateWarning = identityDuplicates.length ? `

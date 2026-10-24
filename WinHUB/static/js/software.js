@@ -89,6 +89,7 @@ async function loadSoftwareRegistry() {
 function switchSoftwareTab(panel) {
     if (swState.targetDraft) swCloseTargets();
     if (!['library', 'editor', 'settings', 'progress', 'installers'].includes(panel)) panel = 'library';
+    if (!document.getElementById('swPanel-' + panel)) panel = 'library';
     swState.panel = panel;
     sessionStorage.setItem('winhub.software.panel', panel);
     document.querySelectorAll('[data-sw-panel]').forEach(button => {

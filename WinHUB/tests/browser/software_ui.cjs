@@ -124,6 +124,7 @@ async function main() {
         await page.locator('#view-queue').evaluate(n=>n.classList.remove('hidden'));
         for (const width of [1702,1280,768,390]) {
             await page.setViewportSize({width,height:1000});
+            assert((await page.locator('.infra-queue-filters').boundingBox()).height < 500, 'Filters must stay compact');
             assert(await page.locator('#qFilterUser').evaluate(n=>{
                 const r=n.getBoundingClientRect(),p=n.closest('.infra-queue-filters').getBoundingClientRect();
                 return r.right<=p.right+1 && r.left>=p.left-1;
@@ -150,6 +151,8 @@ async function main() {
         await page.evaluate(()=>showDeploymentReceipt());
         assert.match(await page.locator('#deploymentReceipt').innerText(),/Task submitted successfully/);
         assert.equal(new URL(page.url()).searchParams.get('view'),'reports');
+        await page.locator('#deploymentReceipt').getByRole('button',{name:'Dismiss notification',exact:true}).click();
+        await page.setViewportSize({width:1440,height:1000});
         await page.route('**/api/infrastructure/host/fixture-host',route=>route.fulfill({json:{success:true,data:{
             id:'fixture-host',hostname:'WIN-FIXTURE',ip:'192.0.2.10',os:'Windows Server 2025',os_type:'Windows',agent_version:'2.0.1-rc.1',
             groups:[],history:[],network_info:[],agent_identity_key_enrolled:true,
