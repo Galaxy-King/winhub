@@ -1,4 +1,5 @@
 """No network, agents, scheduler threads or submitted scripts run in these tests."""
+from datetime import datetime
 import importlib.util
 import json
 from pathlib import Path
@@ -154,6 +155,19 @@ class LaunchReasonIntegrationTests(unittest.TestCase):
         self.assertEqual(detail.json['data']['launch_reason'], reason)
         queue = self.client.get('/api/infrastructure/tasks/all').json
         self.assertEqual(queue['jobs'][0]['launch_reason'], reason)
+        host = db.session.get(Endpoint, 'host-1')
+        host.next_contact_min = datetime(2026, 10, 24, 10, 30)
+        host.next_contact_max = datetime(2026, 10, 24, 10, 31)
+        db.session.commit()
+        queue = self.client.get('/api/infrastructure/tasks/all').json
+        self.assertEqual(queue['jobs'][0]['next_contact_min'], '2026-10-24T10:30:00Z')
+        self.assertEqual(queue['jobs'][0]['next_contact_max'], '2026-10-24T10:31:00Z')
+        for task in tasks:
+            task.status = 'Success'
+        db.session.commit()
+        queue = self.client.get('/api/infrastructure/tasks/all').json
+        self.assertNotIn('next_contact_min', queue['jobs'][0])
+
         status = self.client.get('/api/infrastructure/jobs/' + tasks[0].job_id + '/status')
         self.assertEqual(status.json['launch_reason'], reason)
         history = self.client.get('/api/history/log/agent_' + tasks[0].id)

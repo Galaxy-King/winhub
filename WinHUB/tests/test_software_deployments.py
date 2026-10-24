@@ -492,6 +492,13 @@ class SoftwareTests(unittest.TestCase):
         self.assertEqual(self.client.post(url, json={'revision': software.recipe_hash(package)}).status_code, 200)
         record = json.loads(db.session.get(SoftwarePackage, 'app1').record)
         self.assertTrue(software.public_package(record)['approved'])
+        # Library deletion retains bound application snapshots and immutable bytes.
+        response = self.client.delete('/api/infrastructure/software-packages/' + installer['id'])
+        self.assertEqual(response.status_code, 200, response.json)
+        self.assertIsNone(db.session.get(SoftwarePackage, installer['id']))
+        self.assertEqual(json.loads(db.session.get(SoftwarePackage, 'app1').record)['blob_sha256'], digest)
+        self.assertTrue(software.blob_path(digest).is_file())
+
 
     def test_update_script_only_has_no_download_capability(self):
         package = self.package(file=(io.BytesIO(b'msi'), 'fixture.msi'), update_command='exit 0', update_requires_installer='0')

@@ -32,7 +32,7 @@
             </button>
             <button onclick="switchHostTab('telemetry')" id="htabBtn_telemetry" class="px-4 py-3 font-bold text-sm text-slate-500 border-b-2 border-transparent hover:text-slate-800 transition-colors flex items-center gap-2 whitespace-nowrap">
                 <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 12l3-3 3 3 4-4M8 21l4-4 4 4M3 4h18M4 4h16v12a1 1 0 01-1 1H5a1 1 0 01-1-1V4z"></path></svg>
-                Metric history
+                Connection history
             </button>
         </div>
 
@@ -50,16 +50,13 @@
                         <div class="flex justify-between font-bold items-center"><span class="text-slate-400">Approval:</span><span id="mApprovalStatus">...</span></div>
                         <div class="flex justify-between font-bold items-center"><span class="text-slate-400">Access:</span><span id="mAccessStatus">...</span></div>
                     </div>
+                    <div id="mHostInfo" class="space-y-3 text-xs"></div>
                 </div>
 	                <div class="bg-slate-50 rounded-[2rem] p-6 space-y-4 border border-slate-100">
 	                    <label class="text-[10px] font-black text-slate-400 uppercase tracking-widest block">Network Interfaces</label>
 	                    <p class="text-[11px] font-bold text-slate-500 leading-relaxed">Connection IP is the address WinHUB currently sees. Interface IPv4 values below are reported by the agent from inside the operating system and can differ behind NAT, VPN, proxy or cloud networks.</p>
 	                    <div id="mNetworkInfo" class="space-y-3 text-xs"></div>
 	                </div>
-                <div class="bg-slate-50 rounded-[2rem] p-6 space-y-4 border border-slate-100">
-                    <label class="text-[10px] font-black text-slate-400 uppercase tracking-widest block">Host passport</label>
-                    <div id="mHostInfo" class="space-y-3 text-xs"></div>
-                </div>
                 <div class="bg-slate-50 rounded-[2rem] p-6 space-y-4 border border-slate-100">
                     <label class="text-[10px] font-black text-slate-400 uppercase tracking-widest block">Contact history</label>
                     <div id="mSecurityInfo" class="space-y-3 text-xs"></div>
@@ -89,7 +86,7 @@
                     <h3 class="text-lg font-black text-slate-800 uppercase tracking-tight">Latest Data</h3>
                     <p class="text-[10px] font-bold text-slate-400 uppercase tracking-widest mt-1">Results from Metric Collection Scripts</p>
                 </div>
-                <button onclick="loadHostMetrics()" class="p-3 bg-slate-100 hover:bg-slate-200 rounded-xl text-slate-500 transition-colors">
+                <button onclick="infraRefresh(this, () => loadHostMetrics())" class="infra-refresh" aria-label="Refresh custom items">
                     <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"></path></svg>
                 </button>
             </div>
@@ -117,47 +114,9 @@
         </div>
 
         <div id="htab_telemetry" class="hidden flex-1 overflow-y-auto p-6 sm:p-10 flex-col gap-8">
-            <p class="text-sm">Historical telemetry measurements. Lean agents do not collect these automatically. Missing measurements do not imply host downtime; see Contact history in the host passport.</p>
-            <div class="flex justify-between items-center shrink-0 bg-slate-50 p-2 rounded-2xl border border-slate-100 w-fit">
-                <button onclick="loadTelemetry(currentViewedHostId, 1)" id="telFilter1" class="px-6 py-2 rounded-xl text-xs font-black uppercase bg-white text-indigo-600 shadow-sm transition-all tel-filter-btn">1 Day</button>
-                <button onclick="loadTelemetry(currentViewedHostId, 7)" id="telFilter7" class="px-6 py-2 rounded-xl text-xs font-black uppercase text-slate-500 hover:text-slate-800 transition-all tel-filter-btn">7 Days</button>
-                <button onclick="loadTelemetry(currentViewedHostId, 30)" id="telFilter30" class="px-6 py-2 rounded-xl text-xs font-black uppercase text-slate-500 hover:text-slate-800 transition-all tel-filter-btn">30 Days</button>
-            </div>
-
-            <div class="shrink-0">
-                <label class="text-[10px] font-black text-slate-400 uppercase tracking-widest block mb-4">Resource Usage Trends</label>
-                <div class="bg-slate-50 rounded-[2rem] p-6 border border-slate-100 h-[300px] flex items-center justify-center relative shadow-inner">
-                    <canvas id="telemetryChart"></canvas>
-                    <div id="telemetryLoading" class="absolute inset-0 flex items-center justify-center bg-white/80 font-bold text-slate-400 rounded-[2rem]">Loading metrics...</div>
-                </div>
-            </div>
-
-            <div class="shrink-0">
-                <label class="text-[10px] font-black text-slate-400 uppercase tracking-widest block mb-4">Disk C: Free Space (GB)</label>
-                <div class="bg-slate-50 rounded-[2rem] p-6 border border-slate-100 h-[300px] flex items-center justify-center relative shadow-inner">
-                    <canvas id="diskChart"></canvas>
-                    <div id="diskLoading" class="absolute inset-0 flex items-center justify-center bg-white/80 font-bold text-slate-400 rounded-[2rem]">Loading disk metrics...</div>
-                </div>
-            </div>
-
-            <div class="shrink-0">
-                <label class="text-[10px] font-black text-slate-400 uppercase tracking-widest block mb-4">Agent Activity Timeline</label>
-                <div class="bg-slate-50 rounded-[2rem] p-6 border border-slate-100 h-[220px] flex items-center justify-center relative shadow-inner">
-                    <canvas id="activityChart"></canvas>
-                    <div id="activityLoading" class="absolute inset-0 flex items-center justify-center bg-white/80 font-bold text-slate-400 rounded-[2rem]">Loading activity timeline...</div>
-                </div>
-                <p class="text-[11px] font-bold text-slate-500 mt-3">Legacy activity periods are inferred from historical telemetry, not current agent availability. Use server-observed Contact history for lean agents.</p>
-                <div id="activitySegmentsList" class="mt-4 bg-white border border-slate-200 rounded-2xl max-h-72 overflow-y-auto shadow-sm"></div>
-            </div>
-
-            <div class="shrink-0">
-                <label class="text-[10px] font-black text-slate-400 uppercase tracking-widest block mb-4">Connection IP History</label>
-                <div class="bg-white rounded-[2rem] border border-slate-200 shadow-sm overflow-hidden">
-                    <div id="ipHistoryList" class="divide-y divide-slate-100 text-xs">
-                        <div class="p-6 text-center text-slate-400 font-bold">Loading connection history...</div>
-                    </div>
-                </div>
-            </div>
+            <h3 class="text-lg font-black">Connection IP history</h3>
+            <p class="infra-hint">Addresses observed by WinHUB. Contact counts are shown in Information & Actions.</p>
+            <div id="ipHistoryList" class="space-y-3 text-xs"></div>
         </div>
     </div>
 </div>
@@ -305,7 +264,7 @@
             <aside id="reportTrailPanel" class="report-trail-panel bg-slate-50 border-r border-slate-200" aria-label="Report version history">
                 <div class="report-trail-heading flex items-center justify-between gap-3">
                     <span class="text-[10px] font-black uppercase tracking-widest text-slate-500">Version history</span>
-                    <button type="button" onclick="loadReportTrail()" class="text-[10px] font-black text-indigo-600 hover:text-indigo-800">Refresh</button>
+                    <button type="button" onclick="infraRefresh(this, () => loadReportTrail())" class="infra-refresh"><span>↻</span> Refresh</button>
                 </div>
                 <div class="report-trail-scroll custom-scrollbar">
                     <button id="vrCurrentBtn" type="button" onclick="showCurrentReportVersion()" class="report-snapshot-card is-selected w-full text-left p-3 rounded-xl border border-indigo-200 bg-indigo-50 text-indigo-700 mb-3" data-report-snapshot="current" aria-pressed="true">

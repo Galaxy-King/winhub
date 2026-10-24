@@ -30,6 +30,7 @@ async function loadSoftwareRegistry() {
     if (!document.getElementById('softwarePackageList')) return;
     try {
         const data = await swRequest('/api/infrastructure/software-packages');
+        if (!swState.restored) { swState.restored = true; switchSoftwareTab(sessionStorage.getItem('winhub.software.panel') || 'library'); }
         swState.packages = data.packages || [];
         swState.installers = data.installers || [];
         swState.isAdmin = !!data.is_admin;
@@ -54,6 +55,15 @@ async function loadSoftwareRegistry() {
             field.value = selected;
         });
         swState.groups = data.groups || [];
+        if (!swState.selectionRestored) {
+            swState.selectionRestored = true;
+            try {
+                const saved = JSON.parse(sessionStorage.getItem('winhub.software.selection') || '{}');
+                for (const key of ['sets','packagesSelected','hostsSelected','groupsSelected']) {
+                    if (Array.isArray(saved[key])) swState[key] = new Set(saved[key].filter(v => typeof v === 'string'));
+                }
+            } catch (_) {}
+        }
         const groupIds = new Set(swState.groups.map(group => group.id));
         swState.groupsSelected = new Set([...swState.groupsSelected].filter(id => groupIds.has(id)));
         const known = new Set(swState.packages.map(p => p.id));
@@ -78,7 +88,9 @@ async function loadSoftwareRegistry() {
 
 function switchSoftwareTab(panel) {
     if (swState.targetDraft) swCloseTargets();
+    if (!['library', 'editor', 'settings', 'progress', 'installers'].includes(panel)) panel = 'library';
     swState.panel = panel;
+    sessionStorage.setItem('winhub.software.panel', panel);
     document.querySelectorAll('[data-sw-panel]').forEach(button => {
         if (button.dataset.swPanel === panel) button.setAttribute('aria-current', 'page');
         else button.removeAttribute('aria-current');
@@ -173,6 +185,9 @@ function swOpenTargets(mode) {
     document.getElementById('swTargetDescription').textContent = mode === 'groups'
         ? 'Choose one or more groups. Their endpoints are combined with individual selections without duplicates.'
         : 'Choose individual endpoints. Group selections are retained separately.';
+    document.getElementById('swTargetIps')?.parentElement.classList.toggle('hidden', mode !== 'endpoints');
+    if (document.getElementById('swTargetIps')) document.getElementById('swTargetIps').value = '';
+    if (document.getElementById('swIpResult')) document.getElementById('swIpResult').textContent = '';
     document.getElementById('swTargetListTitle').textContent = mode === 'groups' ? 'Available groups' : 'Available endpoints';
     const search = document.getElementById('swTargetPickerSearch');
     search.value = ''; search.placeholder = mode === 'groups' ? 'Search groups' : 'Search name or IP address';
@@ -227,8 +242,9 @@ function swRenderTargetPicker() {
         });
         const text = swElement('span', undefined, 'sw-picker-row-text');
         text.append(swElement('strong', item.name || item.id));
-        const description = draft.mode === 'groups' ? `${swState.hosts.filter(h => (h.groups || []).includes(item.id)).length} eligible endpoints` : `${item.online ? '● Online' : '○ Offline'} · ${item.ip || 'No IP'} · ${item.os_type || 'Unknown OS'}`;
+        const description = draft.mode === 'groups' ? `${swState.hosts.filter(h => (h.groups || []).includes(item.id)).length} eligible endpoints` : `${item.ip || 'No IP'} · ${item.os_type || 'Unknown OS'}`;
         text.append(swElement('span', description, 'sw-muted'));
+        if (draft.mode !== 'groups') text.append(swElement('span', item.online ? '● Online' : '○ Offline', item.online ? 'sw-presence sw-online' : 'sw-presence sw-offline'));
         row.append(check, text); list.append(row);
     }
     if (!list.childElementCount) list.append(swElement('p', 'No matching targets.', 'sw-muted sw-picker-empty'));
@@ -484,6 +500,7 @@ function swRenderInstallers() {
     list.replaceChildren();
     for (const p of swState.installers || []) {
         const card = swElement('div', undefined, 'sw-panel space-y-2');
+        card.append(swElement('span', p.prepared ? 'Ready' : p.preparation === 'Error' ? 'Failed' : 'Preparing', 'sw-presence ' + (p.prepared ? 'sw-online' : p.preparation === 'Error' ? 'sw-failed' : 'sw-waiting')));
         card.append(swElement('strong', `${p.name} · ${p.version}`), swElement('p',
             p.prepared ? `Ready · ${(p.size / 1048576).toFixed(1)} MiB · SHA-256 ${p.sha256}` :
             p.preparation === 'Error' ? `Download failed: ${p.preparation_error || 'Check storage settings and test the link.'}` : `Preparing: ${p.preparation || 'Queued'}`));
@@ -494,7 +511,9 @@ function swRenderInstallers() {
             document.getElementById('swInstallerForm').elements.external_url.value = p.external_url || '';
             swTestLink(retry);
         });
-        card.append(retry); list.append(card);
+        const remove = swElement('button', 'Delete installer', 'sw-button'); remove.type = 'button';
+        remove.addEventListener('click', () => swDeletePackage(p));
+        card.append(retry, remove); list.append(card);
     }
 }
 async function swSaveInstaller(event) {
@@ -513,4 +532,29 @@ async function swApprove(p) {
         await swRequest(`/api/infrastructure/software/${encodeURIComponent(p.id)}/approve`, {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({revision: p.revision})});
         await loadSoftwareRegistry(); swNotice('Application recipes approved.');
     } catch (error) { swNotice(error.message, true); }
+}
+
+function swAddByIp() {
+    const draft = swState.targetDraft;
+    if (!draft || draft.mode !== 'endpoints') return;
+    const ips = [...new Set(document.getElementById('swTargetIps').value.split(/[\s,;]+/).filter(Boolean))];
+    const unmatched = [];
+    for (const ip of ips) {
+        const matches = swState.hosts.filter(h => h.ip === ip);
+        if (!matches.length) unmatched.push(ip);
+        matches.forEach(h => draft.hosts.add(h.id));
+    }
+    swRenderTargetPicker();
+    document.getElementById('swIpResult').textContent = unmatched.length ? 'No registered endpoint for: ' + unmatched.join(', ') : ips.length ? 'Matching registered endpoints selected. Confirm with Use selected.' : 'Enter one or more IP addresses.';
+}
+
+window.addEventListener('beforeunload', () => {
+    const saved = {};
+    for (const key of ['sets','packagesSelected','hostsSelected','groupsSelected']) saved[key] = [...swState[key]];
+    sessionStorage.setItem('winhub.software.selection', JSON.stringify(saved));
+});
+
+async function swRefreshCurrent() {
+    await loadSoftwareRegistry();
+    if (swState.panel === 'progress') await swLoadDeployments();
 }

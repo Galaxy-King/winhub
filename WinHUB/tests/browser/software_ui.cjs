@@ -25,7 +25,7 @@ async function main() {
         const errors = [];
         page.on('pageerror', error => errors.push(error.message));
         const hosts = Array.from({length:320}, (_,i) => ({id:`h${i+1}`,name:`ENDPOINT-${String(i+1).padStart(3,'0')}`,os_type:'Windows',
-            groups:i===0?['g1']:i===1?['g1','g2']:i===2?['g2']:[]}));
+            ip:`10.0.0.${i+1}`,online:i%2===0,groups:i===0?['g1']:i===1?['g1','g2']:i===2?['g2']:[]}));
         const groups = [{id:'g1',name:'Office A'},{id:'g2',name:'Office B'},{id:'g3',name:'Lab <img src=x onerror=alert(1)>'}];
         const packages = ['7-Zip','WireGuard'].map((name,i)=>({id:`p${i}`,name,version:'1.0',sets:['Standard'],approved:true,prepared:true,size:1048576,revision:`r${i}`}));
         let payload;
@@ -47,7 +47,13 @@ async function main() {
         async function open(mode) { await page.getByRole('button',{name:mode==='groups'?'Select groups':'Select endpoints'}).click(); }
         async function check(name) { await page.locator('#swTargetPickerList label').filter({hasText:name}).locator('input').check(); }
         const modal = page.locator('#swTargetModal');
-        await open('endpoints'); await check('ENDPOINT-001');
+        await open('endpoints');
+        assert.equal(await modal.locator('.sw-online').count(),160);
+        await page.locator('#swTargetIps').fill('10.0.0.1, 203.0.113.1');
+        await modal.getByRole('button',{name:'Add by IP',exact:true}).click();
+        assert.match(await page.locator('#swIpResult').innerText(),/203.0.113.1/);
+        assert.equal(await page.locator('#swTargetDraftCount').innerText(),'1');
+        await check('ENDPOINT-001');
         assert.match(await page.locator('#swTargetsSummary').innerText(),/No targets/,'Draft must not change confirmed targets');
         await modal.getByRole('button',{name:'Cancel',exact:true}).click();
         assert.match(await page.locator('#swTargetsSummary').innerText(),/No targets/);
@@ -108,6 +114,60 @@ async function main() {
         assert.equal(payload.expected_target_ids.length,3);
         assert.equal(payload.package_ids.length,0); // Both applications came from the Standard set.
         assert.deepEqual(payload.sets,['Standard']);
+        await page.reload();
+        await page.locator('#swPanel-progress').waitFor({state:'visible'});
+        await page.getByRole('button', {name:'Install', exact:true}).click();
+        await page.getByText('7-Zip · 1.0',{exact:true}).waitFor();
+        assert.match(await page.locator('#swTargetsSummary').innerText(),/^3 unique/,'Confirmed selection must survive reload');
+        assert.equal(await page.locator('#swSets input').first().isChecked(),true);
+        await page.locator('#view-software').evaluate(n=>n.classList.add('hidden'));
+        await page.locator('#view-queue').evaluate(n=>n.classList.remove('hidden'));
+        for (const width of [1702,1280,768,390]) {
+            await page.setViewportSize({width,height:1000});
+            assert(await page.locator('#qFilterUser').evaluate(n=>{
+                const r=n.getBoundingClientRect(),p=n.closest('.infra-queue-filters').getBoundingClientRect();
+                return r.right<=p.right+1 && r.left>=p.left-1;
+            }),`User filter must fit at ${width}px`);
+        }
+        if (output) await page.screenshot({path:path.join(output,'queue-mobile.png'),fullPage:true});
+        const infra = fs.readFileSync(path.join(staticRoot,'js/infrastructure.js'),'utf8');
+        await page.addScriptTag({content:infra.slice(infra.indexOf('function contactTime('))});
+        await page.addScriptTag({content:infra.slice(infra.indexOf('function writeInfraState('),infra.indexOf('function scopedInfraState('))});
+        await page.evaluate(()=>{
+            history.replaceState(null,'','/module/infrastructure?view=deploy');
+            document.getElementById('view-queue').id='view-deploy';
+            writeInfraState({view:'hosts',fleetSearch:'background'});
+            if(new URL(location.href).searchParams.get('view')!=='deploy') throw Error('Background update stole active view');
+            writeInfraState({view:'reports',_navigation:true});
+            if(new URL(location.href).searchParams.get('view')!=='reports') throw Error('Navigation did not persist');
+            window.refreshDone=false;
+            infraRefresh(document.querySelector('.infra-refresh'),()=>new Promise(resolve=>{window.finishRefresh=resolve;})).then(()=>window.refreshDone=true);
+        });
+        assert.equal(await page.locator('.infra-refresh').first().getAttribute('aria-busy'),'true');
+        assert.match(await page.locator('.infra-refresh span').first().evaluate(n=>getComputedStyle(n).animationName),/infra-spin/);
+        await page.evaluate(()=>window.finishRefresh()); await page.waitForFunction(()=>window.refreshDone);
+        assert.equal(await page.locator('.infra-refresh').first().isDisabled(),false);
+        await page.evaluate(()=>showDeploymentReceipt());
+        assert.match(await page.locator('#deploymentReceipt').innerText(),/Task submitted successfully/);
+        assert.equal(new URL(page.url()).searchParams.get('view'),'reports');
+        await page.route('**/api/infrastructure/host/fixture-host',route=>route.fulfill({json:{success:true,data:{
+            id:'fixture-host',hostname:'WIN-FIXTURE',ip:'192.0.2.10',os:'Windows Server 2025',os_type:'Windows',agent_version:'2.0.1-rc.1',
+            groups:[],history:[],network_info:[],agent_identity_key_enrolled:true,
+            host_info:{domain_name:'LAB',os_architecture:'X64'},contact:{last_poll:'2026-10-24T08:00:00Z',expected_min:'2026-10-24T08:02:00Z',expected_max:'2026-10-24T08:04:00Z',hours:[]}
+        }}}));
+        await page.addScriptTag({content:`
+            function escapeHtml(value) { const n=document.createElement('span'); n.textContent=value??''; return n.innerHTML; }
+            function escapeInlineJs(value) { return String(value??''); }
+            function endpointVisibleName(d) {return d.display_name||d.hostname||d.id;}
+            function openModal(id) {document.getElementById(id).classList.remove('hidden');}
+            function switchHostTab() {}
+        ` + infra.slice(infra.indexOf('async function viewHost('),infra.indexOf('function updateVisibleHostLabels('))});
+        await page.evaluate(()=>viewHost('fixture-host'));
+        assert.equal(await page.locator('#mHostInfo').count(),1);
+        assert.equal(await page.locator('#mHostInfo').evaluate(n=>n.parentElement.textContent.includes('Specifications')),true);
+        assert.match(await page.locator('#mHostInfo').innerText(),/Next contact window/);
+        assert.equal(await page.locator('#telemetryChart, #diskChart, #activityChart').count(),0);
+        if (output) await page.screenshot({path:path.join(output,'host-specifications.png'),fullPage:true});
         assert.deepEqual(errors,[],'Browser must have no JavaScript errors');
         console.log(`PASS: modal confirmation/cancel/Escape, group union, search, scoped select-visible, English UI, dark-theme contrast ${ratio.toFixed(2)}:1, mobile bounds, deployment payload`);
     } finally {

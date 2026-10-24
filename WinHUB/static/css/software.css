@@ -70,3 +70,26 @@ body.sw-target-modal-open { overflow: hidden; }
     #view-software .sw-modal-footer .sw-target-actions { width: 100%; }
     #view-software .sw-modal-footer button { flex: 1; }
 }
+
+.infra-queue-filters {flex-wrap:wrap; align-items:stretch!important}
+.infra-queue-filters > div {min-width:0; flex:1 1 780px; flex-wrap:wrap}
+.infra-queue-filters > div > div {min-width:0; max-width:100%; flex-wrap:wrap}
+.infra-queue-filters select {flex:0 1 220px; min-width:140px; max-width:100%}
+.infra-facts {display:grid; gap:12px; border-top:1px solid #29465c; padding-top:16px; margin-top:16px}
+.infra-facts > div {display:flex; justify-content:space-between; gap:16px}
+.infra-facts dt,.infra-hint {color:#a8c2d5; font-size:11px}
+.infra-facts dd {margin:0; text-align:right; overflow-wrap:anywhere}
+.infra-contact-window {color:#67e8f9; font-weight:600}
+.infra-refresh {display:inline-flex; align-items:center; justify-content:center; gap:8px; border:1px solid #38627a; background:#152d43; color:#e2f3ff; border-radius:12px; padding:10px 16px; font-size:12px; font-weight:700; cursor:pointer}
+.infra-refresh svg,.infra-refresh > span {width:20px;height:20px;display:inline-block}
+.infra-refresh[aria-busy=true] svg,.infra-refresh[aria-busy=true] > span {animation:infra-spin .8s linear infinite}
+@keyframes infra-spin {to {transform:rotate(360deg)}}
+.infra-receipt {position:fixed;bottom:24px;right:24px;z-index:200;max-width:min(420px,calc(100vw - 48px));padding:20px;border:1px solid #34d399;border-radius:18px;background:#102b2c;color:#ecfdf5;box-shadow:0 12px 40px #0008}
+.infra-receipt button {margin:12px 12px 0 0;padding:8px 12px;border:1px solid #4e817b;border-radius:8px}
+.sw-presence {display:inline-flex;width:fit-content;border-radius:99px;padding:3px 9px;margin-top:6px;font-size:11px;font-weight:700}
+.sw-online {color:#6ee7b7;background:#064e3b;border:1px solid #10b981}
+.sw-offline {color:#cbd5e1;background:#263548;border:1px solid #64748b}
+
+.sw-failed {color:#fda4af;background:#4c1625;border:1px solid #fb7185}
+.sw-waiting {color:#fde68a;background:#493719;border:1px solid #d99b25}
+@media (max-width:480px) {.infra-facts > div {flex-direction:column;gap:4px}.infra-facts dd {text-align:left}}

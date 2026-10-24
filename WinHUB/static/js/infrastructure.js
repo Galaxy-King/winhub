@@ -106,8 +106,11 @@ function readInfraState(param, storageKey, fallback = '') {
 
 function writeInfraState(params = {}, replace = true) {
     if (!window.location.pathname.includes('/module/infrastructure')) return;
+    const active = document.querySelector('section[id^="view-"]:not(.hidden)');
+    if (params.view && !params._navigation && (!active || active.id !== 'view-' + params.view)) return;
     const url = new URL(window.location.href);
     Object.entries(params).forEach(([key, value]) => {
+        if (key === '_navigation') return;
         if (value === null || value === undefined || value === '') url.searchParams.delete(key);
         else url.searchParams.set(key, String(value));
     });
@@ -2195,6 +2198,7 @@ document.addEventListener('DOMContentLoaded', () => {
             cancelFleetFilters();
         });
         restoreQueueState();
+        restoreReportFilters();
         restoreWorkspaceStateFromLocation();
 
         const saved = infraUrlParam('view') || localStorage.getItem(infraStateKeys.view) || defaultView;
@@ -2243,6 +2247,7 @@ document.addEventListener('DOMContentLoaded', () => {
         initScheduleModalScroll();
         initScheduleTargetPicker();
         restoreWorkspaceState();
+        setTimeout(restoreBuilderTargets, 100);
         setGuideLanguage(guideLanguage);
         const payloadEl = document.getElementById('depPayload');
         if(payloadEl) payloadEl.addEventListener('input', updateVariablesUI);
@@ -2272,7 +2277,7 @@ document.addEventListener('DOMContentLoaded', () => {
 function switchView(view, save=true) {
     if(save) {
         localStorage.setItem(infraStateKeys.view, view);
-        writeInfraState(scopedInfraState(view));
+        writeInfraState({...scopedInfraState(view), _navigation: true});
     }
     ['hosts', 'groups', 'group-detail', 'software', 'queue', 'deploy', 'scheduler', 'triggers', 'reports'].forEach(v => {
         const el = document.getElementById('view-' + v);
@@ -3581,7 +3586,7 @@ async function loadFleetCenter(page = fleetPagination.page || 1) {
     } catch(e) {
         console.error('Fleet load failed:', e);
         const message = e.message || 'Failed to load fleet data.';
-        body.innerHTML = `<tr><td colspan="10" class="p-12 text-center text-rose-400 font-black">${escapeHtml(message)}</td></tr>`;
+        body.innerHTML = `<tr><td colspan="9" class="p-12 text-center text-rose-400 font-black">${escapeHtml(message)}</td></tr>`;
         updateFleetFilterUI(null, message);
         renderFleetPaginationError(message);
     }
@@ -3672,11 +3677,6 @@ function renderFleetCenter() {
             ? 'bg-emerald-50 text-emerald-700 border-emerald-100'
             : (health.status === 'Warning' ? 'bg-amber-50 text-amber-700 border-amber-100' : 'bg-rose-50 text-rose-700 border-rose-100');
         const versionClass = health.outdated ? 'bg-amber-50 text-amber-700 border-amber-100' : 'bg-slate-100 text-slate-600 border-slate-200';
-        const encryption = host.encryption || {};
-        const encryptionClass = encryption.level === 'encrypted'
-            ? 'bg-emerald-50 text-emerald-700 border-emerald-100'
-            : (encryption.level === 'partial' ? 'bg-amber-50 text-amber-700 border-amber-100' : (encryption.level === 'none' ? 'bg-rose-50 text-rose-700 border-rose-100' : 'bg-slate-100 text-slate-500 border-slate-200'));
-        const encryptionTitle = (encryption.methods || []).join(', ') || encryption.summary || 'Encryption inventory is unavailable';
         const groups = (host.groups || []).map(group => `<span class="px-2 py-1 rounded-lg bg-slate-100 text-slate-500 border border-slate-200 text-[9px] font-black uppercase">${escapeHtml(group.name)}</span>`).join('');
         const keyClass = host.agent_identity_key_enrolled ? 'text-emerald-700 bg-emerald-50 border-emerald-100' : 'text-violet-700 bg-violet-50 border-violet-100';
         const keyLabel = host.agent_identity_key_enrolled ? 'Key OK' : 'No key';
@@ -3709,7 +3709,6 @@ function renderFleetCenter() {
                 <span class="ml-1 inline-flex whitespace-nowrap px-2 py-1 rounded-lg border text-[9px] font-black uppercase ${taskKeyClass}" title="Per-agent task signature migration">${taskKeyLabel}</span>
                 <div class="text-[10px] font-bold text-slate-400 mt-1">${healthReasons}</div>
             </td>
-            <td class="px-6 py-4"><span title="${escapeHtml(encryptionTitle)}" class="px-3 py-1 rounded-xl border text-[10px] font-black uppercase ${encryptionClass}">${escapeHtml(encryption.status || 'Unknown')}</span></td>
             <td class="px-6 py-4"><div class="flex flex-wrap gap-1.5">${groups || '<span class="text-xs font-bold text-slate-300">No group</span>'}</div></td>
             <td class="px-6 py-4 font-bold text-slate-500">${escapeHtml(host.ip || '-')}</td>
             <td class="px-6 py-4 text-right text-xs font-bold text-slate-400">${escapeHtml(host.last_seen || '-')}</td>
@@ -3717,7 +3716,7 @@ function renderFleetCenter() {
                 <button onclick="runFleetUpdate('${escapeHtml(host.id)}')" class="px-3 py-2 rounded-xl bg-white border border-slate-200 text-[10px] font-black uppercase text-slate-500 hover:text-indigo-600 hover:bg-indigo-50 transition-all">Update</button>
             </td>
         </tr>`;
-    }).join('') || `<tr><td colspan="10" class="p-12 text-center text-slate-500 font-black">${escapeHtml(fleetCenterData.access_note || 'No fleet hosts match filters.')}</td></tr>`;
+    }).join('') || `<tr><td colspan="9" class="p-12 text-center text-slate-500 font-black">${escapeHtml(fleetCenterData.access_note || 'No fleet hosts match filters.')}</td></tr>`;
     updateFleetSelectedCount();
 
     if (packagesBox) {
@@ -3933,7 +3932,7 @@ async function submitDeployment() {
     try {
         const res = await fetch('/api/infrastructure/tasks/create', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(data) });
         const resData = await res.json();
-        if(res.ok && resData.success) { switchView('queue'); resetWorkspace(); }
+        if(res.ok && resData.success) { showDeploymentReceipt(); }
         else { alert("Error: " + (resData.message || "Failed to create task")); }
     } catch(e) { alert("Server error."); }
     finally { btn.disabled = false; btn.innerText = oldText; }
@@ -3960,7 +3959,7 @@ function switchHostTab(tab) {
     }
 
     if(tab === 'items' && currentViewedHostId) loadHostMetrics();
-    if(tab === 'telemetry' && currentViewedHostId) loadTelemetry(currentViewedHostId, 1);
+    if(tab === 'telemetry' && currentViewedHostId) loadIpHistory(currentViewedHostId);
 }
 
 function switchNodeTab(tab, save = true) {
@@ -4554,9 +4553,10 @@ function renderQueue() {
                 <td class="px-10 py-5 font-bold text-slate-500">${escapeHtml(j.target_summary || 'N/A')}</td>
                 <td class="px-10 py-5 text-center"><span class="px-4 py-1.5 rounded-xl text-[10px] font-black uppercase tracking-wider ${cls}">${escapeHtml(statusStr)} ${j.total > 1 ? `(${j.success}/${j.total})` : ''}</span></td>
                 <td class="px-10 py-5 text-xs text-slate-400 font-bold text-right">${escapeHtml(j.created_at)}</td>
+                <td class="px-6 py-5 text-xs"><span class="infra-contact-window">${escapeHtml(j.next_contact_min ? contactWindow(j.next_contact_min, j.next_contact_max) : (j.pending + j.running > 0 ? 'Not reported' : '—'))}</span>${j.next_contact_min ? '<div class="infra-hint">Earliest active target · estimated</div>' : ''}</td>
                 ${actionBtn}
             </tr>`;
-    }).join('') || '<tr><td colspan="5" class="p-24 text-center text-slate-300 font-black italic">No tasks match your filters.</td></tr>';
+    }).join('') || '<tr><td colspan="6" class="p-24 text-center text-slate-300 font-black italic">No tasks match your filters.</td></tr>';
 }
 
 // --- TRIGGERS LOGIC ---
@@ -5458,13 +5458,13 @@ async function viewHost(id) {
         const hostInfo = d.host_info || {};
         const contact = d.contact || {};
         document.getElementById('mHostInfo').innerHTML = `
-            <div class="rounded-2xl p-3 space-y-2 border border-slate-600">
-                <div>Domain: ${escapeHtml(hostInfo.domain_name || '-')}</div>
-                <div>Architecture: ${escapeHtml(hostInfo.os_architecture || '-')}</div>
-                <div>Last authenticated poll: ${escapeHtml(contact.last_poll || 'No contact history yet')}</div>
-                <div>Next contact expected: ${escapeHtml(contact.expected_min || '-')} — ${escapeHtml(contact.expected_max || '-')}</div>
-                <p>Expected time includes polling jitter; a running task can delay the next poll. Automatic performance telemetry is disabled on lean agents.</p>
-            </div>${identityWarning}${identityDuplicateWarning}`;
+            <dl class="infra-facts">
+                <div><dt>Domain</dt><dd>${escapeHtml(hostInfo.domain_name || 'Not reported')}</dd></div>
+                <div><dt>Architecture</dt><dd>${escapeHtml(hostInfo.os_architecture || 'Not reported')}</dd></div>
+                <div><dt>Last authenticated contact</dt><dd>${escapeHtml(contactTime(contact.last_poll))}</dd></div>
+                <div><dt>Next contact window</dt><dd class="infra-contact-window">${escapeHtml(contactWindow(contact.expected_min, contact.expected_max))}</dd></div>
+            </dl><p class="infra-hint">Estimated window includes poll jitter. Active tasks may delay contact.</p>
+            ${identityWarning}${identityDuplicateWarning}`;
         const history = document.getElementById('mSecurityInfo');
         history.replaceChildren();
         const legend = document.createElement('p');
@@ -5931,3 +5931,70 @@ async function requestDetailedHostInventory(id) {
         alert(response.ok && data.success ? 'Inventory queued. View the result in Task History.' : data.message || 'Inventory request failed.');
     } catch { alert('Inventory request failed. Check the connection.'); }
 }
+
+function contactTime(value) {
+    if (!value) return 'Not reported';
+    const date = new Date(value);
+    return Number.isNaN(date.getTime()) ? 'Not reported' : date.toLocaleString('en-GB', {timeZoneName: 'short'});
+}
+function contactWindow(min, max) {
+    if (!min) return 'Not reported';
+    return contactTime(min) + (max && max !== min ? ' – ' + contactTime(max) : '');
+}
+async function infraRefresh(button, loader) {
+    if (button.disabled) return;
+    button.disabled = true; button.setAttribute('aria-busy', 'true');
+    try { await loader(); } finally { button.disabled = false; button.removeAttribute('aria-busy'); }
+}
+function showDeploymentReceipt() {
+    document.getElementById('deploymentReceipt')?.remove();
+    const notice = document.createElement('div'); notice.id = 'deploymentReceipt'; notice.className = 'infra-receipt';
+    notice.setAttribute('role', 'status');
+    notice.innerHTML = '<strong>Task submitted successfully</strong><p>Track delivery and results in Execution Queue.</p><button type="button">Open Queue</button><button type="button" aria-label="Dismiss notification">Dismiss</button>';
+    notice.querySelector('button').onclick = () => { switchView('queue'); notice.remove(); };
+    notice.querySelectorAll('button')[1].onclick = () => notice.remove();
+    document.body.append(notice);
+}
+
+const reportFilterIds = ['reportSearch','reportContentSearch','reportActorFilter','reportSourceFilter','reportStatusFilter','reportContentField','reportDateFrom','reportDateTo','reportHasErrors'];
+function restoreReportFilters() {
+    try {
+        const saved = JSON.parse(sessionStorage.getItem('winhub.report.filters') || '{}');
+        for (const id of reportFilterIds) {
+            const field = document.getElementById(id);
+            if (field && Object.hasOwn(saved, id)) {
+                if (field.type === 'checkbox') field.checked = !!saved[id]; else field.value = saved[id];
+            }
+        }
+    } catch (_) {}
+}
+window.addEventListener('beforeunload', () => {
+    const values = {};
+    for (const id of reportFilterIds) {
+        const field = document.getElementById(id);
+        if (field) values[id] = field.type === 'checkbox' ? field.checked : field.value;
+    }
+    sessionStorage.setItem('winhub.report.filters', JSON.stringify(values));
+});
+
+function restoreBuilderTargets() {
+    try {
+        const saved = JSON.parse(sessionStorage.getItem('winhub.builder.targets') || '{}');
+        const field = document.getElementById('depTargetHostIds');
+        if (!field || !Array.isArray(saved.hosts)) return;
+        const hosts = saved.hosts.filter(id => availableHostsData.some(h => h.id === id && isMultiHostSelectable(h)));
+        field.value = JSON.stringify(hosts);
+        if (document.getElementById('selectedHostsCount')) document.getElementById('selectedHostsCount').textContent = hosts.length;
+        if (document.getElementById('selectedHostsLabel')) document.getElementById('selectedHostsLabel').textContent = hosts.length ? hosts.length + ' hosts selected' : 'Click to select hosts...';
+        if (document.getElementById('depType') && ['hosts','group'].includes(saved.type)) document.getElementById('depType').value = saved.type;
+        if (document.getElementById('depTargetGroup') && saved.group) document.getElementById('depTargetGroup').value = saved.group;
+        toggleDeployTarget();
+    } catch (_) {}
+}
+window.addEventListener('beforeunload', () => {
+    const field = document.getElementById('depTargetHostIds');
+    if (!field) return;
+    try {
+        sessionStorage.setItem('winhub.builder.targets', JSON.stringify({hosts:JSON.parse(field.value || '[]'), type:document.getElementById('depType')?.value, group:document.getElementById('depTargetGroup')?.value}));
+    } catch (_) {}
+});

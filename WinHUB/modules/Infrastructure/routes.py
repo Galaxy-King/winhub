@@ -6176,7 +6176,7 @@ def get_tasks():
         AgentTask.endpoint_id.in_(allowed_hosts),
         AgentTask.endpoint_id_snapshot.in_(allowed_hosts),
     )
-    tasks = db.session.query(AgentTask, Endpoint.hostname, Endpoint.display_name).outerjoin(
+    tasks = db.session.query(AgentTask, Endpoint.hostname, Endpoint.display_name, Endpoint.next_contact_min, Endpoint.next_contact_max).outerjoin(
         Endpoint, Endpoint.id == AgentTask.endpoint_id
     ).filter(
         task_scope_filter,
@@ -6185,7 +6185,7 @@ def get_tasks():
 
     jobs = {}
     job_sort_at = {job_id: created_at for job_id, created_at in recent_jobs if job_id}
-    for t, hostname, display_name in tasks:
+    for t, hostname, display_name, contact_min, contact_max in tasks:
         jid = t.job_id or t.id
         if jid not in jobs:
             ai_row = latest_ai_by_job.get(jid)
@@ -6198,6 +6198,11 @@ def get_tasks():
         resolved_endpoint_id = t.endpoint_id or t.endpoint_id_snapshot
         display_label = (resolved_name or resolved_hostname or resolved_endpoint_id or "Deleted host").strip()
         jobs[jid]["tasks"].append({"task_id": t.id, "endpoint_id": resolved_endpoint_id, "hostname": resolved_hostname, "display_name": resolved_name, "name": display_label, "status": t.status or "Pending"})
+        if t.status in {"Pending", "PickedUp", "Running", "SoftwareQueued"} and contact_min:
+            current = jobs[jid].get("next_contact_min")
+            if not current or contact_min.isoformat() + "Z" < current:
+                jobs[jid]["next_contact_min"] = contact_min.isoformat() + "Z"
+                jobs[jid]["next_contact_max"] = contact_max.isoformat() + "Z" if contact_max else None
         jobs[jid]["total"] += 1
 
         status_norm = (t.status or "Pending").capitalize()
