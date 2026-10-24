@@ -401,6 +401,36 @@ class SoftwareTests(unittest.TestCase):
         self.assertEqual(plan['package']['resolved_script'], '')
         self.assertEqual(plan['operation'], 'detect')
 
+    def test_long_poll_jitter_does_not_withdraw_before_agent_can_collect(self):
+        host = self.hosts[0]
+        now = datetime.utcnow()
+        host.last_poll_at = host.last_seen = now - timedelta(seconds=150)
+        host.next_contact_max = host.last_poll_at + timedelta(seconds=240)
+        package = self.package(file=(io.BytesIO(b'installer'), 'fixture.exe'))
+        self.launch(package)
+        with mock.patch.object(Config, 'AGENT_IDLE_POLL_SECONDS', 120), mock.patch.object(Config, 'AGENT_POLL_JITTER_SECONDS', 120):
+            software.process_queue()
+            step = SoftwareStep.query.one()
+            task = AgentTask.query.one()
+            self.assertEqual(task.status, 'Pending')
+            task_id = task.id
+            step.started_at = now - timedelta(seconds=150)
+            db.session.commit()
+            software.process_queue()
+            self.assertEqual(task.status, 'Pending')
+            self.assertEqual(step.status, 'Active')
+            self.assertEqual(task.id, task_id)
+            self.assertGreater((step.token_until - now).total_seconds(), 1800 + 300)
+            from core.agent_gateway import get_pending_task_for_agent, pending_task_miss_cache
+            pending_task_miss_cache.clear()
+            self.assertEqual(get_pending_task_for_agent(host.id).id, task_id)
+            # Once the entire 240s poll + 60s grace has elapsed, genuine silence releases capacity.
+            step.started_at = host.last_seen = now - timedelta(seconds=310)
+            db.session.commit()
+            software.process_queue()
+            self.assertEqual(task.status, 'SoftwareQueued')
+            self.assertEqual(AgentTask.query.count(), 1)
+
     def test_pending_offline_is_held_without_duplicate_and_stalled_keeps_slot(self):
         package = self.package()
         self.launch(package)

@@ -479,6 +479,16 @@ try {
 '''
 
 
+def poll_wait_seconds(host):
+    """Budget a full poll plus jitter and grace; short fixed leases can starve delivery."""
+    interval = max(10, min(3600, int(getattr(Config, 'AGENT_IDLE_POLL_SECONDS', 30))))
+    jitter = max(0, min(3600, int(getattr(Config, 'AGENT_POLL_JITTER_SECONDS', 30))))
+    observed = 0
+    if host and host.last_poll_at and host.next_contact_max:
+        observed = max(0, (host.next_contact_max - host.last_poll_at).total_seconds())
+    return max(120, min(7200, max(interval + jitter, observed)) + 60)
+
+
 def process_queue():
     """One transaction per tick. All workers must acquire control before queue writes."""
     with LOCAL_LOCK:
@@ -491,18 +501,23 @@ def process_queue():
             task = AgentTask.query.filter_by(id=step.task_id).with_for_update().first()
             if not task or task.status in TERMINAL:
                 step.status = task.status if task else 'Error'
+                step.message = ('Operation completed.' if task.status == 'Success' else 'See the task log for the result.') if task else 'The task no longer exists.'
                 step.token_hash = None
                 if task and task.status == 'Success' and 'WINHUB_REBOOT_REQUIRED' in (task.result_log or ''):
                     step.status, step.message = 'RebootRequired', 'A reboot is required; subsequent applications will not start.'
                 continue
-            if task.status == 'Pending' and step.started_at < now - timedelta(minutes=2):
+            delivery_host = db.session.get(Endpoint, step.endpoint_id)
+            if task.status == 'Pending' and step.started_at + timedelta(seconds=poll_wait_seconds(delivery_host)) < now:
                 # Same task is held again; gateway locks it before pickup.
                 task.status, step.status, step.token_hash = 'SoftwareQueued', 'Queued', None
+                step.message = 'The agent did not collect the task within its polling window. Waiting to retry delivery.'
                 continue
             # No speculative timeout/retry of a picked-up installer: retain its slot
             # until an authenticated result or explicit operator cancellation.
             plan = json.loads(step.snapshot)
-            if step.started_at + timedelta(seconds=plan['package']['timeout_seconds'] + 300) < now:
+            if task.status in ('PickedUp', 'Running'):
+                step.message = ''
+            if step.started_at + timedelta(seconds=plan['package']['timeout_seconds'] + poll_wait_seconds(delivery_host) + 300) < now:
                 step.message = 'No result after the timeout. Check the endpoint before resolving manually.'
             busy.add(step.endpoint_id)
         db.session.flush()
@@ -523,10 +538,13 @@ def process_queue():
                     step.status, step.message = 'Skipped', 'The waiting period expired.'
                     continue
                 if deployment.status != 'Running' or any(s.status != 'Success' for s in previous):
+                    step.message = 'Deployment is paused or finishing cancellation.' if deployment.status != 'Running' else 'Waiting for the preceding application on this endpoint.'
                     continue
                 if step.endpoint_id in busy or len(busy) >= cfg['max_hosts']:
+                    step.message = 'Waiting for an available global Software execution slot.'
                     continue
                 if own_active >= deployment.parallelism:
+                    step.message = 'Waiting for this deployment concurrency limit.'
                     continue
                 host = db.session.get(Endpoint, step.endpoint_id)
                 actor = db.session.get(User, deployment.actor_user_id)
@@ -535,15 +553,18 @@ def process_queue():
                 if not host or host.is_blocked or host.approval_status != 'Approved' or not permitted:
                     step.status, step.message = 'Error', 'The endpoint is unavailable for execution or permission was revoked.'
                     continue
-                if (host.last_seen or datetime.min) < now - timedelta(minutes=2):
+                wait_seconds = poll_wait_seconds(host)
+                if (host.last_seen or datetime.min) + timedelta(seconds=wait_seconds) < now:
+                    step.message = 'Waiting for endpoint contact; the expected polling window has elapsed.'
                     continue
                 # Also avoid overlap with another Software launch or ordinary task.
                 if AgentTask.query.filter(AgentTask.endpoint_id == host.id, AgentTask.status.in_(ACTIVE)).first():
+                    step.message = 'Waiting for another pending or running task on this endpoint.'
                     continue
                 plan = json.loads(step.snapshot)
                 token = secrets.token_urlsafe(32)
                 step.token_hash = hashlib.sha256(token.encode()).hexdigest()
-                step.token_until = now + timedelta(seconds=plan['package']['timeout_seconds'] + 300)
+                step.token_until = now + timedelta(seconds=wait_seconds + plan['package']['timeout_seconds'] + 300)
                 task_id = step.task_id or str(uuid.uuid4())
                 download_url = '/api/public/software-delivery/' + step.id
                 needs_file = bool(plan['package'].get('blob_sha256') and plan['operation'] not in ('uninstall', 'detect') and not (plan['operation'] == 'update' and not plan['package'].get('update_requires_installer', True)))
@@ -565,6 +586,7 @@ def process_queue():
                     db.session.add(task)
                 task.payload, task.status, task.created_at = payload, 'Pending', now
                 step.task_id, step.started_at, step.status = task_id, now, 'Active'
+                step.message = f'Waiting for agent pickup; delivery budget is {int(wait_seconds)} seconds including poll jitter.'
                 busy.add(host.id)
                 own_active += 1
             if steps and all(s.status not in ('Queued', 'Active') for s in steps):
