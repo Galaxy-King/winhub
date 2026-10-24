@@ -379,6 +379,7 @@ def register(bp):
             plan = json.loads(step.snapshot)
             path = service.blob_path(plan['package'].get('blob_sha256'))
             if not path.is_file():
+                current_app.logger.error('Software delivery file missing for step %s; check DATA_DIR/software_blobs on the agent backend.', step.id)
                 return Response(status=404)
             leases = SoftwareStep.query.filter(SoftwareStep.download_until > now).count()
             if (step.download_until and step.download_until > now) or leases >= cfg['max_downloads']:

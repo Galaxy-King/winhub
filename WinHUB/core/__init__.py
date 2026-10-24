@@ -1170,7 +1170,7 @@ def handle_security_and_auth():
     g.csp_nonce = new_csp_nonce()
     open_endpoints = ['auth.login_page', 'auth.api_login', 'auth.forgot_password', 'auth.reset_password', 'core_routes.health', 'static']
     if request.path.startswith('/api/agent/'): return None
-    if request.path.startswith('/api/public/agent-packages/') or request.path.startswith('/api/public/software-packages/'):
+    if request.path.startswith(('/api/public/agent-packages/', '/api/public/software-packages/', '/api/public/software-delivery/')):
         return None
     if request.path.startswith('/api/'):
         auth_header = request.headers.get('Authorization', '')

@@ -50,3 +50,8 @@ Clone completion locks the original endpoint and conflict before finalization; 3
 ### Узгодження Software delivery із poll cadence (2026-10-24)
 
 Фіксовані 120 секунд для host freshness та повернення незабраної Pending-задачі створювали цикл SoftwareQueued при interval 120 + jitter 120: задача могла бути прибрана перед наступним poll. Бюджет доставки тепер `max(120, min(7200, max(configured interval+jitter, observed next_contact_max-last_poll_at)) + 60)` секунд. Він застосовується до freshness й очікування pickup; строк download capability також включає цей бюджет до timeout виконання. Підписи, ліміти навантаження, заборона повторного запуску забраного installer та task ID зберігаються. Regression test відтворює 150 секунд між контактами й перевіряє доступність задачі наступному poll та звільнення слота після справжньої відсутності контакту.
+
+
+### Capability auth boundary (2026-10-24)
+
+Global auth middleware must route `/api/public/software-delivery/` directly to the capability verifier, matching the existing Infrastructure guard. A Software bearer capability is not an ApiKey. Previously the global middleware returned 401 before task/host/token validation. Regression coverage now runs the real global middleware for anonymous, invalid-capability and valid active-task downloads: 403, 403, 200 respectively. The exception is limited to the delivery prefix; it does not grant UI/API access or bypass per-download checks.

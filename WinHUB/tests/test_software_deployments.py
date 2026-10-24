@@ -266,7 +266,12 @@ class SoftwareTests(unittest.TestCase):
         self.assertEqual(anonymous.get(url, headers=headers).status_code, 403)  # not picked up
         task.status = 'PickedUp'
         db.session.commit()
-        response = anonymous.get(url, headers=headers)
+        # Exercise the real global auth hook, not only the Infrastructure blueprint guard.
+        from core import handle_security_and_auth
+        with mock.patch.dict(self.app.before_request_funcs, {None: [handle_security_and_auth]}):
+            self.assertEqual(anonymous.get(url).status_code, 403)
+            self.assertEqual(anonymous.get(url, headers={'Authorization': 'Bearer invalid'}).status_code, 403)
+            response = anonymous.get(url, headers=headers)
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.data, content)
         response.close()
