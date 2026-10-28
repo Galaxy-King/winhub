@@ -1,0 +1,29 @@
+<div id="scheduleRecurrence" class="scheduler-form-grid" oninput="schedulerPreviewSoon()" onchange="schedulerRecurrenceFields(); schedulerPreviewSoon()">
+    <label>Recurrence<select id="schRuleKind"><option value="once">Once</option><option value="daily">Daily</option><option value="weekly">Weekly</option><option value="monthly">Monthly</option><option value="interval">Fixed interval</option><option value="cron">Advanced cron</option></select></label>
+    <label>Timezone<input id="schRuleTimezone" value="Europe/Kyiv" list="schedulerTimezones"><datalist id="schedulerTimezones"><option value="Europe/Kyiv"><option value="UTC"><option value="Europe/Warsaw"><option value="Europe/London"><option value="America/New_York"></datalist></label>
+    <label data-rule="once daily weekly monthly interval">Start date<input id="schRuleDate" type="date"></label>
+    <label data-rule="once daily weekly monthly interval">Start time · 24-hour<input id="schRuleTime" type="text" placeholder="03:00" inputmode="numeric" pattern="[0-2][0-9]:[0-5][0-9]" maxlength="5"></label>
+    <label data-rule="daily weekly monthly interval">Repeat every<input id="schRuleEvery" type="number" min="1" max="365" value="1"><span id="schRuleUnitLabel">period(s)</span></label>
+    <label data-rule="interval">Interval unit<select id="schRuleUnit"><option value="minutes">Minutes</option><option value="hours" selected>Hours</option><option value="days">Days (24 hours)</option></select></label>
+    <fieldset data-rule="weekly" class="scheduler-wide"><legend>Weekdays · weeks counted from start-date week</legend><div class="scheduler-weekdays">{% for day in ['Mon','Tue','Wed','Thu','Fri','Sat','Sun'] %}<label><input class="sch-rule-day" type="checkbox" value="{{ loop.index0 }}">{{ day }}</label>{% endfor %}</div></fieldset>
+    <label data-rule="monthly">Monthly pattern<select id="schRuleMonthMode"><option value="day">Day of month</option><option value="last_day">Last day of month</option><option value="weekday">Nth weekday</option></select></label>
+    <label id="schRuleMonthDayWrap" data-rule="monthly">Day · missing dates are skipped<input id="schRuleMonthDay" type="number" min="1" max="31" value="1"></label>
+    <label id="schRuleOrdinalWrap" data-rule="monthly">Occurrence<select id="schRuleOrdinal"><option value="1">First</option><option value="2">Second</option><option value="3">Third</option><option value="4">Fourth</option><option value="-1">Last</option></select></label>
+    <label id="schRuleWeekdayWrap" data-rule="monthly">Weekday<select id="schRuleWeekday">{% for day in ['Monday','Tuesday','Wednesday','Thursday','Friday','Saturday','Sunday'] %}<option value="{{ loop.index0 }}">{{ day }}</option>{% endfor %}</select></label>
+    <label data-rule="cron" class="scheduler-wide">Cron · minute hour day month weekday<input id="schRuleCron" placeholder="0 3 1 * *"><span>Cron does not express an anchored every-two-weeks schedule. Use Weekly instead.</span></label>
+    <label>End date · optional<input id="schRuleEndDate" type="date"></label>
+    <label>End time · 24-hour<input id="schRuleEndTime" type="text" placeholder="23:59" value="23:59" maxlength="5"></label>
+    <div class="scheduler-wide scheduler-preview" aria-live="polite"><strong>Next 5 executions</strong><div id="schRulePreview">Select a recurrence and start time.</div></div>
+</div>
+<div class="scheduler-form-grid scheduler-policy">
+    <h4 class="scheduler-wide">Delivery, overlap and result policy</h4>
+    <label>Delivery window · minutes<input id="schDeliveryMinutes" type="number" min="1" max="10080" value="60"><span>Waiting for agent pickup; separate from execution time above.</span></label>
+    <label>Previous run still active<select id="schOverlap"><option value="skip">Skip new occurrence</option><option value="queue_one">Queue one occurrence</option></select></label>
+    <label>Missed while server was unavailable<select id="schMissed"><option value="run_once">Run once after recovery</option><option value="skip">Skip missed occurrence</option></select><span>Missed runs are coalesced, never replayed as a backlog. Skip uses a 5-minute grace.</span></label>
+    <label>Delivery retries<input id="schRetries" type="number" min="0" max="10" value="0"><span>Only before pickup. Accepted or unknown executions are never automatically retried.</span></label>
+    <label>Retry delay · minutes<input id="schRetryMinutes" type="number" min="1" max="1440" value="5"></label>
+    <label>Success exit codes<input id="schSuccessCodes" value="0" placeholder="0"></label>
+    <label>Warning exit codes<input id="schWarningCodes" value="" placeholder="10"></label>
+    <label>Verification failure exit codes<input id="schVerificationCodes" value="21" placeholder="21"></label>
+    <p class="scheduler-wide">Script templates return a numeric process exit code. PowerShell must explicitly check external programs and use <code>exit</code>; Bash must check command failures. No text matching of “success”. See Guide for examples and legacy behavior.</p>
+</div>

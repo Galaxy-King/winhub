@@ -2,6 +2,7 @@ import html
 import hashlib
 import json
 import uuid
+from datetime import datetime, timedelta
 from typing import List
 from flask import g, has_request_context, request, session
 from sqlalchemy.exc import PendingRollbackError
@@ -189,6 +190,8 @@ class WinHubCore:
             if not report_template or getattr(report_template, "type", "action") != "report" or not template_approval_valid(report_template):
                 raise PermissionError("Approved report template not found or approval seal is invalid")
 
+        if payload.get('__schedule_run_id') and module_name != 'Scheduler':
+            raise ValueError('Scheduler result metadata is reserved for Scheduler dispatch')
         payload_json = json.dumps(payload)
         job_id = str(uuid.uuid4())
 
@@ -212,6 +215,13 @@ class WinHubCore:
         template_id = payload.get("__template_id") or payload.get("__report_template_id") if isinstance(payload, dict) else None
         schedule_id = payload.get("__schedule_id") if isinstance(payload, dict) else None
 
+        def scheduled_payload(host_id):
+            if not payload.get('__schedule_run_id'):
+                return payload_json
+            from core.scheduling import script_payload
+            return json.dumps(script_payload(payload, getattr(hosts_by_id.get(host_id), 'os_type', 'Windows')))
+
+        schedule_policy = payload.get('__schedule_policy') or {}
         tasks = [
             AgentTask(
                 job_id=job_id,
@@ -231,7 +241,9 @@ class WinHubCore:
                 actor_user_id=None if system_actor else (actor_user_id or user.id),
                 template_id=str(template_id) if template_id else None,
                 schedule_id=str(schedule_id) if schedule_id else None,
-                payload=payload_json,
+                schedule_run_id=payload.get('__schedule_run_id'),
+                delivery_deadline=(datetime.utcnow() + timedelta(seconds=schedule_policy.get('delivery_seconds', 3600))) if payload.get('__schedule_run_id') else None,
+                payload=scheduled_payload(hid),
                 created_by=actor_name or user.username
             )
             for hid in requested_ids

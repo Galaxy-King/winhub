@@ -31,6 +31,7 @@ RESET_TABLES = (
     "endpoint_identity_conflicts",
     "endpoint_instances",
     "agent_tasks",
+    "schedule_runs",
     "telemetry_history",
     "agent_contact_hours",
     "connection_ip_history",

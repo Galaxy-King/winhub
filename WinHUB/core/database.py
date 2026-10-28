@@ -335,6 +335,14 @@ class AgentTask(db.Model):
     actor_user_id = db.Column(db.Integer, db.ForeignKey('users.id', ondelete="SET NULL"), nullable=True, index=True)
     template_id = db.Column(db.String(36), nullable=True, index=True)
     schedule_id = db.Column(db.String(36), nullable=True, index=True)
+    schedule_run_id = db.Column(db.String(36), nullable=True, index=True)
+    picked_up_at = db.Column(db.DateTime, nullable=True)
+    delivery_deadline = db.Column(db.DateTime, nullable=True)
+    retry_after = db.Column(db.DateTime, nullable=True)
+    result_deadline = db.Column(db.DateTime, nullable=True)
+    exit_code = db.Column(db.Integer, nullable=True)
+    outcome = db.Column(db.String(32), nullable=True)
+    retry_count = db.Column(db.Integer, nullable=False, default=0, server_default='0')
     payload = db.Column(EncryptedText)
     status = db.Column(db.String(20), default="Pending", index=True)
     result_log = db.Column(EncryptedText)
@@ -437,6 +445,8 @@ class ScheduledTask(db.Model):
     target_id = db.Column(db.String(100))
 
     cron_expr = db.Column(db.String(100), nullable=False)
+    schedule_spec = db.Column(db.Text, nullable=True)
+    execution_policy = db.Column(db.Text, nullable=True)
     is_active = db.Column(db.Boolean, default=True)
     variables = db.Column(EncryptedText)
     timeout_minutes = db.Column(db.Integer, nullable=True)
@@ -449,6 +459,27 @@ class ScheduledTask(db.Model):
     last_run = db.Column(db.DateTime, nullable=True)
 
     template = db.relationship('TaskTemplate')
+
+
+class ScheduleRun(db.Model):
+    __tablename__ = 'schedule_runs'
+    id = db.Column(db.String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
+    schedule_id = db.Column(db.String(36), db.ForeignKey('scheduled_tasks.id', ondelete='SET NULL'), index=True)
+    occurrence_key = db.Column(db.String(80), nullable=False)
+    name = db.Column(db.String(150), nullable=False)
+    category = db.Column(db.String(100), nullable=False)
+    source = db.Column(db.String(20), nullable=False)
+    scheduled_at = db.Column(db.DateTime, nullable=False, index=True)
+    created_at = db.Column(db.DateTime, nullable=False, default=datetime.utcnow)
+    finished_at = db.Column(db.DateTime, nullable=True)
+    status = db.Column(db.String(32), nullable=False, default='Claimed', index=True)
+    message = db.Column(EncryptedText, nullable=True)
+    job_id = db.Column(db.String(36), nullable=True, index=True)
+    policy_snapshot = db.Column(db.Text, nullable=False, default='{}')
+    actor_user_id = db.Column(db.Integer, nullable=True)
+    actor_name = db.Column(db.String(100), nullable=True)
+    launch_reason = db.Column(EncryptedText, nullable=True)
+    __table_args__ = (db.UniqueConstraint('schedule_id', 'occurrence_key', name='uq_schedule_occurrence'),)
 
 class EndpointMetric(db.Model):
     __tablename__ = 'endpoint_metrics'

@@ -2297,6 +2297,7 @@ function switchView(view, save=true) {
         navBtn.classList.add('active', 'bg-white', 'text-indigo-600', 'shadow-sm', 'border-slate-200/50');
         navBtn.classList.remove('text-slate-500', 'border-transparent');
     }
+    if(view === 'scheduler' && window.schedulerRefresh) schedulerRefresh().catch(console.error);
     if(view === 'queue') loadQueue();
     if(view === 'reports') loadReports();
     if(view === 'deploy') {
@@ -5087,6 +5088,7 @@ function openScheduleModal() {
     toggleSchType();
     updateScheduleVariablesUI({});
 
+    if (window.schedulerResetForm) schedulerResetForm();
     const title = document.getElementById('schModalTitle'); if(title) title.innerText = 'New Schedule';
     openModal('scheduleModal');
     const modalBody = document.querySelector('#scheduleModal .schedule-modal-body');
@@ -5134,6 +5136,7 @@ function editSchedule(source, name, cat, cron, type, active) {
     updateScheduleVariablesUI(currentScheduleVariables);
 
     parseCronToUI(cron);
+    if (window.schedulerResetForm) schedulerResetForm(data);
 
     const title = document.getElementById('schModalTitle'); if(title) title.innerText = 'Edit Schedule';
     openModal('scheduleModal');
@@ -5145,7 +5148,10 @@ function editSchedule(source, name, cat, cron, type, active) {
 async function saveSchedule() {
     const launchReason = requiredLaunchReason('schLaunchReason');
     if (launchReason === null) return;
-    const cronExpr = buildCronString();
+    let advanced = null;
+    try { if (window.schedulerCollectSettings) advanced = schedulerCollectSettings(); }
+    catch (error) { return alert(error.message); }
+    const cronExpr = advanced ? 'CALENDAR' : buildCronString();
     if (!cronExpr) return alert("Please specify the execution time and date/days completely.");
 
     const name = document.getElementById('schName')?.value?.trim() || '';
@@ -5170,6 +5176,7 @@ async function saveSchedule() {
         target_type: targetType,
         target_id: targetId,
         cron: cronExpr,
+        ...(advanced || {}),
         timeout_minutes: timeoutMinutes,
         variables: collectScheduleVariables(),
         is_active: document.getElementById('schActive')?.checked

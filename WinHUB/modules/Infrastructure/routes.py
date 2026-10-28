@@ -2966,7 +2966,9 @@ def index():
         "last_run": to_kyiv_time_short(st.last_run),
         "next_run": to_kyiv_time_short(getattr(st, "next_run_at", None)),
         "last_status": getattr(st, "last_status", None) or "Never run",
-        "timeout_minutes": getattr(st, "timeout_minutes", None) or ""
+        "timeout_minutes": getattr(st, "timeout_minutes", None) or "",
+        "recurrence": json.loads(st.schedule_spec) if st.schedule_spec else None,
+        "execution_policy": json.loads(st.execution_policy) if st.execution_policy else None,
     } for st in scheduled_raw]
 
     trigger_rules = []
@@ -4320,7 +4322,12 @@ def manage_schedule():
 
     try:
         target_type, target_id = validate_schedule_target(data.get('target_type'), data.get('target_id'))
-        cron_expression = validate_schedule_expression(data.get('cron'), active=is_active)
+        from core.scheduling import normalize_spec, normalize_policy, next_fire
+        recurrence = normalize_spec(data['recurrence']) if 'recurrence' in data else None
+        execution_policy = normalize_policy(data['execution_policy']) if 'execution_policy' in data else None
+        cron_expression = 'CALENDAR' if recurrence else validate_schedule_expression(data.get('cron'), active=is_active)
+        if recurrence and is_active and not next_fire(recurrence, datetime.utcnow()):
+            raise ValueError('The schedule has no future execution; check start/end dates')
     except PermissionError as exc:
         return jsonify({"success": False, "message": str(exc)}), 403
     except ValueError as exc:
@@ -4390,6 +4397,14 @@ def manage_schedule():
     st.target_type = target_type
     st.target_id = target_id
     st.cron_expr = cron_expression
+    if recurrence:
+        st.schedule_spec = json.dumps(recurrence)
+        st.next_run_at = next_fire(recurrence, datetime.utcnow()) if is_active else None
+    else:
+        st.schedule_spec = None
+        st.next_run_at = None
+    if execution_policy:
+        st.execution_policy = json.dumps(execution_policy)
     st.is_active = is_active
     st.variables = variables_raw
     st.timeout_minutes = timeout_minutes
@@ -7599,3 +7614,7 @@ def request_host_inventory(host_id):
     except (ValueError, PermissionError) as exc:
         return jsonify(success=False, message=str(exc)), 400
     return jsonify(success=True, job_id=job)
+
+
+from modules.Infrastructure.scheduler_api import register as register_scheduler_api
+register_scheduler_api(infrastructure_bp)

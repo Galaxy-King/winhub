@@ -124,6 +124,13 @@ def _run_history_retention(now):
         "log_files": 0,
     }
 
+    from core.database import ScheduleRun
+    from core.scheduling import OPEN_RUNS
+    expired_runs = _bounded_ids(ScheduleRun.query.filter(ScheduleRun.finished_at < cutoff,
+        ~ScheduleRun.status.in_(OPEN_RUNS)).order_by(ScheduleRun.finished_at), ScheduleRun.id, batch_size)
+    if expired_runs:
+        ScheduleRun.query.filter(ScheduleRun.id.in_(expired_runs)).delete(synchronize_session=False)
+
     report_ids = _bounded_ids(
         _expired_report_query(cutoff).order_by(AggregatedJob.created_at),
         AggregatedJob.id,
@@ -145,6 +152,9 @@ def _run_history_retention(now):
         counts["reports"] = AggregatedJob.query.filter(AggregatedJob.id.in_(report_ids)).delete(synchronize_session=False)
 
     from core.database import SoftwareStep
+    from core.database import ScheduleRun
+    from core.scheduling import OPEN_RUNS
+    protected_schedule_runs = db.session.query(ScheduleRun.id).filter(ScheduleRun.status.in_(OPEN_RUNS))
     protected_software_tasks = db.session.query(SoftwareStep.task_id).filter(
         SoftwareStep.task_id.isnot(None), SoftwareStep.status.in_(['Active', 'Queued']))
     task_ids = _bounded_ids(
@@ -152,6 +162,7 @@ def _run_history_retention(now):
             AgentTask.created_at < cutoff,
             or_(AgentTask.finished_at.is_(None), AgentTask.finished_at < cutoff),
             ~AgentTask.id.in_(protected_software_tasks),
+            or_(AgentTask.schedule_run_id.is_(None), ~AgentTask.schedule_run_id.in_(protected_schedule_runs)),
         ).order_by(AgentTask.created_at),
         AgentTask.id,
         batch_size,
@@ -246,7 +257,7 @@ def scheduled_cleanup(*args):
         from core.database import SoftwareStep
         software_task_ids = db.session.query(SoftwareStep.task_id).filter(SoftwareStep.task_id.isnot(None))
         zombies = AgentTask.query.filter(AgentTask.status == "PickedUp", AgentTask.created_at < zombie_threshold,
-                                         ~AgentTask.id.in_(software_task_ids)).all()
+                                         ~AgentTask.id.in_(software_task_ids), AgentTask.schedule_run_id.is_(None)).all()
         for z in zombies:
             z.status = "Error"
             z.result_log = "TIMEOUT: Agent picked up the task but never returned a result."
@@ -256,7 +267,7 @@ def scheduled_cleanup(*args):
 
         deadline_candidates = AgentTask.query.filter(
             AgentTask.status.in_(["Pending", "PickedUp", "Running"]),
-            AgentTask.payload.isnot(None)
+            AgentTask.payload.isnot(None), AgentTask.schedule_run_id.is_(None)
         ).limit(5000).all()
         for task in deadline_candidates:
             try:
@@ -401,141 +412,180 @@ def process_ai_templates_job():
 def scheduled_task_next_run_utc(task, from_time=None):
     if not task or not task.cron_expr or not task.is_active:
         return None
-    now_kyiv = from_time or datetime.now(kyiv_tz)
-    try:
-        if task.cron_expr.startswith("DATE:"):
-            time_str = task.cron_expr.replace("DATE:", "").strip()
-            run_date = datetime.strptime(time_str, "%Y-%m-%d %H:%M").replace(tzinfo=kyiv_tz)
-            return run_date.astimezone(timezone.utc).replace(tzinfo=None) if run_date > now_kyiv else None
-        trigger = CronTrigger.from_crontab(task.cron_expr, timezone=kyiv_tz)
-        next_run = trigger.get_next_fire_time(None, now_kyiv)
-        return next_run.astimezone(timezone.utc).replace(tzinfo=None) if next_run else None
-    except Exception:
-        return None
+    from core.scheduling import next_fire, spec_for
+    return next_fire(spec_for(task), from_time or datetime.now(kyiv_tz))
 
-def run_scheduled_job(
+
+def run_scheduled_job(scheduled_task_id, *args, **kwargs):
+    if not global_app:
+        return {"success": False, "message": "Application context is not ready"}
+    from core.scheduling import run_schedule
+    with global_app.app_context():
+        return run_schedule(scheduled_task_id, _dispatch_scheduled_job, **kwargs)
+
+
+def process_schedules_job():
+    if not global_app:
+        return
+    from core.scheduling import tick
+    try:
+        tick(global_app, _dispatch_scheduled_job)
+    except Exception:
+        with global_app.app_context():
+            db.session.rollback()
+        log.exception("Scheduler occurrence processing failed")
+
+
+def _dispatch_scheduled_job(
     scheduled_task_id, *args, manual_run=False, actor_user_id=None, actor_name=None,
-    launch_reason=None,
+    launch_reason=None, run_record=None,
 ):
     """Функція, яку викликає APScheduler коли настав точний час або адмін запускає вручну."""
     global global_app
     if not global_app:
         return {"success": False, "message": "Application context is not ready"}
 
-    with global_app.app_context():
-        st = ScheduledTask.query.get(scheduled_task_id)
-        if not st or not st.template:
-            return {"success": False, "message": "Scheduled task or template was not found"}
-        if getattr(st.template, "type", "action") == "report" or not template_approval_valid(st.template):
-            st.last_status = "Template approval required"
-            db.session.commit()
-            return {"success": False, "message": "Scheduled execution requires an approved template with a valid approval seal"}
-        if not manual_run and not st.is_active:
-            return {"success": False, "message": "Scheduled task is disabled"}
-
-        from core.task_reason import validate_launch_reason
-        try:
-            launch_reason = validate_launch_reason(launch_reason if manual_run else st.launch_reason)
-        except ValueError as exc:
-            st.last_status = "Launch reason required"
-            db.session.commit()
-            return {"success": False, "message": str(exc)}
-
-        run_label = "MANUAL RUN" if manual_run else "TRIGGER"
-        log.info(f"[Scheduler] ⚡ {run_label}: Запуск задачі '{st.name}'...")
-
-        from core.sdk import WinHubCore
-        agent_ids = []
-        if st.target_type == "host":
-            agent_ids = [st.target_id]
-        elif st.target_type == "group":
-            group = EndpointGroup.query.get(st.target_id)
-            if group: agent_ids = [a.id for a in group.endpoints]
-
-        if not agent_ids:
-            log.warning(f"[Scheduler] ⚠️ Задача '{st.name}' скасована: Цільових хостів не знайдено.")
-            st.last_run = datetime.utcnow()
-            st.last_status = "No target hosts"
-            db.session.commit()
-            return {"success": False, "message": "No target hosts"}
-
-        try:
-            # Шукаємо системного адміна
-            admin_user = User.query.filter_by(is_admin=True).first()
-            admin_id = admin_user.id if admin_user else 1
-
-            from modules.Infrastructure.routes import apply_template_variables, load_template_payload
-
-            payload_dict = load_template_payload(st.template)
-            try:
-                scheduled_variables = json.loads(st.variables) if st.variables else {}
-            except Exception:
-                scheduled_variables = {}
-            if not isinstance(scheduled_variables, dict):
-                scheduled_variables = {}
-
-            payload_dict, unresolved = apply_template_variables(payload_dict, scheduled_variables)
-            if unresolved:
-                log.error(
-                    "[Scheduler] Missing variables for scheduled task '%s': %s",
-                    st.name,
-                    ", ".join(unresolved)
-                )
-                st.last_run = datetime.utcnow()
-                st.last_status = f"Missing variables: {', '.join(unresolved)[:80]}"
-                db.session.commit()
-                return {"success": False, "message": f"Missing variables: {', '.join(unresolved)}"}
-
-            payload_dict["__template_id"] = st.template_id
-            payload_dict["__schedule_id"] = st.id
-
-            timeout_minutes = int(st.timeout_minutes or 0)
-            if timeout_minutes > 0:
-                deadline = datetime.utcnow() + timedelta(minutes=timeout_minutes)
-                payload_dict["__deadline_utc"] = deadline.replace(microsecond=0).isoformat() + "Z"
-                payload_dict["__agent_timeout_seconds"] = max(60, timeout_minutes * 60)
-
-            # ДОДАНО: Перевіряємо, чи це шаблон метрики, і додаємо необхідні прапорці
-            if getattr(st.template, 'type', 'action') == 'metric':
-                payload_dict['__is_metric'] = True
-                payload_dict['__metric_name'] = st.template.name
-
-            # Відправляємо задачу
-            job_id = WinHubCore.dispatch_task(
-                user_id=admin_id,
-                module_name="Scheduler",
-                action=st.template.action_type,
-                target_ids=agent_ids,
-                payload=payload_dict,
-                title=f"[Manual] {st.name}" if manual_run else f"[Auto] {st.name}",
-                source_type="manual" if manual_run else "scheduler",
-                actor_name=actor_name or (st.created_by if manual_run else "Scheduler"),
-                actor_user_id=actor_user_id,
-                system_actor=not manual_run,
-                launch_reason=launch_reason,
-            )
-            st.last_job_id = job_id
-            st.last_status = f"Manual run dispatched to {len(agent_ids)} hosts" if manual_run else f"Dispatched to {len(agent_ids)} hosts"
-            log.info(f"[Scheduler] ✅ УСПІХ: Задача '{st.name}' відправлена на {len(agent_ids)} агентів.")
-        except Exception as e:
-            log.error(f"[Scheduler] ❌ ПОМИЛКА: Не вдалося виконати '{st.name}': {e}")
-            st.last_status = f"Error: {str(e)[:90]}"
-            st.last_run = datetime.utcnow()
-            db.session.commit()
-            return {"success": False, "message": str(e)}
-
-        # Оновлюємо статус виконання
-        st.last_run = datetime.utcnow()
-        # Якщо задача була "Одноразова" (DATE:), вимикаємо її після виконання
-        if not manual_run:
-            if st.cron_expr.startswith("DATE:"):
-                st.is_active = False
-                st.next_run_at = None
-            else:
-                st.next_run_at = scheduled_task_next_run_utc(st)
-
+    st = ScheduledTask.query.get(scheduled_task_id)
+    if not st or not st.template:
+        return {"success": False, "message": "Scheduled task or template was not found"}
+    if getattr(st.template, "type", "action") == "report" or not template_approval_valid(st.template):
+        st.last_status = "Template approval required"
         db.session.commit()
-        return {"success": True, "job_id": job_id, "targets": len(agent_ids)}
+        return {"success": False, "message": "Scheduled execution requires an approved template with a valid approval seal"}
+    if not manual_run and not st.is_active and run_record is None:
+        return {"success": False, "message": "Scheduled task is disabled"}
+
+    from core.task_reason import validate_launch_reason
+    try:
+        launch_reason = validate_launch_reason(launch_reason if manual_run else st.launch_reason)
+    except ValueError as exc:
+        st.last_status = "Launch reason required"
+        db.session.commit()
+        return {"success": False, "message": str(exc)}
+
+    run_label = "MANUAL RUN" if manual_run else "TRIGGER"
+    log.info(f"[Scheduler] ⚡ {run_label}: Запуск задачі '{st.name}'...")
+
+    from core.sdk import WinHubCore
+    agent_ids = []
+    if st.target_type == "host":
+        agent_ids = [st.target_id]
+    elif st.target_type == "group":
+        group = EndpointGroup.query.get(st.target_id)
+        if group: agent_ids = [a.id for a in group.endpoints]
+
+    if not agent_ids:
+        log.warning(f"[Scheduler] ⚠️ Задача '{st.name}' скасована: Цільових хостів не знайдено.")
+        st.last_run = datetime.utcnow()
+        st.last_status = "No target hosts"
+        db.session.commit()
+        return {"success": False, "message": "No target hosts"}
+
+    try:
+        # Шукаємо системного адміна
+        admin_user = User.query.filter_by(is_admin=True).first()
+        admin_id = admin_user.id if admin_user else 1
+        if st.execution_policy:
+            from core.permissions import has_permission
+            owner = db.session.get(User, actor_user_id) if manual_run else User.query.filter_by(username=st.created_by).first()
+            if not owner or not owner.is_active or not has_permission(owner, 'Infrastructure', 'run_tasks') or not has_permission(owner, 'Infrastructure', 'manage_scheduler'):
+                raise PermissionError('Schedule owner or operator no longer has execution permissions')
+            admin_id = owner.id
+            if not owner.is_admin:
+                from modules.Infrastructure.routes import template_policy
+                from core.group_access import allowed_group_ids_for_action
+                template_rules = template_policy(st.template)
+                if template_rules.get('disable_run'):
+                    raise PermissionError('Template execution is disabled')
+                allowed_users = set(template_rules.get('allowed_users') or [])
+                allowed_groups = set(template_rules.get('allowed_groups') or [])
+                allowed_permissions = template_rules.get('allowed_permissions') or []
+                restricted = bool(allowed_users or allowed_groups or allowed_permissions)
+                if restricted and not template_rules.get('allow_all_users') and not (
+                    owner.username in allowed_users or allowed_groups.intersection(allowed_group_ids_for_action(owner, 'run_tasks')) or
+                    any(has_permission(owner, 'Infrastructure', permission) for permission in allowed_permissions)):
+                    raise PermissionError('Template policy no longer permits the schedule owner')
+
+        from modules.Infrastructure.routes import apply_template_variables, load_template_payload
+
+        payload_dict = load_template_payload(st.template)
+        try:
+            scheduled_variables = json.loads(st.variables) if st.variables else {}
+        except Exception:
+            scheduled_variables = {}
+        if not isinstance(scheduled_variables, dict):
+            scheduled_variables = {}
+
+        payload_dict, unresolved = apply_template_variables(payload_dict, scheduled_variables)
+        if unresolved:
+            log.error(
+                "[Scheduler] Missing variables for scheduled task '%s': %s",
+                st.name,
+                ", ".join(unresolved)
+            )
+            st.last_run = datetime.utcnow()
+            st.last_status = f"Missing variables: {', '.join(unresolved)[:80]}"
+            db.session.commit()
+            return {"success": False, "message": f"Missing variables: {', '.join(unresolved)}"}
+
+        payload_dict["__template_id"] = st.template_id
+        payload_dict["__schedule_id"] = st.id
+        if run_record is not None:
+            from core.scheduling import policy_for
+            policy = json.loads(run_record.policy_snapshot)
+            payload_dict['__schedule_run_id'] = run_record.id
+            payload_dict['__schedule_policy'] = policy
+            payload_dict['__agent_timeout_seconds'] = policy['execution_seconds']
+            if policy.get('capture_exit') and st.template.action_type == 'run_script' and st.template.type != 'metric':
+                payload_dict['__schedule_contract'] = {'nonce': str(uuid.uuid4())}
+
+        timeout_minutes = int(st.timeout_minutes or 0)
+        if timeout_minutes > 0 and run_record is None:
+            deadline = datetime.utcnow() + timedelta(minutes=timeout_minutes)
+            payload_dict["__deadline_utc"] = deadline.replace(microsecond=0).isoformat() + "Z"
+            payload_dict["__agent_timeout_seconds"] = max(60, timeout_minutes * 60)
+
+        # ДОДАНО: Перевіряємо, чи це шаблон метрики, і додаємо необхідні прапорці
+        if getattr(st.template, 'type', 'action') == 'metric':
+            payload_dict['__is_metric'] = True
+            payload_dict['__metric_name'] = st.template.name
+
+        # Відправляємо задачу
+        job_id = WinHubCore.dispatch_task(
+            user_id=admin_id,
+            module_name="Scheduler",
+            action=st.template.action_type,
+            target_ids=agent_ids,
+            payload=payload_dict,
+            title=f"[Manual] {st.name}" if manual_run else f"[Auto] {st.name}",
+            source_type="manual" if manual_run else "scheduler",
+            actor_name=actor_name or (st.created_by if manual_run else "Scheduler"),
+            actor_user_id=actor_user_id,
+            system_actor=not manual_run,
+            launch_reason=launch_reason,
+        )
+        st.last_job_id = job_id
+        st.last_status = f"Manual run dispatched to {len(agent_ids)} hosts" if manual_run else f"Dispatched to {len(agent_ids)} hosts"
+        log.info(f"[Scheduler] ✅ УСПІХ: Задача '{st.name}' відправлена на {len(agent_ids)} агентів.")
+    except Exception as e:
+        log.error(f"[Scheduler] ❌ ПОМИЛКА: Не вдалося виконати '{st.name}': {e}")
+        st.last_status = f"Error: {str(e)[:90]}"
+        st.last_run = datetime.utcnow()
+        db.session.commit()
+        return {"success": False, "message": str(e)}
+
+    # Оновлюємо статус виконання
+    st.last_run = datetime.utcnow()
+    # Якщо задача була "Одноразова" (DATE:), вимикаємо її після виконання
+    if not manual_run:
+        if st.cron_expr.startswith("DATE:") or (st.schedule_spec and json.loads(st.schedule_spec).get("kind") == "once"):
+            st.is_active = False
+            st.next_run_at = None
+        else:
+            st.next_run_at = scheduled_task_next_run_utc(st)
+
+    db.session.commit()
+    return {"success": True, "job_id": job_id, "targets": len(agent_ids)}
 
 def reload_scheduler_jobs(ignored_app=None):
     """Оновлює задачі в APScheduler з підтримкою Київського часу"""
@@ -575,38 +625,28 @@ def reload_scheduler_jobs(ignored_app=None):
         now_kyiv = datetime.now(kyiv_tz)
         log.info(f"[Scheduler] 🔄 Оновлення. Серверний час: {now_kyiv.strftime('%H:%M:%S')}. Активних задач у БД: {len(tasks)}")
 
+        from core.scheduling import next_fire, spec_for
         for t in tasks:
             try:
-                if t.cron_expr.startswith("DATE:"):
-                    # Одноразова задача у конкретну дату та час
-                    time_str = t.cron_expr.replace("DATE:", "").strip()
-                    naive_run_date = datetime.strptime(time_str, "%Y-%m-%d %H:%M")
-                    run_date = naive_run_date.replace(tzinfo=kyiv_tz)
-
-                    # Запускаємо тільки якщо цей час ще не настав
-                    if run_date > now_kyiv:
-                        trigger = DateTrigger(run_date=run_date, timezone=kyiv_tz)
-                        # Передаємо лише ID задачі
-                        scheduler.add_job(func=run_scheduled_job, args=[t.id], trigger=trigger, id=f"sch_{t.id}", max_instances=1, coalesce=True, replace_existing=True)
-                        t.next_run_at = scheduled_task_next_run_utc(t, now_kyiv)
-                        log.info(f"[Scheduler] ➕ ОДНОРАЗОВО ДОДАНО: '{t.name}' виконається о {time_str}")
+                if t.next_run_at is None:
+                    spec = spec_for(t)
+                    if spec['kind'] == 'once':
+                        from core.database import ScheduleRun
+                        if ScheduleRun.query.filter_by(schedule_id=t.id, source='scheduler').first():
+                            continue
+                        t.next_run_at = next_fire(spec, datetime.min.replace(year=1970))
                     else:
-                        # Час вийшов, вимикаємо
+                        t.next_run_at = next_fire(spec, t.last_run or datetime.utcnow())
+                    if t.next_run_at is None:
                         t.is_active = False
-                        t.next_run_at = None
-                        t.last_status = t.last_status or "Expired before run"
-                        log.warning(f"[Scheduler] ⚠️ ПРОПУЩЕНО: Задача '{t.name}' вимкнена (час {time_str} вже у минулому)")
-                else:
-                    # Повторювана задача (Cron)
-                    trigger = CronTrigger.from_crontab(t.cron_expr, timezone=kyiv_tz)
-                    scheduler.add_job(func=run_scheduled_job, args=[t.id], trigger=trigger, id=f"sch_{t.id}", max_instances=1, coalesce=True, replace_existing=True)
-                    t.next_run_at = scheduled_task_next_run_utc(t, now_kyiv)
-                    log.info(f"[Scheduler] ➕ ПОВТОРЮВАНО ДОДАНО: '{t.name}' (Cron: {t.cron_expr})")
-            except Exception as e:
-                t.next_run_at = None
-                t.last_status = f"Schedule error: {str(e)[:80]}"
-                log.error(f"[Scheduler] ❌ ПОМИЛКА розкладу для '{t.name}': {e}")
+                        t.last_status = 'Expired'
+            except (ValueError, TypeError, KeyError) as exc:
+                t.last_status = 'Schedule invalid'
+                log.error('Invalid schedule %s: %s', t.id, exc)
         db.session.commit()
+    scheduler.add_job(func=process_schedules_job, trigger='interval', seconds=10,
+                      id='schedule_occurrences', max_instances=1, coalesce=True, replace_existing=True)
+
 
 def seed_default_os_groups():
     """Створює базові групи для різних ОС"""

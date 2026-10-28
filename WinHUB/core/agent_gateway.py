@@ -11,6 +11,7 @@ from datetime import datetime, timedelta
 from functools import lru_cache
 from threading import Lock
 from flask import Blueprint, request, jsonify
+from sqlalchemy import or_
 from sqlalchemy.orm import load_only
 from cryptography.exceptions import InvalidSignature
 from cryptography.hazmat.primitives import hashes, serialization
@@ -205,6 +206,13 @@ def complete_identity_command_for_new_endpoint(agent, data):
     ))
 
 def update_scheduled_task_completion_status(job_id):
+    from core.database import ScheduleRun
+    from core.scheduling import refresh_run
+    runs = ScheduleRun.query.filter_by(job_id=job_id).all()
+    if runs:
+        for run in runs:
+            refresh_run(run)
+        return
     scheduled_task = ScheduledTask.query.filter_by(last_job_id=job_id).first()
     if not scheduled_task:
         return
@@ -648,6 +656,9 @@ def get_pending_task_for_agent(endpoint_id, *, software_capable=True):
 
     query = AgentTask.query.options(load_only(*TASK_DELIVERY_COLUMNS)).filter_by(
         endpoint_id=endpoint_id, status="Pending",
+    ).filter(
+        or_(AgentTask.delivery_deadline.is_(None), AgentTask.delivery_deadline >= datetime.utcnow()),
+        or_(AgentTask.retry_after.is_(None), AgentTask.retry_after <= datetime.utcnow()),
     ).order_by((AgentTask.action_type == 'inventory').asc(), AgentTask.created_at.asc()).with_for_update(skip_locked=True)
     task = query.first()
     if task and not software_capable:
@@ -1225,6 +1236,14 @@ def agent_poll():
         resp = {"status": "upgrade_required", "required_task_signature": "rsa-pss-sha256-v2", **agent_poll_timing("idle")}
     elif task:
         task.status = "PickedUp"
+        task.picked_up_at = now
+        if task.schedule_run_id:
+            from core.database import ScheduleRun
+            schedule_run = db.session.get(ScheduleRun, task.schedule_run_id)
+            if schedule_run:
+                execution_policy = json.loads(schedule_run.policy_snapshot)
+                task.result_deadline = now + timedelta(seconds=execution_policy['execution_seconds'] + execution_policy.get('result_grace_seconds', 120))
+                schedule_run.status = 'Running'
         task.instance_session_id = session_id or None
 
         # --- БРОНЕБІЙНИЙ ПАРСИНГ PAYLOAD ДЛЯ АГЕНТА ---
@@ -1305,7 +1324,7 @@ def agent_result():
     task = AgentTask.query.options(load_only(*TASK_RESULT_COLUMNS)).filter_by(
         id=data.get('task_id'),
         endpoint_id=agent.id,
-    ).first()
+    ).populate_existing().with_for_update().first()
     if task:
         if task.status == "Cancelled":
             db.session.commit()
@@ -1319,13 +1338,15 @@ def agent_result():
                 WinHubCore.process_job_completion(task.job_id)
             return jsonify({"status": "success", "message": "Task was already cancelled"})
 
-        if task.status in ("Success", "Error") and task.finished_at:
+        if task.status in ("Success", "Error") and task.finished_at and task.outcome != 'ResultUnknown':
             db.session.commit()
             return jsonify({"status": "success", "message": "Task was already finalized"})
 
         log_text = trim_result_log(data.get('log', ''))
         status = data.get('status')
         task.status = status if status in ("Success", "Error", "Cancelled") else "Error"
+        from core.scheduling import receive_result
+        log_text = receive_result(task, task.status, log_text)
         task.result_log = log_text
         task.finished_at = datetime.utcnow()
 
@@ -1356,6 +1377,12 @@ def agent_result():
             except Exception as e:
                 log.error(f"Error processing metric result: {e}")
 
+        if task.schedule_run_id:
+            from core.database import ScheduleRun
+            from core.scheduling import refresh_run
+            run = db.session.get(ScheduleRun, task.schedule_run_id)
+            if run:
+                refresh_run(run)
         from core.history_search import index_agent_task
         index_agent_task(task)
         db.session.commit()
