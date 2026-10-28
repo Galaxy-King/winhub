@@ -5,12 +5,12 @@
             <h3 class="text-lg font-black uppercase tracking-tight">Execution Queue</h3>
             <p class="text-xs font-bold mt-1">Live task batches, retries, pending work and execution outcomes.</p>
         </div>
-        <button class="infra-refresh" onclick="infraRefresh(this, () => loadQueue())" aria-label="Refresh queue"><span>↻</span> Refresh</button>
-        <div class="grid grid-cols-2 gap-3 text-center">
-            <div class="px-5 py-2 bg-white/10 border border-white/20 rounded-xl"><p class="text-[9px] font-black uppercase text-white/60">Total</p><p id="statQTotal" class="text-lg font-black text-white">0</p></div>
+        <div class="queue-header-actions">
             <div class="px-5 py-2 bg-white/10 border border-white/20 rounded-xl"><p class="text-[9px] font-black uppercase text-white/60">Pending</p><p id="statQPending" class="text-lg font-black text-amber-200">0</p></div>
+            <button class="infra-refresh queue-refresh" onclick="infraRefresh(this, async () => { await loadQueue(); await queueHistoryRange(true); })" aria-label="Refresh queue" title="Refresh queue"><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path stroke-linecap="round" stroke-linejoin="round" d="M20 7v5h-5M4 17v-5h5M6.1 7a7 7 0 0111.55-2L20 8M4 16l2.35 3A7 7 0 0017.9 17"/></svg></button>
         </div>
     </div>
+    <div id="queueHistoryRange" class="queue-history-range" aria-live="polite">Loading available history period…</div>
     <div class="wh-soft-panel flex flex-col xl:flex-row justify-between items-center bg-white p-5 rounded-[2.5rem] border border-slate-200 shadow-sm gap-4">
         <div class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-3 w-full">
         <div class="relative">
@@ -22,19 +22,9 @@
         <input type="date" id="queueDateTo" title="Started to (Kyiv time)" class="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-2xl text-sm font-medium outline-none">
         </div>
 
-        <div class="flex flex-wrap items-center gap-6 w-full md:w-auto justify-between md:justify-end">
-            {% if is_admin %}
-            <div class="relative group z-10">
-                <button class="w-full md:w-auto px-6 py-3 bg-rose-50 text-rose-600 rounded-2xl text-xs font-black uppercase tracking-wider hover:bg-rose-100 transition-all flex items-center justify-center gap-2 border border-rose-100 shadow-sm">
-                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"/></svg> Clean History
-                </button>
-                <div class="absolute right-0 mt-3 w-56 bg-white border border-slate-200 rounded-2xl shadow-xl opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all overflow-hidden">
-                    <button onclick="cleanupTasks(7)" class="w-full text-left px-5 py-4 text-sm font-bold text-slate-700 hover:bg-slate-50 border-b border-slate-100 transition-colors">Older than 7 days</button>
-                    <button onclick="cleanupTasks(30)" class="w-full text-left px-5 py-4 text-sm font-bold text-slate-700 hover:bg-slate-50 border-b border-slate-100 transition-colors">Older than 1 month</button>
-                    <button onclick="cleanupTasks(60)" class="w-full text-left px-5 py-4 text-sm font-bold text-rose-600 hover:bg-rose-50 transition-colors">Older than 2 months</button>
-                </div>
-            </div>
-            {% endif %}
+        <div class="queue-tools-actions flex flex-wrap items-center gap-6 w-full md:w-auto justify-between md:justify-end">
+            <button class="queue-history-button" onclick="queueHistoryOpen('export')">Export tasks</button>
+            {% if is_admin %}<button class="queue-history-button queue-history-danger" onclick="queueHistoryOpen('cleanup')">Clean History</button>{% endif %}
         </div>
     </div>
 
@@ -49,7 +39,6 @@
             </div>
             <div class="flex bg-slate-50 p-1.5 rounded-xl border border-slate-100 w-full md:w-auto overflow-x-auto no-scrollbar">
                 <button onclick="setQueueStatusFilter('ALL', this)" class="q-status-btn px-5 py-2 text-xs font-black uppercase rounded-lg bg-white text-indigo-600 shadow-sm transition-all whitespace-nowrap">All Status</button>
-                <button onclick="setQueueStatusFilter('Scheduled', this)" class="q-status-btn px-5 py-2 text-xs font-black uppercase rounded-lg text-slate-500 hover:text-slate-800 transition-all whitespace-nowrap">Scheduled</button>
                 <button onclick="setQueueStatusFilter('Pending', this)" class="q-status-btn px-5 py-2 text-xs font-black uppercase rounded-lg text-slate-500 hover:text-slate-800 transition-all whitespace-nowrap">Pending</button>
                 <button onclick="setQueueStatusFilter('Success', this)" class="q-status-btn px-5 py-2 text-xs font-black uppercase rounded-lg text-slate-500 hover:text-slate-800 transition-all whitespace-nowrap">Success</button>
                 <button onclick="setQueueStatusFilter('Error', this)" class="q-status-btn px-5 py-2 text-xs font-black uppercase rounded-lg text-slate-500 hover:text-slate-800 transition-all whitespace-nowrap">Error</button>
@@ -84,4 +73,5 @@
             </div>
         </div>
     </div>
+    {% include 'modals/_queue_history.html' %}
 </section>

@@ -1,0 +1,20 @@
+<dialog id="queueHistoryDialog" class="queue-history-dialog" aria-labelledby="queueHistoryTitle">
+    <div class="queue-history-heading"><h3 id="queueHistoryTitle">Task history</h3><button onclick="queueHistoryClose()" aria-label="Close history tools">×</button></div>
+    <p id="queueHistoryAvailable" class="queue-history-hint"></p>
+    <div id="queueHistoryExportFields">
+        <p>Export all permitted task records created in this range. Dates use Europe/Kyiv and include both selected days. Queue search, user, source and status filters do not limit this export.</p>
+        <div class="queue-history-fields"><label>From date<input type="date" id="queueExportFrom" required></label><label>Through date<input type="date" id="queueExportTo" required></label></div>
+        <p class="queue-history-hint">ZIP folders: date → job → host → task. Includes task details and result logs; superadmins also receive masked inputs. Known secrets are masked. Maximum 10,000 tasks / 100 MiB of source data per archive. Export smaller ranges for larger histories.</p>
+        <button id="queueExportButton" class="queue-history-button" onclick="queueHistoryExport(this)">Download ZIP archive</button>
+    </div>
+    {% if is_admin %}
+    <div id="queueHistoryCleanupFields" hidden>
+        <p>Delete completed task records older than the number of days below. Cleanup applies to all hosts, regardless of queue filters. Active jobs and unresolved scheduler executions are protected. This does not delete reports, scheduler run history or audit records.</p>
+        <label>Delete completed records older than (days)<input type="number" id="queueCleanupDays" min="1" max="3650" step="1" value="30"></label>
+        <div class="queue-history-actions"><button id="queueCleanupPreview" class="queue-history-button" onclick="queueHistoryPreview(this)">Preview cleanup</button><button class="queue-history-button" onclick="queueHistoryExportBeforeCleanup()">Export before deleting</button></div>
+        <p id="queueCleanupPreviewText" class="queue-history-hint" aria-live="polite"></p>
+        <button id="queueCleanupConfirm" class="queue-history-button queue-history-danger" onclick="queueHistoryClean(this)" disabled>Delete eligible records</button>
+    </div>
+    {% endif %}
+    <p id="queueHistoryMessage" role="status" aria-live="polite"></p>
+</dialog>

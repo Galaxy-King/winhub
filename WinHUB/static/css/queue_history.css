@@ -1,0 +1,12 @@
+.queue-header-actions{display:flex;align-items:center;justify-content:flex-end;gap:14px;margin-left:auto;text-align:center}
+.infra-refresh.queue-refresh{width:48px;height:48px;padding:8px;flex:0 0 48px;border-radius:10px}
+.infra-refresh.queue-refresh svg{width:30px;height:30px}
+.queue-history-range{color:#b9d3e5;font-size:13px;display:flex;flex-wrap:wrap;gap:8px 18px;padding:12px 20px;border:1px solid #294d64;border-radius:14px;background:#102236}
+.queue-history-button{display:inline-flex;align-items:center;justify-content:center;gap:8px;border:1px solid #38627a;border-radius:12px;padding:11px 16px;background:#152d43;color:#e2f3ff;font-size:12px;font-weight:700;cursor:pointer;white-space:nowrap}
+.queue-history-button:hover{background:#21415a}.queue-history-button:disabled{opacity:.5;cursor:not-allowed}.queue-history-danger{color:#ffb1bf;border-color:#81465a;background:#391e30}
+.queue-history-dialog{width:min(700px,calc(100vw - 28px));max-height:calc(100dvh - 36px);overflow:auto;margin:auto;padding:24px;border:1px solid #38627a;border-radius:20px;background:#102136;color:#dcebf7;box-shadow:0 24px 80px #0009}
+.queue-history-dialog::backdrop{background:#020817cc}.queue-history-dialog [hidden]{display:none!important}.queue-history-heading{display:flex;align-items:center;justify-content:space-between;gap:16px;margin-bottom:14px}.queue-history-heading h3{font-size:20px;font-weight:800}.queue-history-heading button{font-size:30px;line-height:1;padding:4px 10px;color:#dcebf7}
+.queue-history-dialog p{font-size:13px;line-height:1.6;margin:12px 0}.queue-history-dialog label{display:flex;flex-direction:column;gap:7px;font-size:13px;margin:14px 0}.queue-history-dialog input{min-width:0;width:100%;padding:11px;border:1px solid #38627a;border-radius:10px;background:#081527;color:#e2f3ff;color-scheme:dark}.queue-history-fields{display:grid;grid-template-columns:1fr 1fr;gap:16px}.queue-history-hint{color:#a8c6db}.queue-history-actions{display:flex;flex-wrap:wrap;gap:10px}.queue-history-dialog [role=status][data-error=true]{color:#ffacb9}.queue-history-dialog [aria-busy=true]{opacity:.65}
+@media(max-width:520px){.queue-history-fields{grid-template-columns:1fr;gap:0}.queue-history-dialog{padding:18px}.queue-header-actions{width:100%}}
+
+.queue-tools-actions{flex:0 0 auto;gap:10px}.infra-queue-filters #qFilterUser{height:44px;align-self:center}

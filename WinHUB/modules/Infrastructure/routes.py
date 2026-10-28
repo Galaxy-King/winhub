@@ -6417,27 +6417,8 @@ def cleanup_tasks():
     denied = require_interactive_superadmin()
     if denied:
         return denied
-    try:
-        days = max(1, min(3650, int((request.get_json(silent=True) or {}).get('days', 30))))
-    except (TypeError, ValueError):
-        return jsonify({"success": False, "message": "Days must be a number between 1 and 3650"}), 400
-
-    cutoff = datetime.utcnow() - timedelta(days=days)
-    from core.database import SoftwareStep
-    protected_ids = db.session.query(SoftwareStep.task_id).filter(
-        SoftwareStep.task_id.isnot(None), SoftwareStep.status.in_(['Active', 'Queued']))
-    expired_ids = db.session.query(AgentTask.id).filter(AgentTask.created_at < cutoff, ~AgentTask.id.in_(protected_ids))
-    HistorySearchToken.query.filter(
-        HistorySearchToken.entity_type == "task",
-        HistorySearchToken.entity_id.in_(expired_ids),
-    ).delete(synchronize_session=False)
-    deleted = AgentTask.query.filter(
-        AgentTask.created_at < cutoff, ~AgentTask.id.in_(protected_ids)
-    ).delete(synchronize_session=False)
-
-    write_infra_audit("Cleanup Scoped Task History", "task", "bulk", {"days": days, "deleted": deleted})
-    db.session.commit()
-    return jsonify({"success": True, "deleted": deleted})
+    from modules.Infrastructure.queue_history import cleanup_history
+    return cleanup_history()
 
 @infrastructure_bp.route('/api/infrastructure/job/<job_id>', methods=['DELETE'])
 def delete_job(job_id):
@@ -7618,3 +7599,7 @@ def request_host_inventory(host_id):
 
 from modules.Infrastructure.scheduler_api import register as register_scheduler_api
 register_scheduler_api(infrastructure_bp)
+
+
+from modules.Infrastructure.queue_history import register as register_queue_history_api
+register_queue_history_api(infrastructure_bp)

@@ -4392,6 +4392,7 @@ async function loadIpHistory(hostId, days = 30) {
 function restoreQueueState() {
     queueTypeFilter = readInfraState('queueType', infraStateKeys.queueType, 'ALL') || 'ALL';
     queueStatusFilter = readInfraState('queueStatus', infraStateKeys.queueStatus, 'ALL') || 'ALL';
+    if (queueStatusFilter === 'Scheduled') queueStatusFilter = 'ALL';
     const searchEl = document.getElementById('queueSearch');
     if (searchEl) searchEl.value = readInfraState('queueSearch', infraStateKeys.queueSearch, '');
     const userEl = document.getElementById('qFilterUser');
@@ -4494,9 +4495,8 @@ async function loadQueue(requestedPage = queuePage) {
         }
 
         renderQueue();
-        const t = document.getElementById('statQTotal');
         const p = document.getElementById('statQPending');
-        if(t) t.innerText = queuePagination.total ?? allQueueJobs.length;
+        if (window.queueHistoryRange) queueHistoryRange().catch(console.error);
         if(p) p.innerText = allQueueJobs.filter(j => j.status === 'Pending' || j.status === 'Running' || j.status === 'Scheduled').length;
         const pageInfo = document.getElementById('queuePageInfo');
         if(pageInfo) pageInfo.innerText = `Page ${queuePagination.page || queuePage} · ${queuePagination.total || 0} matching jobs`;
@@ -5924,7 +5924,6 @@ async function submitAddHostsToGroup() {
 
 async function removeHostFromGroup(id) { if(confirm("Remove host from group?")) { await fetch(`/api/infrastructure/group/${currentViewedGroupId}/members`, { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({action: 'remove', agent_id: id}) }); openGroupFullView(currentViewedGroupId); } }
 async function deleteCurrentGroup() { if(confirm("Permanently delete group?")) { await fetch('/api/infrastructure/group/' + currentViewedGroupId, { method: 'DELETE' }); location.reload(); } }
-async function cleanupTasks(d) { await fetch('/api/infrastructure/tasks/cleanup', { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify({days: d}) }); loadQueue(); }
 function confirmDeleteHostFromTable(id, n) { currentViewedHostId = id; const el = document.getElementById('confName'); if(el) el.innerText = n; openModal('confirmModal'); }
 function confirmDeleteHost() { const elName = document.getElementById('mName'); const elConf = document.getElementById('confName'); if(elName && elConf) elConf.innerText = elName.innerText; openModal('confirmModal'); }
 if(document.getElementById('finalDelBtn')) document.getElementById('finalDelBtn').onclick = async () => { await fetch('/api/infrastructure/host/' + currentViewedHostId, { method: 'DELETE' }); location.reload(); };
