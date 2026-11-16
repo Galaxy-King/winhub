@@ -181,6 +181,7 @@
                 </div>
                 <div class="flex items-center gap-2 shrink-0">
                     {% if permissions.run_tasks %}
+                    {% if permissions.view_queue %}<button onclick="if(currentViewedJobId) taskRerunOpen('job', currentViewedJobId)" class="task-rerun-action">Re-run</button>{% endif %}
                     <button onclick="if(currentViewedJobId) finalizeJobReport(currentViewedJobId)" class="px-4 py-3 bg-emerald-50 border border-emerald-100 text-emerald-700 hover:bg-emerald-100 rounded-2xl text-[10px] font-black uppercase transition-colors shadow-sm">Finalize Report</button>
                     {% endif %}
                     <button onclick="closeModal('jobModal')" class="p-3 bg-white border border-slate-200 hover:bg-slate-50 rounded-2xl text-slate-500 hover:text-slate-800 transition-colors shadow-sm"><svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path d="M6 18L18 6M6 6l12 12" stroke-width="2.5"/></svg></button>
@@ -212,6 +213,7 @@
                 <p id="tId" class="text-[10px] text-slate-400 font-mono mt-1.5 uppercase tracking-widest">...</p>
                 <p class="launch-reason-display"><strong>Launch reason:</strong><br><span id="tLaunchReason"></span></p>
             </div>
+            {% if permissions.run_tasks and permissions.view_queue %}<button id="taskRerunButton" onclick="taskRerunOpen('task', this.dataset.taskId)" class="task-rerun-action" disabled>Re-run</button>{% endif %}
             <button onclick="closeModal('taskModal')" class="p-3 bg-white border border-slate-200 hover:bg-slate-50 rounded-2xl text-slate-500 hover:text-slate-800 transition-colors shadow-sm"><svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path d="M6 18L18 6M6 6l12 12" stroke-width="2.5"/></svg></button>
         </div>
         <div class="p-6 sm:p-8 flex flex-col flex-1 overflow-hidden gap-6">

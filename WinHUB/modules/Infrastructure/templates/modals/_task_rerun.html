@@ -1,0 +1,15 @@
+<dialog id="taskRerunDialog" class="task-rerun-dialog" aria-labelledby="taskRerunTitle">
+    <div class="task-rerun-heading"><h3 id="taskRerunTitle">Re-run task</h3><button onclick="taskRerunClose()" aria-label="Close re-run">×</button></div>
+    <p id="taskRerunMessage" role="status" aria-live="polite"></p>
+    <div id="taskRerunContent" hidden>
+        <div class="task-rerun-targets"><strong>Original targets · fixed host selection</strong><p id="taskRerunTargets"></p></div>
+        <p id="taskRerunNotice" class="task-rerun-notice"></p>
+        <form id="taskRerunForm" onsubmit="event.preventDefault(); taskRerunSubmit()">
+            <div id="taskRerunFields" class="task-rerun-fields"></div>
+            <label class="task-rerun-label">Execution time limit (minutes; 0: agent default)<input id="taskRerunTimeout" type="number" min="0" max="10080" step="1" value="0"></label>
+            <label class="task-rerun-label">Launch reason<textarea id="taskRerunReason" required maxlength="2000" rows="2" placeholder="Why are you re-running this task?"></textarea></label>
+            <p class="task-rerun-hint">Creates a new task using the current template and these parameters. Original task history stays intact. Email, Confluence and AI report delivery are not repeated automatically.</p>
+            <button id="taskRerunSubmitButton" type="submit" class="task-rerun-action">Run again on original targets</button>
+        </form>
+    </div>
+</dialog>

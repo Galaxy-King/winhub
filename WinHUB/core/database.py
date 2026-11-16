@@ -345,6 +345,7 @@ class AgentTask(db.Model):
     retry_count = db.Column(db.Integer, nullable=False, default=0, server_default='0')
     payload = db.Column(EncryptedText)
     status = db.Column(db.String(20), default="Pending", index=True)
+    launch_context = db.Column(EncryptedText, nullable=True)
     result_log = db.Column(EncryptedText)
 
     created_at = db.Column(db.DateTime, default=datetime.utcnow, index=True)

@@ -1390,7 +1390,7 @@ def write_infra_audit(action, target_type="", target_id="", details=None, status
 
 def dispatch_infrastructure_task(
     user_id, action_type, target_ids, payload, title, created_by=None, source_type=None,
-    ai_report=None, launch_reason=None,
+    ai_report=None, launch_reason=None, launch_context=None,
 ):
     user = current_user() if user_id == session.get("user_id") else User.query.get(user_id)
     if not user:
@@ -1460,6 +1460,7 @@ def dispatch_infrastructure_task(
             template_id=str(template_id) if template_id else None,
             schedule_id=str(schedule_id) if schedule_id else None,
             payload=payload_json,
+            launch_context=json.dumps(launch_context, ensure_ascii=False) if launch_context else None,
             created_by=created_by or user.username
         ))
 
@@ -5669,10 +5670,10 @@ def delete_template(tid):
         return jsonify({"success": False, "message": "Template delete failed"}), 500
 
 @infrastructure_bp.route('/api/infrastructure/tasks/create', methods=['POST'])
-def create_task():
+def create_task(data_override=None, rerun_parent=None):
     denied = require_permission("run_tasks")
     if denied: return denied
-    data = request.get_json(silent=True)
+    data = data_override if data_override is not None else request.get_json(silent=True)
     try:
         launch_reason = validate_launch_reason(data.get("launch_reason") if isinstance(data, dict) else None)
     except ValueError as exc:
@@ -5733,8 +5734,18 @@ def create_task():
         action_type = 'agent_update'
         payload_dict = load_template_payload(template) if template else dict(data.get('payload', {}))
 
+    if data_override is not None:
+        # Re-runs are explicit execution only; old notification settings are not replayed.
+        for key in list(payload_dict):
+            if key.startswith(('__auto_email', '__auto_confluence')) or key == '__report_template_id':
+                payload_dict.pop(key)
+
     if template:
         payload_dict['__template_id'] = template.id
+
+    original_template_payload = load_template_payload(template) if template else {}
+    script_overridden = bool(template and action_type == 'run_script' and
+        payload_dict.get('script', payload_dict.get('command')) != original_template_payload.get('script', original_template_payload.get('command')))
 
     try:
         timeout_minutes = int(data.get("timeout_minutes") or 0)
@@ -5855,10 +5866,14 @@ def create_task():
             return jsonify({"success": False, "message": "Report delivery is denied for one or more target groups"}), 403
 
     try:
+        from modules.Infrastructure.task_rerun import launch_snapshot
+        launch_context = launch_snapshot(template, tpl_vars if isinstance(tpl_vars, dict) else {}, timeout_minutes,
+            target_kind=target_type, group_name=group.name if target_type == 'group' and group else None,
+            rerun_parent=rerun_parent, script_overridden=script_overridden) if template else None
         job_id = WinHubCore.dispatch_task(
             session.get('user_id'), "Infrastructure", action_type, agent_ids, payload_dict,
             data.get('title', 'Task'), ai_report=ai_report,
-            launch_reason=launch_reason,
+            launch_reason=launch_reason, launch_context=launch_context,
         )
         return jsonify({"success": True, "job_id": job_id})
     except Exception as e:
@@ -5955,6 +5970,8 @@ def run_template_api(template_id):
             payload_dict["__auto_confluence_note"] = data.get("auto_confluence_note", "")
 
         title = data.get("title") or template.name or "API Template Run"
+        from modules.Infrastructure.task_rerun import launch_snapshot
+        launch_context = launch_snapshot(template, variables, target_kind=data.get('target_type','hosts'))
         job_id, task_ids = dispatch_infrastructure_task(
             session.get("user_id"),
             template.action_type or "run_script",
@@ -5963,7 +5980,7 @@ def run_template_api(template_id):
             title,
             created_by=current_actor_label(),
             ai_report=ai_report,
-            launch_reason=launch_reason,
+            launch_reason=launch_reason, launch_context=launch_context,
         )
 
         WinHubCore.audit(
@@ -6297,6 +6314,7 @@ def get_single_task(task_id):
     return jsonify({"success": True, "data": {
         "id": task.id,
         "job_id": task.job_id,
+        "template_id": task.template_id,
         "title": task.title or "Untitled",
         "launch_reason": mask_sensitive_text(task.launch_reason) if task.launch_reason else None,
         "action": task.action_type or "",
@@ -6619,6 +6637,7 @@ def retry_failed_job(job_id):
             module_source=task.module_source or "Infrastructure",
             action_type=task.action_type,
             payload=task.payload,
+            launch_context=task.launch_context,
             source_type="manual",
             actor_user_id=session.get("user_id"),
             template_id=task.template_id,
@@ -7603,3 +7622,7 @@ register_scheduler_api(infrastructure_bp)
 
 from modules.Infrastructure.queue_history import register as register_queue_history_api
 register_queue_history_api(infrastructure_bp)
+
+
+from modules.Infrastructure.task_rerun import register as register_task_rerun_api
+register_task_rerun_api(infrastructure_bp)

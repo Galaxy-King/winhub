@@ -176,6 +176,7 @@ class WinHubCore:
         system_actor=False,
         ai_report=None,
         launch_reason=None,
+        launch_context=None,
     ) -> str:
         user = WinHubCore.request_user(user_id)
         if not user: raise PermissionError("Invalid user")
@@ -244,6 +245,7 @@ class WinHubCore:
                 schedule_run_id=payload.get('__schedule_run_id'),
                 delivery_deadline=(datetime.utcnow() + timedelta(seconds=schedule_policy.get('delivery_seconds', 3600))) if payload.get('__schedule_run_id') else None,
                 payload=scheduled_payload(hid),
+                launch_context=json.dumps(launch_context, ensure_ascii=False) if launch_context else None,
                 created_by=actor_name or user.username
             )
             for hid in requested_ids
@@ -276,6 +278,7 @@ class WinHubCore:
                     "launch_reason": launch_reason,
                     "action_type": action,
                     "target_count": len(tasks),
+                    "rerun_of": launch_context.get('rerun_parent') if launch_context else None,
                     "template_id": template_id,
                     "schedule_id": schedule_id,
                 },

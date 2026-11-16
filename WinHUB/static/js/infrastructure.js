@@ -4537,6 +4537,7 @@ function renderQueue() {
         } else if(!j.planned && hasActionColumn) {
             actionBtn = `<td class="px-10 py-4 text-right">
                 <div class="flex justify-end gap-2">
+                    ${infraPermissions.run_tasks && !j.planned && j.action !== 'software' ? `<button ${j.pending > 0 || j.running > 0 ? 'disabled' : ''} onclick="event.stopPropagation(); taskRerunOpen('job', '${escapeInlineJs(j.job_id)}')" class="queue-action-btn p-3 border rounded-2xl transition-colors shadow-sm" title="Re-run with editable parameters">Re-run</button>` : ''}
                     ${infraPermissions.run_tasks && j.error > 0 ? `<button onclick="event.stopPropagation(); retryFailedJob('${escapeInlineJs(j.job_id)}')" class="queue-action-btn p-3 border rounded-2xl transition-colors shadow-sm" title="Retry failed hosts"><svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path d="M4 4v6h6M20 20v-6h-6M5 19A9 9 0 0119 5l1 1M19 5A9 9 0 005 19l-1-1" stroke-width="2.3" stroke-linecap="round" stroke-linejoin="round"/></svg></button>` : ''}
                     ${infraPermissions.run_tasks && (j.pending + j.running) > 0 && (j.success + j.error) > 0 ? `<button onclick="event.stopPropagation(); finalizeJobReport('${escapeInlineJs(j.job_id)}')" class="queue-action-btn p-3 border rounded-2xl transition-colors shadow-sm" title="Finalize report without active hosts"><svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path d="M9 12l2 2 4-5M4 20h16M5 4h14v12H5z" stroke-width="2.3" stroke-linecap="round" stroke-linejoin="round"/></svg></button>` : ''}
                     ${infraPermissions.run_tasks && (j.pending + j.running) > 0 ? `<button onclick="event.stopPropagation(); cancelPendingJob('${escapeInlineJs(j.job_id)}')" class="queue-action-btn p-3 border rounded-2xl transition-colors shadow-sm" title="Cancel pending/running hosts"><svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path d="M10 10l4 4m0-4l-4 4M12 22a10 10 0 100-20 10 10 0 000 20z" stroke-width="2.3" stroke-linecap="round" stroke-linejoin="round"/></svg></button>` : ''}
@@ -5282,6 +5283,8 @@ async function viewTaskDetails(taskId) {
     const statusStr = d.status || 'Pending';
     document.getElementById('tStatus').innerHTML = `<span class="uppercase tracking-widest text-[10px] bg-white px-3 py-1 rounded-xl shadow-sm border border-slate-100 font-black ${statusStr === 'Success' ? 'text-emerald-500' : (statusStr === 'Error' ? 'text-rose-500' : 'text-amber-500')}">${escapeHtml(statusStr)}</span>`;
     document.getElementById('tLog').innerText = d.log || "Waiting for agent pulse...";
+    const rerunButton = document.getElementById('taskRerunButton');
+    if (rerunButton) { rerunButton.dataset.taskId = d.id; rerunButton.disabled = !d.template_id || !['Success','Error','Cancelled'].includes(d.status); }
     openModal('taskModal');
 }
 
