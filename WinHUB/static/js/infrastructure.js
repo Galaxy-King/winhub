@@ -1,3 +1,7 @@
+let templateDescriptionLoadedId = null;
+let templateDescriptionCanEdit = false;
+let templateDescriptionLoading = false;
+let templateDescriptionSaving = false;
 // Infrastructure uses lightweight polling for live updates. Keep this separate
 // from Socket.IO; Newsletter owns sockets.
 
@@ -300,6 +304,11 @@ function editorContentStats(value) {
 }
 
 function updateTemplateEditorSummaries() {
+    const descriptionSummary = document.getElementById('descriptionEditorSummary');
+    if (descriptionSummary) {
+        const value = document.getElementById('depDescription')?.value || '';
+        descriptionSummary.textContent = value ? value.split(/\r?\n/)[0].slice(0,120) : selectedTemplateId && templateDescriptionLoadedId !== selectedTemplateId ? 'Open documentation for this template' : 'No description yet';
+    }
     const payloadSummary = document.getElementById('payloadEditorSummary');
     if (payloadSummary) {
         const stats = editorContentStats(document.getElementById('depPayload')?.value || '');
@@ -339,6 +348,11 @@ function refreshPayloadEditor() {
 }
 
 function templateCodeEditorConfig(target) {
+    if (target === 'description') return {
+        sourceId: 'depDescription', title: 'Template Description / Usage Guide',
+        description: 'Explain what this template does, when to use it, parameters and expected results. Plain text; up to 32,000 characters.',
+        language: 'Plain text', mode: null,
+    };
     if (target === 'schema') {
         return {
             sourceId: 'depVariableSchema',
@@ -384,8 +398,25 @@ function updateTemplateCodeEditorStats() {
     statsLabel.textContent = `${stats.lines} lines · ${stats.characters} characters`;
 }
 
-function openTemplateCodeEditor(target) {
-    if (!['payload', 'schema'].includes(target)) return;
+async function openTemplateCodeEditor(target) {
+    if (!['payload', 'schema', 'description'].includes(target)) return;
+    if (target === 'description') {
+        if (templateDescriptionLoading) return;
+        if (!selectedTemplateId) templateDescriptionCanEdit = infraPermissions.manage_templates === true;
+        if (selectedTemplateId && templateDescriptionLoadedId !== selectedTemplateId) {
+            const id = selectedTemplateId; templateDescriptionLoading = true;
+            try {
+                const response = await fetch('/api/infrastructure/templates/' + encodeURIComponent(id) + '/description');
+                const data = await response.json();
+                if (!response.ok || !data.success) throw Error(data.message || 'Could not load description');
+                if (selectedTemplateId !== id) return;
+                document.getElementById('depDescription').value = data.description || '';
+                templateDescriptionLoadedId = id; templateDescriptionCanEdit = data.can_edit;
+                updateTemplateEditorSummaries();
+            } catch(error) { alert(error.message); return; }
+            finally { templateDescriptionLoading = false; }
+        }
+    }
     initPayloadEditor();
     if (!payloadEditor) return alert('Code editor is unavailable. Refresh the page and try again.');
 
@@ -397,6 +428,10 @@ function openTemplateCodeEditor(target) {
     document.getElementById('btnOpenAiTemplateEditor')?.classList.toggle('hidden', target !== 'payload');
     templateCodeEditorInitialValue = source.value || '';
     payloadEditor.setOption('mode', config.mode);
+    payloadEditor.setOption('readOnly', target === 'description' && !templateDescriptionCanEdit);
+    payloadEditor.setOption('lineWrapping', target === 'description');
+    const applyButton = document.getElementById('btnApplyTemplateCodeEditor');
+    if (applyButton) { applyButton.hidden = target === 'description' && !templateDescriptionCanEdit; applyButton.classList.toggle('hidden', applyButton.hidden); applyButton.textContent = target === 'description' && selectedTemplateId ? 'Save description' : 'Apply changes'; }
     payloadEditor.setValue(templateCodeEditorInitialValue);
 
     const title = document.getElementById('templateCodeEditorTitle');
@@ -417,6 +452,7 @@ function openTemplateCodeEditor(target) {
 }
 
 function closeTemplateCodeEditor(force = false) {
+    if (templateDescriptionSaving) return;
     const modal = document.getElementById('templateCodeEditorModal');
     if (!modal || modal.classList.contains('hidden')) return;
     if (!force && payloadEditor && payloadEditor.getValue() !== templateCodeEditorInitialValue &&
@@ -429,12 +465,13 @@ function closeTemplateCodeEditor(force = false) {
     setTemplateCodeEditorError();
 }
 
-function applyTemplateCodeEditor() {
+async function applyTemplateCodeEditor() {
+    if (templateDescriptionSaving) return;
     if (!payloadEditor || !templateCodeEditorTarget) return;
     const config = templateCodeEditorConfig(templateCodeEditorTarget);
     const source = document.getElementById(config.sourceId);
     if (!source) return;
-    const value = payloadEditor.getValue();
+    let value = payloadEditor.getValue();
 
     if (templateCodeEditorTarget === 'schema' && value.trim()) {
         try {
@@ -446,11 +483,29 @@ function applyTemplateCodeEditor() {
         }
     }
 
+    if (templateCodeEditorTarget === 'description') {
+        if (!templateDescriptionCanEdit) return;
+        if (value.length > 32000) { setTemplateCodeEditorError('Description exceeds 32,000 characters.'); return; }
+        if (selectedTemplateId) {
+            const id = selectedTemplateId; templateDescriptionSaving = true;
+            const button = document.getElementById('btnApplyTemplateCodeEditor'); button.disabled = true;
+            try {
+                const response = await fetch('/api/infrastructure/templates/' + encodeURIComponent(id) + '/description', {
+                    method: 'PATCH', headers: {'Content-Type':'application/json','X-CSRF-Token':document.querySelector('meta[name="csrf-token"]')?.content||''},
+                    body: JSON.stringify({description:value})
+                });
+                const data = await response.json(); if (!response.ok || !data.success) throw Error(data.message || 'Description save failed');
+                if (selectedTemplateId !== id) return;
+                value = data.description; templateDescriptionLoadedId = id;
+            } catch(error) { setTemplateCodeEditorError(error.message); return; }
+            finally { templateDescriptionSaving = false; button.disabled = false; }
+        }
+    }
     source.value = value;
     if (templateCodeEditorTarget === 'schema') {
         currentTemplateVariableSchema = normalizeVariableSchema(value);
     }
-    updateVariablesUI();
+    if (templateCodeEditorTarget !== 'description') updateVariablesUI();
     updateTemplateEditorSummaries();
     templateCodeEditorInitialValue = value;
     closeTemplateCodeEditor(true);
@@ -2573,6 +2628,7 @@ function startNewTemplate() {
         document.getElementById('depTitle')?.value?.trim() ||
         document.getElementById('depCategory')?.value?.trim() ||
         document.getElementById('depVariableSchema')?.value?.trim() ||
+        document.getElementById('depDescription')?.value?.trim() ||
         getPayloadValue().trim()
     );
     if (hasContent && !confirm('Start a new template? The current builder contents will be cleared.')) return false;
@@ -2584,12 +2640,13 @@ function startNewTemplate() {
 }
 
 function resetWorkspace(clearPersistedState = true) {
+    templateDescriptionLoadedId = null; templateDescriptionCanEdit = infraPermissions.manage_templates === true;
     const reasonField = document.getElementById('depLaunchReason');
     if (reasonField) { reasonField.value = ''; reasonField.setCustomValidity(''); }
     editingTemplateId = null; selectedTemplateId = null; currentTemplateVariables = []; currentTemplateVariableSchema = {};
     if (clearPersistedState) localStorage.removeItem(infraStateKeys.template);
 
-    ['depTitle', 'depCategory', 'depReportTemplate', 'depVariableSchema', 'depTimeoutMinutes'].forEach(id => {
+    ['depTitle', 'depCategory', 'depReportTemplate', 'depVariableSchema', 'depDescription', 'depTimeoutMinutes'].forEach(id => {
         const el = document.getElementById(id);
         if(el) el.value = '';
     });
@@ -2999,6 +3056,7 @@ async function saveAsTemplate() {
         payload: buildTemplatePayloadForSave(),
         is_approved: document.getElementById('depIsApproved')?.checked || false
     };
+    if (!selectedTemplateId || templateDescriptionLoadedId === selectedTemplateId) data.description = document.getElementById('depDescription')?.value || '';
     if (window.aiTemplateAppliedDraftId) data.ai_draft_id = window.aiTemplateAppliedDraftId;
 
     try {

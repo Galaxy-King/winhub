@@ -4594,6 +4594,7 @@ def export_templates():
         "templates": [{
             "id": t.id,
             "name": t.name,
+            "description": t.description or '',
             "category": t.category,
             "action_type": t.action_type,
             "type": getattr(t, "type", "action"),
@@ -4632,6 +4633,7 @@ def export_single_template(tid):
         "templates": [{
             "id": t.id,
             "name": t.name,
+            "description": t.description or '',
             "category": t.category,
             "action_type": t.action_type,
             "type": getattr(t, "type", "action"),
@@ -4687,12 +4689,16 @@ def import_templates():
             is_approved = bool(item.get("is_approved", False)) and bool(session.get("is_admin"))
             validate_report_template_payload(t_type, incoming_payload)
 
+            from modules.Infrastructure.template_description import validate_description
+            description = validate_description(item['description']) if 'description' in item else None
             template_id = str(item.get("id") or "").strip()
             template = TaskTemplate.query.get(template_id) if template_id else None
             if not template:
                 template = TaskTemplate.query.filter_by(name=name, category=category, type=t_type).first()
 
             if template:
+                if description is not None:
+                    template.description = description
                 template.name = name
                 template.category = category
                 template.action_type = action_type
@@ -4711,6 +4717,7 @@ def import_templates():
                     action_type=action_type,
                     type=t_type,
                     payload=payload_raw,
+                    description=description or '',
                     is_approved=is_approved,
                     created_by=session.get('username')
                 )
@@ -5473,6 +5480,11 @@ def create_template():
     denied = require_permission("manage_templates")
     if denied: return denied
     data = request.json or {}
+    from modules.Infrastructure.template_description import validate_description
+    try:
+        description = validate_description(data['description']) if 'description' in data else None
+    except ValueError as exc:
+        return jsonify(success=False, message=str(exc)), 400
     payload_dict = data.get('payload', {})
     if not isinstance(payload_dict, dict):
         return jsonify({"success": False, "message": "Template payload must be an object"}), 400
@@ -5508,6 +5520,8 @@ def create_template():
         if t:
             if not can_edit_template(t):
                 return jsonify({"success": False, "message": "Template editing is locked by superadmin policy"}), 403
+            if description is not None:
+                t.description = description
             prior_ai_origin = load_template_payload(t).get('__ai_generated')
             ai_origin = submitted_ai_origin or prior_ai_origin
             if ai_origin:
@@ -5540,6 +5554,8 @@ def create_template():
             t.approved_at = datetime.utcnow()
             t.approved_by = session.get("username")
         db.session.add(t)
+    if not tid:
+        t.description = description or ''
     db.session.commit()
     return jsonify({"success": True})
 
@@ -5572,6 +5588,7 @@ def clone_template(tid):
         action_type=source.action_type,
         type=template_type,
         payload=json.dumps(payload_dict, ensure_ascii=False),
+        description=source.description,
         is_approved=False,
         approved_content_hash=None,
         approved_at=None,
@@ -7626,3 +7643,7 @@ register_queue_history_api(infrastructure_bp)
 
 from modules.Infrastructure.task_rerun import register as register_task_rerun_api
 register_task_rerun_api(infrastructure_bp)
+
+
+from modules.Infrastructure.template_description import register as register_template_description_api
+register_template_description_api(infrastructure_bp)

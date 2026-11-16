@@ -570,6 +570,14 @@
                     <textarea id="depPayload" spellcheck="false" class="hidden" aria-hidden="true"></textarea>
                 </div>
 
+                <div id="templateDescriptionArea">
+                    <button type="button" onclick="openTemplateCodeEditor('description')" class="w-full flex items-center justify-between gap-5 p-5 rounded-3xl border border-emerald-400/25 bg-slate-950/75 hover:bg-slate-900/90 transition-all text-left shadow-lg" aria-label="Open template description and usage guide">
+                        <span class="min-w-0"><span class="block text-[10px] font-black text-emerald-100 uppercase tracking-widest">Description / Usage guide</span><span id="descriptionEditorSummary" class="block mt-1 text-xs font-bold text-slate-400 truncate">No description yet</span></span>
+                        <span class="shrink-0 px-3 py-2 rounded-xl border border-emerald-300/20 text-emerald-200 text-[9px] font-black uppercase">Open description</span>
+                    </button>
+                    <textarea id="depDescription" class="hidden" aria-hidden="true" maxlength="32000"></textarea>
+                </div>
+
                 <!-- No Access / View Only State -->
                 <div id="templateInfoArea" class="col-span-full flex flex-col items-center justify-center py-24 bg-slate-50/50 rounded-[3rem] border-2 border-dashed border-slate-200">
                     <div class="w-20 h-20 bg-white rounded-full flex items-center justify-center text-slate-300 shadow-sm border border-slate-200 mb-4">

@@ -427,6 +427,7 @@ class TaskTemplate(db.Model):
     action_type = db.Column(db.String(50), nullable=False)
     type = db.Column(db.String(50), default="action")
     payload = db.Column(EncryptedText)
+    description = db.Column(EncryptedText, nullable=True)
     is_approved = db.Column(db.Boolean, default=False)
     approved_content_hash = db.Column(db.String(64), index=True)
     approved_at = db.Column(db.DateTime, nullable=True)
