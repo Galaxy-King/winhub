@@ -1,0 +1,126 @@
+{
+  "format": "winhub-template-library",
+  "version": 1,
+  "templates": [
+    {
+      "id": "e4f9ae2a-0ffc-56db-a073-a77aab53d5e7",
+      "name": "Zabbix Agent 2 — Configure with PSK",
+      "category": "Windows Administration",
+      "type": "action",
+      "action_type": "run_script",
+      "is_approved": false,
+      "payload": {
+        "script": "$ErrorActionPreference = 'Stop'\nSet-StrictMode -Version 2\n$s = @{}\n$s['Operation'] = @'\n{{Operation}}\n'@\n$s['CheckMode'] = @'\n{{CheckMode}}\n'@\n$s['PassiveServers'] = @'\n{{PassiveServers}}\n'@\n$s['ActiveServers'] = @'\n{{ActiveServers}}\n'@\n$s['HostnameMode'] = @'\n{{HostnameMode}}\n'@\n$s['CustomHostname'] = @'\n{{CustomHostname}}\n'@\n$s['MetadataMode'] = @'\n{{MetadataMode}}\n'@\n$s['MetadataValue'] = @'\n{{MetadataValue}}\n'@\n$s['PSKIdentity'] = @'\n{{PSKIdentity}}\n'@\n$psk = @'\n{{PSKSecretValue}}\n'@\n$s['AgentDirectory'] = @'\n{{AgentDirectory}}\n'@\n$s['ServiceName'] = @'\n{{ServiceName}}\n'@\n$s['PSKFile'] = @'\n{{PSKFile}}\n'@\n\n$s['TLSMode'] = 'PSK'\n\n$candidate=$null; $backup=$null; $changed=$false; $newKey=$false\n$wasRunning=$false; $stage='validation'; $old=$null\n$failureCode='UNEXPECTED_ERROR'; $failureMessage='Operation failed. Check permissions and the indicated validation step.'; $failureField=''\n$check='inputs'\nfunction Fail([string]$code,[string]$message,[string]$field='') {\n    $script:failureCode=$code; $script:failureMessage=$message; $script:failureField=$field\n    throw 'Zabbix configuration check failed.'\n}\n$utf8=New-Object Text.UTF8Encoding($false)\nfunction Need([string]$name) {\n    $v=[string]$s[$name]\n    if ([string]::IsNullOrWhiteSpace($v)) { Fail 'REQUIRED_FIELD' 'Fill in the required field.' $name }\n    return $v\n}\nfunction Protect([string]$path,[string]$account) {\n    $acl=New-Object Security.AccessControl.FileSecurity\n    $acl.SetAccessRuleProtection($true,$false)\n    foreach($sid in @('S-1-5-18','S-1-5-32-544')) {\n        $id=New-Object Security.Principal.SecurityIdentifier($sid)\n        $rule=New-Object Security.AccessControl.FileSystemAccessRule($id,'FullControl','Allow')\n        $acl.AddAccessRule($rule)\n    }\n    if($account -and $account -notin @('LocalSystem','NT AUTHORITY\\SYSTEM')) {\n        $rule=New-Object Security.AccessControl.FileSystemAccessRule($account,'Read','Allow')\n        $acl.AddAccessRule($rule)\n    }\n    Set-Acl -LiteralPath $path -AclObject $acl\n}\ntry {\n    foreach($k in $s.Keys) {\n        if($s[$k] -match '[\\r\\n\\x00]') { Fail 'INVALID_LINE_BREAK' 'This field must be a single line.' $k }\n    }\n    if($s.Operation -notin @('Preview','Apply')) { Fail 'INVALID_OPERATION' 'Choose Preview or Apply.' 'Operation' }\n    if($s.CheckMode -notin @('Active','Passive','Both')) { Fail 'INVALID_CHECK_MODE' 'Choose Active, Passive or Both.' 'CheckMode' }\n    if($s.HostnameMode -notin @('ComputerName','Custom')) { Fail 'INVALID_HOSTNAME_MODE' 'Choose ComputerName or Custom.' 'HostnameMode' }\n    if($s.MetadataMode -notin @('Disabled','List')) { Fail 'INVALID_METADATA_MODE' 'Choose Disabled or List.' 'MetadataMode' }\n    if($s.TLSMode -notin @('PSK')) { Fail 'INVALID_TLS_MODE' 'This template requires PSK.' }\n    $check='agent_paths'; $failureField='AgentDirectory'\n    $dir=[IO.Path]::GetFullPath((Need 'AgentDirectory'))\n    $config=Join-Path $dir 'zabbix_agent2.conf'\n    $exe=Join-Path $dir 'zabbix_agent2.exe'\n    if(!(Test-Path -LiteralPath $exe -PathType Leaf)) { Fail 'AGENT_EXECUTABLE_MISSING' 'zabbix_agent2.exe was not found in AgentDirectory. Install the agent first.' 'AgentDirectory' }\n    if(!(Test-Path -LiteralPath $config -PathType Leaf)) { Fail 'AGENT_CONFIG_MISSING' 'zabbix_agent2.conf was not found in AgentDirectory. Restore the installed agent config first.' 'AgentDirectory' }\n    $serviceName=Need 'ServiceName'\n    $check='service_lookup'; $failureField='ServiceName'\n    $svc=Get-Service -Name $serviceName -ErrorAction SilentlyContinue\n    if(!$svc) { Fail 'SERVICE_NOT_FOUND' 'The Windows service was not found. Check ServiceName.' 'ServiceName' }\n    $info=Get-CimInstance Win32_Service | Where-Object { $_.Name -eq $serviceName }\n    if(!$info -or $info.PathName -notlike \"*$exe*\") { Fail 'SERVICE_EXECUTABLE_MISMATCH' 'The selected service does not use the executable in AgentDirectory.' 'ServiceName' }\n    if($info.PathName -match '(?i)(?:--config(?:=|\\s+)|-c\\s+)(?:\"([^\"]+)\"|(\\S+))') {\n        $svcConfig=if($Matches[1]){$Matches[1]}else{$Matches[2]}\n        if([IO.Path]::GetFullPath($svcConfig) -ne $config) { Fail 'SERVICE_CONFIG_MISMATCH' 'The service uses another config path. Match AgentDirectory to the service configuration.' 'AgentDirectory' }\n    }\n    $check='read_config'; $failureField='AgentDirectory'\n    $old=[IO.File]::ReadAllBytes($config)\n    $text=[IO.File]::ReadAllText($config)\n    $check='configuration_fields'; $failureField=''\n    $u=[ordered]@{}\n    $u.Server=if($s.CheckMode -in @('Passive','Both')){Need 'PassiveServers'}else{$null}\n    $u.ServerActive=if($s.CheckMode -in @('Active','Both')){Need 'ActiveServers'}else{$null}\n    $u.Hostname=$null; $u.HostnameItem=$null\n    switch($s.HostnameMode) {\n        'ComputerName' {$u.Hostname=$env:COMPUTERNAME}\n        'Custom' {$u.Hostname=Need 'CustomHostname'}\n    }\n    $u.HostMetadata=$null; $u.HostMetadataItem=$null\n    switch($s.MetadataMode) {\n        'List' {\n            $v=Need 'MetadataValue'\n            if($v -eq 'UNCONFIGURED' -or [Text.Encoding]::UTF8.GetByteCount($v) -gt 2034) { Fail 'INVALID_METADATA' 'Select valid metadata, up to 2034 UTF-8 bytes.' 'MetadataValue' }\n            $u.HostMetadata=$v\n        }\n    }\n    switch($s.TLSMode) {\n        'PSK' {\n            if($psk -notmatch '\\A(?:[0-9a-fA-F]{2}){16,256}\\z'){Fail 'INVALID_PSK_FORMAT' 'Enter 32-512 hexadecimal characters in pairs, without spaces or line breaks.' 'PSKSecretValue'}\n            $u.TLSConnect='psk'; $u.TLSAccept='psk'; $u.TLSPSKIdentity=Need 'PSKIdentity'\n            $check='psk_file'; $failureField='PSKFile'\n            $keyPath=[IO.Path]::GetFullPath((Need 'PSKFile'))\n            if(![IO.Path]::IsPathRooted($s.PSKFile) -or !(Test-Path -LiteralPath (Split-Path $keyPath -Parent) -PathType Container)){Fail 'INVALID_PSK_PATH' 'Use an absolute PSK file path in an existing directory.' 'PSKFile'}\n            $u.TLSPSKFile=$keyPath\n            if(Test-Path -LiteralPath $keyPath) {\n                if([IO.File]::ReadAllText($keyPath).Trim() -cne $psk){Fail 'PSK_FILE_CONFLICT' 'The existing PSK file contains another key. Use a new PSKFile path for rotation.' 'PSKFile'}\n            }\n        }\n    }\n    $check='build_config'; $failureField=''\n    $lines=New-Object 'Collections.Generic.List[string]'\n    foreach($line in ($text -split '\\r?\\n')) {\n        if($line -match '^\\s*([^#\\s=]+)\\s*=' -and $u.Contains($Matches[1])){continue}\n        $lines.Add($line)\n    }\n    foreach($k in $u.Keys) {\n        foreach($v in @($u[$k])) {\n            if($null -eq $v -or [string]$v -eq ''){continue}\n            if([string]$v -match '[\\r\\n\\x00]'){Fail 'INVALID_CONFIG_VALUE' 'Configuration values must not contain line breaks or NUL.' $k}\n            $lines.Add($k+'='+[string]$v)\n        }\n    }\n    $newText=($lines -join \"`r`n\")+\"`r`n\"\n    if($s.Operation -eq 'Preview') {\n        @{status='Preview'; changed=$false; mode=$s.CheckMode; tls=$s.TLSMode; metadata_mode=$s.MetadataMode; parameters=@($u.Keys); note='No files changed; full agent -T validation happens only on Apply.'}|ConvertTo-Json -Depth 8 -Compress\n        exit 0\n    }\n    $check='backup_and_psk'; $failureField=''\n    $stage='apply'; $wasRunning=$svc.Status -eq 'Running'\n    $id=[Guid]::NewGuid().ToString('N')\n    $backup=Join-Path $dir ('zabbix_agent2.conf.winhub-'+$id+'.bak')\n    $candidate=Join-Path $dir ('winhub-candidate-'+$id+'.tmp')\n    [IO.File]::WriteAllBytes($backup,[byte[]]@()); Protect $backup $info.StartName\n    [IO.File]::WriteAllBytes($backup,$old)\n    if($s.TLSMode -eq 'PSK') {\n        if(!(Test-Path -LiteralPath $keyPath)) {\n            $stream=[IO.File]::Open($keyPath,[IO.FileMode]::CreateNew,[IO.FileAccess]::Write,[IO.FileShare]::None)\n            $stream.Dispose(); $newKey=$true\n            Protect $keyPath $info.StartName\n            [IO.File]::WriteAllText($keyPath,$psk+\"`r`n\",$utf8)\n        } else {Protect $keyPath $info.StartName}\n    }\n    [IO.File]::WriteAllBytes($candidate,[byte[]]@()); Protect $candidate $info.StartName\n    [IO.File]::WriteAllText($candidate,$newText,$utf8)\n    $check='agent_config_test'\n    Push-Location $dir\n    try{$null=& $exe '-T' '-c' $candidate 2>&1; $valid=$LASTEXITCODE}finally{Pop-Location}\n    if($valid -ne 0){Fail 'AGENT_CONFIG_TEST_FAILED' 'The agent rejected the candidate config or does not support -T. Check Include paths and agent version.'}\n    if([Convert]::ToBase64String([IO.File]::ReadAllBytes($config)) -cne [Convert]::ToBase64String($old)){Fail 'CONCURRENT_CONFIG_EDIT' 'The config changed during this task. Review it and retry.'}\n    $check='service_restart'; $failureField='ServiceName'\n    Stop-Service -Name $serviceName\n    $svc.WaitForStatus('Stopped',[TimeSpan]::FromSeconds(30))\n    $changed=$true\n    [IO.File]::WriteAllText($config,$newText,$utf8)\n    Start-Service -Name $serviceName\n    $svc.Refresh(); $svc.WaitForStatus('Running',[TimeSpan]::FromSeconds(30))\n    Start-Sleep -Seconds 3; $svc.Refresh()\n    if($svc.Status -ne 'Running'){Fail 'SERVICE_START_FAILED' 'The agent stopped after startup. Check the local Zabbix log.' 'ServiceName'}\n    @{status='Success'; changed=$true; mode=$s.CheckMode; tls=$s.TLSMode; metadata_mode=$s.MetadataMode; backup=$backup; note='Service running; Zabbix host/server TLS settings must be configured separately.'}|ConvertTo-Json -Depth 8 -Compress\n} catch {\n    $rollback='NotNeeded'\n    if($changed) {\n        try {\n            Stop-Service -Name $serviceName\n            [IO.File]::WriteAllBytes($config,$old)\n            if($wasRunning){Start-Service -Name $serviceName}\n            $rollback='Restored'\n        } catch {$rollback='Failed'}\n    } elseif($stage -eq 'apply' -and $wasRunning) {\n        try{Start-Service -Name $serviceName}catch{}\n    }\n    if($newKey -and $rollback -ne 'Failed') {Remove-Item -LiteralPath $keyPath -Force -ErrorAction SilentlyContinue}\n    @{status='Error'; stage=$stage; rollback=$rollback; error_code=$failureCode; check=$check; field=$failureField; message=$failureMessage}|ConvertTo-Json -Depth 8 -Compress\n    exit 1\n} finally {\n    $psk=$null\n    if($candidate -and (Test-Path -LiteralPath $candidate)){Remove-Item -LiteralPath $candidate -Force -ErrorAction SilentlyContinue}\n}\n",
+        "__variable_schema": {
+          "Operation": {
+            "type": "select",
+            "label": "Operation",
+            "default": "Preview",
+            "options": [
+              "Preview",
+              "Apply"
+            ],
+            "order": 0
+          },
+          "CheckMode": {
+            "type": "select",
+            "label": "Check mode",
+            "default": "Both",
+            "options": [
+              "Active",
+              "Passive",
+              "Both"
+            ],
+            "order": 1
+          },
+          "PassiveServers": {
+            "type": "text",
+            "label": "Passive checks — allowed servers (Server)",
+            "default": "192.168.38.254",
+            "order": 2
+          },
+          "ActiveServers": {
+            "type": "text",
+            "label": "Active checks — server / proxy (ServerActive)",
+            "default": "192.168.36.254",
+            "order": 3
+          },
+          "HostnameMode": {
+            "type": "select",
+            "label": "Hostname source",
+            "default": "ComputerName",
+            "options": [
+              "ComputerName",
+              "Custom"
+            ],
+            "order": 4
+          },
+          "CustomHostname": {
+            "type": "text",
+            "label": "Zabbix hostname (Custom mode)",
+            "default": "",
+            "order": 5,
+            "help": "Used only in Custom mode. Must match the technical host name in Zabbix."
+          },
+          "MetadataMode": {
+            "type": "select",
+            "label": "Host metadata mode",
+            "default": "List",
+            "options": [
+              "Disabled",
+              "List"
+            ],
+            "order": 6
+          },
+          "MetadataValue": {
+            "type": "select",
+            "label": "Autoregistration metadata",
+            "default": "Windows_2P",
+            "options": [
+              "Windows_2P"
+            ],
+            "order": 7
+          },
+          "PSKIdentity": {
+            "type": "text",
+            "label": "PSK identity",
+            "default": "PTERMINALSIDENTITYK",
+            "order": 8
+          },
+          "PSKSecretValue": {
+            "type": "text",
+            "label": "PSK key (hex)",
+            "default": "",
+            "pattern": "(?:[0-9a-fA-F]{2}){16,256}",
+            "order": 9,
+            "help": "Paste the contents of psk.key: 32–512 hexadecimal characters. Do not save a live key as a default."
+          },
+          "AgentDirectory": {
+            "type": "text",
+            "label": "Agent directory",
+            "default": "C:\\Program Files\\Zabbix Agent 2",
+            "order": 10
+          },
+          "ServiceName": {
+            "type": "text",
+            "label": "Windows service name",
+            "default": "Zabbix Agent 2",
+            "order": 11
+          },
+          "PSKFile": {
+            "type": "text",
+            "label": "PSK file path",
+            "default": "C:\\Program Files\\Zabbix Agent 2\\psk.key",
+            "order": 12,
+            "help": "Created on Apply if missing. For key rotation, use a new file path."
+          }
+        },
+        "__template_policy": {
+          "hide_code": false,
+          "lock_edit": false,
+          "lock_delete": false
+        }
+      }
+    }
+  ]
+}

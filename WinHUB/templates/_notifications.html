@@ -1,0 +1,26 @@
+<link rel="stylesheet" href="{{ url_for('static', filename='css/notifications.css', v='20261118-1') }}">
+<button id="notificationBell" class="wn-bell" type="button" aria-label="Notifications" aria-haspopup="dialog">
+  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="M18 8a6 6 0 0 0-12 0c0 7-3 7-3 9h18c0-2-3-2-3-9M9 21h6"/></svg>
+  <span id="notificationCount" hidden></span>
+</button>
+<dialog id="notificationDrawer" class="wn-drawer" aria-labelledby="notificationHeading">
+  <header><div><small>YOUR ACTIVITY</small><h2 id="notificationHeading">Notifications</h2></div><button type="button" id="notificationClose" aria-label="Close notifications">✕</button></header>
+  <div class="wn-toolbar"><select id="notificationFilter" aria-label="Filter notifications"><option value="all">All notifications</option><option value="unread">Unread</option><option value="approvals">Requires review</option><option value="tasks">Tasks</option><option value="software">Software</option><option value="scheduler">Scheduler</option><option value="reports">Reports</option><option value="fleet">Agent updates</option><option value="newsletter">Newsletter</option></select><button id="notificationRefresh" type="button" aria-label="Refresh notifications">↻</button></div>
+  <div class="wn-actions"><button id="notificationReadAll" type="button">Mark all read</button><button id="notificationClearRead" type="button">Clear read</button><button id="notificationClearAll" type="button">Clear all</button></div>
+  <p id="notificationMessage" role="status" class="wn-message"></p>
+  <div id="notificationList" class="wn-list"></div>
+  <details class="wn-settings"><summary>Notification settings &amp; devices</summary>
+    <label><input id="notificationToasts" type="checkbox"> Show in-app popups</label>
+    <label><input id="notificationErrors" type="checkbox"> Push errors and reviews only</label>
+    <fieldset id="notificationCategories"><legend>Push categories</legend></fieldset>
+    <label>Quiet hours (UTC) <select id="notificationQuietStart" aria-label="Quiet hours start"></select> — <select id="notificationQuietEnd" aria-label="Quiet hours end"></select></label>
+    <button id="notificationSave" type="button">Save preferences</button>
+    <button id="notificationEnable" type="button">Enable push on this device</button>
+    <p class="wn-hint">On iPhone/iPad, add WinHUB to your Home Screen first, then open it and enable notifications. Trusted HTTPS is required.</p>
+    <h3>Push devices</h3><div id="notificationDevices"></div>
+    <h3>Remembered sessions</h3><div id="notificationSessions"></div>
+    <p class="wn-hint">History: up to 90 days, latest 500 accessible notifications. Clearing this list never deletes tasks or audit history. Push delivery depends on your browser and network.</p>
+  </details>
+</dialog>
+<div id="notificationToastsArea" class="wn-toasts" aria-live="polite"></div>
+<script nonce="{{ csp_nonce }}" defer src="{{ url_for('static', filename='js/notifications.js', v='20261118-1') }}"></script>

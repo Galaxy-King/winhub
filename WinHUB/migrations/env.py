@@ -6,6 +6,7 @@ from sqlalchemy import engine_from_config, pool
 from core.config import Config
 from core.database import db
 import core.database  # noqa: F401
+import core.notification_models  # noqa: F401
 
 config = context.config
 config.set_main_option("sqlalchemy.url", Config.SQLALCHEMY_DATABASE_URI.replace("%", "%%"))

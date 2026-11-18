@@ -1,0 +1,121 @@
+{
+  "template": {
+    "id": "e4f9ae2a-0ffc-56db-a073-a77aab53d5e7",
+    "name": "Zabbix Agent 2 — Configure with PSK",
+    "category": "Windows Administration",
+    "type": "action",
+    "action_type": "run_script",
+    "is_approved": false,
+    "payload": {
+      "__variable_schema": {
+        "Operation": {
+          "type": "select",
+          "label": "Operation",
+          "default": "Preview",
+          "options": [
+            "Preview",
+            "Apply"
+          ],
+          "order": 0
+        },
+        "CheckMode": {
+          "type": "select",
+          "label": "Check mode",
+          "default": "Both",
+          "options": [
+            "Active",
+            "Passive",
+            "Both"
+          ],
+          "order": 1
+        },
+        "PassiveServers": {
+          "type": "text",
+          "label": "Passive checks — allowed servers (Server)",
+          "default": "192.168.38.254",
+          "order": 2
+        },
+        "ActiveServers": {
+          "type": "text",
+          "label": "Active checks — server / proxy (ServerActive)",
+          "default": "192.168.36.254",
+          "order": 3
+        },
+        "HostnameMode": {
+          "type": "select",
+          "label": "Hostname source",
+          "default": "ComputerName",
+          "options": [
+            "ComputerName",
+            "Custom"
+          ],
+          "order": 4
+        },
+        "CustomHostname": {
+          "type": "text",
+          "label": "Zabbix hostname (Custom mode)",
+          "default": "",
+          "order": 5,
+          "help": "Used only in Custom mode. Must match the technical host name in Zabbix."
+        },
+        "MetadataMode": {
+          "type": "select",
+          "label": "Host metadata mode",
+          "default": "List",
+          "options": [
+            "Disabled",
+            "List"
+          ],
+          "order": 6
+        },
+        "MetadataValue": {
+          "type": "select",
+          "label": "Autoregistration metadata",
+          "default": "Windows_2P",
+          "options": [
+            "Windows_2P"
+          ],
+          "order": 7
+        },
+        "PSKIdentity": {
+          "type": "text",
+          "label": "PSK identity",
+          "default": "PTERMINALSIDENTITYK",
+          "order": 8
+        },
+        "PSKSecretValue": {
+          "type": "text",
+          "label": "PSK key (hex)",
+          "default": "",
+          "pattern": "(?:[0-9a-fA-F]{2}){16,256}",
+          "order": 9,
+          "help": "Paste the contents of psk.key: 32–512 hexadecimal characters. Do not save a live key as a default."
+        },
+        "AgentDirectory": {
+          "type": "text",
+          "label": "Agent directory",
+          "default": "C:\\Program Files\\Zabbix Agent 2",
+          "order": 10
+        },
+        "ServiceName": {
+          "type": "text",
+          "label": "Windows service name",
+          "default": "Zabbix Agent 2",
+          "order": 11
+        },
+        "PSKFile": {
+          "type": "text",
+          "label": "PSK file path",
+          "default": "C:\\Program Files\\Zabbix Agent 2\\psk.key",
+          "order": 12,
+          "help": "Created on Apply if missing. For key rotation, use a new file path."
+        }
+      },
+      "__template_policy": {
+        "hide_code": false,
+        "lock_edit": false,
+        "lock_delete": false
+      }
+    }
+  }
+}

@@ -37,6 +37,19 @@ if [[ ! -f "$config_dir/winhub_agent.conf" ]]; then
 fi
 ./WinHUBLinuxAgent --validate-config "$config_dir/winhub_agent.conf"
 
+# A bundled public key is first-install bootstrap trust, authenticated by the
+# administrator's trusted package transfer/checksum. It never rotates existing trust.
+bundled_trust='./release-signing-public.pem'
+installed_trust="$data_dir/release-signing-public.pem"
+if [[ -e "$bundled_trust" || -L "$bundled_trust" ]]; then
+  [[ -f "$bundled_trust" && ! -L "$bundled_trust" ]] || { echo 'Invalid bundled public key.' >&2; exit 1; }
+  if [[ -e "$installed_trust" || -L "$installed_trust" ]]; then
+    [[ -f "$installed_trust" && ! -L "$installed_trust" ]] && cmp -s "$bundled_trust" "$installed_trust" || { echo 'Existing release trust differs; explicit key rotation required.' >&2; exit 1; }
+  fi
+  # Read-only: validates public SPKI, publisher signature, inventory and rollback floor.
+  ./WinHUBLinuxAgent --verify-release "$PWD" "$bundled_trust" "$data_dir/release-state.json" 0.0.0 ''
+fi
+
 systemctl stop "$service_name" 2>/dev/null || true
 mkdir -p "$install_dir" "$config_dir" "$data_dir"
 cp -a . "$install_dir/"
@@ -46,6 +59,9 @@ chmod 0700 "$data_dir"
 chmod 0700 "$config_dir"
 chmod 0600 "$config_dir/winhub_agent.conf"
 chown -R root:root "$install_dir" "$config_dir" "$data_dir"
+if [[ -f "$bundled_trust" && ! -e "$installed_trust" ]]; then
+  install -o root -g root -m 0600 "$bundled_trust" "$installed_trust"
+fi
 
 if [[ ! -f "$config_dir/winhub_agent.conf" ]]; then
   cp "$install_dir/winhub_agent.conf.example" "$config_dir/winhub_agent.conf"

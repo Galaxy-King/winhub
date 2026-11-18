@@ -1,0 +1,36 @@
+[[WINHUB_REPORT title="Аудит активних облікових записів"]]
+{% set ns = namespace(hosts=0, total=0, logins=[], failed=0) -%}
+{% for r in all_results -%}
+{% if r.status == 'Success' and r.data and r.data.audit|default('') == 'winhub-local-active-accounts-v1' and r.data.active_logins is defined -%}
+{% set ns.hosts = ns.hosts + 1 -%}
+{% set ns.total = ns.total + (r.data.active_logins|length) -%}
+{% for login in r.data.active_logins -%}
+{% set key = login|lower -%}
+{% if key not in ns.logins -%}
+{% set ns.logins = ns.logins + [key] -%}
+{% endif -%}
+{% endfor -%}
+{% else -%}
+{% set ns.failed = ns.failed + 1 -%}
+{% endif -%}
+{% endfor -%}
+Аудит проведено на такій кількості хостів — {{ ns.hosts }}
+Кількість активних облікових записів — {{ ns.total }}
+Кількість активних унікальних облікових записів — {{ ns.logins|length }}
+
+Хостів у результатах завдання — {{ all_results|length }}
+Хостів без успішного аудиту — {{ ns.failed }}
+{% if ns.failed %}УВАГА: підсумок неповний; враховано лише успішно перевірені хости.{% endif %}
+{% if not all_results %}Результатів немає. Аудит ще не підтверджено.{% endif %}
+
+ДЕТАЛІ ЗА ХОСТАМИ
+{% for r in all_results %}
+{{ r.host }}: {% if r.status == 'Success' and r.data and r.data.audit|default('') == 'winhub-local-active-accounts-v1' and r.data.active_logins is defined %}{{ r.data.active_logins|length }}
+Логіни: {{ r.data.active_logins|join(', ') if r.data.active_logins else 'немає' }}{% else %}аудит не виконано ({{ r.status }}){% endif %}
+{% endfor %}
+
+Ураховано локальні акаунти з Disabled=False та Lockout=False, включно зі службовими й вбудованими.
+Однаковий логін на різних хостах рахується один раз незалежно від регістру.
+Однакові логіни можуть належати різним людям; різні логіни однієї людини рахуються окремо.
+Доменні обліковки та поточні сеанси не перевіряються.
+[[/WINHUB_REPORT]]

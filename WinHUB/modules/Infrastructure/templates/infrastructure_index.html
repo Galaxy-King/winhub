@@ -1495,10 +1495,10 @@
 <link rel="stylesheet" href="{{ url_for('static', filename='css/task_launch_reason.css', v=app_version ~ '-reason-1') }}">
 <script nonce="{{ csp_nonce }}" src="{{ url_for('static', filename='js/task_launch_reason.js', v=app_version ~ '-reason-1') }}"></script>
 <script nonce="{{ csp_nonce }}">window.WinhubCanRequestInventory = {{ permissions.run_tasks|tojson }};</script>
-<script nonce="{{ csp_nonce }}" src="{{ url_for('static', filename='js/infrastructure.js', v=app_version ~ '-lean-1' ~ '-inventory-software-3-scheduler-1-queue-1-rerun-1-description-1') }}"></script>
+<script nonce="{{ csp_nonce }}" src="{{ url_for('static', filename='js/infrastructure.js', v=app_version ~ '-variable-order-2' ~ '-lean-1' ~ '-inventory-software-3-scheduler-1-queue-1-rerun-1-description-1') }}"></script>
 {% if permissions.view_queue %}
 <link rel="stylesheet" href="{{ url_for('static', filename='css/queue_history.css', v=app_version ~ '-queue-1') }}">
-<script nonce="{{ csp_nonce }}" src="{{ url_for('static', filename='js/queue_history.js', v=app_version ~ '-queue-1') }}"></script>
+<script nonce="{{ csp_nonce }}" src="{{ url_for('static', filename='js/queue_history.js', v=app_version ~ '-queue-2') }}"></script>
 {% endif %}
 {% if permissions.view_queue and permissions.run_tasks %}
 <link rel="stylesheet" href="{{ url_for('static', filename='css/task_rerun.css', v=app_version ~ '-rerun-1') }}">
@@ -1509,12 +1509,12 @@
 <link rel="stylesheet" href="{{ url_for('static', filename='css/scheduler.css', v=app_version ~ '-scheduler-1') }}">
 <script nonce="{{ csp_nonce }}" src="{{ url_for('static', filename='js/scheduler.js', v=app_version ~ '-scheduler-1') }}"></script>
 {% endif %}
-<script nonce="{{ csp_nonce }}" src="{{ url_for('static', filename='js/software.js', v=app_version ~ '-software-7') }}"></script>
+<script nonce="{{ csp_nonce }}" src="{{ url_for('static', filename='js/software.js', v=app_version ~ '-software-8') }}"></script>
 {% if permissions.use_ai_templates and permissions.manage_templates %}
 <link rel="stylesheet" href="{{ url_for('static', filename='css/ai_template_editor.css', v=app_version) }}">
 <script nonce="{{ csp_nonce }}" src="{{ url_for('static', filename='js/ai_template_editor.js', v=app_version) }}"></script>
 {% endif %}
 {% if permissions.run_tasks %}
-<script nonce="{{ csp_nonce }}" src="{{ url_for('static', filename='js/infrastructure_quick_launch.js', v=app_version ~ '-reason-1') }}"></script>
+<script nonce="{{ csp_nonce }}" src="{{ url_for('static', filename='js/infrastructure_quick_launch.js', v=app_version ~ '-variable-order-2' ~ '-reason-1') }}"></script>
 {% endif %}
 {% endblock %}

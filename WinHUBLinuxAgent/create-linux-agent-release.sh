@@ -3,9 +3,10 @@ set -euo pipefail
 
 version="${1:-}"
 rid="${2:-linux-x64}"
+runtime_version="${3:-8.0.33}"
 
-if [[ ! "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$ || ! "$rid" =~ ^linux-(x64|arm64)$ ]]; then
-  echo "Usage: ./create-linux-agent-release.sh VERSION [linux-x64|linux-arm64]" >&2
+if [[ ! "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$ || ! "$rid" =~ ^linux-(x64|arm64)$ || ! "$runtime_version" =~ ^8\.0\.[0-9]+$ ]]; then
+  echo "Usage: ./create-linux-agent-release.sh VERSION [linux-x64|linux-arm64] [8.0.RUNTIME_PATCH]" >&2
   exit 2
 fi
 
@@ -22,6 +23,7 @@ dotnet publish "$script_dir/WinHUBLinuxAgent.csproj" \
   -r "$rid" \
   --self-contained true \
   -p:PublishAot=true \
+  -p:RuntimeFrameworkVersion="$runtime_version" \
   -p:Version="$version" \
   -o "$publish_dir"
 
@@ -36,6 +38,7 @@ cat > "$dist_dir/${package_name}.manifest.json" <<EOF
   "name": "WinHUBLinuxAgent",
   "version": "$version",
   "rid": "$rid",
+  "runtime_version": "$runtime_version",
   "package": "$package_name",
   "sha256": "$sha256",
   "release_signature": "NOT_SIGNED_USE_OFFLINE_PUBLISHER",

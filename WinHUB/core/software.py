@@ -277,6 +277,7 @@ def save_package(package_id, form, upload, user):
         if not user.is_admin:
             raise PermissionError('Only a superadmin can approve a recipe.')
         record['approved_hash'] = recipe_hash(record)
+    record.setdefault('created_by', user.username)
     record['updated_by'] = user.username
     row = old or SoftwarePackage(id=package_id)
     row.record = json.dumps(record, ensure_ascii=False)

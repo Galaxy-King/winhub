@@ -148,6 +148,7 @@
                     class="w-full p-4 bg-slate-50 border border-slate-200 rounded-2xl text-sm font-bold focus:bg-white focus:ring-4 focus:ring-indigo-500/10 outline-none transition-all">
             </div>
 
+            <label class="block text-sm"><input type="checkbox" id="rememberDevice"> Remember this device for 30 days (private devices only)</label>
             <div>
                 <label for="otp" class="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2 ml-2">Authenticator Code (2FA)</label>
                 <input type="text" id="otp" name="otp" autocomplete="off" placeholder="Optional if not setup"
@@ -215,7 +216,8 @@
         const data = {
             username: form.username.value,
             password: form.password.value,
-            otp: form.otp.value
+            otp: form.otp.value,
+            remember_device: document.getElementById('rememberDevice').checked
         };
 
         try {
@@ -229,7 +231,8 @@
                 const preferredUiMode = localStorage.getItem('winhub_ui_mode');
                 const useMobile = preferredUiMode === 'mobile'
                     || (preferredUiMode !== 'desktop' && window.matchMedia('(max-width: 767px)').matches);
-                window.location.href = useMobile ? '/mobile' : result.redirect;
+                const next = new URLSearchParams(location.search).get('next');
+                window.location.href = next && /^\/notifications\/[a-f0-9-]{36}$/.test(next) ? next : (useMobile ? '/mobile' : result.redirect);
             } else {
                 errorMsg.innerText = result.message;
                 errorMsg.classList.remove('hidden');

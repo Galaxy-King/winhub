@@ -6,6 +6,7 @@ script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 action=""
 hosts_file=""
 package_path=""
+expected_sha256=""
 runtime_config="$script_dir/winhub_agent.conf"
 bootstrap_config="$script_dir/winhub_agent.bootstrap.conf"
 ssh_user="${WINHUB_DEPLOY_SSH_USER:-root}"
@@ -36,6 +37,7 @@ usage() {
   --hosts FILE           IP/hostname по одному на рядок; можна user@host.
   --package FILE         Архів агента. Типово береться найновіший
                          WinHUBLinuxAgent-v*-linux-{x64,arm64}.tar.gz.
+  --sha256 HASH          Очікуваний SHA-256 підписаного пакета з signing-комп’ютера.
   --config FILE          Runtime-конфіг. Типово: ./winhub_agent.conf.
   --bootstrap FILE       Bootstrap-конфіг. Типово: ./winhub_agent.bootstrap.conf.
   --user USER            SSH-користувач для рядків без user@host. Типово: root.
@@ -99,7 +101,7 @@ find_latest_package() {
   shopt -s nullglob
   local candidates=(
     "$script_dir"/WinHUBLinuxAgent-v*-linux-x64.tar.gz
-    "$script_dir"/dist-agent/WinHUBLinuxAgent-v*-linux-x64.tar.gz
+    "$script_dir"/dist-agent/signed/WinHUBLinuxAgent-v*-linux-x64.tar.gz
   )
   shopt -u nullglob
 
@@ -115,7 +117,7 @@ find_latest_package() {
     shopt -s nullglob
     candidates=(
       "$script_dir"/WinHUBLinuxAgent-v*-linux-arm64.tar.gz
-      "$script_dir"/dist-agent/WinHUBLinuxAgent-v*-linux-arm64.tar.gz
+      "$script_dir"/dist-agent/signed/WinHUBLinuxAgent-v*-linux-arm64.tar.gz
     )
     shopt -u nullglob
     for candidate in "${candidates[@]}"; do
@@ -132,6 +134,8 @@ validate_package_archive() {
   local listing entry normalized required found
   local required_files=(
     "WinHUBLinuxAgent"
+    "release-manifest.json"
+    "release-signing-public.pem"
     "install-linux-agent.sh"
     "update-linux-agent.sh"
     "winhub-linux-agent.service"
@@ -336,7 +340,7 @@ run_remote_install() {
   local operation="$4"
   local remote_command
 
-  remote_command="$root_runner -- $remote_tmp $package_name $operation $purge $sync_config"
+  remote_command="$root_runner -- $remote_tmp $package_name $operation $purge $sync_config $package_sha256 $target_version"
   ssh "${ssh_opts[@]}" "$remote" "$remote_command" <<'REMOTE_SCRIPT'
 set -euo pipefail
 
@@ -345,11 +349,14 @@ package_name="$2"
 operation="$3"
 purge="$4"
 sync_config="$5"
+package_sha256="$6"
+target_version="$7"
 archive="$deploy_tmp/$package_name"
 extract_dir="$deploy_tmp/extract"
 service_name="winhub-linux-agent.service"
 
 command -v tar >/dev/null
+printf '%s  %s\n' "$package_sha256" "$archive" | sha256sum -c -
 rm -rf "$extract_dir"
 mkdir -p "$extract_dir"
 tar -xzf "$archive" -C "$extract_dir"
@@ -357,6 +364,28 @@ test -x "$extract_dir/WinHUBLinuxAgent"
 test -f "$extract_dir/install-linux-agent.sh"
 test -f "$extract_dir/update-linux-agent.sh"
 test -f "$extract_dir/winhub-linux-agent.service"
+
+# Verify against installed trust when present; bootstrap uses the checked package.
+trust="$extract_dir/release-signing-public.pem"
+installed_trust=/var/lib/winhub-agent/release-signing-public.pem
+if [[ -e "$installed_trust" || -L "$installed_trust" ]]; then
+  [[ -f "$installed_trust" && ! -L "$installed_trust" ]] && cmp -s "$trust" "$installed_trust" || { echo 'Release trust mismatch; no changes made.' >&2; exit 1; }
+  trust="$installed_trust"
+fi
+installed_version=0.0.0
+if [[ -x /opt/winhub-linux-agent/WinHUBLinuxAgent ]]; then
+  installed_version="$(/opt/winhub-linux-agent/WinHUBLinuxAgent --version)"
+fi
+"$extract_dir/WinHUBLinuxAgent" --verify-release "$extract_dir" "$trust" /var/lib/winhub-agent/release-state.json "$installed_version" "$target_version"
+
+# Validate the proposed config and pinned health endpoint before replacing any
+# existing runtime config, migrating state or stopping the installed agent.
+check_config=/etc/winhub-agent/winhub_agent.conf
+if [[ "$sync_config" == "1" ]]; then
+  check_config="$deploy_tmp/winhub_agent.conf"
+fi
+"$extract_dir/WinHUBLinuxAgent" --validate-config "$check_config"
+"$extract_dir/WinHUBLinuxAgent" --check-update-server "$check_config"
 
 stage_configs() {
   if [[ "$sync_config" == "1" ]]; then
@@ -382,7 +411,11 @@ case "$operation" in
     ;;
   update)
     stage_configs
-    bash "$extract_dir/update-linux-agent.sh" --package "$archive"
+    if [[ ! -e /var/lib/winhub-agent/release-signing-public.pem ]]; then
+      install -d -o root -g root -m 0700 /var/lib/winhub-agent
+      install -o root -g root -m 0600 "$extract_dir/release-signing-public.pem" /var/lib/winhub-agent/release-signing-public.pem
+    fi
+    bash "$extract_dir/update-linux-agent.sh" --package "$archive" --expected-sha256 "$package_sha256"
     ;;
   reinstall)
     systemctl disable --now "$service_name" 2>/dev/null || true
@@ -586,6 +619,11 @@ while [[ $# -gt 0 ]]; do
       package_path="$2"
       shift 2
       ;;
+    --sha256)
+      need_value "$1" "${2:-}"
+      expected_sha256="$2"
+      shift 2
+      ;;
     --config)
       need_value "$1" "${2:-}"
       runtime_config="$2"
@@ -684,6 +722,11 @@ if [[ "$action" != "uninstall" ]]; then
   else
     die "Назва пакета має формат WinHUBLinuxAgent-vVERSION-linux-{x64,arm64}.tar.gz: $package_name"
   fi
+  command -v sha256sum >/dev/null || die "sha256sum is required."
+  package_sha256="$(sha256sum -- "$package_path" | cut -d ' ' -f1)"
+  if [[ -n "$expected_sha256" ]]; then
+    [[ "$expected_sha256" =~ ^[[:xdigit:]]{64}$ && "${expected_sha256,,}" == "$package_sha256" ]] || die "Package SHA-256 mismatch."
+  fi
   validate_package_archive "$package_path" || die "Пакет пошкоджений або має неправильну структуру: $package_path"
 
   if [[ "$sync_config" -eq 1 ]]; then
@@ -692,7 +735,7 @@ if [[ "$action" != "uninstall" ]]; then
   fi
 fi
 
-mapfile -t raw_hosts < <(sed 's/[[:space:]]*#.*$//' "$hosts_file" | sed 's/^[[:space:]]*//; s/[[:space:]]*$//' | awk 'NF')
+mapfile -t raw_hosts < <(sed '1s/^\xEF\xBB\xBF//; s/[[:space:]]*#.*$//' "$hosts_file" | sed 's/^[[:space:]]*//; s/[[:space:]]*$//' | awk 'NF')
 [[ "${#raw_hosts[@]}" -gt 0 ]] || die "Файл хостів порожній."
 
 declare -A seen_hosts=()

@@ -1,0 +1,32 @@
+{
+  "format": "winhub-template-library",
+  "version": 1,
+  "exported_at": "2026-10-20T00:00:00Z",
+  "templates": [
+    {
+      "id": "9565635a-381b-43a6-b117-c21e59e5f673",
+      "name": "Аудит активних локальних облікових записів",
+      "category": "Inventory",
+      "type": "action",
+      "action_type": "run_script",
+      "is_approved": false,
+      "payload": {
+        "script": "$ErrorActionPreference = 'Stop'\ntry {\n    # Query only the local SAM, never enumerate the domain directory.\n    $users = @(Get-CimInstance -ClassName Win32_UserAccount -Filter 'LocalAccount=True' -ErrorAction Stop)\n    $active = @()\n    foreach ($user in $users) {\n        # Unknown flags must fail the audit rather than silently undercount users.\n        if ($null -eq $user.Disabled -or $null -eq $user.Lockout) {\n            throw 'Account state is unavailable.'\n        }\n        if (-not $user.Disabled -and -not $user.Lockout) {\n            $login = ([string]$user.Name).Trim()\n            if (-not $login) { throw 'Account login is unavailable.' }\n            $active += $login.ToLowerInvariant()\n        }\n    }\n    $active = @($active | Sort-Object -Unique)\n    [ordered]@{\n        audit = 'winhub-local-active-accounts-v1'\n        active_logins = $active\n        active_count = $active.Count\n        collected_at_utc = [DateTime]::UtcNow.ToString('o')\n    } | ConvertTo-Json -Depth 4 -Compress\n} catch {\n    [ordered]@{ audit = 'winhub-local-active-accounts-v1'; error = $_.Exception.Message } |\n        ConvertTo-Json -Depth 4 -Compress\n    exit 1\n}\n",
+        "__report_template_id": "1bcf7078-83f7-4782-9c1a-e94f616e25ef",
+        "__agent_timeout_seconds": 120,
+        "__variable_schema": {}
+      }
+    },
+    {
+      "id": "1bcf7078-83f7-4782-9c1a-e94f616e25ef",
+      "name": "Активні облікові записи — зведений аудит",
+      "category": "Inventory",
+      "type": "report",
+      "action_type": "run_script",
+      "is_approved": false,
+      "payload": {
+        "script": "[[WINHUB_REPORT title=\"Аудит активних облікових записів\"]]\n{% set ns = namespace(hosts=0, total=0, logins=[], failed=0) -%}\n{% for r in all_results -%}\n{% if r.status == 'Success' and r.data and r.data.audit|default('') == 'winhub-local-active-accounts-v1' and r.data.active_logins is defined -%}\n{% set ns.hosts = ns.hosts + 1 -%}\n{% set ns.total = ns.total + (r.data.active_logins|length) -%}\n{% for login in r.data.active_logins -%}\n{% set key = login|lower -%}\n{% if key not in ns.logins -%}\n{% set ns.logins = ns.logins + [key] -%}\n{% endif -%}\n{% endfor -%}\n{% else -%}\n{% set ns.failed = ns.failed + 1 -%}\n{% endif -%}\n{% endfor -%}\nАудит проведено на такій кількості хостів — {{ ns.hosts }}\nКількість активних облікових записів — {{ ns.total }}\nКількість активних унікальних облікових записів — {{ ns.logins|length }}\n\nХостів у результатах завдання — {{ all_results|length }}\nХостів без успішного аудиту — {{ ns.failed }}\n{% if ns.failed %}УВАГА: підсумок неповний; враховано лише успішно перевірені хости.{% endif %}\n{% if not all_results %}Результатів немає. Аудит ще не підтверджено.{% endif %}\n\nДЕТАЛІ ЗА ХОСТАМИ\n{% for r in all_results %}\n{{ r.host }}: {% if r.status == 'Success' and r.data and r.data.audit|default('') == 'winhub-local-active-accounts-v1' and r.data.active_logins is defined %}{{ r.data.active_logins|length }}\nЛогіни: {{ r.data.active_logins|join(', ') if r.data.active_logins else 'немає' }}{% else %}аудит не виконано ({{ r.status }}){% endif %}\n{% endfor %}\n\nУраховано локальні акаунти з Disabled=False та Lockout=False, включно зі службовими й вбудованими.\nОднаковий логін на різних хостах рахується один раз незалежно від регістру.\nОднакові логіни можуть належати різним людям; різні логіни однієї людини рахуються окремо.\nДоменні обліковки та поточні сеанси не перевіряються.\n[[/WINHUB_REPORT]]\n"
+      }
+    }
+  ]
+}

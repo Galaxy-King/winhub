@@ -822,6 +822,17 @@
         return spec;
     }
 
+    function orderTemplateVariables(names, schema = {}) {
+        const order = name => {
+            const value = schema[name]?.order;
+            return typeof value === 'number' && Number.isFinite(value) ? value : Infinity;
+        };
+        return Array.from(names).sort((a, b) => {
+            const left = order(a), right = order(b);
+            return left === right ? 0 : (left < right ? -1 : 1);
+        });
+    }
+
     function renderVariables() {
         const container = byId('moVariables');
         const template = selectedTemplate();
@@ -831,7 +842,7 @@
             container.innerHTML = '';
             return;
         }
-        container.innerHTML = variables.map(name => {
+        container.innerHTML = orderTemplateVariables(variables, template.variable_schema || {}).map(name => {
             const spec = variableSpec(template, name);
             const type = String(spec.type || 'text').toLowerCase();
             const value = spec.default ?? '';

@@ -83,6 +83,13 @@ async function loadSoftwareRegistry() {
         });
         renderSoftwareRegistry();
         renderSoftwareTargets();
+        const notificationPackage = new URLSearchParams(location.search).get('notification_package');
+        if (notificationPackage && !swState.notificationFocused) {
+            swState.notificationFocused = true;
+            const pkg = swState.packages.find(item => item.id === notificationPackage);
+            if (pkg && packageForm) swEditPackage(pkg);
+            else if (swState.installers.some(item => item.id === notificationPackage)) switchSoftwareTab('installers');
+        }
     } catch (error) { swNotice(error.message, true); }
 }
 

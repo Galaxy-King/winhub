@@ -130,6 +130,8 @@ namespace WinHUBAgent
         private string TaskSigningStateFilePath => Path.Combine(DataDirectory, "task-signing-state.json");
         private ExecutionJournal? _executionJournal;
         private bool _executionPersistenceFault;
+        private long _serverClockOffsetSeconds;
+        private int _serverClockOffsetKnown;
         private string HardwareId = string.Empty;
         private string AuthToken = string.Empty;
         private string FriendlyOsName = string.Empty;
@@ -508,6 +510,7 @@ namespace WinHUBAgent
 
                     var content = new StringContent(jsonString, Encoding.UTF8, "application/json");
                     var response = await _httpClient.PostAsync($"{_config.ServerUrl}/api/agent/enroll", content, stoppingToken);
+                    UpdateServerClockOffset(response);
 
                     if (response.IsSuccessStatusCode)
                     {
@@ -525,7 +528,8 @@ namespace WinHUBAgent
                     }
                     else
                     {
-                        _logger.LogWarning($"Enrollment failed. Server returned: {response.StatusCode}");
+                        string serverMessage = await ReadServerErrorMessageAsync(response, stoppingToken);
+                        _logger.LogWarning($"Enrollment failed. Server returned: {response.StatusCode}: {serverMessage}");
                     }
                 }
                 catch (Exception ex)
@@ -551,6 +555,7 @@ namespace WinHUBAgent
                 var content = new StringContent(jsonString, Encoding.UTF8, "application/json");
 
                 using var response = await _httpClient.PostAsync($"{_config.ServerUrl}/api/agent/poll", content, stoppingToken);
+                UpdateServerClockOffset(response);
                 if (!response.IsSuccessStatusCode)
                 {
                     string serverMessage = await ReadServerErrorMessageAsync(response, stoppingToken);
@@ -558,7 +563,7 @@ namespace WinHUBAgent
                     {
                         if (IsClockSkewSignatureFailure(serverMessage))
                         {
-                            _logger.LogWarning($"Server rejected poll signature as {serverMessage}. Waiting for system time to recover before retrying.");
+                            _logger.LogWarning($"Server rejected poll signature as {serverMessage}. Agent signing time was adjusted from the pinned HTTPS server; retrying on the next poll. System time remains unchanged.");
                             return null;
                         }
 
@@ -660,13 +665,42 @@ namespace WinHUBAgent
             }
         }
 
-        private static async Task<string> ReadServerErrorMessageAsync(HttpResponseMessage response, CancellationToken stoppingToken)
+        private void UpdateServerClockOffset(HttpResponseMessage response)
+        {
+            if (!CanBootstrapTaskSigningKey()) return;
+            if (response.Headers.Date is DateTimeOffset serverDate)
+                ApplyServerUnixTime(serverDate.ToUnixTimeSeconds(), "HTTP Date");
+        }
+
+        private void ApplyServerUnixTime(long serverUnixTime, string source)
+        {
+            if (serverUnixTime <= 0) return;
+            long offset = serverUnixTime - DateTimeOffset.UtcNow.ToUnixTimeSeconds();
+            long previous = Interlocked.Exchange(ref _serverClockOffsetSeconds, offset);
+            bool wasKnown = Interlocked.Exchange(ref _serverClockOffsetKnown, 1) == 1;
+            if (Math.Abs(offset) >= 30 && (!wasKnown || Math.Abs(previous - offset) >= 30))
+            {
+                _logger.LogWarning(
+                    "System time differs from WinHUB server by {OffsetSeconds} seconds ({Source}). Signed requests will use the corrected server time.",
+                    offset,
+                    source);
+            }
+        }
+
+        private long GetServerAdjustedUnixTimeSeconds() =>
+            DateTimeOffset.UtcNow.ToUnixTimeSeconds() + Interlocked.Read(ref _serverClockOffsetSeconds);
+
+        private async Task<string> ReadServerErrorMessageAsync(HttpResponseMessage response, CancellationToken stoppingToken)
         {
             try
             {
                 string body = await response.Content.ReadAsStringAsync(stoppingToken);
                 if (string.IsNullOrWhiteSpace(body)) return response.StatusCode.ToString();
                 using var doc = JsonDocument.Parse(body);
+                if (CanBootstrapTaskSigningKey()
+                    && doc.RootElement.TryGetProperty("server_time", out var clockTime)
+                    && clockTime.TryGetInt64(out long clockTimestamp))
+                    ApplyServerUnixTime(clockTimestamp, "signed-request error response");
                 if (doc.RootElement.TryGetProperty("message", out var message))
                 {
                     string value = message.GetString() ?? response.StatusCode.ToString();
@@ -1088,6 +1122,7 @@ try {
                 string jsonString = JsonSerializer.Serialize(payload, AppJsonSerializerContext.Default.ResultPayload);
                 using var content = new StringContent(jsonString, Encoding.UTF8, "application/json");
                 using var response = await _httpClient.PostAsync($"{_config.ServerUrl}/api/agent/result", content, stoppingToken);
+                UpdateServerClockOffset(response);
                 if (response.IsSuccessStatusCode && ExecutionJournal.IsSuccessAcknowledgement(await response.Content.ReadAsStringAsync(stoppingToken)))
                 {
                     _executionJournal!.Acknowledge(pending.TaskId);
@@ -1121,7 +1156,7 @@ try {
             try
             {
                 var verified = TaskEnvelope.Verify(taskResponse, HardwareId, _config.TaskSigningPublicKeyPem,
-                    _config.TaskSigningKeyId, _config.TaskSigningLastSequence, DateTimeOffset.UtcNow.ToUnixTimeSeconds(), CanonicalizeJson);
+                    _config.TaskSigningKeyId, _config.TaskSigningLastSequence, GetServerAdjustedUnixTimeSeconds(), CanonicalizeJson);
                 _executionJournal!.Claim(taskResponse.GetProperty("task_id").GetString()!, verified.KeyId, verified.Sequence);
                 _config.TaskSigningPublicKeyPem = verified.PublicKey;
                 _config.TaskSigningKeyId = verified.KeyId;
@@ -1138,7 +1173,30 @@ try {
             }
         }
 
-        public static void RunProductionSelfTest() => ProductionSecurityTests.Run(CanonicalizeJson);
+        public static void RunProductionSelfTest()
+        {
+            ProductionSecurityTests.Run(CanonicalizeJson);
+            using var worker = new Worker(Microsoft.Extensions.Logging.Abstractions.NullLogger<Worker>.Instance);
+            worker._config.ServerUrl = "https://winhub.test";
+            worker.AgentIdentityKey = RSA.Create(2048);
+            try
+            {
+                foreach (long skew in new long[] { -43200, 43200, 0 })
+                {
+                    long serverTime = DateTimeOffset.UtcNow.ToUnixTimeSeconds() + skew;
+                    using var response = new HttpResponseMessage(System.Net.HttpStatusCode.Forbidden)
+                    {
+                        Content = new StringContent("{\"message\":\"signature_expired\",\"server_time\":" + serverTime + "}")
+                    };
+                    worker.ReadServerErrorMessageAsync(response, CancellationToken.None).GetAwaiter().GetResult();
+                    var signature = worker.CreateAgentSignature("/api/agent/poll", "test-token", "test", "test-hash");
+                    if (Math.Abs(long.Parse(signature.SignedAt) - serverTime) > 2)
+                        throw new Exception("Clock correction failed for skew " + skew);
+                }
+                Console.WriteLine("PASS Windows poll signing recovers from +/-12h skew and system clock recovery");
+            }
+            finally { worker.AgentIdentityKey.Dispose(); worker._httpClient.Dispose(); }
+        }
 
         public static void PrepareCloneTemplate(string confirmation)
         {
@@ -1348,7 +1406,7 @@ try {
 
         private (string SignedAt, string Nonce, string Signature) CreateAgentSignature(string path, string authToken, string agentVersion, string bodyHash)
         {
-            string signedAt = DateTimeOffset.UtcNow.ToUnixTimeSeconds().ToString();
+            string signedAt = GetServerAdjustedUnixTimeSeconds().ToString();
             string nonce = Guid.NewGuid().ToString("N");
             if (AgentIdentityKey == null)
             {

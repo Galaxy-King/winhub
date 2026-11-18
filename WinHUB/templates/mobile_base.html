@@ -10,6 +10,8 @@
     <link rel="stylesheet" href="{{ url_for('static', filename='css/tailwind.local.css', v=app_version) }}">
     <link rel="stylesheet" href="{{ url_for('static', filename='css/mobile_operator.css', v=app_version) }}">
     {% block extra_head %}{% endblock %}
+<link rel="manifest" href="/manifest.webmanifest">
+<link rel="apple-touch-icon" href="/static/pwa-192.png">
 </head>
 <body class="mo-page">
     {% block content %}{% endblock %}
@@ -18,7 +20,7 @@
         (() => {
             const originalFetch = window.fetch.bind(window);
             const safeMethods = new Set(['GET', 'HEAD', 'OPTIONS', 'TRACE']);
-            const idleTimeoutMs = {{ (session_idle_timeout_seconds or 0) * 1000 }};
+            const idleTimeoutMs = {{ 0 if session.get("remembered_device_id") else (session_idle_timeout_seconds or 0) * 1000 }};
             let idleTimer = null;
             let lastClientActivity = Date.now();
             let lastPingAt = 0;
@@ -68,5 +70,6 @@
         })();
     </script>
     {% block scripts %}{% endblock %}
+{% if session.get('logged_in') %}{% include '_notifications.html' %}{% endif %}
 </body>
 </html>

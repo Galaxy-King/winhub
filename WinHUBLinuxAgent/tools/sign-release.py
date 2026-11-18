@@ -48,7 +48,7 @@ def signed_envelope(key, payload):
                       'signature': base64.b64encode(signature).decode()})
 
 
-def create_package(source, output, key, platform, architecture, version, serial):
+def create_package(source, output, key, platform, architecture, version, serial, bundle_public_key=False):
     source, output = Path(source).resolve(), Path(output).resolve()
     if output.is_relative_to(source) or output.exists():
         raise ValueError('Output must be a NEW file outside the publish directory')
@@ -87,6 +87,12 @@ def create_package(source, output, key, platform, architecture, version, serial)
         if len(content) != size:
             raise ValueError('Publish file changed while signing')
         entries.append({'path': name, 'size': size, 'sha256': hashlib.sha256(content).hexdigest()})
+        snapshot.append((name, content))
+    if bundle_public_key:
+        # Derive from the signing key; never copy arbitrary PEM/private material.
+        name = 'release-signing-public.pem'
+        content = key.public_key().public_bytes(serialization.Encoding.PEM, serialization.PublicFormat.SubjectPublicKeyInfo)
+        entries.append({'path': name, 'size': len(content), 'sha256': hashlib.sha256(content).hexdigest()})
         snapshot.append((name, content))
     binary = 'WinHUBAgent.exe' if platform == 'windows' else 'WinHUBLinuxAgent'
     if binary not in folded and binary.lower() not in folded:
@@ -155,6 +161,7 @@ def main():
     sign.add_argument('--architecture', choices=['x64', 'arm64'], default='x64')
     sign.add_argument('--version', required=True)
     sign.add_argument('--serial', type=int, required=True)
+    sign.add_argument('--bundle-public-key', action='store_true', help='Include derived public release key for first-install trust provisioning')
     args = parser.parse_args()
     # Passwords never appear in arguments, manifests, stdout or environment variables.
     if not sys.stdin.isatty():
@@ -168,7 +175,7 @@ def main():
     else:
         key = signing_key(args.key, password)
         print('Signed package SHA256:', create_package(args.source, args.output, key, args.platform,
-                                                       args.architecture, args.version, args.serial))
+                                                       args.architecture, args.version, args.serial, args.bundle_public_key))
 
 
 if __name__ == '__main__':

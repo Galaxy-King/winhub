@@ -1150,12 +1150,12 @@ def inject_global_template_vars(app):
 
 @core_routes.route('/dashboard')
 def dashboard():
-    if not session.get('logged_in'): return redirect(url_for('auth.login_page'))
+    if not session.get('logged_in'): return redirect(url_for('auth.login_page', next=request.path if request.path.startswith('/notifications/') else None))
     return render_template('dashboard.html')
 
 @core_routes.route('/')
 def index():
-    return redirect(url_for('auth.login_page'))
+    return redirect(url_for('auth.login_page', next=request.path if request.path.startswith('/notifications/') else None))
 
 @core_routes.route('/api/health')
 def health():
@@ -1208,7 +1208,7 @@ def handle_security_and_auth():
     g.request_id = str(uuid.uuid4())
     g.request_started_at = time.perf_counter()
     g.csp_nonce = new_csp_nonce()
-    open_endpoints = ['auth.login_page', 'auth.api_login', 'auth.forgot_password', 'auth.reset_password', 'core_routes.health', 'static']
+    open_endpoints = ['auth.login_page', 'auth.api_login', 'auth.forgot_password', 'auth.reset_password', 'core_routes.health', 'static', 'notifications.service_worker', 'notifications.manifest']
     if request.path.startswith('/api/agent/'): return None
     if request.path.startswith(('/api/public/agent-packages/', '/api/public/software-packages/', '/api/public/software-delivery/')):
         return None
@@ -1301,9 +1301,14 @@ def handle_security_and_auth():
             session.clear()
     if request.endpoint not in open_endpoints and not session.get('logged_in'):
         if request.path.startswith('/api/'): return {"success": False, "message": "Unauthorized"}, 401
-        return redirect(url_for('auth.login_page'))
+        return redirect(url_for('auth.login_page', next=request.path if request.path.startswith('/notifications/') else None))
 
     if session.get('logged_in') and not session.get('api_key_auth') and request.endpoint not in open_endpoints:
+        from core.notification_devices import remembered_valid
+        remembered = remembered_valid()
+        if session.get('remembered_device_id') and not remembered:
+            session.clear()
+            return ({'message': 'Device session expired'}, 440) if request.path.startswith('/api/') else redirect(url_for('auth.login_page', next=request.path if request.path.startswith('/notifications/') else None))
         now_ts = time.time()
         login_at = float(session.get('login_at') or now_ts)
         last_activity = float(session.get('last_activity') or now_ts)
@@ -1312,7 +1317,7 @@ def handle_security_and_auth():
             and now_ts - login_at > Config.SESSION_ABSOLUTE_TIMEOUT_SECONDS
         )
         idle_expired = (
-            Config.SESSION_IDLE_TIMEOUT_SECONDS > 0
+            not remembered and Config.SESSION_IDLE_TIMEOUT_SECONDS > 0
             and now_ts - last_activity > Config.SESSION_IDLE_TIMEOUT_SECONDS
         )
         if absolute_expired or idle_expired:
@@ -1333,7 +1338,7 @@ def handle_security_and_auth():
             session.clear()
             if request.path.startswith('/api/'):
                 return {"success": False, "message": "Session expired"}, 440
-            return redirect(url_for('auth.login_page'))
+            return redirect(url_for('auth.login_page', next=request.path if request.path.startswith('/notifications/') else None))
 
         if request.method in ("POST", "PUT", "PATCH", "DELETE"):
             expected = session.get("csrf_token")
@@ -1351,10 +1356,11 @@ def handle_security_and_auth():
                     log.exception("Failed to audit CSRF denial")
                 if request.path.startswith('/api/'):
                     return {"success": False, "message": "Invalid CSRF token"}, 403
-                return redirect(url_for('auth.login_page'))
+                return redirect(url_for('auth.login_page', next=request.path if request.path.startswith('/notifications/') else None))
 
-        session['last_activity'] = now_ts
-        session.modified = True
+        if request.endpoint != 'notifications.inbox':
+            session['last_activity'] = now_ts
+            session.modified = True
 
 
 def apply_security_headers(response):
@@ -1476,7 +1482,7 @@ def create_app():
     static_dir = os.path.join(Config.BASE_DIR, 'static')
     global_app = Flask(__name__, template_folder=template_dir, static_folder=static_dir)
     global_app.config.from_object(Config)
-    session_lifetime = Config.SESSION_ABSOLUTE_TIMEOUT_SECONDS or max(Config.SESSION_IDLE_TIMEOUT_SECONDS, 86400)
+    session_lifetime = Config.SESSION_ABSOLUTE_TIMEOUT_SECONDS or max(Config.SESSION_IDLE_TIMEOUT_SECONDS, 30 * 86400)
     global_app.permanent_session_lifetime = timedelta(seconds=session_lifetime)
 
     validate_rate_limit_storage()
@@ -1505,6 +1511,10 @@ def create_app():
     global_app.register_blueprint(admin_bp)
     global_app.register_blueprint(core_routes)
     global_app.register_blueprint(agent_gateway_bp)
+    from core.notifications import bp as notifications_bp, install_listeners
+    from core import notification_push, notification_devices
+    global_app.register_blueprint(notifications_bp)
+    install_listeners()
 
     with global_app.app_context():
         os.makedirs(Config.DATA_DIR, exist_ok=True)
@@ -1582,5 +1592,7 @@ def create_app():
         else:
             scheduler.start()
             reload_scheduler_jobs(global_app)
+            from core.notifications import start_worker
+            start_worker(global_app)
 
     return global_app

@@ -808,6 +808,8 @@
         }
     </style>
     {% block extra_head %}{% endblock %}
+<link rel="manifest" href="/manifest.webmanifest">
+<link rel="apple-touch-icon" href="/static/pwa-192.png">
 </head>
 <body class="bg-slate-100 text-slate-800 h-screen w-full flex overflow-hidden">
 
@@ -1845,7 +1847,7 @@
         (function() {
             const originalFetch = window.fetch.bind(window);
             const safeMethods = new Set(['GET', 'HEAD', 'OPTIONS', 'TRACE']);
-            const idleTimeoutMs = {{ (session_idle_timeout_seconds or 0) * 1000 }};
+            const idleTimeoutMs = {{ 0 if session.get("remembered_device_id") else (session_idle_timeout_seconds or 0) * 1000 }};
             let idleTimer = null;
             let lastClientActivity = Date.now();
             let lastPingAt = 0;
@@ -1926,6 +1928,7 @@
                 window.matchMedia('(max-width: 767px)').matches
                 && preferredUiMode !== 'desktop'
                 && mobileEntryPaths.has(path)
+                && url.searchParams.get('notification') !== '1'
             ) {
                 window.location.replace('/mobile');
                 return;
@@ -1944,5 +1947,6 @@
             }
         });
     </script>
+{% if session.get('logged_in') %}{% include '_notifications.html' %}{% endif %}
 </body>
 </html>

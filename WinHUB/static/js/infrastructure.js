@@ -636,6 +636,17 @@ function normalizeVariableSchema(raw) {
     return schema;
 }
 
+function orderTemplateVariables(names, schema = {}) {
+    const order = name => {
+        const value = schema[name]?.order;
+        return typeof value === 'number' && Number.isFinite(value) ? value : Infinity;
+    };
+    return Array.from(names).sort((a, b) => {
+        const left = order(a), right = order(b);
+        return left === right ? 0 : (left < right ? -1 : 1);
+    });
+}
+
 function variableSpecFor(name, schema = {}) {
     const spec = schema[name] ? { ...schema[name] } : {};
     if (!spec.type) spec.type = /folders|paths|list|users|ids/i.test(name) ? 'textarea' : 'text';
@@ -947,7 +958,7 @@ function updateVariablesUI() {
         const currentValues = {};
         Object.assign(currentValues, collectVariableInputs('.tpl-var-input'));
 
-        varContainer.innerHTML = Array.from(vars).map(v => {
+        varContainer.innerHTML = orderTemplateVariables(vars, currentTemplateVariableSchema).map(v => {
             const spec = variableSpecFor(v, currentTemplateVariableSchema);
             const field = renderVariableField(v, spec, currentValues[v], 'tpl-var-input');
             return `
@@ -2730,6 +2741,16 @@ function resetWorkspace(clearPersistedState = true) {
     toggleActionView();
 }
 
+function templateEditorCode(raw, action = 'run_script') {
+    let payload;
+    try { payload = JSON.parse(raw); } catch(e) { return raw || ''; }
+    if (action === 'agent_update') return raw;
+    if (typeof payload === 'string') return payload;
+    if (payload && typeof payload.script === 'string') return payload.script;
+    if (payload && typeof payload.command === 'string') return payload.command;
+    return '';
+}
+
 function loadTemplate(el) {
     resetWorkspace(false);
     el.classList.add('active');
@@ -2750,10 +2771,11 @@ function loadTemplate(el) {
     const tType = el.dataset.type || 'action';
 
     const canViewCode = el.dataset.canViewCode !== 'false';
-    try {
-        const payload = JSON.parse(el.dataset.payload);
-        setPayloadValue(canViewCode ? (payload.script || el.dataset.payload) : '');
-    } catch(e) { setPayloadValue(el.dataset.payload); }
+    const code = canViewCode ? templateEditorCode(el.dataset.payload, el.dataset.action) : '';
+    setPayloadValue(code);
+    if (canViewCode && !code && el.dataset.action !== 'agent_update') {
+        alert('This template has no executable script. Import a complete template package before running it.');
+    }
 
     const actEl = document.getElementById('depAction');
     if(actEl) actEl.value = el.dataset.action || 'run_script';
@@ -5105,7 +5127,7 @@ function updateScheduleVariablesUI(values = currentScheduleVariables) {
     }
 
     area.classList.remove('hidden');
-    container.innerHTML = vars.map(v => {
+    container.innerHTML = orderTemplateVariables(vars, schema).map(v => {
         const spec = variableSpecFor(v, schema);
         const field = renderVariableField(v, spec, currentScheduleVariables[v], 'sch-var-input');
         return `

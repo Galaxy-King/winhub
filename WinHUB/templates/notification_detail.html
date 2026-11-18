@@ -1,0 +1,25 @@
+{% extends 'mobile_base.html' %}
+{% block title %}Notification · WinHUB{% endblock %}
+{% block extra_head %}<link rel="stylesheet" href="{{ url_for('static',filename='css/notifications.css') }}">{% endblock %}
+{% block content %}
+<main class="wn-detail">
+  <a class="wn-link" href="/mobile">WinHUB</a>
+  <p class="wn-tag">{{ notification.category }} · {{ notification.severity }}</p>
+  <h1>{{ notification.title }}</h1><h2>{{ source_name }}</h2>
+  <pre>{{ source_body }}</pre>
+  {% if review_code %}<h2>Current recipe / code</h2><pre>{{ review_code }}</pre>{% endif %}
+  <a class="wn-link" href="{{ source_url }}">Open workspace</a>
+  {% if review_revision %}<button type="button" id="notificationApprove" data-id="{{ notification.id }}" data-revision="{{ review_revision }}">Review complete — approve</button>{% endif %}
+  <p id="notificationReviewResult" role="status"></p>
+</main>
+{% endblock %}
+{% block scripts %}
+<script nonce="{{ csp_nonce }}">
+fetch('/api/notifications/read',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({ids:[{{ notification.id|tojson }}]})}).catch(()=>{});
+document.getElementById('notificationApprove')?.addEventListener('click',async function(){
+  if(!confirm('Approve this exact revision for execution?'))return;
+  this.disabled=true;const output=document.getElementById('notificationReviewResult');
+  try{const r=await fetch('/api/notifications/'+this.dataset.id+'/approve',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({revision:this.dataset.revision,status:'Approved'})});const d=await r.json();output.textContent=d.message||(r.ok?'Approved.':'Unable to approve.');if(!r.ok)this.disabled=false;}catch(e){output.textContent='Unable to reach WinHUB. Refresh before retrying.';this.disabled=false;}
+});
+</script>
+{% endblock %}

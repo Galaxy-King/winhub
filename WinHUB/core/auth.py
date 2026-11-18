@@ -78,6 +78,9 @@ def api_login():
     session['last_activity'] = time.time()
     session['csrf_token'] = secrets.token_urlsafe(32)
     session.permanent = True
+    if data.get('remember_device') is True and request.is_secure:
+        from core.notification_devices import remember
+        remember(user)
 
     # Фіксуємо УСПІШНИЙ вхід в Аудит
     audit_auth(username, "Login Success", {"is_admin": bool(user.is_admin)}, "Success", user_id=user.id)
@@ -162,5 +165,8 @@ def logout():
     reason = request.args.get('reason') or 'manual'
     if session.get('logged_in') and not session.get('api_key_auth'):
         audit_auth(user, "Logout", {"reason": reason}, "Success", user_id=session.get('user_id'))
+    from core.notification_devices import revoke_current
+    if reason == 'manual':
+        revoke_current()
     session.clear()
     return redirect(url_for('auth.login_page'))

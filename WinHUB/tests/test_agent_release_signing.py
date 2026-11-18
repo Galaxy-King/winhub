@@ -10,6 +10,7 @@ import subprocess
 import tempfile
 import unittest
 import zipfile
+import tarfile
 
 from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric import rsa
@@ -84,6 +85,40 @@ class ReleaseSigningTests(unittest.TestCase):
             with self.assertRaises(ValueError):
                 SIGNER.create_key(directory, b'synthetic-test-passphrase')
             self.assertFalse(directory.exists())
+
+    def test_windows_bundles_derived_public_key_and_verifies(self):
+        source, _ = self.package('windows')
+        output = self.root / 'windows-bundled.zip'
+        SIGNER.create_package(source, output, self.key, 'windows', 'x64', '2.0.0-rc.3', 11, bundle_public_key=True)
+        with zipfile.ZipFile(output) as archive:
+            self.assertEqual(archive.read('release-signing-public.pem'), self.public.read_bytes())
+            envelope = json.loads(archive.read(SIGNER.MANIFEST))
+            payload = json.loads(base64.b64decode(envelope['payload']))
+            self.assertEqual(next(x['sha256'] for x in payload['files'] if x['path'] == 'release-signing-public.pem'), hashlib.sha256(self.public.read_bytes()).hexdigest())
+            extracted = self.root / 'windows-bundled'
+            archive.extractall(extracted)
+        for platform, command in self.targets:
+            if platform == 'windows':
+                result = subprocess.run(command + ['--verify-release', str(extracted), str(self.public), str(self.root / 'absent-state.json'), '2.0.0-rc.2', '2.0.0-rc.3'], capture_output=True, text=True)
+                self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+
+    def test_linux_bundles_only_derived_public_key_in_signed_inventory(self):
+        source, _ = self.package('linux')
+        output = self.root / 'linux-bundled.tar.gz'
+        SIGNER.create_package(source, output, self.key, 'linux', 'x64', '2.0.0-rc.3', 11, bundle_public_key=True)
+        with tarfile.open(output) as archive:
+            public = archive.extractfile('release-signing-public.pem').read()
+            self.assertEqual(public, self.public.read_bytes())
+            self.assertNotIn(b'PRIVATE KEY', public)
+            envelope = json.load(archive.extractfile(SIGNER.MANIFEST))
+            manifest = json.loads(base64.b64decode(envelope['payload']))
+            self.assertEqual(next(x['sha256'] for x in manifest['files'] if x['path'] == 'release-signing-public.pem'), hashlib.sha256(public).hexdigest())
+        for index, (platform, command) in enumerate(self.targets):
+            if platform == 'linux':
+                folder = self.root / ('bundled-extracted-' + str(index))
+                result = subprocess.run(command + ['--extract-update', str(output), str(folder)], capture_output=True, text=True, timeout=30)
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.verify(command, folder, self.root / 'state.json')
 
     def verify(self, command, folder, state, expected_ok=True, installed='2.0.0-rc.2'):
         result = subprocess.run(command + ['--verify-release', str(folder), str(self.public), str(state), installed, '2.0.0-rc.3'],

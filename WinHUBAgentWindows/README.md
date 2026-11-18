@@ -287,3 +287,18 @@ Identity splitting clears the old endpoint task signing key and sequence in both
 Windows Software downloads require `software-delivery-v1`: signed task metadata contains a relative delivery path, size, hash and temporary capability. The agent uses its own configured `ServerUrl` and existing pinned HTTPS client, with no redirects, cross-origin downloads or TLS bypass. Linux/macOS Software installation recipes remain unsupported.
 
 Update instructions and publisher signing: [release acceptance](../WinHUB-WiKi/guides/agents/AGENT_RELEASE_ACCEPTANCE_UA.md#lean-agent-201-rc1).
+
+## Public key у Windows ZIP
+
+Windows-пакети від `2.0.1-rc.3` підтримують додавання publisher public key до
+підписаного inventory через `sign-release.py sign --bundle-public-key`.
+Під час ручного встановлення `install-service.ps1` перевіряє пакет із каталогу
+скрипту та копіює відсутній ключ до `%ProgramData%\WinHUB\release-signing-public.pem`.
+Наявний інший ключ не замінюється. Докладно:
+[public trust у Windows ZIP](../WinHUB-WiKi/guides/agents/AGENT_RELEASE_ACCEPTANCE_UA.md#windows-bundled-trust).
+
+## Розбіжність системного часу
+
+Windows-агент використовує час сервера з HTTPS-відповіді, перевіреної налаштованим certificate pin, для підписів запитів і перевірки строку дії підписаних задач. При `signature_expired` він коригує внутрішнє зміщення та повторює poll у наступному циклі. Системний годинник Windows не змінюється; доступ до зовнішнього NTP для цього не потрібний. Відхилення від 30 секунд відображається як Warning у локальному журналі агента (`C:\ProgramData\WinHUB\logs\agent.log`); окремого індикатора в UI сервера ця зміна не додає. Підписи, nonce і захист від повторного виконання залишаються обов’язковими.
+
+Компенсація діє в пам’яті процесу та оновлюється з відповідей сервера. Час сервера має бути правильним. Якщо неправильна дата хоста перешкоджає перевірці строку дії TLS-сертифіката, спершу потрібно виправити системну дату; TLS-перевірки не обходяться.

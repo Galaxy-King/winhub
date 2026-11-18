@@ -224,7 +224,7 @@ function renderQuickLaunchReview() {
     const container = document.getElementById('quickLaunchVariables');
     if (!block || !container) return;
     block.classList.toggle('hidden', quickLaunchState.variables.length === 0);
-    container.innerHTML = quickLaunchState.variables.map(name => {
+    container.innerHTML = orderTemplateVariables(quickLaunchState.variables, quickLaunchState.variableSchema).map(name => {
         const spec = variableSpecFor(name, quickLaunchState.variableSchema);
         return `
             <div>

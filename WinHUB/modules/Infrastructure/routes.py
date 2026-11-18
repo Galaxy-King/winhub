@@ -4685,6 +4685,10 @@ def import_templates():
                     incoming_payload = json.loads(incoming_payload)
                 except Exception:
                     incoming_payload = {"script": incoming_payload}
+            if action_type == "run_script":
+                script = incoming_payload.get("script", incoming_payload.get("command")) if isinstance(incoming_payload, dict) else None
+                if not isinstance(script, str) or not script.strip():
+                    raise ValueError("Template must contain a non-empty payload.script: " + name)
             payload_raw = json.dumps(incoming_payload, ensure_ascii=False)
             is_approved = bool(item.get("is_approved", False)) and bool(session.get("is_admin"))
             validate_report_template_payload(t_type, incoming_payload)

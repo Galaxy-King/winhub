@@ -1,0 +1,119 @@
+{
+  "format": "winhub-template-library",
+  "version": 1,
+  "exported_at": "2026-11-12T00:00:00Z",
+  "templates": [
+    {
+      "id": "621061af-42d4-443f-b220-e251c8fab924",
+      "name": "Proxmox — Create Windows VM",
+      "category": "Proxmox",
+      "type": "action",
+      "action_type": "run_script",
+      "is_approved": false,
+      "payload": {
+        "script": "#!/bin/bash\nexec /usr/bin/python3 - \"$0\" <<'WINHUB_PYTHON'\n\"\"\"Executed by the import-pack Bash wrapper; inputs are data, never Python code.\"\"\"\nimport ipaddress\nimport json\nimport os\nfrom pathlib import Path\nimport re\nimport secrets\nimport string\nimport subprocess\nimport sys\nimport fcntl\n\n\ndef run(*args):\n    result = subprocess.run(args, capture_output=True, text=True, timeout=1500)\n    if result.returncode:\n        # Commands may contain credentials. Do not print argv/stdout/stderr.\n        raise ValueError(f\"{args[0]} {args[1]} failed; inspect Proxmox task log locally\")\n    return result.stdout\n\n\ndef number(value, minimum, maximum):\n    if not re.fullmatch(r\"[0-9]+\", value):\n        raise ValueError(\"Expected an unsigned integer\")\n    value = int(value)\n    if not minimum <= value <= maximum:\n        raise ValueError(\"Integer outside allowed range\")\n    return value\n\n\ndef generate_password():\n    alphabet = string.ascii_letters + string.digits + '!@#%+-_'\n    while True:\n        password = ''.join(secrets.choice(alphabet) for _ in range(24))\n        if (any(c.islower() for c in password) and any(c.isupper() for c in password)\n                and any(c.isdigit() for c in password) and any(c in '!@#%+-_' for c in password)):\n            return password\n\n\ndef main(p):\n    mode = p['Mode']\n    if mode not in ('Validate', 'Create'):\n        raise ValueError('Mode must be Validate or Create')\n    template = number(p['TemplateID'], 100, 999999999)\n    vmid = number(p['VMID'], 100, 999999999) if p['VMID'].strip() else None\n    if template == vmid:\n        raise ValueError('VMID must differ from template')\n    name = p['Name']\n    if not re.fullmatch(r'[A-Za-z][A-Za-z0-9.-]{0,252}', name) or any(not label or label.endswith('-') or len(label) > 63 for label in name.split('.')):\n        raise ValueError('Invalid Proxmox VM name: use DNS-style letters, digits, dots and hyphens')\n    hostname = p['WindowsHostname'].strip() or ('WIN-' + secrets.token_hex(5).upper())\n    if not re.fullmatch(r'[A-Za-z][A-Za-z0-9-]{0,14}', hostname) or hostname.endswith('-'):\n        raise ValueError('Windows hostname: 1..15 ASCII letters/digits/hyphens, starting with a letter')\n    storage = p['Storage']\n    if not re.fullmatch(r'[A-Za-z][A-Za-z0-9_-]{0,63}', storage):\n        raise ValueError('Invalid storage name')\n    address = ipaddress.IPv4Interface(p['IP'] + '/' + p['Mask'])\n    gateway = ipaddress.IPv4Address(p['Gateway'])\n    if address.ip in (address.network.network_address, address.network.broadcast_address):\n        raise ValueError('IP is a network or broadcast address')\n    if gateway not in address.network or gateway == address.ip:\n        raise ValueError('Gateway must be a different address within subnet')\n    dns = ' '.join(str(ipaddress.IPv4Address(x)) for x in p['DNS'].replace(',', ' ').split())\n    if not dns:\n        raise ValueError('DNS is required')\n    overrides = []\n    for key, flag, minimum, maximum in [('Cores', '--cores', 1, 256), ('MemoryMB', '--memory', 512, 1048576)]:\n        if p[key]:\n            overrides += [flag, str(number(p[key], minimum, maximum))]\n    disk = number(p['DiskGB'], 1, 65536) if p['DiskGB'] else None\n    bridge = p['Bridge']\n    if bridge and not re.fullmatch(r'[A-Za-z][A-Za-z0-9_.-]{0,14}', bridge):\n        raise ValueError('Invalid bridge')\n    vlan = str(number(p['VLAN'], 1, 4094)) if p['VLAN'] else None\n    if os.geteuid() != 0:\n        raise ValueError('Run on Proxmox as root')\n    os.umask(0o077)\n    # Serialize this pack across VMIDs on this node; Proxmox also arbitrates VMID allocation.\n    with open('/run/lock/winhub-vm-create.lock', 'a') as lock:\n        fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)\n        guests = json.loads(run('pvesh', 'get', '/cluster/resources', '--type', 'vm', '--output-format', 'json'))\n        occupied = {int(x['vmid']) for x in guests}\n        occupied.add(template)\n        if vmid is None:\n            vmid = 100\n            while vmid in occupied:\n                vmid += 1\n            if vmid > 999999999:\n                raise ValueError('No free VMID available')\n        if vmid in occupied:\n            raise ValueError('VMID already exists; no changes made. Choose a new VMID or inspect partial VM')\n        cfg = dict(line.split(': ', 1) for line in run('qm', 'config', str(template)).splitlines() if ': ' in line)\n        if cfg.get('template') != '1' or cfg.get('citype') != 'configdrive2' or 'cloudinit' not in cfg.get('ide2', ''):\n            raise ValueError(f'Invalid source template {template}: expected template=1, citype=configdrive2, Cloud-Init at ide2; actual template={cfg.get(\"template\")!r}, citype={cfg.get(\"citype\")!r}, ide2={cfg.get(\"ide2\")!r}')\n        if not cfg.get('ostype', '').startswith('win'):\n            raise ValueError('Template is not Windows')\n        match = re.search(r'(?:^|,)size=([0-9.]+)([GMT])(?:,|$)', cfg.get('scsi0', ''))\n        if disk:\n            if not match:\n                raise ValueError('Cannot determine scsi0 size')\n            current = float(match[1]) * {'M': 1/1024, 'G': 1, 'T': 1024}[match[2]]\n            if disk < current:\n                raise ValueError('Disk shrinking is forbidden')\n        stores = json.loads(run('pvesh', 'get', '/storage', '--output-format', 'json'))\n        if not any(x.get('storage') == storage and 'images' in x.get('content', '').split(',') and not x.get('disable') for x in stores):\n            raise ValueError('Storage must support VM images and be enabled')\n        snippet_store = next((x for x in stores if x.get('storage') == storage and x.get('type') == 'dir' and 'snippets' in x.get('content', '').split(',') and not x.get('disable')), None)\n        if snippet_store is None:\n            raise ValueError('Target storage must be Directory storage with Images and Snippets enabled')\n        if bridge and not Path('/sys/class/net', bridge).exists():\n            raise ValueError('Bridge does not exist on node')\n        print(json.dumps({'mode': mode, 'vmid': vmid, 'name': name, 'windows_hostname': hostname, 'ip': str(address), 'storage': storage}))\n        if mode == 'Validate':\n            print('Validation passed. VMID is a preview, not a reservation; Create selects again. No VM created. IP availability and guest readiness are not verified.')\n            return\n        password = generate_password()\n        try:\n            run('qm', 'clone', str(template), str(vmid), '--name', name, '--full', '1', '--storage', storage)\n            run('qm', 'set', str(vmid), '--citype', 'configdrive2', '--ciuser', 'Administrator', '--cipassword', password,\n                '--ipconfig0', f'ip={address},gw={gateway}', '--nameserver', dns, '--ciupgrade', '0', *overrides)\n            print(json.dumps({'vmid': vmid, 'username': 'Administrator', 'temporary_password': password, 'guest_password_applied': 'not verified'}), flush=True)\n            if bridge or vlan:\n                net = dict(line.split(': ', 1) for line in run('qm', 'config', str(vmid)).splitlines() if ': ' in line)['net0']\n                parts = [x for x in net.split(',') if not (bridge and x.startswith('bridge=')) and not (vlan and x.startswith('tag='))]\n                if bridge:\n                    parts.append('bridge=' + bridge)\n                if vlan:\n                    parts.append('tag=' + vlan)\n                run('qm', 'set', str(vmid), '--net0', ','.join(parts))\n            if disk:\n                run('qm', 'resize', str(vmid), 'scsi0', str(disk) + 'G')\n            # Preserve generated instance identity; override only Windows naming metadata.\n            metadata = json.loads(run('qm', 'cloudinit', 'dump', str(vmid), 'meta'))\n            metadata['hostname'] = hostname\n            metadata['name'] = hostname\n            metadata['admin_username'] = 'Administrator'\n            metadata['admin_pass'] = password\n            volume = f'{storage}:snippets/winhub-vm-{vmid}-{secrets.token_hex(12)}-meta.json'\n            snippet = Path(run('pvesm', 'path', volume).strip())\n            if not snippet.is_absolute() or snippet.parent.is_symlink():\n                raise ValueError('Unsafe snippets directory')\n            snippet.parent.mkdir(parents=True, exist_ok=True)\n            with snippet.open('x', encoding='utf-8') as output:\n                json.dump(metadata, output)\n            run('qm', 'set', str(vmid), '--cicustom', 'meta=' + volume)\n            run('qm', 'cloudinit', 'update', str(vmid))\n            run('qm', 'start', str(vmid))\n            print('VM started. Temporary credentials are listed above. Guest preparation/password application/RDP readiness must be checked separately.')\n        except Exception:\n            print(f'Inspect VMID {vmid} before retry; partial clone may exist. No automatic deletion or resume.', file=sys.stderr)\n            raise\n\n\nif __name__ == '__main__':\n    try:\n        raw = Path(sys.argv[1]).read_text(encoding='utf-8').split('\\n# WINHUB_INPUT\\n', 1)[1]\n        pairs = [line.split('=', 1) for line in raw.splitlines()]\n        expected = {'Mode', 'TemplateID', 'VMID', 'Name', 'WindowsHostname', 'Storage', 'IP', 'Mask', 'Gateway', 'DNS', 'Cores', 'MemoryMB', 'DiskGB', 'Bridge', 'VLAN'}\n        if any(len(x) != 2 for x in pairs) or len(pairs) != len(expected) or {x[0] for x in pairs} != expected:\n            raise ValueError('Invalid input fields; multiline values are forbidden')\n        main(dict(pairs))\n    except Exception as exc:\n        print('ERROR: ' + (str(exc) if isinstance(exc, ValueError) else type(exc).__name__), file=sys.stderr)\n        sys.exit(1)\n\nWINHUB_PYTHON\n# WINHUB_INPUT\nTemplateID={{A01_TemplateID}}\nName={{A02_Name}}\nWindowsHostname={{A03_WindowsHostname}}\nVMID={{A04_VMID}}\nMode={{A05_Mode}}\nStorage={{A06_Storage}}\nIP={{A07_IP}}\nMask={{A08_Mask}}\nGateway={{A09_Gateway}}\nDNS={{A10_DNS}}\nBridge={{A11_Bridge}}\nVLAN={{A12_VLAN}}\nCores={{A13_Cores}}\nMemoryMB={{A14_MemoryMB}}\nDiskGB={{A15_DiskGB}}\n",
+        "__variable_schema": {
+          "A01_TemplateID": {
+            "type": "text",
+            "label": "Source template VMID",
+            "default": "9006",
+            "order": 1
+          },
+          "A02_Name": {
+            "type": "text",
+            "label": "Proxmox VM name (e.g. term-192.168.38.234)",
+            "default": "",
+            "order": 2
+          },
+          "A03_WindowsHostname": {
+            "type": "text",
+            "label": "Windows hostname (blank: random; max 15 characters)",
+            "default": "",
+            "order": 3
+          },
+          "A04_VMID": {
+            "type": "text",
+            "label": "New VM ID (blank: first free from 100)",
+            "default": "",
+            "order": 4
+          },
+          "A05_Mode": {
+            "type": "select",
+            "label": "Operation",
+            "default": "Validate",
+            "order": 5,
+            "options": [
+              "Validate",
+              "Create"
+            ]
+          },
+          "A06_Storage": {
+            "type": "text",
+            "label": "Target storage",
+            "default": "local",
+            "order": 6
+          },
+          "A07_IP": {
+            "type": "text",
+            "label": "IPv4 address",
+            "default": "",
+            "order": 7
+          },
+          "A08_Mask": {
+            "type": "text",
+            "label": "Subnet mask or prefix (255.255.255.0 or 24)",
+            "default": "",
+            "order": 8
+          },
+          "A09_Gateway": {
+            "type": "text",
+            "label": "Default gateway",
+            "default": "",
+            "order": 9
+          },
+          "A10_DNS": {
+            "type": "text",
+            "label": "DNS servers (space-separated)",
+            "default": "",
+            "order": 10
+          },
+          "A11_Bridge": {
+            "type": "text",
+            "label": "Network bridge (blank: inherit)",
+            "default": "",
+            "order": 11
+          },
+          "A12_VLAN": {
+            "type": "text",
+            "label": "VLAN ID (blank: inherit)",
+            "default": "",
+            "order": 12
+          },
+          "A13_Cores": {
+            "type": "text",
+            "label": "CPU cores (blank: inherit)",
+            "default": "",
+            "order": 13
+          },
+          "A14_MemoryMB": {
+            "type": "text",
+            "label": "Memory in MiB (blank: inherit)",
+            "default": "",
+            "order": 14
+          },
+          "A15_DiskGB": {
+            "type": "text",
+            "label": "System disk size in GiB (blank: inherit)",
+            "default": "",
+            "order": 15
+          }
+        },
+        "__template_policy": {
+          "hide_code": false,
+          "lock_edit": false,
+          "lock_delete": false
+        }
+      }
+    }
+  ]
+}

@@ -25,6 +25,7 @@ python-dotenv>=1.2.2,<2.0
 cryptography>=48.0.1,<49.0
 keyring==24.2.0
 requests>=2.31.0
+pywebpush>=2.0,<3
 pywin32>=306; platform_system == "Windows"
 pyotp==2.9.0
 ldap3>=2.9.1

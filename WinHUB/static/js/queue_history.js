@@ -23,9 +23,13 @@ async function queueHistoryOpen(mode){
     queueHistoryElement('queueHistoryExportFields').hidden=mode==='cleanup';
     if(queueHistoryElement('queueHistoryCleanupFields'))queueHistoryElement('queueHistoryCleanupFields').hidden=mode!=='cleanup';
     queueHistoryMessage('');queueHistoryInvalidatePreview();
+    const from=queueHistoryElement('queueExportFrom'),to=queueHistoryElement('queueExportTo');
+    const fromRevision=from.dataset.editRevision||'0',toRevision=to.dataset.editRevision||'0';
+    const openToken=Symbol();queueHistoryState.openToken=openToken;
     try{const range=await queueHistoryRange(true);if(mode==='export'){
-        queueHistoryElement('queueExportFrom').value=queueHistoryElement('queueDateFrom')?.value||queueHistoryLocalDay(range.oldest);
-        queueHistoryElement('queueExportTo').value=queueHistoryElement('queueDateTo')?.value||queueHistoryLocalDay(range.newest);
+        if(queueHistoryState.openToken!==openToken||!dialog.open)return;
+        if((from.dataset.editRevision||'0')===fromRevision)from.value=queueHistoryElement('queueDateFrom')?.value||queueHistoryLocalDay(range.oldest);
+        if((to.dataset.editRevision||'0')===toRevision)to.value=queueHistoryElement('queueDateTo')?.value||queueHistoryLocalDay(range.newest);
     }}catch(error){queueHistoryMessage(error.message,true);}
 }
 function queueHistoryClose(){if(!queueHistoryState.busy)queueHistoryElement('queueHistoryDialog').close();}
@@ -65,6 +69,7 @@ async function queueHistoryExport(button){await queueHistoryBusy(button,async()=
     queueHistoryMessage('Archive download started. Check that the ZIP was saved and opens correctly before cleaning history.');
 });}
 document.addEventListener('DOMContentLoaded',()=>{
+    for(const id of ['queueExportFrom','queueExportTo'])queueHistoryElement(id)?.addEventListener('input',event=>{event.target.dataset.editRevision=String(Number(event.target.dataset.editRevision||0)+1);});
     queueHistoryElement('queueCleanupDays')?.addEventListener('input',queueHistoryInvalidatePreview);
     queueHistoryElement('queueHistoryDialog')?.addEventListener('cancel',event=>{if(queueHistoryState.busy)event.preventDefault();});
 });

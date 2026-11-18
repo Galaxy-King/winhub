@@ -30,6 +30,15 @@ For ARM servers or SBC endpoints:
 
 ## Install
 
+Актуальна процедура SSH, підписування та включення публічного ключа в Linux-пакет:
+[Linux release із bundled trust](../WinHUB-WiKi/guides/agents/LINUX_SIGNED_RELEASE_SSH_UA.md).
+`create-linux-agent-release.sh VERSION RID [RUNTIME_VERSION]` використовує .NET runtime/AOT
+8.0.33 за замовчуванням; третій аргумент дозволяє явно вибрати новіший patch .NET 8.
+Підписувач із `--bundle-public-key` додає лише публічний SPKI ключ, отриманий із signing key.
+Інсталятор перевіряє підпис та inventory перед зміною служби, встановлює відсутній ключ у
+`/var/lib/winhub-agent/release-signing-public.pem` (root:root, 0600), а інший наявний ключ не замінює.
+Початковий trust забезпечте довіреною доставкою пакета та звіркою SHA-256 із signing-комп’ютером.
+
 До запуску інсталятора підготуйте `/etc/winhub-agent/winhub_agent.conf` із довіреним pin. Новий installer перевіряє конфігурацію до зміни наявної служби; приклад із placeholder не є готовим конфігом. Перший перехід зі старого updater має окремі вимоги в [посібнику](../WinHUB-WiKi/guides/agents/PRODUCTION_PIN_AGENTS_UA.md).
 
 Copy the release archive to the endpoint:

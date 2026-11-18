@@ -1,6 +1,34 @@
 # Windows/Linux RC3: підпис релізу та ручне приймання
 
+Windows/Linux projects use .NET runtime 8.0.33 by default, including the Native AOT compiler, to avoid the vulnerable 8.0.29 toolchain selected by older SDKs. Release builds must not override `RuntimeFrameworkVersion` with an older version. See [CVE-2026-111497](https://github.com/advisories/GHSA-p3jp-9v83-76w9). This changes build dependencies, not the installed agent version.
+
 Це інструкція для адміністратора. Агент розробки не підключався до клієнтів і не виконував deployment. RC3 не закриває весь production-план: актуальні обмеження — у [статусі реалізації](PRODUCTION_PIN_AGENTS_UA.md). Масово не розгортати до canary-перевірок. Linux потребує systemd + cgroup v2 з cpu/memory/pids; старий Proxmox/LXC із відсутніми controllers може не підтримувати новий runner.
+
+<a id="windows-bundled-trust"></a>
+## Windows 2.0.1-rc.3: public key у підписаному ZIP
+
+Для Windows signer також підтримує `--bundle-public-key`: public PEM виводиться
+з private key підписування та входить до підписаного inventory. У мінімальному
+ZIP тепер вісім файлів: `appsettings.json`, `install-service.ps1`,
+`release-manifest.json`, `release-signing-public.pem`, `uninstall-service.ps1`,
+`update-protocol.json`, `update-service.ps1`, `WinHUBAgent.exe`.
+
+Для ручного встановлення скопіюйте runtime-файли в `InstallDir`, підготуйте
+`winhub_agent.conf`, запустіть `install-service.ps1` із довіреного пакета від
+адміністратора. Public key береться з каталогу скрипту, пакет перевіряється
+перед зміною служби; runtime config поряд зі скриптом не входить до перевірки
+release inventory. Відсутній ключ копіюється до
+`%ProgramData%\WinHUB\release-signing-public.pem` із правами SYSTEM/Administrators.
+Джерело зберігається; однаковий наявний ключ не замінюється. Інший ключ,
+пошкоджений пакет або відсутній trust за наявності `release-state.json`
+зупиняють установлення. Ротація ключа потребує окремої процедури.
+
+Початковий пакет адміністратор має отримати з незалежно перевіреного джерела:
+підпис, перевірений ключем із того самого архіву, сам по собі не встановлює
+довіру до видавця. Приватний ключ не копіюється на хост. Просте копіювання EXE
+або перезапуск служби не викликають installer provisioning. Наявність
+`software-delivery-v1` не залежить від цього ключа: він потрібний для оновлень
+самого агента.
 
 ## 1. Три різні ключі — не плутати
 

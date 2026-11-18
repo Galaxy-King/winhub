@@ -1,0 +1,26 @@
+[[WINHUB_REPORT title="RDP Session Report"]]
+<h1>RDP Session Report</h1>
+<p>{{ job_title }}</p>
+<p>Audit checks sessions without changes. LogoffDisconnected signs out disconnected non-console users. Counts refer to sessions; a user may have multiple sessions.</p>
+<h2>Server Summary</h2>
+<table><thead><tr><th>Server</th><th>Mode</th><th>Result</th><th>Active</th><th>Logged Off</th><th>Candidates (Audit)</th><th>Session Errors</th></tr></thead><tbody>
+{% for r in all_results %}
+<tr><td>{{ r.host }}</td>{% if r.data is mapping and r.data.sessions is defined %}<td>{{ r.data.mode|default('—') }}</td><td>{{ r.data.status|default(r.status) }}</td><td>{{ r.data.active|default(0) }}</td><td>{{ r.data.logged_off|default(0) }}</td><td>{{ r.data.would_logoff|default(0) }}</td><td>{{ r.data.failed|default(0) }}</td>{% else %}<td>—</td><td>{{ r.status }} — no session data</td><td>—</td><td>—</td><td>—</td><td>—</td>{% endif %}</tr>
+{% else %}<tr><td colspan="7">No results.</td></tr>{% endfor %}
+</tbody></table>
+{% for r in all_results %}
+<hr /><h2>{{ r.host }}</h2>
+{% if r.data is mapping and r.data.sessions is defined %}
+{% if r.data.mode == 'Audit' %}<p><strong>Audit only: this run did not log off any sessions.</strong></p>{% endif %}
+{% for group, title in [('Active', 'Active Users — Left Running'), ('LoggedOff', 'Disconnected Sessions — Logged Off'), ('WouldLogoff', 'Disconnected Sessions — Logoff Candidates (Audit)'), ('Failed', 'Session Processing Errors'), ('Skipped', 'Skipped User Sessions')] %}
+<h3>{{ title }}</h3>
+<table><thead><tr><th>User</th><th>Session ID</th><th>State When Checked</th><th>Protocol</th><th>Details</th></tr></thead><tbody>
+{% for s in r.data.sessions if s.status == group and (s.user or group == 'Failed') %}
+<tr><td>{{ s.user or '—' }}</td><td>{{ s.session_id }}</td><td>{% if s.connection_state == 0 %}Active{% elif s.connection_state == 4 %}Disconnected{% else %}{{ s.connection_state|default('—') }}{% endif %}</td><td>{% if s.protocol|default(none) == 2 %}RDP{% elif s.protocol|default(none) == 0 %}Protocol 0 (not used for eligibility){% else %}{{ s.protocol|default('Not available in older result') }}{% endif %}</td><td>{% if group == 'Active' %}Session left running{% elif group == 'LoggedOff' %}Logoff completed{% elif group == 'WouldLogoff' %}Would be logged off in LogoffDisconnected mode{% else %}{{ s.message|default('—') }}{% endif %}</td></tr>
+{% else %}<tr><td colspan="5">None.</td></tr>{% endfor %}
+</tbody></table>
+{% endfor %}
+<p>Service sessions without a username are hidden unless a query failed. Skipped sessions were not logged off. Console sessions are excluded independently of protocol. Active users are always left running.</p>
+{% else %}<p><strong>Structured session data unavailable.</strong> {{ r.status }}</p><pre>{{ r.data.error|default(r.log|default('No details available')) if r.data is mapping else r.log|default('No details available') }}</pre>{% endif %}
+{% endfor %}
+[[/WINHUB_REPORT]]
