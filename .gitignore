@@ -78,6 +78,8 @@ dist/
 *.suo
 
 # Generated agent release packages
+WinHUBAgentWindows/deploy/gpo/deployment-manifest.json
+WinHUBAgentWindows/deploy/gpo/deployment-manifest.json.backup-*
 WinHUBAgentWindows/dist-agent/
 WinHUBLinuxAgent/dist-agent/
 WinHUBMacAgent/dist-agent/

@@ -26,6 +26,35 @@ from core.template_security import current_template_hash
 
 
 class NotificationTests(unittest.TestCase):
+    def test_explicit_push_test_is_owned_bounded_and_reports_safe_errors(self):
+        import requests
+        from pywebpush import WebPushException
+        db.session.add(PushIdentity(id=1,private_key='test',public_key='test',subject='https://example.com'))
+        device=PushSubscription(id='test-device',user_id=self.admin.id,endpoint_hash='test-hash',
+            subscription=json.dumps({'endpoint':'https://web.push.apple.com/secret-capability'}),active=True)
+        db.session.add(device);db.session.commit()
+        with self.client.session_transaction() as session:session['push_device_id']=device.id
+        with patch('pywebpush.webpush') as send:
+            response=self.client.post('/api/notifications/push/test',json={},base_url='https://localhost')
+            self.assertEqual(response.status_code,200)
+            self.assertTrue(response.json['success'])
+            self.assertEqual(json.loads(send.call_args.kwargs['data']),{'test':True})
+            self.assertIsInstance(send.call_args.kwargs['requests_session'],push.PinnedPushTransport)
+            self.assertEqual(send.call_args.kwargs['ttl'],60)
+        result=requests.Response();result.status_code=410
+        with patch('pywebpush.webpush',side_effect=WebPushException('secret-capability',response=result)):
+            response=self.client.post('/api/notifications/push/test',json={},base_url='https://localhost')
+            self.assertEqual(response.status_code,502)
+            self.assertEqual(response.json['provider_status'],410)
+            self.assertNotIn('secret-capability',response.get_data(as_text=True))
+            self.assertFalse(db.session.get(PushSubscription,device.id).active)
+        device.active=True;db.session.commit()
+        self.login(self.other)
+        with self.client.session_transaction() as session:session['push_device_id']=device.id
+        with patch('pywebpush.webpush') as send:
+            self.assertEqual(self.client.post('/api/notifications/push/test',json={},base_url='https://localhost').status_code,409)
+            send.assert_not_called()
+
     def setUp(self):
         root = Path(__file__).resolve().parents[1]
         self.app = Flask(__name__, template_folder=str(root/'templates'), static_folder=str(root/'static'))

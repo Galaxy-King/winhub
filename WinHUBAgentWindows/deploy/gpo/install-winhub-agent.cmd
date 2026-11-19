@@ -1,7 +1,8 @@
 @echo off
 setlocal EnableExtensions DisableDelayedExpansion
 
-set "SOURCE=\\DC_FQDN\NETLOGON\WinHUBAgentDeploy"
+rem Keep this wrapper beside the deployment files; works with a UNC startup path.
+set "SOURCE=%~dp0."
 set "LOGDIR=%ProgramData%\WinHUB\gpo-install"
 if not exist "%LOGDIR%" mkdir "%LOGDIR%" 2>nul
 

@@ -26,7 +26,7 @@ winhub_agent.conf
 winhub_agent.bootstrap.conf
 ```
 
-Take the `.cmd` and `.ps1` files from `WinHUBAgentWindows/deploy/gpo/`. Replace the placeholder UNC in the `.cmd` with the real domain/DC path, using exactly two leading backslashes, or pass the source through `-SourceDir`. Copy `deployment-manifest.example.json` as `deployment-manifest.json` and calculate exact hashes:
+Take the `.cmd` and `.ps1` files from `WinHUBAgentWindows/deploy/gpo/`. The wrapper uses its own directory; place it beside the ZIP and manifest and configure its UNC path in Computer Startup. The PS1 also accepts an explicit `-SourceDir`. Use `prepare-gpo-manifest.ps1 -PackagePath <signed.zip>` in that directory to derive the version and hashes while preserving the existing epoch, or prepare metadata manually. Copy `deployment-manifest.example.json` as `deployment-manifest.json` and calculate exact hashes:
 
 ```powershell
 $package = '\\<DC_FQDN>\NETLOGON\WinHUBAgentDeploy\WinHUBAgent-v<VERSION>-win-x64.zip'
@@ -37,7 +37,7 @@ Get-FileHash -LiteralPath $publicKey -Algorithm SHA256
 
 Normally, leave `server_identity_epoch` empty. After an intentional server host-data reset, generate one UUID with `[guid]::NewGuid()`, publish it only after the reset, and keep the same UUID for ordinary agent releases. Each endpoint applies a new epoch once: it archives its old server token, task-signing state, and undelivered journal while preserving hardware/RSA identity, runtime configuration, and publisher trust floor. The bootstrap file then permits fresh enrollment into the new server inventory.
 
-The ZIP must not contain runtime configuration, bootstrap secrets, PEM trust files, or mutable state.
+The ZIP must not contain runtime configuration, bootstrap secrets, private keys, or mutable state. The signer may include `release-signing-public.pem` with `--bundle-public-key`; GPO still needs the public PEM beside the ZIP.
 
 ## Configuration
 
@@ -112,7 +112,7 @@ C:\ProgramData\WinHUB\gpo-install\install.log
 C:\ProgramData\WinHUB\logs\agent.log
 ```
 
-If the wrapper reports `deployment source is unavailable`, check that the `.cmd` no longer contains the literal `DC_FQDN`, the UNC starts with exactly `\\`, the deployment files exist, and the computer account has read access.
+If the wrapper reports `deployment source is unavailable`, check that the wrapper is beside the deployment files, its configured startup UNC starts with exactly `\\`, the deployment files exist, and the computer account has read access.
 
 ## Canary acceptance and rollout
 
@@ -159,7 +159,7 @@ winhub_agent.conf
 winhub_agent.bootstrap.conf
 ```
 
-Візьміть `.cmd` і `.ps1` із `WinHUBAgentWindows/deploy/gpo/`, замініть лише default UNC у `.cmd` або передавайте його через `-SourceDir`. `deployment-manifest.example.json` скопіюйте як `deployment-manifest.json` і внесіть точні значення:
+Візьміть `.cmd` і `.ps1` із `WinHUBAgentWindows/deploy/gpo/`, розмістіть wrapper поряд із ZIP і manifest та вкажіть його UNC-шлях у Computer Startup; PS1 також приймає `-SourceDir`. Helper `prepare-gpo-manifest.ps1 -PackagePath <signed.zip>` читає версію з ZIP і рахує хеші, зберігаючи наявний epoch. `deployment-manifest.example.json` скопіюйте як `deployment-manifest.json` і внесіть точні значення:
 
 ```powershell
 $package = '\\<DC_FQDN>\NETLOGON\WinHUBAgentDeploy\WinHUBAgent-v<VERSION>-win-x64.zip'
@@ -170,7 +170,7 @@ Get-FileHash -LiteralPath $publicKey -Algorithm SHA256
 
 `server_identity_epoch` зазвичай лишається порожнім. Після навмисного server host-data reset задайте **один новий UUID** (`[guid]::NewGuid()`), опублікуйте manifest лише після reset і більше не змінюйте цей UUID для звичайних agent releases. На кожному endpoint значення застосовується один раз: старий server token, task signing state і недоставлений journal переносяться в локальний protected backup; hardware ID, RSA identity, runtime config і publisher floor зберігаються; bootstrap дозволяє fresh enrollment у нову server inventory. Без epoch старий DPAPI token не може автоматично зареєструватися після видалення server endpoint rows.
 
-У ZIP не повинно бути runtime config, bootstrap secret, PEM trust або state. Це забезпечує offline signer.
+У ZIP не повинно бути runtime config, bootstrap secret, private keys або state. Public PEM дозволений, коли signer додає його через `--bundle-public-key`; для GPO копія public PEM також потрібна поряд із ZIP. Склад пакета й актуальні команди: [GPO README](../../../WinHUBAgentWindows/deploy/gpo/README.md).
 
 ## Конфігурація
 

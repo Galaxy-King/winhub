@@ -16,6 +16,9 @@
     <label>Quiet hours (UTC) <select id="notificationQuietStart" aria-label="Quiet hours start"></select> — <select id="notificationQuietEnd" aria-label="Quiet hours end"></select></label>
     <button id="notificationSave" type="button">Save preferences</button>
     <button id="notificationEnable" type="button">Enable push on this device</button>
+    <button id="notificationTest" type="button">Send test push</button>
+    <p id="notificationTestResult" class="wn-hint" role="status" aria-live="polite"></p>
+    <p class="wn-hint">Test sends only to this device and ignores quiet hours and category filters.</p>
     <p class="wn-hint">On iPhone/iPad, add WinHUB to your Home Screen first, then open it and enable notifications. Trusted HTTPS is required.</p>
     <h3>Push devices</h3><div id="notificationDevices"></div>
     <h3>Remembered sessions</h3><div id="notificationSessions"></div>
@@ -23,4 +26,4 @@
   </details>
 </dialog>
 <div id="notificationToastsArea" class="wn-toasts" aria-live="polite"></div>
-<script nonce="{{ csp_nonce }}" defer src="{{ url_for('static', filename='js/notifications.js', v='20261118-1') }}"></script>
+<script nonce="{{ csp_nonce }}" defer src="{{ url_for('static', filename='js/notifications.js', v='20261119-1') }}"></script>

@@ -9,7 +9,10 @@
     const categories = ['approvals','tasks','software','scheduler','reports','fleet','newsletter','system'];
     async function api(path, method = 'GET', body) {
         const response = await fetch('/api/notifications' + path, {method, cache:'no-store', headers:{'Content-Type':'application/json', 'X-CSRF-Token':document.querySelector('meta[name="csrf-token"]')?.content || ''}, ...(body === undefined ? {} : {body:JSON.stringify(body)})});
-        if (!response.ok) throw new Error(response.status === 440 || response.status === 401 ? 'Session expired. Sign in again.' : 'Unable to complete this action. Refresh and try again.');
+        if (!response.ok) {
+            const error = await response.json().catch(()=>({}));
+            throw new Error(response.status === 440 || response.status === 401 ? 'Session expired. Sign in again.' : response.status === 429 ? 'Too many requests. Wait a minute and try again.' : error.message || 'Unable to complete this action. Refresh and try again.');
+        }
         return response.json();
     }
     function node(tag, text, cls) {const el=document.createElement(tag);if(text)el.textContent=text;if(cls)el.className=cls;return el;}
@@ -59,6 +62,18 @@
             let sub=await reg.pushManager.getSubscription();const keyBytes=Uint8Array.from(raw,c=>c.charCodeAt(0));if(sub?.options.applicationServerKey && !Array.from(new Uint8Array(sub.options.applicationServerKey)).every((v,i)=>v===keyBytes[i])){await sub.unsubscribe();sub=null;}if(!sub)sub=await reg.pushManager.subscribe({userVisibleOnly:true,applicationServerKey:Uint8Array.from(raw,c=>c.charCodeAt(0))});
             await api('/push/devices','POST',{subscription:sub.toJSON(),name:(navigator.userAgentData?.platform || navigator.platform || 'Browser')+' · '+(/Edg/.test(navigator.userAgent)?'Edge':/Firefox/.test(navigator.userAgent)?'Firefox':/Chrome/.test(navigator.userAgent)?'Chrome':'Safari / browser')});message('Push enabled on this device.');await devices();
         }catch(e){message(e.message);}finally{button.disabled=false;}
+    };
+    $('notificationTest').onclick=async()=>{
+        const button=$('notificationTest'), result=$('notificationTestResult');
+        button.disabled=true;button.textContent='Sending…';result.textContent='Contacting the push provider…';
+        try {
+            if(!window.isSecureContext || !('serviceWorker' in navigator) || !('Notification' in window) || Notification.permission!=='granted')throw new Error('Allow notifications and enable push on this device first.');
+            const reg=await navigator.serviceWorker.getRegistration('/');
+            const sub=await reg?.pushManager?.getSubscription();
+            if(!sub)throw new Error('No browser subscription. Enable push on this device first.');
+            await api('/push/bind','POST',{endpoint:sub.endpoint});
+            const response=await api('/push/test','POST',{});result.textContent=response.message;
+        }catch(e){result.textContent=e.message;}finally{button.disabled=false;button.textContent='Send test push';}
     };
     function schedule(){clearTimeout(timer);timer=setTimeout(async()=>{if(!document.hidden)await refresh();schedule();},30000);}
     if(window.isSecureContext && 'serviceWorker' in navigator) navigator.serviceWorker.register('/winhub-sw.js',{scope:'/'}).then(async()=>{const reg=await navigator.serviceWorker.ready;const sub=await reg.pushManager?.getSubscription();if(sub)await api('/push/bind','POST',{endpoint:sub.endpoint});}).catch(()=>{});

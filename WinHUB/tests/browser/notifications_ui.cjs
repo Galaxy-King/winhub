@@ -25,6 +25,9 @@ async function main(){
    await page.getByRole('button',{name:'Mark all read',exact:true}).click();await page.waitForFunction(()=>document.getElementById('notificationCount').hidden);
    await page.getByRole('button',{name:'Clear read',exact:true}).click();await page.getByText('You’re all caught up.').waitFor();
    await page.locator('summary').click();await page.locator('#notificationToasts').uncheck();await page.getByRole('button',{name:'Save preferences',exact:true}).click();await page.getByText('Preferences saved.').waitFor();assert.equal(settings.toasts,false);
+   await page.getByRole('button',{name:'Send test push',exact:true}).click();
+   await page.locator('#notificationTestResult').filter({hasText:'Allow notifications and enable push on this device first.'}).waitFor();
+   assert.equal(await page.locator('#notificationTest').isEnabled(),true);
    await page.getByRole('button',{name:'Close notifications',exact:true}).click();assert(await page.locator('#notificationDrawer').isHidden());assert.deepEqual(errors,[]);await page.close();
   }
  }finally{await browser?.close();await new Promise(resolve=>server.close(resolve));}

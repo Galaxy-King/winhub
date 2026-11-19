@@ -6,8 +6,8 @@ self.addEventListener('push', event => {
     let data={};try{data=event.data.json();}catch(_){}
     const id=/^[a-f0-9-]{36}$/.test(data.id||'')?data.id:'';
     event.waitUntil(self.registration.showNotification('WinHUB', {
-        body:'You have a new notification. Open WinHUB to review.',
-        tag:id||'winhub', icon:'/static/pwa-192.png', badge:'/static/pwa-192.png',
+        body:data.test===true?'Test push received. WinHUB can reach this browser.':'You have a new notification. Open WinHUB to review.',
+        tag:data.test===true?'winhub-test-'+Date.now():id||'winhub', icon:'/static/pwa-192.png', badge:'/static/pwa-192.png',
         data:{url:id?'/notifications/'+id:'/mobile'}
     }));
 });

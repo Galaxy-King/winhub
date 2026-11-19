@@ -15,6 +15,7 @@ from flask import abort, jsonify, request, session, send_from_directory, current
 from sqlalchemy.exc import IntegrityError
 
 from core.database import db, User
+from core import limiter
 from core.notification_models import PushIdentity, PushSubscription, PushDelivery, Notification
 from core.notifications import bp, current_user, permitted, settings, json_body, serialize
 from core.outbound_security import validate_outbound_host
@@ -154,6 +155,40 @@ def quiet_now(preferences, now):
     if start is None or end is None or start == end:
         return False
     return start <= now.hour < end if start < end else now.hour >= start or now.hour < end
+
+
+@bp.post('/api/notifications/push/test')
+@limiter.limit('3 per minute', key_func=lambda: str(session.get('user_id') or request.remote_addr))
+def test_push():
+    """Explicit diagnostic to the caller's current subscription, never arbitrary targets."""
+    from pywebpush import webpush
+    from core.outbound_security import OutboundPolicyError
+    user = current_user()
+    if not request.is_secure:
+        return jsonify(message='Trusted HTTPS is required.'), 400
+    device = PushSubscription.query.filter_by(id=session.get('push_device_id'), user_id=user.id, active=True).first()
+    identity = db.session.get(PushIdentity, 1)
+    if not device or not identity:
+        return jsonify(message='Enable push on this device first.'), 409
+    try:
+        webpush(json.loads(device.subscription), data=json.dumps({'test': True}),
+            vapid_private_key=identity.private_key, vapid_claims={'sub': identity.subject},
+            ttl=60, timeout=12, requests_session=PinnedPushTransport())
+    except Exception as exc:
+        status = getattr(getattr(exc, 'response', None), 'status_code', None)
+        if status in (404, 410):
+            device.active = False
+            db.session.commit()
+            message = 'This subscription has expired. Enable push on this device again.'
+        elif status in (400, 401, 403):
+            message = 'Push provider rejected the request. Check server VAPID identity and browser subscription.'
+        elif isinstance(exc, OutboundPolicyError):
+            message = 'Server outbound policy or DNS blocked the push provider. Check OUTBOUND_ALLOWED_HOSTS and DNS.'
+        else:
+            message = 'Push delivery failed. Check server outbound HTTPS connectivity, TLS and push configuration.'
+        # Never expose capability URLs, encryption keys or provider response bodies.
+        return jsonify(success=False, message=message, provider_status=status if isinstance(status, int) else None), 502
+    return jsonify(success=True, message='Push provider accepted the test. Check this device’s system notifications. Acceptance does not confirm display on the phone.')
 
 
 def deliver_pending():

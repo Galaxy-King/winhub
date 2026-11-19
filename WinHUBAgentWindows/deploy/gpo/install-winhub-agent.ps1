@@ -1,5 +1,5 @@
 param(
-    [string]$SourceDir = '\\DC_FQDN\NETLOGON\WinHUBAgentDeploy',
+    [string]$SourceDir = $PSScriptRoot,
     [string]$InstallDir = 'C:\Program Files\WinHUBAgent',
     [string]$DataDir = "$env:ProgramData\WinHUB",
     [ValidateSet('WinHUBAgent')][string]$ServiceName = 'WinHUBAgent'

@@ -1,5 +1,17 @@
 # WinHUB notifications
 
+## Test push delivery
+
+Open **Notification settings & devices → Send test push** on the target phone.
+This sends a real server-side push only to the current user's active browser
+subscription, bypassing quiet hours and category filters. It creates no task or
+inbox event. Limit: three requests per minute per user. The result below the
+button distinguishes provider acceptance, missing/expired subscription, provider
+rejection and outbound connectivity/policy problems. Provider acceptance does
+not confirm display on the phone. Check OS notification permissions and Do Not
+Disturb if it is accepted but not displayed. The test notification opens `/mobile`.
+Existing TLS verification, destination restrictions and VAPID identity apply.
+
 The bell is available in signed-in desktop and mobile screens. Its red counter shows unread notifications. Open it to filter the history, mark notifications read, clear your own history or follow an event to its current details. Clearing notifications does not delete tasks, audit entries or approval requests. Read state is shared across your devices. The inbox shows the latest 500 accessible notifications from the last 90 days; older entries are removed automatically.
 
 Green means success, red means failure, amber means review/warning and blue means information. Multi-host tasks produce one completion summary. Delivery failure, script failure and unknown execution results remain distinct. A completed Fleet rollout means wave scheduling has finished; it does not certify that every agent installed the update. This is an informational notification. An approval handled by another administrator is marked `Resolved`.
