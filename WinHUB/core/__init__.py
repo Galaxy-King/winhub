@@ -1209,6 +1209,7 @@ def handle_security_and_auth():
     g.request_started_at = time.perf_counter()
     g.csp_nonce = new_csp_nonce()
     open_endpoints = ['auth.login_page', 'auth.api_login', 'auth.forgot_password', 'auth.reset_password', 'core_routes.health', 'static', 'notifications.service_worker', 'notifications.manifest']
+    open_endpoints.append('notifications.push_open')
     if request.path.startswith('/api/agent/'): return None
     if request.path.startswith(('/api/public/agent-packages/', '/api/public/software-packages/', '/api/public/software-delivery/')):
         return None

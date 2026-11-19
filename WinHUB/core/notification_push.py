@@ -11,7 +11,7 @@ import requests
 import urllib3
 from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric import ec
-from flask import abort, jsonify, request, session, send_from_directory, current_app
+from flask import abort, jsonify, request, session, send_from_directory, current_app, render_template
 from sqlalchemy.exc import IntegrityError
 
 from core.database import db, User
@@ -265,8 +265,22 @@ def service_worker():
 
 @bp.get('/manifest.webmanifest')
 def manifest():
-    response = jsonify(name='WinHUB', short_name='WinHUB', id='/', start_url='/mobile', scope='/',
+    response = jsonify(name='WinHUB', short_name='WinHUB', id='/', start_url='/push-open?next=/mobile', scope='/',
         display='standalone', background_color='#07111f', theme_color='#07111f',
         icons=[dict(src=f'/static/pwa-{size}.png', sizes=f'{size}x{size}', type='image/png', purpose='any maskable') for size in (192, 512)])
     response.mimetype = 'application/manifest+json'
     return response
+
+
+@bp.get('/push-open')
+def push_open():
+    # Public landing page establishes same-origin navigation before checking Strict cookies.
+    response = current_app.make_response(render_template('push_open.html'))
+    response.headers['Cache-Control'] = 'no-store'
+    return response
+
+
+@bp.get('/api/notifications/session-check')
+def session_check():
+    current_user()
+    return jsonify(success=True)

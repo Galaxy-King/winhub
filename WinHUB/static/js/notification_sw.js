@@ -15,5 +15,14 @@ self.addEventListener('notificationclick', event => {
     event.notification.close();
     const path=event.notification.data?.url||'/mobile';
     const safe=/^\/notifications\/[a-f0-9-]{36}$/.test(path)?path:'/mobile';
-    event.waitUntil(self.clients.openWindow(safe));
+    event.waitUntil((async()=>{
+        const windows=await self.clients.matchAll({type:'window',includeUncontrolled:true});
+        for(const client of windows){
+            if(new URL(client.url).origin!==self.location.origin)continue;
+            try{const opened=await client.navigate('/push-open?next='+encodeURIComponent(safe));
+                if(opened){await opened.focus();return;}
+            }catch(_){}
+        }
+        await self.clients.openWindow('/push-open?next='+encodeURIComponent(safe));
+    })());
 });

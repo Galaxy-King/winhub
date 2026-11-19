@@ -1,5 +1,13 @@
 # WinHUB notifications
 
+Push clicks reuse an existing same-origin WinHUB window when possible. Otherwise
+a new window opens through `/push-open`, which checks the session from a
+same-origin page before navigating to the notification. Expired sessions require
+login and retain the notification destination. Strict cookies, session timeouts
+and revocation still apply. Open WinHUB online after updating to refresh the
+service worker. Recreate an old shortcut from `/mobile` if it retained an old
+launch URL.
+
 ## Test push delivery
 
 Open **Notification settings & devices → Send test push** on the target phone.

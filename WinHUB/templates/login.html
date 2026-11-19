@@ -232,7 +232,7 @@
                 const useMobile = preferredUiMode === 'mobile'
                     || (preferredUiMode !== 'desktop' && window.matchMedia('(max-width: 767px)').matches);
                 const next = new URLSearchParams(location.search).get('next');
-                window.location.href = next && /^\/notifications\/[a-f0-9-]{36}$/.test(next) ? next : (useMobile ? '/mobile' : result.redirect);
+                window.location.href = next && (next==='/mobile' || /^\/notifications\/[a-f0-9-]{36}$/.test(next)) ? next : (useMobile ? '/mobile' : result.redirect);
             } else {
                 errorMsg.innerText = result.message;
                 errorMsg.classList.remove('hidden');
@@ -311,4 +311,5 @@
         finally { btn.disabled = false; btn.innerText = 'Update Password'; }
     }
 </script>
+<script nonce="{{ csp_nonce }}" defer src="{{ url_for('static', filename='js/session_resume.js', v='20261119-1') }}"></script>
 {% endblock %}

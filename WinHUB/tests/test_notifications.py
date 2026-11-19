@@ -26,6 +26,15 @@ from core.template_security import current_template_hash
 
 
 class NotificationTests(unittest.TestCase):
+    def test_push_landing_and_session_probe(self):
+        response=self.client.get('/push-open?next=https://evil.test')
+        self.assertEqual(response.status_code,200)
+        self.assertEqual(response.headers['Cache-Control'],'no-store')
+        self.assertIn('session_resume.js',response.get_data(as_text=True))
+        self.assertEqual(self.client.get('/api/notifications/session-check').status_code,200)
+        with self.client.session_transaction() as session:session.clear()
+        self.assertEqual(self.client.get('/api/notifications/session-check').status_code,403)
+
     def test_push_transport_ipv4_first_and_connection_only_fallback(self):
         import ipaddress
         import urllib3
