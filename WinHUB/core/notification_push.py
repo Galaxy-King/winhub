@@ -58,22 +58,34 @@ class PinnedPushTransport:
         addresses = validate_outbound_host(parsed.hostname, 443, 'Web Push')
         if not addresses or any(not ipaddress.ip_address(str(a)).is_global for a in addresses):
             raise ValueError('Push services must resolve to public addresses')
-        # Connect to the validated numeric IP, retaining TLS hostname verification.
-        pool = urllib3.HTTPSConnectionPool(str(sorted(addresses, key=str)[0]), port=443,
-            server_hostname=parsed.hostname, assert_hostname=parsed.hostname,
-            cert_reqs='CERT_REQUIRED', ca_certs=certifi.where(), timeout=urllib3.Timeout(connect=5, read=8, total=12))
-        try:
-            result = pool.urlopen('POST', parsed.path + ('?' + parsed.query if parsed.query else ''),
-                body=data, headers={**(headers or {}), 'Host': parsed.hostname},
-                redirect=False, retries=False, preload_content=False)
-            response = requests.Response()
-            response.status_code = result.status
-            response.headers.update(result.headers)
-            response._content = result.read(4096)
-            result.close()
-            return response
-        finally:
-            pool.close()
+        # Prefer IPv4; allow one connection-only fallback to the other address family.
+        ordered = sorted(addresses, key=lambda a: (ipaddress.ip_address(str(a)).version, str(a)))
+        candidates = [ordered[0]]
+        alternate = next((a for a in ordered if a.version != ordered[0].version), None)
+        if alternate is not None:
+            candidates.append(alternate)
+        for index, address in enumerate(candidates):
+            pool = urllib3.HTTPSConnectionPool(str(address), port=443,
+                server_hostname=parsed.hostname, assert_hostname=parsed.hostname,
+                cert_reqs='CERT_REQUIRED', ca_certs=certifi.where(), timeout=urllib3.Timeout(connect=5, read=8, total=12))
+            try:
+                result = pool.urlopen('POST', parsed.path + ('?' + parsed.query if parsed.query else ''),
+                    body=data, headers={**(headers or {}), 'Host': parsed.hostname},
+                    redirect=False, retries=False, preload_content=False)
+                try:
+                    response = requests.Response()
+                    response.status_code = result.status
+                    response.headers.update(result.headers)
+                    response._content = result.read(4096)
+                    return response
+                finally:
+                    result.close()
+            except (urllib3.exceptions.NewConnectionError, urllib3.exceptions.ConnectTimeoutError):
+                if index == len(candidates) - 1:
+                    raise
+            finally:
+                pool.close()
+
 
 
 @bp.post('/api/notifications/push/key')
@@ -184,11 +196,17 @@ def test_push():
             message = 'Push provider rejected the request. Check server VAPID identity and browser subscription.'
         elif isinstance(exc, OutboundPolicyError):
             message = 'Server outbound policy or DNS blocked the push provider. Check OUTBOUND_ALLOWED_HOSTS and DNS.'
+        elif isinstance(exc, (urllib3.exceptions.NewConnectionError, urllib3.exceptions.ConnectTimeoutError)):
+            message = 'Cannot connect to the push provider. Check server IPv4/IPv6 routing and outbound TCP 443.'
+        elif isinstance(exc, urllib3.exceptions.SSLError):
+            message = 'Server TLS verification failed for the push provider. Check server time and CA certificates.'
+        elif isinstance(exc, urllib3.exceptions.ReadTimeoutError):
+            message = 'The push provider did not respond before the timeout.'
         else:
             message = 'Push delivery failed. Check server outbound HTTPS connectivity, TLS and push configuration.'
         # Never expose capability URLs, encryption keys or provider response bodies.
         return jsonify(success=False, message=message, provider_status=status if isinstance(status, int) else None), 502
-    return jsonify(success=True, message='Push provider accepted the test. Check this device’s system notifications. Acceptance does not confirm display on the phone.')
+    return jsonify(success=True, message='Push provider accepted the test. Check this deviceâ€™s system notifications. Acceptance does not confirm display on the phone.')
 
 
 def deliver_pending():

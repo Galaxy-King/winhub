@@ -26,6 +26,27 @@ from core.template_security import current_template_hash
 
 
 class NotificationTests(unittest.TestCase):
+    def test_push_transport_ipv4_first_and_connection_only_fallback(self):
+        import ipaddress
+        import urllib3
+        from unittest.mock import MagicMock
+        addresses={ipaddress.ip_address('2001:4860:4802:36::39'),ipaddress.ip_address('216.239.36.57')}
+        first,second=MagicMock(),MagicMock()
+        first.urlopen.side_effect=urllib3.exceptions.NewConnectionError(None,'unreachable')
+        second.urlopen.return_value.status=201
+        second.urlopen.return_value.headers={}
+        second.urlopen.return_value.read.return_value=b''
+        with patch.object(push,'validate_outbound_host',return_value=addresses), patch.object(push.urllib3,'HTTPSConnectionPool',side_effect=[first,second]) as pool:
+            self.assertEqual(push.PinnedPushTransport().post('https://fcm.googleapis.com/test').status_code,201)
+            self.assertEqual(pool.call_args_list[0].args[0],'216.239.36.57')
+            self.assertEqual(pool.call_args_list[1].args[0],'2001:4860:4802:36::39')
+            self.assertEqual(pool.call_args_list[0].kwargs['assert_hostname'],'fcm.googleapis.com')
+            first.close.assert_called_once();second.close.assert_called_once()
+        first.reset_mock();first.urlopen.side_effect=urllib3.exceptions.ReadTimeoutError(None,'/test','timeout')
+        with patch.object(push,'validate_outbound_host',return_value=addresses), patch.object(push.urllib3,'HTTPSConnectionPool',return_value=first) as pool:
+            with self.assertRaises(urllib3.exceptions.ReadTimeoutError):push.PinnedPushTransport().post('https://fcm.googleapis.com/test')
+            self.assertEqual(pool.call_count,1)
+
     def test_explicit_push_test_is_owned_bounded_and_reports_safe_errors(self):
         import requests
         from pywebpush import WebPushException
