@@ -26,6 +26,36 @@ from core.template_security import current_template_hash
 
 
 class NotificationTests(unittest.TestCase):
+    def test_expired_login_renders_and_probe_clears_session(self):
+        from core import handle_security_and_auth
+        self.app.before_request(handle_security_and_auth)
+        with self.client.session_transaction() as s:s['last_activity']=time.time()-120
+        with patch.object(Config,'SESSION_IDLE_TIMEOUT_SECONDS',60), patch('core.auth.render_template',return_value='Login form'):
+            response=self.client.get('/login')
+            self.assertEqual(response.status_code,200)
+            self.assertIn('Login form',response.get_data(as_text=True))
+            self.assertEqual(self.client.get('/api/notifications/session-check').status_code,440)
+            with self.client.session_transaction() as s:self.assertFalse(s.get('logged_in'))
+            self.assertEqual(self.client.get('/login').status_code,200)
+
+    def test_admin_watch_subscription_validation_and_revocation(self):
+        payload={'watch_users':{str(self.other.id):['tasks']}}
+        self.assertEqual(self.client.put('/api/notifications/watch-users',json=payload).status_code,200)
+        self.assertEqual(self.client.get('/api/notifications/watch-users').json['watch_users'],payload['watch_users'])
+        task=AgentTask(id='watched-task',job_id='watched-job',endpoint_id=self.host.id,actor_user_id=self.other.id,title='Watched task',status='Pending')
+        db.session.add(task);db.session.commit()
+        task.status='Success';db.session.commit();service.process_signals()
+        copied=Notification.query.filter_by(user_id=self.admin.id,source_id='watched-job').one()
+        self.assertTrue(copied.title.startswith(self.other.username+':'))
+        self.assertEqual(Notification.query.filter_by(source_id='watched-job').count(),2)
+        fake=Notification(user_id=self.admin.id,event_key=f'watch:{self.other.id}:event',kind='job',source_id='job',category='tasks',severity='success',title='Test')
+        self.assertTrue(service.permitted(self.admin,fake,obj=[AgentTask(endpoint_id=self.host.id)]))
+        self.client.put('/api/notifications/watch-users',json={'watch_users':{}})
+        self.assertFalse(service.permitted(self.admin,fake,obj=[AgentTask(endpoint_id=self.host.id)]))
+        self.admin.is_admin=False;db.session.commit()
+        self.assertEqual(self.client.get('/api/notifications/watch-users').status_code,403)
+        self.assertEqual(self.client.put('/api/notifications/watch-users',json=payload).status_code,403)
+
     def test_push_landing_and_session_probe(self):
         response=self.client.get('/push-open?next=https://evil.test')
         self.assertEqual(response.status_code,200)

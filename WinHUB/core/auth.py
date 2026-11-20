@@ -26,8 +26,8 @@ def audit_auth(username, action, details, status="Success", user_id=None):
 
 @auth_bp.route('/login', methods=['GET'])
 def login_page():
-    if session.get('logged_in'):
-        return redirect(url_for('core_routes.dashboard'))
+    # The cookie may still say logged_in after its server-side time limit.
+    # The same-origin session probe validates expiry before any navigation.
     return render_template('login.html')
 
 @auth_bp.route('/api/auth/login', methods=['POST'])

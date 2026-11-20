@@ -1359,7 +1359,7 @@ def handle_security_and_auth():
                     return {"success": False, "message": "Invalid CSRF token"}, 403
                 return redirect(url_for('auth.login_page', next=request.path if request.path.startswith('/notifications/') else None))
 
-        if request.endpoint != 'notifications.inbox':
+        if request.endpoint not in ('notifications.inbox', 'notifications.session_check'):
             session['last_activity'] = now_ts
             session.modified = True
 

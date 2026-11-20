@@ -60,3 +60,8 @@ Identity conflicts open the existing Review tools rather than receiving an ordin
 Production acceptance should cover successful/failed/group tasks, another user's access, permission revocation, concurrent approval, closed-app push and logout on real devices. Automated browser and cryptographic tests do not certify production Nginx, TLS, Apple/Google/Mozilla delivery or phone permissions.
 
 [Український посібник](NOTIFICATIONS_UA.md)
+
+
+## Other users’ activity
+
+System administrators can select logins and event categories in Notification settings & devices → Other users’ activity, then Save user subscriptions. Only new events are copied to their inbox; the author login appears in the title. Personal push filters and quiet hours still apply. Removing a subscription or administrator role also removes access to its copied notifications. Other users’ preferences are never changed. Global approval/system events already reach administrators and are not duplicated.

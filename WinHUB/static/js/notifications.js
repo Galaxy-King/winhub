@@ -45,7 +45,16 @@
             try{const data=await api(path);$(id).replaceChildren();for(const d of data.devices){const row=node('div',null,'wn-device');row.append(node('span',d.name+(d.current?' · This device':'')));const button=node('button','Revoke');button.type='button';button.onclick=async()=>{try{await api(path+'/'+d.id,'DELETE');await devices();}catch(e){message(e.message);}};row.append(button);$(id).append(row);}if(!data.devices.length)$(id).append(node('p','No active devices.','wn-hint'));}catch(e){message(e.message);}
         }
     }
-    $('notificationBell').onclick=async()=>{drawer.showModal();await refresh();populateSettings();await devices();};$('notificationClose').onclick=()=>drawer.close();
+    async function watchUsers(){
+        try{const data=await api('/watch-users');$('notificationWatchSection').hidden=false;
+            $('notificationWatchUsers').replaceChildren();
+            for(const user of data.users){const group=node('fieldset');group.dataset.userId=user.id;group.append(node('legend',user.username));
+                for(const category of categories){const label=node('label'), input=node('input');input.type='checkbox';input.value=category;input.checked=(data.watch_users[String(user.id)]||[]).includes(category);label.append(input,document.createTextNode(category));group.append(label);}
+                $('notificationWatchUsers').append(group);}
+        }catch(_){$('notificationWatchSection').hidden=true;}
+    }
+    $('notificationWatchSave').onclick=async()=>{const watch_users={};for(const group of $('notificationWatchUsers').children){const selected=[...group.querySelectorAll('input:checked')].map(el=>el.value);if(selected.length)watch_users[group.dataset.userId]=selected;}try{await api('/watch-users','PUT',{watch_users});message('User subscriptions saved.');}catch(e){message(e.message);}};
+    $('notificationBell').onclick=async()=>{drawer.showModal();await refresh();populateSettings();await devices();await watchUsers();};$('notificationClose').onclick=()=>drawer.close();
     $('notificationFilter').onchange=render;$('notificationRefresh').onclick=refresh;
     for(const [id,path,body] of [['notificationReadAll','/read',{}],['notificationClearRead','/clear',{read_only:true}],['notificationClearAll','/clear',{}]]){$(id).onclick=async()=>{if(id==='notificationClearAll'&&!confirm('Clear your notification history? Tasks, approvals and audit history will remain.'))return;try{await api(path,'POST',body);await refresh();}catch(e){message(e.message);}};}
     for(const category of categories){const label=node('label'),input=node('input');input.type='checkbox';input.value=category;label.append(input,document.createTextNode(category));$('notificationCategories').append(label);}

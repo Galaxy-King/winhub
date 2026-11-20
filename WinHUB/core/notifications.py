@@ -111,6 +111,12 @@ def source(row):
 def permitted(user, row, obj=None):
     if not user or not user.is_active:
         return False
+    if row.event_key.startswith('watch:'):
+        parts = row.event_key.split(':', 2)
+        if not user.is_admin or len(parts) != 3:
+            return False
+        if row.category not in settings(user.id).get('watch_users', {}).get(parts[1], []):
+            return False
     obj = source(row) if obj is None else obj
     if not obj:
         return False
@@ -255,11 +261,22 @@ def process_signals(limit=100):
         if info:
             data, owner, admin = info
             users = User.query.filter_by(is_active=True, is_admin=True).all() if admin else ([db.session.get(User, owner)] if owner else [])
+            watched = set()
+            if owner and not admin:
+                for watcher in User.query.filter_by(is_active=True, is_admin=True):
+                    if watcher.id != owner and data['category'] in settings(watcher.id).get('watch_users', {}).get(str(owner), []):
+                        users.append(watcher)
+                        watched.add(watcher.id)
             for user in users:
-                candidate = Notification(user_id=user.id, **data) if user else None
+                recipient_data = dict(data)
+                if user and user.id in watched:
+                    author = db.session.get(User, owner)
+                    recipient_data['title'] = f'{author.username}: {data["title"]}'
+                    recipient_data['event_key'] = f'watch:{owner}:{data["event_key"]}'
+                candidate = Notification(user_id=user.id, **recipient_data) if user else None
                 if not candidate or not permitted(user, candidate):
                     continue
-                if Notification.query.filter_by(user_id=user.id, event_key=data['event_key']).first():
+                if Notification.query.filter_by(user_id=user.id, event_key=candidate.event_key).first():
                     continue
                 db.session.add(candidate)
                 db.session.flush()
@@ -368,6 +385,28 @@ def preferences():
         value = settings(user.id); value.update(data)
         row.settings = json.dumps(value); db.session.add(row); db.session.commit()
     return jsonify(settings=settings(user.id))
+
+
+@bp.route('/api/notifications/watch-users', methods=['GET', 'PUT'])
+def watch_users():
+    user = current_user()
+    if not user.is_admin:
+        abort(403)
+    if request.method == 'PUT':
+        value = json_body().get('watch_users')
+        if not isinstance(value, dict) or len(value) > 100:
+            abort(400)
+        for key, categories in value.items():
+            if not key.isdecimal() or str(int(key)) != key or int(key) == user.id:
+                abort(400)
+            target = db.session.get(User, int(key))
+            if not target or not target.is_active or not isinstance(categories, list) or any(c not in CATEGORIES for c in categories):
+                abort(400)
+        row = db.session.get(NotificationPreference, user.id) or NotificationPreference(user_id=user.id)
+        prefs = settings(user.id); prefs['watch_users'] = value
+        row.settings = json.dumps(prefs); db.session.add(row); db.session.commit()
+    return jsonify(users=[dict(id=u.id, username=u.username) for u in User.query.filter_by(is_active=True).order_by(User.username) if u.id != user.id],
+                   watch_users=settings(user.id).get('watch_users', {}))
 
 
 @bp.get('/notifications/<notification_id>')

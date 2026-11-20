@@ -2,9 +2,17 @@
 (() => {
     const next=new URLSearchParams(location.search).get('next');
     const safe=next==='/mobile'||/^\/notifications\/[a-f0-9-]{36}$/.test(next||'')?next:'/mobile';
+    const guard='winhub_session_resume';
+    // A stale cookie or concurrent tab must never create a navigation loop.
+    if(location.pathname==='/login'){
+        try{if(Date.now()-Number(sessionStorage.getItem(guard)||0)<30000)return;}catch(_){}
+    }
     fetch('/api/notifications/session-check',{credentials:'same-origin',cache:'no-store',redirect:'error'})
         .then(async response=>{
-            if(response.ok && (await response.json()).success){location.replace(safe);return;}
+            if(response.ok && (await response.json()).success){
+                try{sessionStorage.setItem(guard,String(Date.now()));}catch(_){}
+                location.replace(safe);return;
+            }
             if(location.pathname==='/push-open')location.replace('/login?next='+encodeURIComponent(safe));
         }).catch(()=>{
             const status=document.getElementById('openingStatus');

@@ -33,6 +33,12 @@
 
 ## Телефон і Web Push
 
+Після idle/absolute timeout сторінка входу залишається доступною: вона не
+перенаправляє за самим прапорцем старої cookie. Session probe перевіряє строк
+сесії та не продовжує активність. Повторний автоматичний перехід у тій самій
+вкладці обмежений на 30 секунд для запобігання циклу; успішний ручний вхід
+скидає обмеження. Після оновлення перезавантажте сторінку входу з мережею.
+
 Натискання push використовує вже відкрите вікно WinHUB, якщо браузер дозволяє
 його активувати; за відсутності придатного вікна відкривається нове. Стартова
 сторінка `/push-open` перевіряє чинну сесію запитом із того самого origin, щоб
@@ -100,3 +106,8 @@ HTTP-відповіді або таймауту читання повторни�
 Автоматичні перевірки шифрування push і UI не замінюють перевірку на реальному iPhone/Android, із production Nginx, сертифікатом та мережею.
 
 [English guide](NOTIFICATIONS_EN.md) · [Архітектура](../../09-Розробка/13-Notifications.md)
+
+
+## Other users’ activity
+
+System administrators can select logins and event categories in Notification settings & devices → Other users’ activity, then Save user subscriptions. Only new events are copied to their inbox; the author login appears in the title. Personal push filters and quiet hours still apply. Removing a subscription or administrator role also removes access to its copied notifications. Other users’ preferences are never changed. Global approval/system events already reach administrators and are not duplicated.

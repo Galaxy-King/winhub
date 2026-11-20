@@ -228,6 +228,7 @@
             });
             const result = await response.json();
             if (result.success) {
+                try{sessionStorage.removeItem('winhub_session_resume');}catch(_){}
                 const preferredUiMode = localStorage.getItem('winhub_ui_mode');
                 const useMobile = preferredUiMode === 'mobile'
                     || (preferredUiMode !== 'desktop' && window.matchMedia('(max-width: 767px)').matches);
@@ -311,5 +312,5 @@
         finally { btn.disabled = false; btn.innerText = 'Update Password'; }
     }
 </script>
-<script nonce="{{ csp_nonce }}" defer src="{{ url_for('static', filename='js/session_resume.js', v='20261119-1') }}"></script>
+<script nonce="{{ csp_nonce }}" defer src="{{ url_for('static', filename='js/session_resume.js', v='20261120-1') }}"></script>
 {% endblock %}

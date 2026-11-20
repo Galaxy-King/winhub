@@ -22,8 +22,9 @@
     <p class="wn-hint">On iPhone/iPad, add WinHUB to your Home Screen first, then open it and enable notifications. Trusted HTTPS is required.</p>
     <h3>Push devices</h3><div id="notificationDevices"></div>
     <h3>Remembered sessions</h3><div id="notificationSessions"></div>
+    <section id="notificationWatchSection" hidden><h3>Other users’ activity</h3><p class="wn-hint">Subscribe to new events by login and category. Your push filters and quiet hours still apply.</p><div id="notificationWatchUsers"></div><button id="notificationWatchSave" type="button">Save user subscriptions</button></section>
     <p class="wn-hint">History: up to 90 days, latest 500 accessible notifications. Clearing this list never deletes tasks or audit history. Push delivery depends on your browser and network.</p>
   </details>
 </dialog>
 <div id="notificationToastsArea" class="wn-toasts" aria-live="polite"></div>
-<script nonce="{{ csp_nonce }}" defer src="{{ url_for('static', filename='js/notifications.js', v='20261119-1') }}"></script>
+<script nonce="{{ csp_nonce }}" defer src="{{ url_for('static', filename='js/notifications.js', v='20261119-2') }}"></script>

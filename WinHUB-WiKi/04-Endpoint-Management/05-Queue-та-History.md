@@ -91,3 +91,6 @@ Task.json містить метадані, статус, причину запу
 Налаштування автоматичної доставки звітів email/Confluence та AI report не повторюються цією дією. За потреби використовуй відповідний сценарій Reports/Deployment Builder. **Retry failed hosts** лишається окремою старою дією; **Re-run** призначений для перегляду та зміни полів перед новим запуском на початкових targets.
 
 Якщо код редагували вручну після вибору шаблону в Deployment Builder, Re-run показує окреме попередження: новий запуск використовує код поточного шаблону. Для повтору саме відредагованого коду спочатку збережи його як належно дозволений шаблон.
+
+
+Queue actions use equal-size icon buttons: cyan for re-run, amber for retry/cancel, green for report finalization and red for deletion. Accessible labels and tooltips identify each action. Next contact shows the midpoint of the earliest active target’s estimated window with ± minutes; hover shows the full interval. This is an estimate, not a guaranteed agent contact time.
