@@ -1,0 +1,18 @@
+{% extends 'mobile_base.html' %}
+{% block content %}
+<link rel="stylesheet" href="{{ url_for('static', filename='css/account.css') }}">
+<main class="account-panel">
+<a href="/mobile">← Back to WinHUB</a>
+<h1>My account</h1><p>{{ session.get('username') }}</p>
+<h2>Change password</h2>
+<p>Use 12–128 characters with uppercase and lowercase letters, a number and a symbol. Spaces are not allowed.</p>
+<form id="passwordForm">
+<label>Current password<input name="current_password" type="password" autocomplete="current-password" maxlength="128" required></label>
+<label>New password<input name="new_password" type="password" autocomplete="new-password" minlength="12" maxlength="128" required></label>
+<label>Confirm new password<input name="confirm_password" type="password" autocomplete="new-password" minlength="12" maxlength="128" required></label>
+<p>Changing your password signs out other browser sessions.</p>
+<button type="submit">Change password</button><p id="passwordResult" role="status" aria-live="polite"></p>
+</form><a href="/logout">Sign out</a>
+</main>
+<script nonce="{{ csp_nonce }}" defer src="{{ url_for('static', filename='js/account.js') }}"></script>
+{% endblock %}

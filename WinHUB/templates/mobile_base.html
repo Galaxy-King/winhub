@@ -38,7 +38,10 @@
                     headers.set('X-Requested-With', 'XMLHttpRequest');
                 }
                 const response = await originalFetch(input, {...init, headers});
-                if (response.status === 401 || response.status === 440) {
+                if (url.origin === window.location.origin && window.location.pathname !== '/login'
+                    && url.pathname !== '/api/notifications/session-check'
+                    && !url.pathname.startsWith('/api/auth/')
+                    && (response.status === 401 || response.status === 440)) {
                     window.location.href = '/login?reason=session';
                 }
                 return response;
@@ -52,7 +55,7 @@
                 try { await window.fetch('/api/session/ping', {method: 'POST'}); } catch (_) {}
             };
             const resetIdle = () => {
-                if (!idleTimeoutMs) return;
+                if (!idleTimeoutMs || window.location.pathname === '/login') return;
                 lastClientActivity = Date.now();
                 clearTimeout(idleTimer);
                 idleTimer = setTimeout(() => {

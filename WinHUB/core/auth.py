@@ -71,6 +71,7 @@ def api_login():
     session.clear()
     session['logged_in'] = True
     session['user_id'] = user.id
+    session['password_session_version'] = user.password_session_version or 0
     session['username'] = user.username
     session['is_admin'] = user.is_admin
     session['audit_session_id'] = str(uuid.uuid4())
@@ -87,6 +88,51 @@ def api_login():
 
     log.info(f"User '{username}' logged in successfully.")
     return jsonify({"success": True, "message": "Login successful", "redirect": "/dashboard"})
+
+@auth_bp.route('/account', methods=['GET'])
+def account_page():
+    return render_template('account.html')
+
+
+@auth_bp.post('/api/auth/change-password')
+def change_password():
+    from flask import abort
+    if not session.get('logged_in') or session.get('api_key_auth'):
+        abort(403)
+    data = request.get_json(silent=True) or {}
+    if not isinstance(data, dict):
+        abort(400)
+    old, new, confirm = (data.get(k) for k in ('current_password', 'new_password', 'confirm_password'))
+    if not all(isinstance(v, str) and len(v) <= 128 for v in (old, new, confirm)):
+        return jsonify(message='Passwords must be strings of at most 128 characters.'), 400
+    user = User.query.filter_by(id=session.get('user_id'), is_active=True).with_for_update().first()
+    if not user:
+        abort(403)
+    if not sec_manager.verify_password(user.password_hash, old):
+        return jsonify(message='Current password is incorrect.'), 400
+    if new != confirm:
+        return jsonify(message='New passwords do not match.'), 400
+    if len(new) < 12 or not all((any(c.islower() for c in new), any(c.isupper() for c in new),
+            any(c.isdigit() for c in new), any(not c.isalnum() and not c.isspace() for c in new))) or any(c.isspace() for c in new):
+        return jsonify(message='Use 12–128 characters, uppercase and lowercase letters, a number and a symbol, without spaces.'), 400
+    if sec_manager.verify_password(user.password_hash, new):
+        return jsonify(message='Choose a password different from your current password.'), 400
+    from core.notification_models import RememberedDevice
+    from core.notification_devices import stamp
+    user.password_hash = sec_manager.hash_password(new)
+    user.password_session_version = (user.password_session_version or 0) + 1
+    PasswordReset.query.filter_by(user_id=user.id).delete()
+    for device in RememberedDevice.query.filter_by(user_id=user.id, revoked=False):
+        if device.id == session.get('remembered_device_id'):
+            device.credential_stamp = stamp(user)
+        else:
+            device.revoked = True
+    db.session.commit()
+    session['password_session_version'] = user.password_session_version
+    session['csrf_token'] = secrets.token_urlsafe(32)
+    audit_auth(user.username, 'Password Changed', {'method': 'self_service'}, user_id=user.id)
+    return jsonify(success=True, message='Password changed. Other browser sessions have been signed out.')
+
 
 @auth_bp.route('/api/auth/forgot', methods=['POST'])
 def forgot_password():

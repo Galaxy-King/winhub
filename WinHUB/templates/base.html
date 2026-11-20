@@ -1894,13 +1894,15 @@
                 }
 
                 const response = await originalFetch(input, {...init, headers});
-                if (sameOrigin && !isAuthFlowUrl(url) && (response.status === 440 || response.status === 401)) {
+                if (sameOrigin && window.location.pathname !== '/login'
+                    && url.pathname !== '/api/notifications/session-check'
+                    && !isAuthFlowUrl(url) && (response.status === 440 || response.status === 401)) {
                     window.location.href = '/login';
                 }
                 return response;
             };
 
-            if (document.querySelector('meta[name="csrf-token"]')) {
+            if ({{ 'true' if session.get('logged_in') else 'false' }} && window.location.pathname !== '/login' && document.querySelector('meta[name="csrf-token"]')) {
                 ['click', 'keydown', 'mousemove', 'scroll', 'touchstart'].forEach(eventName => {
                     window.addEventListener(eventName, resetIdleTimer, {passive: true});
                 });

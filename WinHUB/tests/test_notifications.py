@@ -26,6 +26,39 @@ from core.template_security import current_template_hash
 
 
 class NotificationTests(unittest.TestCase):
+    def test_password_session_migration_preserves_existing_users(self):
+        path=Path(__file__).resolve().parents[1]/'migrations/versions/20261120_01_account_password.py'
+        spec=importlib.util.spec_from_file_location('password_migration',path)
+        migration=importlib.util.module_from_spec(spec);spec.loader.exec_module(migration)
+        engine=sa.create_engine('sqlite:///:memory:')
+        with engine.begin() as conn:
+            conn.execute(sa.text('CREATE TABLE users (id INTEGER PRIMARY KEY, username TEXT)'))
+            conn.execute(sa.text("INSERT INTO users VALUES (1, 'existing')"))
+            with Operations.context(MigrationContext.configure(conn)):migration.upgrade()
+            self.assertEqual(conn.execute(sa.text('SELECT password_session_version FROM users')).scalar(),0)
+            with Operations.context(MigrationContext.configure(conn)):migration.downgrade()
+            self.assertEqual(conn.execute(sa.text('SELECT username FROM users')).scalar(),'existing')
+        engine.dispose()
+
+    def test_self_password_change_policy_csrf_and_other_session_revocation(self):
+        from core import handle_security_and_auth
+        from core.security import sec_manager
+        self.app.before_request(handle_security_and_auth)
+        self.admin.password_hash=sec_manager.hash_password('OldPassword123!');db.session.commit()
+        other_client=self.app.test_client()
+        with other_client.session_transaction() as s:s.update(logged_in=True,user_id=self.admin.id,last_activity=time.time(),login_at=time.time())
+        payload=dict(current_password='OldPassword123!',new_password='NewPassword456!',confirm_password='NewPassword456!')
+        self.assertEqual(self.client.post('/api/auth/change-password',json=payload).status_code,403)
+        for changes in ({'current_password':'wrong'},{'confirm_password':'different'},{'new_password':'short','confirm_password':'short'}):
+            self.assertEqual(self.client.post('/api/auth/change-password',json={**payload,**changes},headers={'X-CSRF-Token':'test'}).status_code,400)
+        with patch('core.auth.audit_auth') as audit:
+            response=self.client.post('/api/auth/change-password',json=payload,headers={'X-CSRF-Token':'test'})
+            self.assertEqual(response.status_code,200)
+            self.assertNotIn('NewPassword',str(audit.call_args))
+        self.assertTrue(sec_manager.verify_password(self.admin.password_hash,'NewPassword456!'))
+        self.assertEqual(self.client.get('/api/notifications/session-check').status_code,200)
+        self.assertEqual(other_client.get('/api/notifications/session-check').status_code,440)
+
     def test_expired_login_renders_and_probe_clears_session(self):
         from core import handle_security_and_auth
         self.app.before_request(handle_security_and_auth)

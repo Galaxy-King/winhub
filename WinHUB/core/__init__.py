@@ -1305,6 +1305,10 @@ def handle_security_and_auth():
         return redirect(url_for('auth.login_page', next=request.path if request.path.startswith('/notifications/') else None))
 
     if session.get('logged_in') and not session.get('api_key_auth') and request.endpoint not in open_endpoints:
+        account = db.session.get(User, session.get('user_id'))
+        if account and session.get('password_session_version', 0) != (account.password_session_version or 0):
+            session.clear()
+            return ({'message': 'Password changed. Sign in again.'}, 440) if request.path.startswith('/api/') else redirect(url_for('auth.login_page'))
         from core.notification_devices import remembered_valid
         remembered = remembered_valid()
         if session.get('remembered_device_id') and not remembered:
@@ -1501,6 +1505,7 @@ def create_app():
 
     if auth_bp.view_functions.get('api_login'):
         auth_bp.view_functions['api_login'] = limiter.limit(Config.LOGIN_RATE_LIMIT)(auth_bp.view_functions['api_login'])
+    auth_bp.view_functions['change_password'] = limiter.limit('5 per minute')(auth_bp.view_functions['change_password'])
     if agent_gateway_bp.view_functions.get('enroll_agent'):
         agent_gateway_bp.view_functions['enroll_agent'] = limiter.limit(Config.AGENT_ENROLLMENT_RATE_LIMIT)(agent_gateway_bp.view_functions['enroll_agent'])
 

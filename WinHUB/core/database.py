@@ -53,6 +53,7 @@ class User(db.Model):
     username = db.Column(db.String(64), unique=True, index=True)
     email = db.Column(db.String(120), unique=True, index=True)
     password_hash = db.Column(db.String(256))
+    password_session_version = db.Column(db.Integer, nullable=False, default=0, server_default='0')
     totp_secret = db.Column(EncryptedString)
     is_admin = db.Column(db.Boolean, default=False)
     is_active = db.Column(db.Boolean, default=True)
