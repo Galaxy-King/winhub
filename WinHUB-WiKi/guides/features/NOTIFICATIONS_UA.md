@@ -116,3 +116,7 @@ HTTP-відповіді або таймауту читання повторни�
 ## Other users’ activity
 
 System administrators can select logins and event categories in Notification settings & devices → Other users’ activity, then Save user subscriptions. Only new events are copied to their inbox; the author login appears in the title. Personal push filters and quiet hours still apply. Removing a subscription or administrator role also removes access to its copied notifications. Other users’ preferences are never changed. Global approval/system events already reach administrators and are not duplicated.
+
+Після відновлення сесії на `/login` без конкретної адреси події враховується
+вибраний `winhub_ui_mode`; за відсутності вибору вузький екран відкриває `/mobile`,
+а комп’ютер — `/dashboard`. Явний перехід до `/mobile` або сповіщення зберігається.

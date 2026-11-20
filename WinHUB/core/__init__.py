@@ -1505,7 +1505,6 @@ def create_app():
 
     if auth_bp.view_functions.get('api_login'):
         auth_bp.view_functions['api_login'] = limiter.limit(Config.LOGIN_RATE_LIMIT)(auth_bp.view_functions['api_login'])
-    auth_bp.view_functions['change_password'] = limiter.limit('5 per minute')(auth_bp.view_functions['change_password'])
     if agent_gateway_bp.view_functions.get('enroll_agent'):
         agent_gateway_bp.view_functions['enroll_agent'] = limiter.limit(Config.AGENT_ENROLLMENT_RATE_LIMIT)(agent_gateway_bp.view_functions['enroll_agent'])
 
@@ -1514,6 +1513,7 @@ def create_app():
     global_app.after_request(apply_security_headers)
 
     global_app.register_blueprint(auth_bp)
+    global_app.view_functions['auth.change_password'] = limiter.limit('5 per minute')(global_app.view_functions['auth.change_password'])
     global_app.register_blueprint(admin_bp)
     global_app.register_blueprint(core_routes)
     global_app.register_blueprint(agent_gateway_bp)

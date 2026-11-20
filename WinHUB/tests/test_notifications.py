@@ -26,6 +26,20 @@ from core.template_security import current_template_hash
 
 
 class NotificationTests(unittest.TestCase):
+    def test_factory_registers_password_rate_limit_after_blueprint(self):
+        import ast
+        from flask_limiter import Limiter
+        code=(Path(__file__).resolve().parents[1]/'core/__init__.py').read_text(encoding='utf-8')
+        factory=next(n for n in ast.parse(code).body if isinstance(n,ast.FunctionDef) and n.name=='create_app')
+        # Execute the real factory's auth registration/rate-limit statements in order.
+        selected=[n for n in factory.body if isinstance(n,(ast.Assign,ast.Expr)) and
+            ('change_password' in ast.unparse(n) or ast.unparse(n)=='global_app.register_blueprint(auth_bp)')]
+        app=Flask('password-startup-test')
+        limiter=Limiter(key_func=lambda:'test',app=app,storage_uri='memory://')
+        exec(compile(ast.Module(body=selected,type_ignores=[]),'<factory-auth>','exec'),
+             {'global_app':app,'auth_bp':auth_bp,'limiter':limiter})
+        self.assertIn('auth.change_password',app.view_functions)
+
     def test_password_session_migration_preserves_existing_users(self):
         path=Path(__file__).resolve().parents[1]/'migrations/versions/20261120_01_account_password.py'
         spec=importlib.util.spec_from_file_location('password_migration',path)

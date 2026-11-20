@@ -1,7 +1,10 @@
 /* Recheck the existing session from a same-origin document after an external launch. */
 (() => {
     const next=new URLSearchParams(location.search).get('next');
-    const safe=next==='/mobile'||/^\/notifications\/[a-f0-9-]{36}$/.test(next||'')?next:'/mobile';
+    let preferred='';try{preferred=localStorage.getItem('winhub_ui_mode')||'';}catch(_){}
+    const mobile=preferred==='mobile'||(preferred!=='desktop' && typeof matchMedia==='function' && matchMedia('(max-width: 767px)').matches);
+    const fallback=mobile?'/mobile':'/dashboard';
+    const safe=next==='/mobile'||/^\/notifications\/[a-f0-9-]{36}$/.test(next||'')?next:fallback;
     const guard='winhub_session_resume';
     // A stale cookie or concurrent tab must never create a navigation loop.
     if(location.pathname==='/login'){
