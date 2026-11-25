@@ -151,6 +151,18 @@ class NewsletterSafetyTests(unittest.TestCase):
                 self.assertTrue(routes.save_list().get_json()["success"])
             self.assertNotIn("status", routes.load_list_records()["team"]["keyserver_sync"])
 
+    def test_encryption_ignores_extra_recipients_from_local_gpg_configuration(self):
+        def encrypt(command, **kwargs):
+            self.assertIn("--no-options", command)
+            self.assertIn("--no-encrypt-to", command)
+            self.assertEqual(command.count("-r"), 1)
+            self.assertEqual(command[command.index("-r") + 1], "alice@example.org")
+            Path(command[command.index("-o") + 1]).write_text("ciphertext-for-alice", encoding="utf-8")
+            return mock.Mock(returncode=0, stderr="")
+        with mock.patch.object(routes.subprocess, "run", side_effect=encrypt):
+            self.assertEqual(routes.encrypt_with_gpg("gpg", "alice@example.org", b"private body"),
+                             (True, "ciphertext-for-alice"))
+
     def test_keyserver_index_filters_exact_domain_and_unusable_keys(self):
         payload = "\n".join([
             "info:1:4",
@@ -497,6 +509,103 @@ class NewsletterQueueTests(unittest.TestCase):
             for table in reversed(db.metadata.sorted_tables):
                 db.session.execute(table.delete())
             db.session.commit()
+
+    def test_each_recipient_has_separate_encryption_headers_and_smtp_envelope(self):
+        from email import policy
+        from email.parser import BytesParser
+        with self.app.app_context():
+            user = User(username="isolated-newsletter", email="operator@example.org", is_admin=True)
+            db.session.add(user)
+            db.session.commit()
+            recipients = ["alice@example.org", "bob@example.org"]
+            campaign = routes.enqueue_campaign(
+                user_id=user.id, source="inbound", sender_email="relay@example.org", subject="Private announcement",
+                body_text="Announcement body", body_html="", attachments=[], recipients=recipients,
+                selected_lists=["private-team"], use_gpg=True)
+            campaign.status = "Sending"
+            db.session.commit()
+            smtp = mock.Mock()
+            plaintexts = {}
+            def encrypt(_path, recipient, payload):
+                plaintexts[recipient] = payload
+                return True, "ciphertext-for-" + recipient
+            profile = {"host": "smtp.example.org", "port": 587, "password": routes.encrypt_pass("test-only")}
+            with (mock.patch.object(routes, "load_smtp_profiles", return_value={campaign.sender_email: profile}),
+                  mock.patch.object(routes, "open_smtp_connection", return_value=smtp),
+                  mock.patch.object(routes, "validate_gpg", return_value=(True, "ok")),
+                  mock.patch.object(routes, "ensure_gpg_key_ready", return_value=(True, "ok")),
+                  mock.patch.object(routes, "encrypt_with_gpg", side_effect=encrypt) as encrypt_call,
+                  mock.patch.object(routes.time, "sleep")):
+                routes.execute_queued_campaign(self.app, campaign.id)
+            self.assertEqual(encrypt_call.call_count, 2)
+            self.assertEqual(smtp.send_message.call_count, 2)
+            for call in smtp.send_message.call_args_list:
+                message = call.args[0]
+                recipient = str(message["To"])
+                other = next(value for value in recipients if value != recipient)
+                self.assertEqual(call.kwargs, {"from_addr": campaign.sender_email, "to_addrs": [recipient]})
+                self.assertEqual(message.get_content_type(), "multipart/encrypted")
+                self.assertIsNone(message["Cc"])
+                self.assertIsNone(message["Bcc"])
+                self.assertNotIn(other.encode(), message.as_bytes())
+                self.assertNotIn(b"Announcement body", message.as_bytes())
+                inner = BytesParser(policy=policy.default).parsebytes(plaintexts[recipient])
+                self.assertEqual(str(inner["To"]), recipient)
+                self.assertIsNone(inner["Cc"])
+                self.assertIsNone(inner["Bcc"])
+                self.assertNotIn(other.encode(), plaintexts[recipient])
+                self.assertNotIn(b"private-team", plaintexts[recipient])
+
+    def test_active_progress_uses_committed_delivery_counts_before_campaign_finishes(self):
+        with self.app.app_context():
+            user = User(username="progress-owner", email="owner@example.org", is_admin=False)
+            other = User(username="progress-other", email="other@example.org", is_admin=False)
+            db.session.add_all([user, other])
+            db.session.commit()
+            campaigns = []
+            for owner in (user, user, other):
+                campaign = routes.enqueue_campaign(
+                    user_id=owner.id, source="manual", sender_email="sender@example.org", subject="Progress",
+                    body_text="Body", body_html="", attachments=[], recipients=[f"u{i}@example.org" for i in range(6)],
+                    selected_lists=["ops"], use_gpg=False)
+                campaign.status = "Sending"
+                rows = NewsletterDelivery.query.filter_by(campaign_id=campaign.id).all()
+                for row, status in zip(rows, ("Sent", "Failed", "Unknown", "Skipped", "Sending", "Pending")):
+                    row.status = status
+                campaigns.append(campaign)
+            db.session.commit()
+            self.assertEqual(campaigns[0].sent_count, 0)
+            statements = []
+            def record_sql(_connection, _cursor, statement, _parameters, _context, _executemany):
+                statements.append(statement)
+            with (mock.patch.object(routes, "require_permission", return_value=None),
+                  mock.patch.object(routes, "current_user", return_value=user),
+                  mock.patch.object(routes, "has_permission", return_value=False)):
+                event.listen(db.engine, "before_cursor_execute", record_sql)
+                try:
+                    with self.app.test_request_context():
+                        listed = routes.list_newsletter_campaigns().get_json()["campaigns"]
+                    self.assertEqual(len(listed), 2)
+                    self.assertTrue(all(row["sent_count"] == 1 and row["failed_count"] == 2 and row["skipped_count"] == 1 for row in listed))
+                    self.assertEqual(sum("GROUP BY" in statement for statement in statements), 1)
+                    statements.clear()
+                    with self.app.test_request_context("/?summary_only=1"):
+                        progress = routes.get_newsletter_campaign(campaigns[0].id).get_json()
+                    self.assertEqual(progress["campaign"]["status"], "Sending")
+                    self.assertEqual(progress["campaign"]["sent_count"], 1)
+                    self.assertEqual(progress["delivery_counts"], {"Sent": 1, "Failed": 1, "Unknown": 1, "Skipped": 1, "Sending": 1, "Pending": 1})
+                    self.assertNotIn("deliveries", progress)
+                    self.assertNotIn("pagination", progress)
+                    delivery_queries = [statement for statement in statements if "FROM newsletter_deliveries" in statement]
+                    self.assertEqual(len(delivery_queries), 1)
+                    self.assertIn("GROUP BY", delivery_queries[0])
+                    self.assertNotIn("newsletter_deliveries.recipient", delivery_queries[0])
+                    with self.app.test_request_context("/?summary_only=1"):
+                        self.assertEqual(routes.get_newsletter_campaign(campaigns[2].id)[1], 404)
+                finally:
+                    event.remove(db.engine, "before_cursor_execute", record_sql)
+            db.session.refresh(campaigns[0])
+            self.assertEqual(campaigns[0].sent_count, 0, "Progress reads must not rewrite durable campaign state")
 
     def test_enqueue_creates_durable_task_and_deduplicated_deliveries(self):
         with self.app.app_context():

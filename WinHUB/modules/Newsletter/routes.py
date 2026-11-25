@@ -1667,7 +1667,7 @@ def attachment_restore(snapshot):
     return restored
 
 
-def campaign_summary(campaign, include_subject=False, include_error=False):
+def campaign_summary(campaign, include_subject=False, include_error=False, delivery_counts=None):
     result = {
         "id": campaign.id,
         "task_id": campaign.task_id,
@@ -1690,6 +1690,10 @@ def campaign_summary(campaign, include_subject=False, include_error=False):
             else ("Campaign processing failed. Contact an administrator." if campaign.error_summary else "")
         ),
     }
+    if delivery_counts is not None:
+        result.update(sent_count=delivery_counts.get("Sent", 0),
+                      failed_count=delivery_counts.get("Failed", 0) + delivery_counts.get("Unknown", 0),
+                      skipped_count=delivery_counts.get("Skipped", 0))
     if include_subject:
         result["subject"] = campaign.subject
         result["lists"] = json.loads(campaign.selected_lists_json or "[]")
@@ -2712,10 +2716,11 @@ def list_newsletter_campaigns():
     if not can_view_all:
         query = query.filter_by(user_id=user.id)
     campaigns = query.limit(50).all()
+    live_counts = _campaign_counts_for([item.id for item in campaigns if item.status in {"Queued", "Sending"}])
     return jsonify({
         "success": True,
         "campaigns": [
-            campaign_summary(item, include_subject=True, include_error=can_view_all)
+            campaign_summary(item, include_subject=True, include_error=can_view_all, delivery_counts=live_counts.get(item.id))
             for item in campaigns
         ],
     })
@@ -2739,6 +2744,13 @@ def get_newsletter_campaign(campaign_id):
         per_page = min(200, max(10, int(request.args.get("per_page", 100))))
     except (TypeError, ValueError):
         return jsonify({"success": False, "message": "Invalid pagination values."}), 400
+    counts = _campaign_counts(campaign.id)
+    summary = campaign_summary(campaign, include_subject=True,
+                               include_error=has_permission(user, "Newsletter", "view_all_campaigns"),
+                               delivery_counts=counts)
+    if request.args.get("summary_only") == "1":
+        return jsonify({"success": True, "campaign": summary, "delivery_counts": counts,
+                        "result_report": {"status": campaign.result_report_status or "NotRequested"}})
     delivery_query = NewsletterDelivery.query.filter_by(campaign_id=campaign.id)
     if status_filter:
         delivery_query = delivery_query.filter_by(status=status_filter)
@@ -2747,11 +2759,7 @@ def get_newsletter_campaign(campaign_id):
     report_entries = json.loads(campaign.result_report_json or "[]")
     return jsonify({
         "success": True,
-        "campaign": campaign_summary(
-            campaign,
-            include_subject=True,
-            include_error=has_permission(user, "Newsletter", "view_all_campaigns"),
-        ),
+        "campaign": summary,
         "deliveries": [
             {
                 "recipient": item.recipient,
@@ -2764,7 +2772,7 @@ def get_newsletter_campaign(campaign_id):
             }
             for item in deliveries
         ],
-        "delivery_counts": _campaign_counts(campaign.id),
+        "delivery_counts": counts,
         "pagination": {
             "page": page,
             "per_page": per_page,
@@ -3092,9 +3100,8 @@ def encrypt_with_gpg(gpg_path, recipient_email, payload):
         with open(tmp_in, mode, **kwargs) as f:
             f.write(payload)
 
-        # УВАГА: Видалено шифрування для відправника (-r sender_email),
-        # оскільки відсутність його ключа блокує розсилку та викликає таймаути
-        cmd = [gpg_path, "--batch", "--yes", "--trust-model", "always",
+        # Do not let local encrypt-to/group options add other recipients to this message.
+        cmd = [gpg_path, "--no-options", "--batch", "--yes", "--no-encrypt-to", "--trust-model", "always",
                "--encrypt", "--armor", "-r", recipient_email,
                "-o", tmp_out, tmp_in]
 
@@ -3214,7 +3221,7 @@ def bg_send_execution(app, task_id, sender_email, smtp_config, target_users, sub
                     emit_and_write(f"[{idx}/{len(target_users)}] ⚠️ Sending without GPG encryption: {recipient}", "__HIDE__")
 
                 try:
-                    server.send_message(final_msg)
+                    server.send_message(final_msg, from_addr=sender_email, to_addrs=[recipient])
                     emit_and_write(f"[{idx}/{len(target_users)}] ✅ Sent: {recipient}", "__HIDE__")
                     success_count += 1
                 except Exception as e:
@@ -3311,14 +3318,23 @@ def _write_campaign_log(task, line):
         handle.write(f"{line}\n")
 
 
-def _campaign_counts(campaign_id):
-    counts = {"Sent": 0, "Failed": 0, "Skipped": 0, "Unknown": 0, "Pending": 0, "Sending": 0}
-    rows = db.session.query(NewsletterDelivery.status, db.func.count(NewsletterDelivery.id)).filter_by(
-        campaign_id=campaign_id
-    ).group_by(NewsletterDelivery.status).all()
-    for status, count in rows:
-        counts[status] = int(count)
+def _campaign_counts_for(campaign_ids):
+    counts = {campaign_id: {status: 0 for status in ("Sent", "Failed", "Skipped", "Unknown", "Pending", "Sending")}
+              for campaign_id in campaign_ids}
+    if not counts:
+        return counts
+    # One indexed aggregate for all visible active campaigns, without recipient/body decryption.
+    rows = db.session.query(NewsletterDelivery.campaign_id, NewsletterDelivery.status,
+                            db.func.count(NewsletterDelivery.id)).filter(
+        NewsletterDelivery.campaign_id.in_(counts)
+    ).group_by(NewsletterDelivery.campaign_id, NewsletterDelivery.status).all()
+    for campaign_id, status, count in rows:
+        counts[campaign_id][status] = int(count)
     return counts
+
+
+def _campaign_counts(campaign_id):
+    return _campaign_counts_for([campaign_id])[campaign_id]
 
 
 def _campaign_result_csv(campaign):
@@ -3418,7 +3434,7 @@ def deliver_campaign_result_report(campaign, smtp_config, gpg_path, keyserver):
                         payload,
                     )
                     final_msg["Message-ID"] = f"<newsletter.result.{campaign.id}.{index}@winhub.local>"
-                server.send_message(final_msg)
+                server.send_message(final_msg, from_addr=campaign.sender_email, to_addrs=[recipient])
                 entries[index]["status"] = "Sent"
                 entries[index]["sent_at"] = datetime.utcnow().isoformat() + "Z"
                 entries[index]["error"] = ""
@@ -3546,7 +3562,7 @@ def execute_queued_campaign(app, campaign_id):
                         final_msg["Message-ID"] = delivery.message_id
 
                     try:
-                        server.send_message(final_msg)
+                        server.send_message(final_msg, from_addr=campaign.sender_email, to_addrs=[recipient])
                     except (smtplib.SMTPServerDisconnected, smtplib.SMTPConnectError):
                         try:
                             server.quit()
@@ -3554,7 +3570,7 @@ def execute_queued_campaign(app, campaign_id):
                             pass
                         server = open_smtp_connection(smtp_config['host'], smtp_config['port'], "newsletter SMTP retry", timeout=30)
                         server.login(campaign.sender_email, decrypt_pass(smtp_config['password']))
-                        server.send_message(final_msg)
+                        server.send_message(final_msg, from_addr=campaign.sender_email, to_addrs=[recipient])
 
                     delivery.status = "Sent"
                     delivery.error = None
