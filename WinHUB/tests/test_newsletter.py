@@ -13,6 +13,144 @@ from modules.Newsletter import routes
 
 
 class NewsletterSafetyTests(unittest.TestCase):
+    @unittest.skipUnless(__import__("shutil").which("gpg") and __import__("shutil").which("gpgconf"),
+                         "GnuPG is required for real bundle inspection")
+    def test_real_armored_and_binary_public_bundles_without_runtime_import(self):
+        import os
+        import subprocess
+        app = Flask(__name__)
+        with tempfile.TemporaryDirectory(prefix="winhub-bundle-fixture-") as directory:
+            environment = {**os.environ, "GNUPGHOME": directory}
+            command = ["gpg", "--no-options", "--homedir", directory, "--batch",
+                       "--pinentry-mode", "loopback", "--passphrase", ""]
+            def run(*arguments):
+                return subprocess.run(command + list(arguments), capture_output=True, check=True,
+                                      timeout=20, env=environment).stdout
+            try:
+                run("--quick-generate-key", "Newsletter Fixture <alice@example.org>", "ed25519", "sign", "0")
+                keys = run("--with-colons", "--list-keys").decode("utf-8")
+                fingerprint = next(line.split(":")[9] for line in keys.splitlines() if line.startswith("fpr:"))
+                run("--quick-add-uid", fingerprint, "Other Domain <outside@other.example>")
+                binary = run("--export", fingerprint)
+                armored = run("--armor", "--export", fingerprint)
+                secret = run("--export-secret-keys", fingerprint)
+                with app.app_context(), mock.patch.object(routes, "gpg_env", side_effect=AssertionError("Runtime keyring must not be used")):
+                    for payload in (binary, armored):
+                        with self.subTest(armored=payload is armored):
+                            listing = routes.inspect_public_key_bundle(payload)
+                            self.assertEqual(routes.parse_public_key_bundle_listing(listing, "example.org"), ["alice@example.org"])
+                    with self.assertRaisesRegex(ValueError, "secret keys"):
+                        routes.parse_public_key_bundle_listing(routes.inspect_public_key_bundle(secret), "example.org")
+                    with self.assertRaisesRegex(ValueError, "could not read"):
+                        routes.inspect_public_key_bundle(b"<html>not a key bundle</html>")
+            finally:
+                subprocess.run(["gpgconf", "--homedir", directory, "--kill", "gpg-agent"],
+                               capture_output=True, timeout=10, env=environment)
+
+    @staticmethod
+    def bundle_listing_record(kind, validity="-", uid="", expires="", capabilities="scESC"):
+        fields = [kind, validity, "2048", "1", "A" * 16, "1", expires, "", "", uid, "", capabilities, ""]
+        return ":".join(fields)
+
+    def test_bundle_listing_filters_domain_validity_and_escaped_uids(self):
+        record = self.bundle_listing_record
+        listing = "\n".join([
+            record("pub"), record("uid", uid=r"Alice\x3a Team <alice@example.org>"),
+            record("uid", uid="alice@example.org"), record("uid", uid="outside@sub.example.org"),
+            record("uid", uid="outside@example.org.evil"), record("uid", "r", "revoked@example.org"),
+            record("uid", uid="expired@example.org", expires="5"),
+            record("pub", "r"), record("uid", uid="revoked-key@example.org"),
+            record("pub", expires="5"), record("uid", uid="expired-key@example.org"),
+            record("pub", capabilities="scESCD"), record("uid", uid="disabled@example.org"),
+            record("pub"), record("uid", uid="Bob <bob@example.org>"),
+        ])
+        self.assertEqual(routes.parse_public_key_bundle_listing(listing, "example.org", now=10),
+                         ["alice@example.org", "bob@example.org"])
+        for listing in ("", "<html>error</html>", record("sec"), record("pub") + "\n" + record("ssb"), "pub:bad"):
+            with self.subTest(listing=listing), self.assertRaises(ValueError):
+                routes.parse_public_key_bundle_listing(listing, "example.org")
+
+    def test_bundle_discovery_uses_file_instead_of_hkp_and_upgrades_http(self):
+        listing = self.bundle_listing_record("pub") + "\n" + self.bundle_listing_record("uid", uid="alice@example.org")
+        with (mock.patch.object(routes, "download_recipient_source", return_value=b"public-bundle") as download,
+              mock.patch.object(routes, "inspect_public_key_bundle", return_value=listing),
+              mock.patch.object(routes, "discover_keyserver_recipients") as hkp):
+            self.assertEqual(routes.discover_list_source("hkps://broken.example.org", "@example.org", "http://keys.example.org/all.pgp"),
+                             ["alice@example.org"])
+        hkp.assert_not_called()
+        self.assertEqual(download.call_args.args[0], "https://keys.example.org/all.pgp")
+        self.assertEqual(download.call_args.args[2], 32 * 1024 * 1024)
+        for url in ("file:///tmp/keys.pgp", "https://keys.example.org", "https://user:secret@keys.example.org/all.pgp"):
+            with self.subTest(url=url), self.assertRaises(ValueError):
+                routes.validate_key_bundle_source(url, "example.org")
+
+    def test_bundle_inspection_uses_disposable_home_and_bounded_output(self):
+        import io
+        app = Flask(__name__)
+        process = mock.MagicMock()
+        process.__enter__.return_value = process
+        process.returncode = 0
+        process.stdout = io.BytesIO(b"pub:metadata")
+        with (app.app_context(), mock.patch.object(routes.subprocess, "Popen", return_value=process) as popen,
+              mock.patch.object(routes, "gpg_env", side_effect=AssertionError("Runtime keyring must not be used"))):
+            self.assertEqual(routes.inspect_public_key_bundle(b"public-bundle"), "pub:metadata")
+            command = popen.call_args.args[0]
+            home = command[command.index("--homedir") + 1]
+            self.assertFalse(Path(home).exists())
+            for option in ("--no-options", "--no-autostart", "--dry-run", "show-only"):
+                self.assertIn(option, command)
+            self.assertEqual(popen.call_args.kwargs["env"]["GNUPGHOME"], home)
+            self.assertEqual(popen.call_args.kwargs["stdin"], routes.subprocess.DEVNULL)
+            process.stdout = io.BytesIO(b"x" * (8 * 1024 * 1024 + 1))
+            with self.assertRaisesRegex(ValueError, "exceeds 8 MiB"):
+                routes.inspect_public_key_bundle(b"public-bundle")
+            process.kill.assert_called()
+            process.stdout = io.BytesIO(b"")
+            process.wait.side_effect = [routes.subprocess.TimeoutExpired("gpg", 30), 0]
+            with self.assertRaisesRegex(ValueError, "exceeded 30 seconds"):
+                routes.inspect_public_key_bundle(b"public-bundle")
+
+    def test_nightly_bundle_sync_preserves_existing_entries_and_failure_state(self):
+        from datetime import datetime
+        app = Flask(__name__)
+        with (app.app_context(), tempfile.TemporaryDirectory() as directory,
+              mock.patch.object(routes, "LISTS_DIR", directory),
+              mock.patch.object(routes.WinHubCore, "audit"),
+              mock.patch.object(routes, "download_recipient_source", return_value=b"public-bundle"),
+              mock.patch.object(routes, "inspect_public_key_bundle") as inspect,
+              mock.patch.object(routes, "discover_keyserver_recipients") as hkp):
+            path = routes.list_file_path("team")
+            routes.atomic_json_write(path, {"domain": "@example.org", "entries": ["alice", "manual@other.org"],
+                                          "key_bundle_url": "https://keys.example.org/all.pgp", "keyserver_auto_sync": True})
+            inspect.return_value = self.bundle_listing_record("pub") + "\n" + self.bundle_listing_record("uid", uid="bob@example.org")
+            now = datetime(2026, 11, 25, tzinfo=routes.KYIV_TZ)
+            routes.sync_keyserver_lists(now)
+            routes.sync_keyserver_lists(now)
+            inspect.assert_called_once()
+            hkp.assert_not_called()
+            record = routes.load_list_records()["team"]
+            self.assertEqual(record["entries"], ["alice", "manual@other.org", "bob@example.org"])
+            inspect.side_effect = ValueError("Invalid bundle")
+            routes.sync_keyserver_lists(datetime(2026, 11, 26, tzinfo=routes.KYIV_TZ))
+            failed = routes.load_list_records()["team"]
+            self.assertEqual(failed["entries"], record["entries"])
+            self.assertEqual(failed["keyserver_sync"]["status"], "Failed")
+
+    def test_bundle_url_is_saved_without_keyserver_and_resets_sync_on_change(self):
+        app = Flask(__name__)
+        with (tempfile.TemporaryDirectory() as directory, mock.patch.object(routes, "LISTS_DIR", directory),
+              mock.patch.object(routes, "require_permission", return_value=None), mock.patch.object(routes.WinHubCore, "audit")):
+            data = {"list_name": "team", "users": [], "domain": "@example.org", "key_bundle_url": "http://keys.example.org/all.pgp", "keyserver_auto_sync": True}
+            with app.test_request_context(json=data):
+                self.assertTrue(routes.save_list().get_json()["success"])
+            record = routes.load_list_records()["team"]
+            self.assertEqual(record["key_bundle_url"], "https://keys.example.org/all.pgp")
+            record["keyserver_sync"] = {"date": "2020-01-01", "status": "Failed"}
+            routes.atomic_json_write(routes.list_file_path("team"), record)
+            with app.test_request_context(json={**data, "key_bundle_url": "https://keys.example.org/new.pgp"}):
+                self.assertTrue(routes.save_list().get_json()["success"])
+            self.assertNotIn("status", routes.load_list_records()["team"]["keyserver_sync"])
+
     def test_keyserver_index_filters_exact_domain_and_unusable_keys(self):
         payload = "\n".join([
             "info:1:4",

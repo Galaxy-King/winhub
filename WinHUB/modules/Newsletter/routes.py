@@ -1591,6 +1591,7 @@ def normalize_list_record(raw):
         "schema": 2,
         "domain": normalize_domain_suffix(raw.get("domain")),
         "keyserver": str(raw.get("keyserver") or "").strip(),
+        "key_bundle_url": str(raw.get("key_bundle_url") or "").strip(),
         "entries": entries if isinstance(entries, list) else [],
         "keyserver_auto_sync": raw.get("keyserver_auto_sync") is True,
         "keyserver_sync": raw.get("keyserver_sync") if isinstance(raw.get("keyserver_sync"), dict) else {},
@@ -1813,6 +1814,7 @@ def get_config():
         "lists": all_lists,
         "list_metadata": {
             name: {"domain": record["domain"], "keyserver": record["keyserver"],
+                   "key_bundle_url": record.get("key_bundle_url", ""),
                    "keyserver_auto_sync": record.get("keyserver_auto_sync", False),
                    "keyserver_sync": record.get("keyserver_sync", {})}
             for name, record in list_records.items()
@@ -2149,11 +2151,14 @@ def save_list():
     auto_sync = data.get("keyserver_auto_sync", False)
     if not isinstance(auto_sync, bool):
         return jsonify({"success": False, "message": "Automatic sync must be a boolean."}), 400
-    if auto_sync:
-        try:
+    bundle_url = str(data.get("key_bundle_url") or "").strip()
+    try:
+        if bundle_url:
+            bundle_url, _ = validate_key_bundle_source(bundle_url, data.get("domain"))
+        elif auto_sync:
             validate_keyserver_discovery(data.get("keyserver"), data.get("domain"))
-        except ValueError as error:
-            return jsonify({"success": False, "message": str(error)}), 400
+    except ValueError as error:
+        return jsonify({"success": False, "message": str(error)}), 400
     users = data.get("users", [])
     domain = normalize_domain_suffix(data.get("domain"))
     keyserver = str(data.get("keyserver") or "").strip()
@@ -2184,7 +2189,7 @@ def save_list():
 
     previous = load_list_records().get(original_name, {})
     sync_state = previous.get("keyserver_sync", {})
-    if (previous.get("domain"), previous.get("keyserver"), previous.get("keyserver_auto_sync", False)) != (domain, keyserver, auto_sync):
+    if (previous.get("domain"), previous.get("keyserver"), previous.get("key_bundle_url", ""), previous.get("keyserver_auto_sync", False)) != (domain, keyserver, bundle_url, auto_sync):
         sync_state = {"date": datetime.now(KYIV_TZ).date().isoformat()} if auto_sync else {}
     filepath = list_file_path(list_name)
     atomic_json_write(filepath, {
@@ -2192,6 +2197,7 @@ def save_list():
         "domain": domain,
         "keyserver": keyserver,
         "entries": clean_users,
+        "key_bundle_url": bundle_url,
         "keyserver_auto_sync": auto_sync,
         "keyserver_sync": sync_state,
     })
@@ -2224,13 +2230,18 @@ def save_list():
     return jsonify({"success": True, "message": "List saved successfully."})
 
 
-def validate_keyserver_discovery(keyserver, domain):
+def discovery_domain(domain):
     domain = normalize_domain_suffix(domain).lower()[1:]
     if not re.fullmatch(r"[a-z0-9](?:[a-z0-9.-]{0,251}[a-z0-9])?", domain) or "." not in domain or ".." in domain:
         raise ValueError("Specify a valid email domain, for example @example.com.")
     for label in domain.split("."):
         if not label or len(label) > 63 or label.startswith("-") or label.endswith("-"):
             raise ValueError("Invalid email domain.")
+    return domain
+
+
+def validate_keyserver_discovery(keyserver, domain):
+    domain = discovery_domain(domain)
     value = str(keyserver or "").strip()
     if value.startswith("hkps://"):
         value = "https://" + value[7:]
@@ -2294,27 +2305,150 @@ def discover_keyserver_recipients(keyserver, domain):
     query = urllib.parse.urlencode({"op": "index", "options": "mr", "search": "@" + domain})
     url = f"{base_url}/pks/lookup?{query}"
     try:
-        with pinned_outbound_url(url, "Newsletter keyserver domain discovery", allowed_schemes=("https",)):
-            opener = urllib.request.build_opener(
-                urllib.request.ProxyHandler({}),
-                urllib.request.HTTPSHandler(context=ssl.create_default_context()),
-                _NewsletterNoRedirectHandler(),
-            )
-            with opener.open(urllib.request.Request(url, headers={"User-Agent": "WinHUB"}), timeout=15) as response:
-                payload = bytearray()
-                deadline = time.monotonic() + 30
-                while True:
-                    if time.monotonic() >= deadline:
-                        raise ValueError("Keyserver index download exceeded its time limit.")
-                    chunk = response.read1(min(65536, 2 * 1024 * 1024 + 1 - len(payload)))
-                    if not chunk:
-                        break
-                    payload.extend(chunk)
-                    if len(payload) > 2 * 1024 * 1024:
-                        raise ValueError("Keyserver index exceeds 2 MiB; narrow the directory on the keyserver.")
+        payload = download_recipient_source(url, "Newsletter keyserver domain discovery", 2 * 1024 * 1024)
         return parse_keyserver_index(payload.decode("utf-8", errors="strict"), domain)
     except Exception as error:
         raise ValueError(f"Domain search failed. The keyserver must support HKP domain searches: {error}") from error
+
+
+def download_recipient_source(url, purpose, max_bytes):
+    """Bounded HTTPS read shared by indexes and binary/armored public bundles."""
+    with pinned_outbound_url(url, purpose, allowed_schemes=("https",)):
+        opener = urllib.request.build_opener(
+            urllib.request.ProxyHandler({}),
+            urllib.request.HTTPSHandler(context=ssl.create_default_context()),
+            _NewsletterNoRedirectHandler(),
+        )
+        with opener.open(urllib.request.Request(url, headers={"User-Agent": "WinHUB"}), timeout=15) as response:
+            payload = bytearray()
+            deadline = time.monotonic() + 30
+            while True:
+                if time.monotonic() >= deadline:
+                    raise ValueError("Key source download exceeded its time limit.")
+                chunk = response.read1(min(65536, max_bytes + 1 - len(payload)))
+                if not chunk:
+                    break
+                payload.extend(chunk)
+                if len(payload) > max_bytes:
+                    raise ValueError(f"Key source exceeds {max_bytes // (1024 * 1024)} MiB.")
+    return payload
+
+
+def validate_key_bundle_source(url, domain):
+    # Public dumps are often advertised over HTTP. Connect directly with verified TLS.
+    value = str(url or "").strip()
+    if value.startswith("http://"):
+        value = "https://" + value[7:]
+    value, domain = validate_keyserver_discovery(value, domain)
+    if urllib.parse.urlsplit(value).path in ("", "/"):
+        raise ValueError("Specify the full HTTPS URL of a public key bundle (.pgp, .gpg or .asc).")
+    return value, domain
+
+
+def inspect_public_key_bundle(payload):
+    """Read key metadata in a disposable home, with bounded output and no import."""
+    if not payload or len(payload) > 32 * 1024 * 1024:
+        raise ValueError("Public key bundle must be nonempty and at most 32 MiB.")
+    gpg_path = current_app.config.get("GPG_PATH") or os.environ.get("GPG_PATH", "gpg")
+    with tempfile.TemporaryDirectory(prefix="winhub-key-bundle-") as directory:
+        home = Path(directory) / "gnupg"
+        home.mkdir(mode=0o700)
+        bundle = Path(directory) / "public.pgp"
+        bundle.write_bytes(payload)
+        environment = {name: os.environ[name] for name in ("PATH", "SystemRoot", "WINDIR", "TEMP", "TMP") if name in os.environ}
+        environment.update({"GNUPGHOME": str(home), "LC_ALL": "C.UTF-8"})
+        command = [gpg_path, "--no-options", "--homedir", str(home), "--batch", "--no-tty",
+                   "--no-autostart", "--no-auto-key-retrieve", "--auto-key-locate", "clear",
+                   "--with-colons", "--fixed-list-mode", "--with-fingerprint",
+                   "--import-options", "show-only", "--dry-run", "--import", str(bundle)]
+        output = bytearray()
+        read_errors = []
+        try:
+            with subprocess.Popen(command, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE,
+                                  stderr=subprocess.DEVNULL, env=environment, **hidden_subprocess_kwargs()) as process:
+                def read_output():
+                    try:
+                        while True:
+                            chunk = process.stdout.read(65536)
+                            if not chunk:
+                                return
+                            if len(output) + len(chunk) > 8 * 1024 * 1024:
+                                raise ValueError("GPG bundle listing exceeds 8 MiB.")
+                            output.extend(chunk)
+                    except Exception as error:
+                        read_errors.append(error)
+                        process.kill()
+                reader = threading.Thread(target=read_output, daemon=True)
+                reader.start()
+                try:
+                    process.wait(timeout=30)
+                except subprocess.TimeoutExpired as error:
+                    process.kill()
+                    process.wait()
+                    raise ValueError("GPG bundle inspection exceeded 30 seconds.") from error
+                finally:
+                    reader.join(timeout=5)
+                if read_errors:
+                    raise ValueError(str(read_errors[0]))
+                if reader.is_alive():
+                    raise ValueError("Could not finish reading the GPG bundle listing.")
+                if process.returncode:
+                    raise ValueError("GPG could not read the public key bundle; no addresses were added.")
+        except OSError as error:
+            raise ValueError(f"GPG bundle inspection is unavailable: {error}") from error
+    return output.decode("utf-8", errors="strict")
+
+
+def parse_public_key_bundle_listing(listing, domain, now=None):
+    now = time.time() if now is None else now
+    recipients = set()
+    count = 0
+    active = False
+
+    def usable(fields):
+        return (fields[1] not in {"r", "e", "d", "i"}
+                and (not fields[6] or fields[6] == "0" or int(fields[6]) > now))
+
+    try:
+        for line in listing.splitlines():
+            fields = line.split(":")
+            kind = fields[0]
+            if kind in {"sec", "ssb"}:
+                raise ValueError("Only public key bundles are accepted; secret keys are not allowed.")
+            if kind == "pub":
+                if len(fields) < 12:
+                    raise ValueError("Invalid public-key record.")
+                count += 1
+                if count > 10000:
+                    raise ValueError("Public key bundle exceeds 10,000 keys.")
+                active = usable(fields) and "D" not in fields[11]
+            elif kind == "uid":
+                if len(fields) < 10 or not count:
+                    raise ValueError("Invalid public-key UID record.")
+                if active and usable(fields):
+                    raw = re.sub(rb"\\x([0-9A-Fa-f]{2})", lambda match: bytes([int(match[1], 16)]), fields[9].encode("utf-8"))
+                    address = parseaddr(raw.decode("utf-8", errors="replace"))[1].lower()
+                    if valid_email(address) and address.rsplit("@", 1)[1] == domain:
+                        recipients.add(address)
+                        if len(recipients) > 10000:
+                            raise ValueError("Public key bundle exceeds 10,000 matching recipients.")
+        if not count:
+            raise ValueError("The file contains no public keys.")
+    except (ValueError, UnicodeError) as error:
+        raise ValueError(f"Cannot use public key bundle: {error}") from error
+    return sorted(recipients)
+
+
+def discover_list_source(keyserver, domain, key_bundle_url=""):
+    if not key_bundle_url:
+        return discover_keyserver_recipients(keyserver, domain)
+    url, domain = validate_key_bundle_source(key_bundle_url, domain)
+    try:
+        payload = download_recipient_source(url, "Newsletter public key bundle", 32 * 1024 * 1024)
+        listing = inspect_public_key_bundle(payload)
+        return parse_public_key_bundle_listing(listing, domain)
+    except Exception as error:
+        raise ValueError(f"Public key bundle discovery failed: {error}") from error
 
 
 @newsletter_bp.route("/api/newsletter/lists/discover", methods=["POST"])
@@ -2324,7 +2458,7 @@ def discover_list_recipients():
         return denied
     data = request.json or {}
     try:
-        recipients = discover_keyserver_recipients(data.get("keyserver"), data.get("domain"))
+        recipients = discover_list_source(data.get("keyserver"), data.get("domain"), data.get("key_bundle_url"))
     except ValueError as error:
         return jsonify({"success": False, "message": str(error)}), 400
     WinHubCore.audit(user_id=session.get("user_id"), username=session.get("username"), module="Newsletter",
@@ -2350,14 +2484,14 @@ def sync_keyserver_lists(now=None):
         additions = []
         status, message = "Completed", ""
         try:
-            additions = discover_keyserver_recipients(snapshot["keyserver"], snapshot["domain"])
+            additions = discover_list_source(snapshot["keyserver"], snapshot["domain"], snapshot.get("key_bundle_url", ""))
         except ValueError as error:
             status, message = "Failed", str(error)[:500]
         with locked_list_storage():
             current = load_list_records().get(name)
             if (not current or not current.get("keyserver_auto_sync")
                     or current.get("keyserver_sync", {}).get("attempt_id") != attempt_id
-                    or any(current.get(key) != snapshot.get(key) for key in ("domain", "keyserver"))):
+                    or any(current.get(key) != snapshot.get(key) for key in ("domain", "keyserver", "key_bundle_url"))):
                 continue
             known = {normalize_recipient(value, current["domain"]) for value in current["entries"]}
             additions = [value for value in additions if value not in known]

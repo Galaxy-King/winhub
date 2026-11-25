@@ -1095,9 +1095,12 @@ runuser -u winhub -- env GNUPGHOME=/var/lib/winhub/gnupg /usr/bin/gpg --with-col
         </div>
 
         <div class="mb-4 space-y-2 text-sm">
-            <button type="button" id="modalDiscoverButton" onclick="discoverListRecipients()" class="bg-indigo-600 hover:bg-indigo-700 text-white font-bold px-4 py-2 rounded-lg">Fill from keyserver</button>
+            <label for="modalListKeyBundleUrl" class="block text-xs font-bold text-slate-500 uppercase">Public Key Bundle URL (optional)</label>
+            <input type="url" id="modalListKeyBundleUrl" placeholder="https://keys.example.com/public.pgp" class="w-full px-4 py-2 border border-slate-300 rounded-lg outline-none focus:ring-2 focus:ring-indigo-500 font-mono">
+            <p class="text-xs text-slate-500">Direct URL of a public .pgp, .gpg or .asc file. When set, recipient discovery and nightly updates use this file instead of keyserver search. HTTP links are upgraded to HTTPS.</p>
+            <button type="button" id="modalDiscoverButton" onclick="discoverListRecipients()" class="bg-indigo-600 hover:bg-indigo-700 text-white font-bold px-4 py-2 rounded-lg">Fill from key source</button>
             <label class="flex items-center gap-2"><input type="checkbox" id="modalListAutoSync"> Automatically add new recipients every night at 00:00 (Europe/Kyiv)</label>
-            <p class="text-xs text-slate-500">Adds matching addresses without removing existing entries. Requires HKP domain search. Does not import or verify GPG keys.</p>
+            <p class="text-xs text-slate-500">Adds matching addresses without removing existing entries. Uses the public key bundle when provided; otherwise requires HKP domain search. Does not import or establish trust in GPG keys.</p>
             <p id="modalDiscoverySummary" role="status" class="text-xs text-slate-500"></p>
         </div>
 
@@ -2050,6 +2053,7 @@ runuser -u winhub -- env GNUPGHOME=/var/lib/winhub/gnupg /usr/bin/gpg --with-col
     // --- List Management ---
     function openListModal(listName = null) {
         originalEditListName = listName;
+        document.getElementById('modalListKeyBundleUrl').value = moduleData.list_metadata?.[listName]?.key_bundle_url || '';
         document.getElementById('modalListAutoSync').checked = !!moduleData.list_metadata?.[listName]?.keyserver_auto_sync;
         const sync = moduleData.list_metadata?.[listName]?.keyserver_sync;
         document.getElementById('modalDiscoverySummary').innerText = sync?.status ? `Last nightly sync: ${sync.date} · ${sync.status} · ${sync.added || 0} added${sync.message ? ' · ' + sync.message : ''}` : '';
@@ -2152,7 +2156,8 @@ runuser -u winhub -- env GNUPGHOME=/var/lib/winhub/gnupg /usr/bin/gpg --with-col
                     users: currentEditListUsers,
                     domain: document.getElementById('modalListDomain').value.trim(),
                     keyserver: document.getElementById('modalListKeyserver').value.trim(),
-                    keyserver_auto_sync: document.getElementById('modalListAutoSync').checked
+                    keyserver_auto_sync: document.getElementById('modalListAutoSync').checked,
+                    key_bundle_url: document.getElementById('modalListKeyBundleUrl').value.trim()
                 })
             });
             const data = await response.json();
@@ -2169,20 +2174,22 @@ runuser -u winhub -- env GNUPGHOME=/var/lib/winhub/gnupg /usr/bin/gpg --with-col
         const summary = document.getElementById('modalDiscoverySummary');
         const domain = document.getElementById('modalListDomain').value.trim();
         const keyserver = document.getElementById('modalListKeyserver').value.trim();
+        const key_bundle_url = document.getElementById('modalListKeyBundleUrl').value.trim();
         const editName = originalEditListName;
         const name = document.getElementById('modalListName').value;
         button.disabled = true;
-        summary.innerText = 'Searching keyserver…';
+        summary.innerText = key_bundle_url ? 'Reading public key bundle…' : 'Searching keyserver…';
         try {
             const response = await fetch('/api/newsletter/lists/discover', {
                 method: 'POST', headers: {'Content-Type': 'application/json'},
-                body: JSON.stringify({domain, keyserver})
+                body: JSON.stringify({domain, keyserver, key_bundle_url})
             });
             const data = await response.json();
             if (!response.ok || !data.success) throw new Error(data.message || 'Discovery failed.');
             if (editName !== originalEditListName || name !== document.getElementById('modalListName').value ||
                 domain !== document.getElementById('modalListDomain').value.trim() ||
-                keyserver !== document.getElementById('modalListKeyserver').value.trim()) {
+                keyserver !== document.getElementById('modalListKeyserver').value.trim() ||
+                key_bundle_url !== document.getElementById('modalListKeyBundleUrl').value.trim()) {
                 throw new Error('List settings changed during search. Search again.');
             }
             const suffix = '@' + domain.replace(/^@/, '').toLowerCase();
