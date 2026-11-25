@@ -17,6 +17,8 @@ import smtplib
 import ssl
 import csv
 import io
+from contextlib import contextmanager
+from functools import wraps
 from email.message import EmailMessage
 from email import policy
 from email.parser import BytesParser
@@ -54,6 +56,7 @@ MAX_ATTACHMENT_BYTES = int(os.environ.get("NEWSLETTER_MAX_ATTACHMENT_BYTES", str
 MAX_TOTAL_ATTACHMENT_BYTES = int(os.environ.get("NEWSLETTER_MAX_TOTAL_ATTACHMENT_BYTES", str(25 * 1024 * 1024)))
 _inbound_worker_started = False
 _inbound_worker_lock = threading.Lock()
+_list_storage_lock = threading.RLock()
 LIST_NAME_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]{0,79}$")
 EMAIL_RE = re.compile(r"^[^\s@<>]+@[^\s@<>]+\.[^\s@<>]+$")
 NEWSLETTER_HTML_TAGS = {"a", "b", "br", "div", "em", "font", "h1", "h2", "h3", "hr", "i", "li", "ol", "p", "span", "strong", "u", "ul"}
@@ -234,6 +237,41 @@ def atomic_json_write(path, data):
     finally:
         if os.path.exists(temporary_path):
             os.remove(temporary_path)
+
+@contextmanager
+def locked_list_storage():
+    """Serialize list read/modify/write across web processes and the worker."""
+    with _list_storage_lock:
+        ensure_parent_dir(os.path.join(LISTS_DIR, ".storage.lock"))
+        with open(os.path.join(LISTS_DIR, ".storage.lock"), "a+b") as handle:
+            if os.name == "nt":
+                import msvcrt
+                handle.seek(0)
+                if not handle.read(1):
+                    handle.write(b"0")
+                    handle.flush()
+                handle.seek(0)
+                msvcrt.locking(handle.fileno(), msvcrt.LK_LOCK, 1)
+            else:
+                import fcntl
+                fcntl.flock(handle.fileno(), fcntl.LOCK_EX)
+            try:
+                yield
+            finally:
+                if os.name == "nt":
+                    handle.seek(0)
+                    msvcrt.locking(handle.fileno(), msvcrt.LK_UNLCK, 1)
+                else:
+                    fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
+
+
+def list_storage_locked(function):
+    @wraps(function)
+    def wrapped(*args, **kwargs):
+        with locked_list_storage():
+            return function(*args, **kwargs)
+    return wrapped
+
 
 def html_to_text(html):
     import re
@@ -1554,6 +1592,8 @@ def normalize_list_record(raw):
         "domain": normalize_domain_suffix(raw.get("domain")),
         "keyserver": str(raw.get("keyserver") or "").strip(),
         "entries": entries if isinstance(entries, list) else [],
+        "keyserver_auto_sync": raw.get("keyserver_auto_sync") is True,
+        "keyserver_sync": raw.get("keyserver_sync") if isinstance(raw.get("keyserver_sync"), dict) else {},
     }
 
 
@@ -1772,7 +1812,9 @@ def get_config():
         "senders": senders,
         "lists": all_lists,
         "list_metadata": {
-            name: {"domain": record["domain"], "keyserver": record["keyserver"]}
+            name: {"domain": record["domain"], "keyserver": record["keyserver"],
+                   "keyserver_auto_sync": record.get("keyserver_auto_sync", False),
+                   "keyserver_sync": record.get("keyserver_sync", {})}
             for name, record in list_records.items()
         } if can_manage_lists else {},
         "limits": {
@@ -2093,6 +2135,7 @@ def manage_inbound_relay():
     return jsonify({"success": True, "inbound": safe_inbound_settings()})
 
 @newsletter_bp.route("/api/newsletter/lists", methods=["POST"])
+@list_storage_locked
 def save_list():
     denied = require_permission("manage_lists")
     if denied: return denied
@@ -2103,6 +2146,14 @@ def save_list():
         original_name = normalize_list_name(data.get("original_list_name")) if data.get("original_list_name") else list_name
     except ValueError as e:
         return jsonify({"success": False, "message": str(e)}), 400
+    auto_sync = data.get("keyserver_auto_sync", False)
+    if not isinstance(auto_sync, bool):
+        return jsonify({"success": False, "message": "Automatic sync must be a boolean."}), 400
+    if auto_sync:
+        try:
+            validate_keyserver_discovery(data.get("keyserver"), data.get("domain"))
+        except ValueError as error:
+            return jsonify({"success": False, "message": str(error)}), 400
     users = data.get("users", [])
     domain = normalize_domain_suffix(data.get("domain"))
     keyserver = str(data.get("keyserver") or "").strip()
@@ -2128,15 +2179,21 @@ def save_list():
             clean_users.append(value)
     if invalid:
         return jsonify({"success": False, "message": f"Invalid recipient addresses: {', '.join(invalid[:5])}"}), 400
-    if not clean_users:
+    if not clean_users and not auto_sync:
         return jsonify({"success": False, "message": "List cannot be empty."}), 400
 
+    previous = load_list_records().get(original_name, {})
+    sync_state = previous.get("keyserver_sync", {})
+    if (previous.get("domain"), previous.get("keyserver"), previous.get("keyserver_auto_sync", False)) != (domain, keyserver, auto_sync):
+        sync_state = {"date": datetime.now(KYIV_TZ).date().isoformat()} if auto_sync else {}
     filepath = list_file_path(list_name)
     atomic_json_write(filepath, {
         "schema": 2,
         "domain": domain,
         "keyserver": keyserver,
         "entries": clean_users,
+        "keyserver_auto_sync": auto_sync,
+        "keyserver_sync": sync_state,
     })
     if original_name != list_name:
         settings = load_inbound_settings()
@@ -2165,6 +2222,152 @@ def save_list():
     )
 
     return jsonify({"success": True, "message": "List saved successfully."})
+
+
+def validate_keyserver_discovery(keyserver, domain):
+    domain = normalize_domain_suffix(domain).lower()[1:]
+    if not re.fullmatch(r"[a-z0-9](?:[a-z0-9.-]{0,251}[a-z0-9])?", domain) or "." not in domain or ".." in domain:
+        raise ValueError("Specify a valid email domain, for example @example.com.")
+    for label in domain.split("."):
+        if not label or len(label) > 63 or label.startswith("-") or label.endswith("-"):
+            raise ValueError("Invalid email domain.")
+    value = str(keyserver or "").strip()
+    if value.startswith("hkps://"):
+        value = "https://" + value[7:]
+    parts = urllib.parse.urlsplit(value)
+    if parts.scheme != "https" or not parts.hostname or parts.username or parts.password or parts.query or parts.fragment:
+        raise ValueError("Domain discovery requires an HTTPS or HKPS keyserver URL without credentials, query or fragment.")
+    parts.port  # Validate malformed/out-of-range ports before saving automatic settings.
+    return value.rstrip("/"), domain
+
+
+def parse_keyserver_index(payload, domain, now=None):
+    """Read HKP machine-readable UIDs; never treat an index as trusted key material."""
+    now = time.time() if now is None else now
+    recipients = set()
+    count = 0
+    expected = None
+    active = False
+    recognized = False
+
+    def usable(expiry, flags):
+        if any(flag in flags.lower() for flag in "red"):
+            return False
+        return not expiry or expiry == "0" or int(expiry) > now
+    try:
+        for line in payload.splitlines():
+            if not line.strip():
+                continue
+            fields = line.split(":")
+            if fields[0] == "info":
+                if len(fields) < 3 or fields[1] != "1":
+                    raise ValueError("Unsupported keyserver index version.")
+                expected = int(fields[2])
+                recognized = True
+            elif fields[0] == "pub":
+                if len(fields) < 7 or not re.fullmatch(r"[A-Fa-f0-9]{16}|[A-Fa-f0-9]{40}|[A-Fa-f0-9]{64}", fields[1]):
+                    raise ValueError("Invalid keyserver public-key record.")
+                count += 1
+                recognized = True
+                active = usable(fields[5], fields[6])
+            elif fields[0] == "uid":
+                if len(fields) < 5 or not count:
+                    raise ValueError("Invalid keyserver UID record.")
+                if active and usable(fields[3], fields[4]):
+                    uid = urllib.parse.unquote(fields[1], errors="strict")
+                    address = parseaddr(uid)[1].lower()
+                    if valid_email(address) and address.rsplit("@", 1)[1] == domain:
+                        recipients.add(address)
+            else:
+                raise ValueError("Keyserver did not return a machine-readable HKP index.")
+        if not recognized or (expected is not None and expected != count):
+            raise ValueError("Keyserver returned an incomplete or invalid index; no addresses were added.")
+        if count > 10000 or len(recipients) > 10000:
+            raise ValueError("Keyserver search exceeds the 10,000-entry limit.")
+    except (ValueError, UnicodeError) as error:
+        raise ValueError(f"Cannot use keyserver domain search: {error}") from error
+    return sorted(recipients)
+
+
+def discover_keyserver_recipients(keyserver, domain):
+    base_url, domain = validate_keyserver_discovery(keyserver, domain)
+    query = urllib.parse.urlencode({"op": "index", "options": "mr", "search": "@" + domain})
+    url = f"{base_url}/pks/lookup?{query}"
+    try:
+        with pinned_outbound_url(url, "Newsletter keyserver domain discovery", allowed_schemes=("https",)):
+            opener = urllib.request.build_opener(
+                urllib.request.ProxyHandler({}),
+                urllib.request.HTTPSHandler(context=ssl.create_default_context()),
+                _NewsletterNoRedirectHandler(),
+            )
+            with opener.open(urllib.request.Request(url, headers={"User-Agent": "WinHUB"}), timeout=15) as response:
+                payload = bytearray()
+                deadline = time.monotonic() + 30
+                while True:
+                    if time.monotonic() >= deadline:
+                        raise ValueError("Keyserver index download exceeded its time limit.")
+                    chunk = response.read1(min(65536, 2 * 1024 * 1024 + 1 - len(payload)))
+                    if not chunk:
+                        break
+                    payload.extend(chunk)
+                    if len(payload) > 2 * 1024 * 1024:
+                        raise ValueError("Keyserver index exceeds 2 MiB; narrow the directory on the keyserver.")
+        return parse_keyserver_index(payload.decode("utf-8", errors="strict"), domain)
+    except Exception as error:
+        raise ValueError(f"Domain search failed. The keyserver must support HKP domain searches: {error}") from error
+
+
+@newsletter_bp.route("/api/newsletter/lists/discover", methods=["POST"])
+def discover_list_recipients():
+    denied = require_permission("manage_lists")
+    if denied:
+        return denied
+    data = request.json or {}
+    try:
+        recipients = discover_keyserver_recipients(data.get("keyserver"), data.get("domain"))
+    except ValueError as error:
+        return jsonify({"success": False, "message": str(error)}), 400
+    WinHubCore.audit(user_id=session.get("user_id"), username=session.get("username"), module="Newsletter",
+                     action="List Recipients Discovered", details={"count": len(recipients)}, status="Success")
+    return jsonify({"success": True, "recipients": recipients})
+
+
+def sync_keyserver_lists(now=None):
+    """Once per Kyiv date, with catch-up after downtime; additions only."""
+    now = now or datetime.now(KYIV_TZ)
+    today = now.astimezone(KYIV_TZ).date().isoformat()
+    for name, snapshot in load_list_records().items():
+        if not snapshot.get("keyserver_auto_sync") or snapshot.get("keyserver_sync", {}).get("date", "") >= today:
+            continue
+        # Claim today's attempt durably before network I/O, including failed attempts.
+        with locked_list_storage():
+            current = load_list_records().get(name)
+            if current != snapshot:
+                continue
+            attempt_id = uuid.uuid4().hex
+            current["keyserver_sync"] = {"date": today, "status": "Running", "attempt_id": attempt_id}
+            atomic_json_write(list_file_path(name), current)
+        additions = []
+        status, message = "Completed", ""
+        try:
+            additions = discover_keyserver_recipients(snapshot["keyserver"], snapshot["domain"])
+        except ValueError as error:
+            status, message = "Failed", str(error)[:500]
+        with locked_list_storage():
+            current = load_list_records().get(name)
+            if (not current or not current.get("keyserver_auto_sync")
+                    or current.get("keyserver_sync", {}).get("attempt_id") != attempt_id
+                    or any(current.get(key) != snapshot.get(key) for key in ("domain", "keyserver"))):
+                continue
+            known = {normalize_recipient(value, current["domain"]) for value in current["entries"]}
+            additions = [value for value in additions if value not in known]
+            if len(current["entries"]) + len(additions) > 10000:
+                status, message, additions = "Failed", "A mailing list may contain at most 10,000 entries.", []
+            current["entries"].extend(additions)
+            current["keyserver_sync"] = {"date": today, "status": status, "added": len(additions), "message": message}
+            atomic_json_write(list_file_path(name), current)
+        WinHubCore.audit(user_id=None, username="newsletter-worker", module="Newsletter",
+                         action="List Keyserver Sync", details={"list": name, "added": len(additions), "message": message}, status="Success" if status == "Completed" else "Failed")
 
 
 @newsletter_bp.route("/api/newsletter/lists/<list_name>/gpg-check", methods=["POST"])
@@ -2234,6 +2437,7 @@ def check_list_gpg_keys(list_name):
     })
 
 @newsletter_bp.route("/api/newsletter/lists/<list_name>", methods=["DELETE"])
+@list_storage_locked
 def delete_list(list_name):
     denied = require_permission("manage_lists")
     if denied: return denied
@@ -3354,6 +3558,7 @@ def run_newsletter_worker(app, once=False):
     poll_seconds = env_int("NEWSLETTER_WORKER_POLL_SECONDS", 5, 1)
     inbound_poll_seconds = env_int("NEWSLETTER_ROUTE_POLL_SECONDS", 60, 10)
     next_inbound_poll = 0.0
+    next_list_sync_poll = 0.0
     with app.app_context():
         recover_interrupted_campaigns()
     while True:
@@ -3362,6 +3567,13 @@ def run_newsletter_worker(app, once=False):
         except Exception:
             log.warning("Could not update Newsletter worker heartbeat.")
         now = time.monotonic()
+        if now >= next_list_sync_poll:
+            with app.app_context():
+                try:
+                    sync_keyserver_lists()
+                except Exception:
+                    log.exception("Newsletter keyserver list sync failed.")
+            next_list_sync_poll = now + 60
         if inbound_relay_enabled() and now >= next_inbound_poll:
             with app.app_context():
                 for mailbox in inbound_mailboxes(include_legacy=True):

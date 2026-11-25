@@ -1085,13 +1085,20 @@ runuser -u winhub -- env GNUPGHOME=/var/lib/winhub/gnupg /usr/bin/gpg --with-col
             <div>
                 <label class="block text-xs font-bold text-slate-500 uppercase mb-1">Default Email Domain (optional)</label>
                 <input type="text" id="modalListDomain" placeholder="@example.com" oninput="renderModalUsers()" class="w-full px-4 py-2 border border-slate-300 rounded-lg outline-none focus:ring-2 focus:ring-indigo-500 font-mono">
-                <p class="text-xs text-slate-500 mt-1">Required only when this list contains aliases such as <code>alice</code>.</p>
+                <p class="text-xs text-slate-500 mt-1">Used for aliases such as <code>alice</code> and as the exact domain filter for keyserver discovery.</p>
             </div>
             <div>
                 <label class="block text-xs font-bold text-slate-500 uppercase mb-1">Recipient Keyserver (optional)</label>
                 <input type="url" id="modalListKeyserver" placeholder="hkps://keys.example.com" class="w-full px-4 py-2 border border-slate-300 rounded-lg outline-none focus:ring-2 focus:ring-indigo-500 font-mono">
-                <p class="text-xs text-slate-500 mt-1">Used by Check Keys → Fetch missing or expired.</p>
+                <p class="text-xs text-slate-500 mt-1">Used for recipient discovery and Check Keys → Fetch missing or expired.</p>
             </div>
+        </div>
+
+        <div class="mb-4 space-y-2 text-sm">
+            <button type="button" id="modalDiscoverButton" onclick="discoverListRecipients()" class="bg-indigo-600 hover:bg-indigo-700 text-white font-bold px-4 py-2 rounded-lg">Fill from keyserver</button>
+            <label class="flex items-center gap-2"><input type="checkbox" id="modalListAutoSync"> Automatically add new recipients every night at 00:00 (Europe/Kyiv)</label>
+            <p class="text-xs text-slate-500">Adds matching addresses without removing existing entries. Requires HKP domain search. Does not import or verify GPG keys.</p>
+            <p id="modalDiscoverySummary" role="status" class="text-xs text-slate-500"></p>
         </div>
 
         <div class="grid grid-cols-1 lg:grid-cols-[minmax(0,2fr)_minmax(320px,1fr)] gap-4 flex-1 min-h-0">
@@ -2043,6 +2050,9 @@ runuser -u winhub -- env GNUPGHOME=/var/lib/winhub/gnupg /usr/bin/gpg --with-col
     // --- List Management ---
     function openListModal(listName = null) {
         originalEditListName = listName;
+        document.getElementById('modalListAutoSync').checked = !!moduleData.list_metadata?.[listName]?.keyserver_auto_sync;
+        const sync = moduleData.list_metadata?.[listName]?.keyserver_sync;
+        document.getElementById('modalDiscoverySummary').innerText = sync?.status ? `Last nightly sync: ${sync.date} · ${sync.status} · ${sync.added || 0} added${sync.message ? ' · ' + sync.message : ''}` : '';
         document.getElementById('modalUserAdd').value = '';
         document.getElementById('modalSearch').value = '';
         document.getElementById('modalKeySummary').innerText = 'Not checked yet.';
@@ -2131,7 +2141,7 @@ runuser -u winhub -- env GNUPGHOME=/var/lib/winhub/gnupg /usr/bin/gpg --with-col
     async function saveList(closeAfter = true) {
         const newName = document.getElementById('modalListName').value.trim().replace(/\s+/g, '_');
         if (!newName) { alert("List name is required!"); return null; }
-        if (currentEditListUsers.length === 0) { alert("List cannot be empty!"); return null; }
+        if (currentEditListUsers.length === 0 && !document.getElementById('modalListAutoSync').checked) { alert("Add recipients or enable nightly keyserver sync."); return null; }
 
         try {
             const response = await fetch('/api/newsletter/lists', {
@@ -2141,7 +2151,8 @@ runuser -u winhub -- env GNUPGHOME=/var/lib/winhub/gnupg /usr/bin/gpg --with-col
                     original_list_name: originalEditListName || newName,
                     users: currentEditListUsers,
                     domain: document.getElementById('modalListDomain').value.trim(),
-                    keyserver: document.getElementById('modalListKeyserver').value.trim()
+                    keyserver: document.getElementById('modalListKeyserver').value.trim(),
+                    keyserver_auto_sync: document.getElementById('modalListAutoSync').checked
                 })
             });
             const data = await response.json();
@@ -2151,6 +2162,41 @@ runuser -u winhub -- env GNUPGHOME=/var/lib/winhub/gnupg /usr/bin/gpg --with-col
             await loadConfig();
             return newName;
         } catch(e) { alert("Network Error"); return null; }
+    }
+
+    async function discoverListRecipients() {
+        const button = document.getElementById('modalDiscoverButton');
+        const summary = document.getElementById('modalDiscoverySummary');
+        const domain = document.getElementById('modalListDomain').value.trim();
+        const keyserver = document.getElementById('modalListKeyserver').value.trim();
+        const editName = originalEditListName;
+        const name = document.getElementById('modalListName').value;
+        button.disabled = true;
+        summary.innerText = 'Searching keyserver…';
+        try {
+            const response = await fetch('/api/newsletter/lists/discover', {
+                method: 'POST', headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({domain, keyserver})
+            });
+            const data = await response.json();
+            if (!response.ok || !data.success) throw new Error(data.message || 'Discovery failed.');
+            if (editName !== originalEditListName || name !== document.getElementById('modalListName').value ||
+                domain !== document.getElementById('modalListDomain').value.trim() ||
+                keyserver !== document.getElementById('modalListKeyserver').value.trim()) {
+                throw new Error('List settings changed during search. Search again.');
+            }
+            const suffix = '@' + domain.replace(/^@/, '').toLowerCase();
+            const known = new Set(currentEditListUsers.map(value => (value.includes('@') ? value : value + suffix).toLowerCase()));
+            const additions = data.recipients.filter(value => !known.has(value.toLowerCase()));
+            if (currentEditListUsers.length + additions.length > 10000) throw new Error('A list may contain at most 10,000 entries.');
+            currentEditListUsers.push(...additions);
+            renderModalUsers();
+            summary.innerText = `${data.recipients.length} matching addresses found · ${additions.length} added. Save List to keep changes.`;
+        } catch (error) {
+            summary.innerText = error.message;
+        } finally {
+            button.disabled = false;
+        }
     }
 
     async function checkListKeys(refresh) {

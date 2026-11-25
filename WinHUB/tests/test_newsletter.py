@@ -13,6 +13,138 @@ from modules.Newsletter import routes
 
 
 class NewsletterSafetyTests(unittest.TestCase):
+    def test_keyserver_index_filters_exact_domain_and_unusable_keys(self):
+        payload = "\n".join([
+            "info:1:4",
+            "pub:" + "A" * 40 + ":1:2048:1:::",
+            "uid:Alice%20%3Calice%40example.org%3E:1::",
+            "uid:alice%40example.org:1::",
+            "uid:other%40sub.example.org:1::",
+            "uid:other%40example.org.evil:1::",
+            "uid:old%40example.org:1:5:",
+            "uid:revoked%40example.org:1::r",
+            "pub:" + "B" * 40 + ":1:2048:1::r:",
+            "uid:revoked-key%40example.org:1::",
+            "pub:" + "C" * 40 + ":1:2048:1:5::",
+            "uid:expired-key%40example.org:1::",
+            "pub:" + "D" * 40 + ":1:2048:1:::",
+            "uid:Bob%20%3Cbob%40example.org%3E:1::",
+        ])
+        self.assertEqual(routes.parse_keyserver_index(payload, "example.org", now=10),
+                         ["alice@example.org", "bob@example.org"])
+
+    def test_keyserver_index_rejects_html_truncation_and_bad_records(self):
+        for payload in ("<html>Error</html>", "info:1:2\npub:" + "A" * 40 + ":1:2048:1::",
+                        "info:2:0", "uid:alice%40example.org:1::", "info:1:1\npub:bad"):
+            with self.subTest(payload=payload), self.assertRaises(ValueError):
+                routes.parse_keyserver_index(payload, "example.org")
+        self.assertEqual(routes.parse_keyserver_index("info:1:0", "example.org"), [])
+
+    def test_discovery_requires_tls_and_valid_domain(self):
+        self.assertEqual(routes.validate_keyserver_discovery("hkps://keys.example.org", "@EXAMPLE.ORG"),
+                         ("https://keys.example.org", "example.org"))
+        for server, domain in (("http://keys.example.org", "example.org"),
+                               ("https://user:secret@keys.example.org", "example.org"),
+                               ("https://keys.example.org?q=1", "example.org"),
+                               ("https://keys.example.org", "example.org/path"),
+                               ("https://keys.example.org", "example..org"),
+                               ("https://keys.example.org", "")):
+            with self.subTest(server=server, domain=domain), self.assertRaises(ValueError):
+                routes.validate_keyserver_discovery(server, domain)
+
+    def test_discovery_uses_bounded_pinned_https_without_redirects(self):
+        response = mock.MagicMock()
+        response.__enter__.return_value.read1.side_effect = [b"info:1:0", b""]
+        opener = mock.Mock()
+        opener.open.return_value = response
+        with (mock.patch.object(routes, "pinned_outbound_url") as pin,
+              mock.patch.object(routes.urllib.request, "build_opener", return_value=opener)):
+            self.assertEqual(routes.discover_keyserver_recipients("hkps://keys.example.org", "@example.org"), [])
+        self.assertIn("search=%40example.org", pin.call_args.args[0])
+        self.assertEqual(pin.call_args.kwargs["allowed_schemes"], ("https",))
+        self.assertEqual(response.__enter__.return_value.read1.call_count, 2)
+        response.__enter__.return_value.read1.assert_called_with(65536)
+
+    def test_discovery_api_requires_manage_lists(self):
+        with mock.patch.object(routes, "require_permission", return_value=("Forbidden", 403)) as permission:
+            self.assertEqual(routes.discover_list_recipients(), ("Forbidden", 403))
+        permission.assert_called_once_with("manage_lists")
+
+    def test_nightly_discovery_is_additive_deduplicated_and_once_per_date(self):
+        from datetime import datetime
+        with (tempfile.TemporaryDirectory() as directory,
+              mock.patch.object(routes, "LISTS_DIR", directory),
+              mock.patch.object(routes, "discover_keyserver_recipients", return_value=["alice@example.org", "bob@example.org"]) as discover,
+              mock.patch.object(routes.WinHubCore, "audit")):
+            routes.atomic_json_write(routes.list_file_path("team"), {
+                "domain": "@example.org", "keyserver": "hkps://keys.example.org", "entries": ["alice", "manual@elsewhere.org"],
+                "keyserver_auto_sync": True, "keyserver_sync": {"date": "2026-11-24"},
+            })
+            now = datetime(2026, 11, 25, 0, 0, tzinfo=routes.KYIV_TZ)
+            routes.sync_keyserver_lists(now)
+            routes.sync_keyserver_lists(now)
+            discover.assert_called_once()
+            record = routes.load_list_records()["team"]
+            self.assertEqual(record["entries"], ["alice", "manual@elsewhere.org", "bob@example.org"])
+            self.assertEqual(record["keyserver_sync"]["added"], 1)
+            self.assertEqual(record["keyserver_sync"]["status"], "Completed")
+            discover.side_effect = ValueError("unavailable")
+            routes.sync_keyserver_lists(datetime(2026, 11, 26, 9, 0, tzinfo=routes.KYIV_TZ))
+            failed = routes.load_list_records()["team"]
+            self.assertEqual(failed["entries"], record["entries"])
+            self.assertEqual(failed["keyserver_sync"]["status"], "Failed")
+            self.assertEqual(failed["keyserver_sync"]["date"], "2026-11-26")
+
+    def test_nightly_discovery_does_not_apply_if_source_changed_during_fetch(self):
+        from datetime import datetime
+        with (tempfile.TemporaryDirectory() as directory,
+              mock.patch.object(routes, "LISTS_DIR", directory),
+              mock.patch.object(routes.WinHubCore, "audit")):
+            path = routes.list_file_path("team")
+            record = {"domain": "@example.org", "keyserver": "hkps://keys.example.org", "entries": ["alice"], "keyserver_auto_sync": True}
+            routes.atomic_json_write(path, record)
+            def changed(*args):
+                routes.atomic_json_write(path, {**record, "keyserver_auto_sync": False})
+                return ["bob@example.org"]
+            with mock.patch.object(routes, "discover_keyserver_recipients", side_effect=changed):
+                routes.sync_keyserver_lists(datetime(2026, 11, 25, tzinfo=routes.KYIV_TZ))
+            self.assertEqual(routes.load_list_records()["team"]["entries"], ["alice"])
+
+    def test_auto_sync_save_can_start_empty_and_preserves_status_on_rename(self):
+        app = Flask(__name__)
+        app.secret_key = "test-only"
+        with (tempfile.TemporaryDirectory() as directory,
+              mock.patch.object(routes, "LISTS_DIR", directory),
+              mock.patch.object(routes, "require_permission", return_value=None),
+              mock.patch.object(routes.WinHubCore, "audit"),
+              mock.patch.object(routes, "load_inbound_settings", return_value={})):
+            data = {"list_name": "team", "users": [], "domain": "@example.org", "keyserver": "hkps://keys.example.org", "keyserver_auto_sync": True}
+            with app.test_request_context(json=data):
+                self.assertTrue(routes.save_list().get_json()["success"])
+            state = routes.load_list_records()["team"]["keyserver_sync"]
+            with app.test_request_context(json={**data, "original_list_name": "team", "list_name": "renamed"}):
+                self.assertTrue(routes.save_list().get_json()["success"])
+            self.assertNotIn("team", routes.load_list_records())
+            self.assertEqual(routes.load_list_records()["renamed"]["keyserver_sync"], state)
+            for change in ({"keyserver_auto_sync": False}, {"domain": ""}, {"keyserver": "http://keys.example.org"}):
+                with app.test_request_context(json={**data, **change}):
+                    self.assertEqual(routes.save_list()[1], 400)
+
+    def test_discovery_rejects_oversized_slow_and_redirect_responses(self):
+        response = mock.MagicMock()
+        opener = mock.Mock()
+        opener.open.return_value = response
+        with (mock.patch.object(routes, "pinned_outbound_url"),
+              mock.patch.object(routes.urllib.request, "build_opener", return_value=opener)):
+            response.__enter__.return_value.read1.side_effect = None
+            response.__enter__.return_value.read1.return_value = b"x" * 65536
+            with self.assertRaisesRegex(ValueError, "exceeds 2 MiB"):
+                routes.discover_keyserver_recipients("hkps://keys.example.org", "example.org")
+            with mock.patch.object(routes.time, "monotonic", side_effect=[0, 31]):
+                with self.assertRaisesRegex(ValueError, "time limit"):
+                    routes.discover_keyserver_recipients("hkps://keys.example.org", "example.org")
+        self.assertIsNone(routes._NewsletterNoRedirectHandler().redirect_request(None, None, 302, "redirect", {}, "https://elsewhere.org"))
+
     def test_list_names_cannot_escape_storage(self):
         for value in ("../smtp_profiles", "..\\smtp_profiles", "/tmp/list", "C:\\temp\\list", "", "two words"):
             with self.subTest(value=value):
