@@ -1006,8 +1006,12 @@ def enroll_agent():
     source_ip = current_client_ip()
     if not enrollment_source_allowed(source_ip):
         return jsonify({"error": "Enrollment Source Denied"}), 403
+    bootstrap_grant = None
     if data.get('global_token') != GLOBAL_ENROLLMENT_TOKEN:
-        return jsonify({"error": "Auth Failed"}), 401
+        from core.agent_bootstrap import enrollment_grant
+        bootstrap_grant = enrollment_grant(data)
+        if bootstrap_grant is None:
+            return jsonify({"error": "Auth Failed"}), 401
 
     hw_id = data.get('hw_id')
     hostname = data.get('hostname', 'Unknown')
@@ -1105,7 +1109,11 @@ def enroll_agent():
 
     if getattr(agent, "approval_status", "Approved") == "Approved":
         ensure_default_groups_and_assign(agent, os_type)
-    bind_enrollment_public_key(agent, data)
+    if bootstrap_grant is not None:
+        set_agent_public_key(agent, str(data['agent_public_key_pem']).strip())
+        agent.approval_status = 'Pending'
+    else:
+        bind_enrollment_public_key(agent, data)
     db.session.commit()
     return jsonify({
         "status": "success",
@@ -1221,6 +1229,11 @@ def agent_poll():
             software_payload = json.loads(task.payload or '{}')
         except (TypeError, ValueError):
             software_payload = {}
+        if isinstance(software_payload, dict) and software_payload.get('__agent_bootstrap') and 'proxmox-bootstrap-v1' not in str(data.get('identity_capabilities') or ''):
+            task.result_log = 'Waiting for Linux agent with proxmox-bootstrap-v1. Update the Proxmox agent.'
+            needs_commit = True
+            task = None
+            resp = {"status": "upgrade_required", "message": "Proxmox bootstrap requires an updated Linux agent.", **agent_poll_timing("idle")}
         if isinstance(software_payload, dict) and software_payload.get('__software_package') and 'software-delivery-v1' not in str(data.get('identity_capabilities') or ''):
             task.result_log = 'Waiting for an agent with software-delivery-v1 support. Update this Windows agent.'
             needs_commit = True

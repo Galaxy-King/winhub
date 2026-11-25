@@ -6322,6 +6322,14 @@ def get_single_task(task_id):
     endpoint_name = endpoint_display_name(task.endpoint) if task.endpoint else "Unknown"
     visible_log = report_body_for_current_user(task_log, host_id=task.endpoint_id)
     visible_payload = task.payload if is_interactive_superadmin() else None
+    if visible_payload:
+        try:
+            safe_payload = json.loads(visible_payload)
+            if isinstance(safe_payload, dict) and '__agent_bootstrap' in safe_payload:
+                safe_payload['__agent_bootstrap'] = {'redacted': True}
+                visible_payload = json.dumps(safe_payload)
+        except (TypeError, ValueError):
+            pass
     if Config.AUDIT_SENSITIVE_READS:
         WinHubCore.audit(
             user_id=session.get("user_id"),
@@ -6637,6 +6645,8 @@ def retry_failed_job(job_id):
     except ValueError as exc:
         return jsonify(success=False, message=str(exc)), 400
     failed_tasks = AgentTask.query.filter_by(job_id=job_id).filter(AgentTask.status.in_(["Error", "Cancelled"])).all()
+    if any('__agent_bootstrap' in json.loads(task.payload or '{}') for task in failed_tasks):
+        return jsonify(success=False, message='Bootstrap cannot replay stored credentials. Inspect the partial VM and launch a new approved-template operation with a free IP.'), 409
     new_job_id = str(uuid.uuid4())
     created = 0
     created_tasks = []

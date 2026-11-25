@@ -117,3 +117,5 @@ Windows hostname необов’язковий: порожнє поле гене
 Виправлення Windows ConfigDrive: custom metadata явно містить admin_username=Administrator та admin_pass зі згенерованим паролем. qm cloudinit dump meta може повертати загальні metadata без Windows credentials, тому їх не можна лише копіювати. Snippet містить відкритий тимчасовий пароль, створюється з umask 077; не публікуйте його.
 
 Metadata snippets тепер мають випадковий суфікс: winhub-vm-VMID-RANDOM-meta.json. Залишок від видаленої VM не блокує повторне використання VMID. Файли створюються exclusive без перезапису. Після помилки Create перевірте частково створену VM перед повтором.
+
+Автоматичне встановлення агента після створення ВМ: [Agent Bootstrap та тестування](PROXMOX_AGENT_BOOTSTRAP_UA.md).

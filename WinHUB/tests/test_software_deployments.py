@@ -233,6 +233,42 @@ class SoftwareTests(unittest.TestCase):
         response = self.client.put('/api/infrastructure/software-packages/' + package['id'], data={'approve':'1'})
         self.assertEqual(response.status_code, 403)
 
+    def test_trusted_policy_delegation_and_revocation(self):
+        package=self.package()
+        url=f'/api/infrastructure/software/{package["id"]}/approve'
+        policy=dict(revision=package['revision'],policy_revision=package['policy_revision'],approval_policy='trusted',trusted_editor_ids=[self.user.id])
+        self.assertEqual(self.post(url,json=policy).status_code,200)
+        stale=self.post(url,json=policy)
+        self.assertEqual(stale.status_code,409)
+        self.user.is_admin=False
+        self.user.allowed_modules=json.dumps(['Infrastructure:manage_software'])
+        db.session.commit()
+        changed=self.client.put('/api/infrastructure/software-packages/'+package['id'],data={'install_command':'Write-Output trusted'})
+        self.assertEqual(changed.status_code,200,changed.json)
+        self.assertTrue(changed.json['package']['approved'])
+        self.assertEqual(self.post(url,json=policy).status_code,403)
+        self.user.is_admin=True;db.session.commit()
+        current=changed.json['package']
+        self.assertEqual(self.post(url,json=dict(revision=current['revision'],policy_revision=current['policy_revision'],approval_policy='review')).status_code,200)
+        record=json.loads(db.session.get(SoftwarePackage,package['id']).record)
+        self.assertFalse(software.public_package(record)['approved'])
+        self.assertEqual(record['trusted_editor_ids'],[])
+        # Submitted policy fields cannot grant delegation through ordinary saves.
+        self.user.is_admin=False;db.session.commit()
+        changed=self.client.put('/api/infrastructure/software-packages/'+package['id'],data={'install_command':'Write-Output bypass','approval_policy':'trusted','trusted_editor_ids':str(self.user.id)})
+        self.assertFalse(changed.json['package']['approved'])
+        self.assertEqual(changed.json['package']['approval_policy'],'review')
+
+    def test_long_recipe_is_preserved_and_oversize_rejected(self):
+        script='#'+('\u044f'*24992)+'\nexit 0'
+        self.assertEqual(len(script),25000)
+        package=self.package(install_command=script)
+        self.assertEqual(package['install_command'],script)
+        response=self.client.put('/api/infrastructure/software-packages/'+package['id'],data={'install_command':'x'*25001})
+        self.assertEqual(response.status_code,400)
+        record=json.loads(db.session.get(SoftwarePackage,package['id']).record)
+        self.assertEqual(record['install_command'],script)
+
     def test_package_snapshot_immutable_after_edit_or_delete(self):
         package = self.package()
         self.launch(package)

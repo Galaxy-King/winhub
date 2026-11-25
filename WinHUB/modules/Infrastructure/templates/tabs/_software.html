@@ -11,6 +11,7 @@
         {% if permissions.manage_software %}<button type="button" onclick="newSoftwarePackage()" data-sw-panel="editor" class="sw-button">+ Add application</button>{% endif %}
         {% if is_admin %}<button type="button" onclick="switchSoftwareTab('settings')" data-sw-panel="settings" class="sw-button">Storage and limits</button>{% endif %}
         {% if permissions.manage_software %}<button type="button" data-sw-panel="installers" onclick="switchSoftwareTab('installers')" class="sw-button">Installers · Add / Test link</button>{% endif %}
+        {% if permissions.manage_software %}<button type="button" onclick="switchSoftwareTab('bootstrap')" data-sw-panel="bootstrap" class="sw-button">Agent Bootstrap</button>{% endif %}
     </nav>
     <div id="swNotice" role="status" aria-live="polite" class="hidden p-4 rounded-xl bg-indigo-50 text-indigo-900 whitespace-pre-wrap"></div>
     <div id="swPanel-library" class="grid grid-cols-1 xl:grid-cols-2 gap-5 {% if not permissions.run_tasks %}sw-catalog-only{% endif %}">
@@ -47,6 +48,27 @@
     </div>
     <div id="swPanel-progress" class="hidden sw-panel space-y-4"><h4 class="font-black text-lg">Deployments</h4><p class="text-sm text-slate-500">Refreshes every 5 seconds. Pausing or cancelling pending operations does not interrupt an installer already running.</p><div id="swDeployments" class="space-y-4"></div></div>
     {% if permissions.manage_software %}
+    {% if permissions.manage_software %}
+    <div id="swPanel-bootstrap" class="hidden sw-panel space-y-4">
+        <h4 class="font-black text-lg">WinHUB Agent Bootstrap · new Proxmox VMs</h4>
+        <p>Separate from application deployment. Upload a signed native Windows x64 ZIP. In the Proxmox creation task, use the approved package ID. New endpoints still require Approval.</p>
+        <div id="swBootstrapList" class="space-y-3"></div>
+        <form id="swBootstrapForm" onsubmit="swSaveBootstrap(event)" class="space-y-4">
+            <input type="hidden" name="id">
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <label>Name<input name="name" required maxlength="160" class="sw-input" value="WinHUB Windows Agent"></label>
+                <label>Exact signed version<input name="version" required maxlength="80" class="sw-input" placeholder="2.0.1-rc.4"></label>
+                <label>Signed Windows x64 ZIP<input name="file" type="file" accept=".zip" class="sw-input"></label>
+                <label>Expected ZIP SHA-256<input name="sha256" class="sw-input" maxlength="64"></label>
+            </div>
+            <label class="block">Trusted publisher PUBLIC key (SPKI PEM)<textarea name="public_key" required class="sw-input font-mono" rows="7" placeholder="-----BEGIN PUBLIC KEY-----"></textarea></label>
+            <label class="block">Clean Windows agent runtime JSON<textarea name="runtime_config" required class="sw-input font-mono" rows="12" placeholder='{"ServerUrl":"https://winhub.internal:55555","ServerCertificateSha256":"TRUSTED_64_HEX_PIN","IgnoreTlsCertificateErrors":false,"RequireTaskSignature":true,"GlobalApiKey":""}'></textarea></label>
+            <p class="text-sm">No global enrollment key, copied endpoint identity or task signing keys. WinHUB generates a scoped one-identity enrollment token for each VM. Package and configuration changes invalidate approval.</p>
+            {% if is_admin %}<label class="flex gap-2"><input type="checkbox" name="approve" value="1">Review and approve this package, public key and runtime configuration</label>{% endif %}
+            <div class="flex gap-3"><button type="submit" class="sw-button">Save bootstrap package</button><button type="button" class="sw-button" onclick="document.getElementById('swBootstrapForm').reset()">New package / clear</button></div>
+        </form>
+    </div>
+    {% endif %}
     <div id="swPanel-installers" class="hidden sw-panel space-y-4">
         <h4 class="font-black text-lg">1. Installer library</h4>
         <p>Test access first, then save to download and verify the complete file. Only ready installers can be selected in an application.</p>

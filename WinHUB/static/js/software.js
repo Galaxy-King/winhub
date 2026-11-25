@@ -34,7 +34,9 @@ async function loadSoftwareRegistry() {
         swState.packages = data.packages || [];
         swState.installers = data.installers || [];
         swState.isAdmin = !!data.is_admin;
+        swState.editors = data.editors || [];
         swRenderInstallers();
+        if (document.getElementById('swBootstrapForm')) await swLoadBootstrap();
         const installerSelect = document.getElementById('swInstallerSelect');
         if (installerSelect) {
             const selected = installerSelect.value;
@@ -95,7 +97,7 @@ async function loadSoftwareRegistry() {
 
 function switchSoftwareTab(panel) {
     if (swState.targetDraft) swCloseTargets();
-    if (!['library', 'editor', 'settings', 'progress', 'installers'].includes(panel)) panel = 'library';
+    if (!['library', 'editor', 'settings', 'progress', 'installers', 'bootstrap'].includes(panel)) panel = 'library';
     if (!document.getElementById('swPanel-' + panel)) panel = 'library';
     swState.panel = panel;
     sessionStorage.setItem('winhub.software.panel', panel);
@@ -103,7 +105,7 @@ function switchSoftwareTab(panel) {
         if (button.dataset.swPanel === panel) button.setAttribute('aria-current', 'page');
         else button.removeAttribute('aria-current');
     });
-    ['library', 'editor', 'settings', 'progress', 'installers'].forEach(name => {
+    ['library', 'editor', 'settings', 'progress', 'installers', 'bootstrap'].forEach(name => {
         document.getElementById(`swPanel-${name}`)?.classList.toggle('hidden', panel !== name);
     });
     if (panel === 'progress') swLoadDeployments();
@@ -150,11 +152,23 @@ function renderSoftwareRegistry() {
             const details = swElement('span', undefined, 'min-w-0');
             details.append(swElement('strong', `${p.name} · ${p.version}`, 'block'),
                 swElement('span', (p.sets || []).join(' · '), 'block text-xs text-slate-500'),
-                swElement('span', `${p.approved ? 'Approved' : 'Approval required'} · ${p.prepared ? `${(p.size / 1048576).toFixed(1)} MiB cached in WinHUB` : p.preparation === 'Preparing' ? 'Downloading from OMV…' : p.preparation === 'Queued' ? 'Preparation queued' : p.preparation === 'Error' ? 'Preparation failed' : p.external_url ? 'Preparation required' : 'Script only'}`, 'block text-xs mt-1'));
+                swElement('span', p.prepared ? `${(p.size / 1048576).toFixed(1)} MiB cached in WinHUB` : p.external_url ? 'Installer preparation required' : 'Script only', 'block text-xs mt-1'));
             label.append(check, details); row.append(label);
+            const badges=swElement('span',undefined,'sw-status-badges');
+            const policy=swElement('span',p.approval_policy==='trusted'?'Trusted edits':'Review every change','sw-status-badge');
+            policy.dataset.tone=p.approval_policy==='trusted'?'info':'warning';
+            policy.title=p.approval_policy==='trusted'?`Allowed by ${p.policy_updated_by||'superadmin'} · Editors: ${(p.trusted_editor_ids||[]).map(id=>swState.editors.find(u=>u.id===id)?.username||'#'+id).join(', ')}`:'Recipe changes require superadmin review.';
+            const approval=swElement('span',p.approved?'Approved':'Approval required','sw-status-badge');approval.dataset.tone=p.approved?'success':'warning';
+            const failed=['Failed','Error'].includes(p.preparation);
+            const preparing=['Queued','Preparing'].includes(p.preparation);
+            const ready=p.prepared||(!p.external_url&&!p.blob_sha256&&!preparing&&!failed);
+            const state=swElement('span',failed?'Preparation failed':preparing?'Preparing':ready?'Ready':'Preparation required','sw-status-badge');
+            state.dataset.tone=failed?'error':preparing||!ready?'warning':'success';
+            badges.append(policy,approval,state);details.append(badges);
             if (window.WinhubCanManageSoftware) {
                 const edit = swElement('button', 'Edit', 'sw-button'); edit.type = 'button';
                 edit.addEventListener('click', () => swEditPackage(p)); row.append(edit);
+                if(swState.isAdmin){const policyButton=swElement('button','Approval policy','sw-button');policyButton.type='button';policyButton.onclick=()=>swApprovalPolicy(p);row.append(policyButton);}
                 if (swState.isAdmin && !p.approved) {
                     const approve = swElement('button', 'Review and approve', 'sw-button'); approve.type = 'button';
                     approve.addEventListener('click', () => swApprove(p)); row.append(approve);
@@ -542,6 +556,24 @@ async function swApprove(p) {
     } catch (error) { swNotice(error.message, true); }
 }
 
+function swApprovalPolicy(p) {
+    document.getElementById('swPolicyDialog')?.remove();
+    const dialog=swElement('dialog');dialog.id='swPolicyDialog';dialog.className='sw-panel';
+    dialog.style.cssText='width:min(560px,95vw);max-height:85vh;overflow:auto;background:#101e30;color:#e2edf7;padding:24px;border:1px solid #285268;border-radius:16px';
+    dialog.append(swElement('h3',`Approval policy · ${p.name}`));
+    const label=swElement('label'), enabled=swElement('input');enabled.type='checkbox';enabled.checked=p.approval_policy==='trusted';
+    label.append(enabled,document.createTextNode(' Allow selected editors to publish changes without approval'));dialog.append(label);
+    dialog.append(swElement('p','Their script changes can run on authorized hosts without another superadmin review. First approve the current recipe. Revoking this policy requires a new review.'));
+    const fields=swElement('fieldset');fields.append(swElement('legend','Trusted editors'));
+    for(const user of swState.editors){const row=swElement('label',undefined,'block'),check=swElement('input');check.type='checkbox';check.value=String(user.id);check.checked=(p.trusted_editor_ids||[]).includes(user.id);row.append(check,document.createTextNode(' '+user.username));fields.append(row);}
+    dialog.append(fields);
+    const result=swElement('p');result.setAttribute('role','status');dialog.append(result);
+    const save=swElement('button','Save policy','sw-button');save.type='button';save.onclick=async()=>{
+        save.disabled=true;try{await swRequest(`/api/infrastructure/software/${encodeURIComponent(p.id)}/approve`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({revision:p.revision,policy_revision:p.policy_revision,approval_policy:enabled.checked?'trusted':'review',trusted_editor_ids:[...fields.querySelectorAll('input:checked')].map(x=>Number(x.value))})});dialog.close();dialog.remove();await loadSoftwareRegistry();swNotice('Approval policy saved.');}catch(e){result.textContent=e.message;}finally{save.disabled=false;}
+    };
+    const close=swElement('button','Cancel','sw-button');close.type='button';close.onclick=()=>{dialog.close();dialog.remove();};dialog.append(save,close);document.body.append(dialog);dialog.showModal();
+}
+
 function swAddByIp() {
     const draft = swState.targetDraft;
     if (!draft || draft.mode !== 'endpoints') return;
@@ -565,4 +597,33 @@ window.addEventListener('beforeunload', () => {
 async function swRefreshCurrent() {
     await loadSoftwareRegistry();
     if (swState.panel === 'progress') await swLoadDeployments();
+}
+
+async function swLoadBootstrap() {
+    const data = await swRequest('/api/infrastructure/software/bootstrap');
+    const list = document.getElementById('swBootstrapList');
+    list.replaceChildren();
+    for (const p of data.packages || []) {
+        const card = swElement('div', undefined, 'sw-panel space-y-2');
+        card.append(swElement('strong', p.name + ' · ' + p.version + (p.approved ? ' · Approved' : ' · Approval required')));
+        const id = swElement('input'); id.className='sw-input'; id.readOnly=true; id.value=p.id;
+        id.setAttribute('aria-label', 'Agent Bootstrap package ID'); card.append(id);
+        card.append(swElement('p', 'Use this ID in the Proxmox task → Agent Bootstrap package ID. SHA-256: ' + p.sha256));
+        const edit = swElement('button', 'Edit / review', 'sw-button'); edit.type='button';
+        edit.addEventListener('click', () => {
+            const form=document.getElementById('swBootstrapForm'); form.reset();
+            for (const key of ['id','name','version','sha256','public_key']) form.elements[key].value=p[key] || '';
+            form.elements.runtime_config.value=JSON.stringify(p.runtime_config, null, 2);
+        });
+        card.append(edit); list.append(card);
+    }
+}
+async function swSaveBootstrap(event) {
+    event.preventDefault();
+    const button=event.currentTarget.querySelector('[type="submit"]'); button.disabled=true;
+    try {
+        const result=await swRequest('/api/infrastructure/software/bootstrap', {method:'POST', body:new FormData(event.currentTarget)});
+        await swLoadBootstrap(); swNotice('Agent Bootstrap package saved. Package ID: ' + result.id);
+    } catch(error) { swNotice(error.message, true); }
+    finally { button.disabled=false; }
 }

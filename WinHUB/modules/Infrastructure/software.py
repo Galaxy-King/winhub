@@ -12,7 +12,7 @@ from sqlalchemy import func
 from flask import Response, current_app, jsonify, request, session, stream_with_context
 from core import software as service
 from core.database import (db, AgentTask, Endpoint, EndpointGroup, SoftwareDeployment,
-                           SoftwarePackage, SoftwareStep, TaskTemplate)
+                           SoftwarePackage, SoftwareStep, TaskTemplate, AgentBootstrapGrant, User)
 from core.template_security import template_approval_valid
 from core.group_access import group_action_allowed
 from core.permissions import has_permission
@@ -46,7 +46,7 @@ def registry():
     user = helpers().current_user()
     manager = has_permission(user, 'Infrastructure', 'manage_software')
     records = service.catalogue()
-    packages = [service.public_package(p, manager) for p in records if p.get('kind') != 'installer']
+    packages = [service.public_package(p, manager) for p in records if p.get('kind') not in ('installer', 'agent_bootstrap')]
     installers = [service.public_package(p, True) for p in records if p.get('kind') == 'installer'] if manager else []
     packages.sort(key=lambda p: (p.get('order', 100), p['name'].casefold(), p['id']))
     allowed = WinHubCore.get_allowed_hosts(user.id, 'run_tasks')
@@ -72,6 +72,7 @@ def registry():
                     and '{{' not in payload['script'] and '{%' not in payload['script']):
                 templates.append(dict(id=template.id, name=template.name, category=template.category))
     return jsonify(success=True, packages=packages, installers=installers, is_admin=user.is_admin, hosts=hosts, groups=groups, settings=cfg,
+                   editors=[dict(id=u.id, username=u.username) for u in User.query.filter_by(is_active=True).order_by(User.username) if has_permission(u, 'Infrastructure', 'manage_software')] if user.is_admin else [],
                    templates=templates,
                    can_view_queue=has_permission(user, 'Infrastructure', 'view_queue'))
 
@@ -123,7 +124,7 @@ def package_write(package_id=None):
             db.session.rollback()
             return jsonify(success=False, message='Package preparation failed. Check the fields, OMV access, SHA-256, HTTPS and limits.'), 400
         helpers().write_infra_audit('Software Save', 'software_package', package_id,
-                                   dict(name=record['name'], version=record['version'], sha256=record.get('sha256')))
+                                   dict(name=record['name'], version=record['version'], sha256=record.get('sha256'), revision=service.recipe_hash(record), trusted_edit_by=record.get('trusted_edit_by'), approval_policy=record.get('approval_policy', 'review')))
         db.session.commit()
         return jsonify(success=True, package=service.public_package(record, True))
 
@@ -173,7 +174,7 @@ def create_deployment():
         with service.LOCAL_LOCK:
             control = service.lock_control()
             service.import_legacy(control)
-            packages = [p for p in service.catalogue() if p.get('kind') != 'installer']
+            packages = [p for p in service.catalogue() if p.get('kind') not in ('installer', 'agent_bootstrap')]
             known = {p['id'] for p in packages}
             if set(ids) - known:
                 raise ValueError('One of the applications no longer exists. Refresh the catalogue.')
@@ -235,6 +236,8 @@ def create_deployment():
 
 
 def register(bp):
+    from modules.Infrastructure.agent_bootstrap import register as register_bootstrap
+    register_bootstrap(bp)
     @bp.route('/api/infrastructure/software/settings', methods=['PUT'])
     def software_settings():
         denied = interactive('manage_software')
@@ -381,7 +384,8 @@ def register(bp):
             if not path.is_file():
                 current_app.logger.error('Software delivery file missing for step %s; check DATA_DIR/software_blobs on the agent backend.', step.id)
                 return Response(status=404)
-            leases = SoftwareStep.query.filter(SoftwareStep.download_until > now).count()
+            leases = (SoftwareStep.query.filter(SoftwareStep.download_until > now).count()
+                      + AgentBootstrapGrant.query.filter(AgentBootstrapGrant.download_until > now).count())
             if (step.download_until and step.download_until > now) or leases >= cfg['max_downloads']:
                 return Response(status=429, headers={'Retry-After': '15'})
             lease_id = str(uuid.uuid4())
@@ -463,6 +467,32 @@ def approve_package(package_id):
             return jsonify(success=False, message='Application not found.'), 404
         if data.get('revision') != service.recipe_hash(record):
             return jsonify(success=False, message='Application changed. Review the current recipe again.'), 409
+        if 'approval_policy' in data:
+            if record.get('kind') in ('installer', 'agent_bootstrap'):
+                return jsonify(success=False, message='This policy applies only to applications.'), 400
+            if data.get('policy_revision') != service.public_package(record)['policy_revision']:
+                return jsonify(success=False, message='Policy changed. Refresh and review again.'), 409
+            mode, editors = data.get('approval_policy'), data.get('trusted_editor_ids', [])
+            if mode not in ('review', 'trusted') or not isinstance(editors, list) or len(editors) > 100 or any(type(x) is not int for x in editors):
+                return jsonify(success=False, message='Choose a valid policy and up to 100 editors.'), 400
+            if mode == 'trusted':
+                if record.get('approved_hash') != service.recipe_hash(record):
+                    return jsonify(success=False, message='Review and approve the current recipe before enabling trusted edits.'), 409
+                if not editors:
+                    return jsonify(success=False, message='Select at least one trusted editor.'), 400
+                for editor_id in editors:
+                    editor = db.session.get(User, editor_id)
+                    if not editor or not editor.is_active or not has_permission(editor, 'Infrastructure', 'manage_software'):
+                        return jsonify(success=False, message='An editor is inactive or lacks Software management permission.'), 400
+            else:
+                record.pop('approved_hash', None)
+                editors = []
+            record.update(approval_policy=mode, trusted_editor_ids=sorted(set(editors)), policy_updated_by=user.username, policy_updated_at=datetime.utcnow().isoformat())
+            row.record = json.dumps(record)
+            helpers().write_infra_audit('Software Approval Policy', 'software_package', package_id,
+                {'policy': mode, 'trusted_editor_ids': editors, 'revision': data['revision']})
+            db.session.commit()
+            return jsonify(success=True)
         if record.get('external_url') and not service.public_package(record)['prepared']:
             return jsonify(success=False, message='Prepare the installer successfully before approving.'), 400
         record['approved_hash'] = service.recipe_hash(record)

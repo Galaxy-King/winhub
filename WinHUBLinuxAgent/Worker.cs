@@ -158,7 +158,7 @@ public class Worker : BackgroundService
     private readonly string InstanceSessionId = Guid.NewGuid().ToString("N");
     private readonly string BootSessionId = CreateBootSessionId();
     private string InstanceFingerprint = "";
-    private const string IdentityCapabilities = "identity-session-v1,identity-split-v1,lean-agent-v1";
+    private static readonly string IdentityCapabilities = "identity-session-v1,identity-split-v1,lean-agent-v1" + (OperatingSystem.IsLinux() ? ",proxmox-bootstrap-v1" : "");
     private DateTime _lastInventoryUtc = DateTime.MinValue;
     private HostInventoryInfo? _cachedHostInventory;
     private string _lastLoggedPollStatus = "";
@@ -709,7 +709,11 @@ public class Worker : BackgroundService
                 catch (Exception ex) { await ReportResultAsync(taskId, "Error", "Inventory failed: " + ex.GetType().Name, stoppingToken); }
                 return timing;
             }
-            (string executionStatus, string logOutput) = await ExecuteShellAsync(script, timeoutSeconds, stoppingToken);
+            string? bootstrapData = root.TryGetProperty("payload", out var bootstrapPayload) && bootstrapPayload.TryGetProperty("__agent_bootstrap", out var bootstrapValue)
+                ? bootstrapValue.GetRawText() : null;
+            if (bootstrapData != null && (!OperatingSystem.IsLinux() || bootstrapData.Length > 65536))
+                throw new InvalidDataException("Bootstrap data is supported only on Linux and is limited to 64 KiB.");
+            (string executionStatus, string logOutput) = await ExecuteShellAsync(script, timeoutSeconds, stoppingToken, bootstrapData);
             await ReportResultAsync(taskId, executionStatus, logOutput, stoppingToken);
             _logger.LogInformation("Task completed. TaskId={TaskId}, Status={Status}", taskId, executionStatus);
             return timing;
@@ -815,9 +819,9 @@ public class Worker : BackgroundService
     }
 
 
-    private async Task<(string Status, string Log)> ExecuteShellAsync(string scriptContent, int timeoutSeconds, CancellationToken stoppingToken)
+    private async Task<(string Status, string Log)> ExecuteShellAsync(string scriptContent, int timeoutSeconds, CancellationToken stoppingToken, string? bootstrapData = null)
     {
-        if (!OperatingSystem.IsMacOS()) return await ExecuteLinuxShellAsync(scriptContent, timeoutSeconds, stoppingToken);
+        if (!OperatingSystem.IsMacOS()) return await ExecuteLinuxShellAsync(scriptContent, timeoutSeconds, stoppingToken, bootstrapData);
         if (string.IsNullOrWhiteSpace(scriptContent)) return ("Error", "Empty script provided.");
         timeoutSeconds = Math.Clamp(timeoutSeconds, 30, 86400);
         string tempScriptFile = Path.Combine(Path.GetTempPath(), $"winhub_task_{Guid.NewGuid():N}.sh");
@@ -883,7 +887,7 @@ public class Worker : BackgroundService
         }
     }
 
-    private async Task<(string Status, string Log)> ExecuteLinuxShellAsync(string scriptContent, int timeoutSeconds, CancellationToken stoppingToken)
+    private async Task<(string Status, string Log)> ExecuteLinuxShellAsync(string scriptContent, int timeoutSeconds, CancellationToken stoppingToken, string? bootstrapData = null)
     {
         if (string.IsNullOrWhiteSpace(scriptContent)) return ("Error", "Empty script provided.");
         string taskDirectory = Path.Combine(DataDirectory, "tasks");
@@ -899,6 +903,12 @@ public class Worker : BackgroundService
             var start = new ProcessStartInfo("/bin/bash") { UseShellExecute = false,
                 RedirectStandardOutput = true, RedirectStandardError = true, WorkingDirectory = taskDirectory };
             start.ArgumentList.Add(path);
+            if (bootstrapData != null)
+            {
+                ProductionSecurity.AtomicWrite(path + ".bootstrap.json", Encoding.UTF8.GetBytes(bootstrapData),
+                    file => RestrictPath(file, UnixFileMode.UserRead | UnixFileMode.UserWrite));
+                start.ArgumentList.Add(path + ".bootstrap.json");
+            }
             var capture = await LinuxTaskProcess.RunAsync(start, Math.Clamp(timeoutSeconds, 1, 86400),
                 Math.Clamp(_config.MaxResultLogBytes, 4096, 1024 * 1024),
                 new TaskResourceLimits(_config.TaskMemoryLimitMb, _config.TaskProcessLimit, _config.TaskCpuPercent), stoppingToken);
@@ -907,7 +917,7 @@ public class Worker : BackgroundService
         }
         catch (OperationCanceledException) { return ("Error", "Task execution interrupted or timed out. Inspect any partial effects before retrying."); }
         catch (Exception ex) { return ("Error", $"Task execution failed: {ex.Message}"); }
-        finally { if (File.Exists(path)) File.Delete(path); }
+        finally { if (File.Exists(path + ".bootstrap.json")) File.Delete(path + ".bootstrap.json"); if (File.Exists(path)) File.Delete(path); }
     }
 
     private async Task<(string Status, string Log)> StageAndLaunchAgentUpdateAsync(string taskId, JsonElement payload, CancellationToken stoppingToken)

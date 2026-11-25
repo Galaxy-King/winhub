@@ -199,6 +199,8 @@ def public_package(record, manager=False):
     result = dict(record)
     result['approved'] = secrets.compare_digest(str(record.get('approved_hash') or ''), recipe_hash(record))
     result['revision'] = recipe_hash(record)
+    result['approval_policy'] = record.get('approval_policy', 'review')
+    result['policy_revision'] = hashlib.sha256(json.dumps([recipe_hash(record), record.get('approval_policy'), record.get('trusted_editor_ids'), record.get('policy_updated_at')], sort_keys=True).encode()).hexdigest()
     result['prepared'] = bool(record.get('blob_sha256') and blob_path(record['blob_sha256']).is_file())
     result.pop('approved_hash', None)
     result.pop('download_url', None)
@@ -210,16 +212,26 @@ def public_package(record, manager=False):
 def save_package(package_id, form, upload, user):
     old = db.session.get(SoftwarePackage, package_id)
     record = json.loads(old.record) if old else {'id': package_id}
+    if record.get('kind') == 'agent_bootstrap':
+        raise ValueError('Use the separate Agent Bootstrap editor')
     previous = dict(record)
+    record.pop('trusted_edit_by', None)
+    record.pop('trusted_edit_at', None)
     if 'update_requires_installer' in form:
         record['update_requires_installer'] = str(form['update_requires_installer']) == '1'
     for key, limit in dict(name=160, version=80, vendor=160, notes=4096, external_url=2048,
-                           install_command=12000, update_command=12000, uninstall_command=12000,
-                           detection_type=40, detection_value=4096, expected_exit_codes=120,
+                           install_command=25000, update_command=25000, uninstall_command=25000,
+                           detection_type=40, detection_value=25000, expected_exit_codes=120,
                            package_type=32, architecture=32, install_template_id=36,
                            update_template_id=36, uninstall_template_id=36).items():
         if key in form:
-            record[key] = str(form[key]).strip()[:limit]
+            value = str(form[key]).strip()
+            if key in ('install_command', 'update_command', 'uninstall_command', 'detection_value'):
+                if len(value) > limit:
+                    raise ValueError(f'{key}: maximum script length is 25,000 characters. The script was not saved or truncated.')
+                record[key] = value
+            else:
+                record[key] = value[:limit]
     if not record.get('name') or not record.get('version'):
         raise ValueError('Application name and version are required.')
     record.setdefault('package_type', 'msi')
@@ -273,6 +285,14 @@ def save_package(package_id, form, upload, user):
             raise ValueError('Enter an install script or select an approved Workspace template.')
     if recipe_hash(record) != recipe_hash(previous):
         record.pop('approved_hash', None)
+        # Delegation is server-owned metadata, never accepted from editor form fields.
+        # A change requiring review cannot be laundered through a later trusted save.
+        if (previous.get('approval_policy') == 'trusted' and
+                previous.get('approved_hash') == recipe_hash(previous) and
+                (user.is_admin or user.id in previous.get('trusted_editor_ids', []))):
+            record['approved_hash'] = recipe_hash(record)
+            record['trusted_edit_by'] = user.username
+            record['trusted_edit_at'] = datetime.utcnow().isoformat()
     if form.get('approve') == '1':
         if not user.is_admin:
             raise PermissionError('Only a superadmin can approve a recipe.')

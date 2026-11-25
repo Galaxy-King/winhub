@@ -204,3 +204,5 @@ Identity splitting clears the old endpoint task signing key and sequence in both
 Windows Software downloads require `software-delivery-v1`: signed task metadata contains a relative delivery path, size, hash and temporary capability. The agent uses its own configured `ServerUrl` and existing pinned HTTPS client, with no redirects, cross-origin downloads or TLS bypass. Linux/macOS Software installation recipes remain unsupported.
 
 Update instructions and publisher signing: [release acceptance](../WinHUB-WiKi/guides/agents/AGENT_RELEASE_ACCEPTANCE_UA.md#lean-agent-201-rc1).
+
+Proxmox Agent Bootstrap: новий сценарій потребує збірки 2.0.1-rc.4 або новішої з capability proxmox-bootstrap-v1. Linux-агент передає scoped descriptor окремим захищеним файлом; деталі: [інструкція](../WinHUB-WiKi/guides/features/PROXMOX_AGENT_BOOTSTRAP_UA.md).

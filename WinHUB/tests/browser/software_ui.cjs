@@ -27,11 +27,11 @@ async function main() {
         const hosts = Array.from({length:320}, (_,i) => ({id:`h${i+1}`,name:`ENDPOINT-${String(i+1).padStart(3,'0')}`,os_type:'Windows',
             ip:`10.0.0.${i+1}`,online:i%2===0,groups:i===0?['g1']:i===1?['g1','g2']:i===2?['g2']:[]}));
         const groups = [{id:'g1',name:'Office A'},{id:'g2',name:'Office B'},{id:'g3',name:'Lab <img src=x onerror=alert(1)>'}];
-        const packages = ['7-Zip','WireGuard'].map((name,i)=>({id:`p${i}`,name,version:'1.0',sets:['Standard'],approved:true,prepared:true,size:1048576,revision:`r${i}`}));
+        const packages = ['7-Zip','WireGuard'].map((name,i)=>({id:`p${i}`,name,version:'1.0',sets:['Standard'],approved:true,prepared:true,size:1048576,revision:`r${i}`,policy_revision:`policy${i}`,approval_policy:'review'}));
         let payload;
         await page.route('**/api/**', async route => {
             const url = new URL(route.request().url());
-            if (url.pathname === '/api/infrastructure/software-packages') return route.fulfill({json:{success:true,packages,hosts,groups,templates:[],settings:{max_hosts:2,max_downloads:2,bandwidth_mib:10}}});
+            if (url.pathname === '/api/infrastructure/software-packages') return route.fulfill({json:{success:true,is_admin:true,editors:[{id:1,username:'trusted-editor'}],packages,hosts,groups,templates:[],settings:{max_hosts:2,max_downloads:2,bandwidth_mib:10}}});
             if (route.request().method()==='POST') {
                 payload = route.request().postDataJSON();
                 return route.fulfill({json:{success:true,targets:3,packages:2,tasks:6}});
@@ -40,6 +40,10 @@ async function main() {
         });
         await page.goto(`http://127.0.0.1:${server.address().port}`);
         await page.getByText('7-Zip · 1.0',{exact:true}).waitFor();
+        await page.getByRole('button',{name:'Approval policy',exact:true}).first().click();
+        await page.locator('#swPolicyDialog').waitFor({state:'visible'});
+        await page.locator('#swPolicyDialog').getByText('trusted-editor',{exact:true}).waitFor();
+        await page.locator('#swPolicyDialog').getByRole('button',{name:'Cancel',exact:true}).click();
         const initialHeight = await page.locator('#swPanel-library').evaluate(n=>n.getBoundingClientRect().height);
         assert.equal(await page.locator('#swTargetPickerList label').count(),0,'Endpoint list must not expand inline');
         await page.locator('#swSets label').filter({hasText:'Standard'}).locator('input').check();

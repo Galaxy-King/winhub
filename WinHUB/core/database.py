@@ -367,6 +367,20 @@ class SoftwarePackage(db.Model):
     record = db.Column(EncryptedText, nullable=False)
 
 
+class AgentBootstrapGrant(db.Model):
+    __tablename__ = 'agent_bootstrap_grants'
+    id = db.Column(db.String(36), primary_key=True)
+    parent_task_id = db.Column(db.String(36), nullable=False, index=True)
+    snapshot = db.Column(EncryptedText, nullable=False)
+    download_hash = db.Column(db.String(64), nullable=False)
+    enrollment_hash = db.Column(db.String(64), nullable=False, unique=True)
+    expected_hostname = db.Column(db.String(100), nullable=False)
+    expires_at = db.Column(db.DateTime, nullable=False)
+    enrolled_endpoint_id = db.Column(db.String(100), nullable=True)
+    enrolled_key_fingerprint = db.Column(db.String(64), nullable=True)
+    download_until = db.Column(db.DateTime, nullable=True)
+
+
 class SoftwareDeployment(db.Model):
     __tablename__ = 'software_deployments'
     id = db.Column(db.String(36), primary_key=True, default=lambda: str(uuid.uuid4()))

@@ -57,6 +57,11 @@ class EndpointCloneIdentityTests(unittest.TestCase):
             cls.pg_engine.dispose()
 
     def setUp(self):
+        # Background workers must not share an in-memory SQLite connection with
+        # the identity split transaction or race fixture cleanup.
+        patcher = mock.patch.object(routes, 'auto_thread_started', True)
+        patcher.start()
+        self.addCleanup(patcher.stop)
         self.context = self.app.app_context()
         self.context.push()
         db.session.remove()

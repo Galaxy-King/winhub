@@ -107,7 +107,16 @@ def matching_entity_ids(entity_type, content, *, fields=None, mode="all"):
 def index_agent_task(task):
     if not task or not getattr(task, "id", None):
         return 0
-    total = replace_search_field("task", task.id, "input", task.payload or "")
+    searchable = task.payload or ""
+    try:
+        import json
+        parsed = json.loads(searchable)
+        if isinstance(parsed, dict) and '__agent_bootstrap' in parsed:
+            parsed.pop('__agent_bootstrap')
+            searchable = json.dumps(parsed)
+    except (ValueError, TypeError):
+        pass
+    total = replace_search_field("task", task.id, "input", searchable)
     total += replace_search_field("task", task.id, "output", task.result_log or "")
     return total
 

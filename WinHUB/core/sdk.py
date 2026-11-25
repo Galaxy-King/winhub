@@ -255,6 +255,14 @@ class WinHubCore:
         if tasks:
             db.session.add_all(tasks)
             db.session.flush()
+            if payload.get('bootstrap_package_id') and len(tasks) != 1:
+                raise ValueError('Agent bootstrap requires exactly one Proxmox endpoint')
+            if 'bootstrap_package_id' in payload:
+                from core.agent_bootstrap import attach
+                for task in tasks:
+                    attach(task, user)
+            elif payload.get('__agent_bootstrap'):
+                raise ValueError('Bootstrap descriptors are reserved for server dispatch')
             if ai_report:
                 from core.ai_reports import create_ai_report_request
                 create_ai_report_request(

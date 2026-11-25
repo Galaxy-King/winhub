@@ -19,7 +19,7 @@ Cloud-Init-диском `ide2`, системним диском `scsi0` і ме�
 На помилці ВМ зберігається для діагностики. Повтор із зайнятим VMID відхиляється;
 після переривання/timeout спочатку перевіряйте стан Proxmox, не запускайте дубль.
 
-Тимчасовий пароль вводиться у формі запуску (12..128 символів). Він зберігається у payload задачі WinHUB; після створення змініть його у Windows. Автоматичної ротації немає.
+Тимчасовий пароль генерується при Create та повертається в результаті задачі; після створення змініть його у Windows. Автоматичної ротації немає.
 Не використовувати debug shell tracing. Proxmox має власний доступ до Cloud-Init credentials;
 це не secret vault. Пароль короткочасно передається локальному qm через argv, тому root може його побачити.
 Неперевірені значення передаються як дані у хвості скрипту після exec, не як shell/Python-код.
@@ -41,3 +41,7 @@ Windows hostname необов’язковий: порожнє поле гене
 Виправлення Windows ConfigDrive: custom metadata явно містить admin_username=Administrator та admin_pass зі згенерованим паролем. qm cloudinit dump meta може повертати загальні metadata без Windows credentials, тому їх не можна лише копіювати. Snippet містить відкритий тимчасовий пароль, створюється з umask 077; не публікуйте його.
 
 Metadata snippets тепер мають випадковий суфікс: winhub-vm-VMID-RANDOM-meta.json. Залишок від видаленої VM не блокує повторне використання VMID. Файли створюються exclusive без перезапису. Після помилки Create перевірте частково створену VM перед повтором.
+
+## Встановлення WinHUB Agent
+
+Необов’язкове поле Agent Bootstrap package ID вибирає затверджений signed Windows пакет із Software → Agent Bootstrap. Порожнє поле залишає звичайне створення ВМ. Потрібен Linux Agent 2.0.1-rc.4 із capability proxmox-bootstrap-v1. Інструкція підписування, конфігурації та тестування: [Agent Bootstrap](../../../../WinHUB-WiKi/guides/features/PROXMOX_AGENT_BOOTSTRAP_UA.md).

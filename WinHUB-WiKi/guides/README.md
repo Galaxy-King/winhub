@@ -7,6 +7,7 @@
 | Розсилки | [Newsletter](features/NEWSLETTER_GUIDE_UA.md) |
 | Керування пристроями | [Endpoint Management](features/ENDPOINT_MANAGEMENT_GUIDE_UA.md) |
 | Proxmox / OMV | [Масове підключення CIFS і реєстрація шаблону 9006](features/PROXMOX_OMV_TEMPLATE_REGISTRATION_UA.md) |
+| Proxmox / Agent Bootstrap | [Створення ВМ та встановлення агента: тестування](features/PROXMOX_AGENT_BOOTSTRAP_UA.md) |
 | Telegram / RDS | [Ручний імпорт і персональні акаунти](features/TELEGRAM_RDS_UA.md) |
 | RDP / RDS | [Завершення відключених сесій](features/RDP_DISCONNECTED_LOGOFF_UA.md) |
 | Історія й аудит | [Пошук історії](features/AUDIT_SEARCH_GUIDE_UA.md) |

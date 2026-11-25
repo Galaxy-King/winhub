@@ -71,7 +71,7 @@ class ProxmoxCreatePackTests(unittest.TestCase):
                 with self.assertRaisesRegex(ValueError, 'clone collision'):
                     module.main(values)
                 self.assertEqual(run.call_count, 4)
-                self.assertEqual(run.call_args.args[:4], ('qm', 'clone', '114', expected))
+                self.assertEqual(run.call_args.args[:4], ('qm', 'clone', '9006', expected))
 
     def test_generated_pack_matches(self):
         self.assertEqual(json.loads((BASE / 'proxmox_vm_create_pack.json').read_text(encoding='utf-8')), load('build_pack').build())

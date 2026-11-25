@@ -8,6 +8,7 @@ import secrets
 import string
 import subprocess
 import sys
+import time
 import fcntl
 
 
@@ -37,10 +38,14 @@ def generate_password():
             return password
 
 
-def main(p):
+def main(p, bootstrap=None):
     mode = p['Mode']
     if mode not in ('Validate', 'Create'):
         raise ValueError('Mode must be Validate or Create')
+    if p.get('BootstrapPackageID') and mode == 'Create' and (not isinstance(bootstrap, dict) or bootstrap.get('package_id') != p['BootstrapPackageID']):
+        raise ValueError('Bootstrap requires an updated server and Linux agent; no valid descriptor received')
+    if bootstrap and mode == 'Create' and bootstrap.get('expires_at', 0) <= time.time():
+        raise ValueError('Bootstrap authorization expired before creation; launch a new task')
     template = number(p['TemplateID'], 100, 999999999)
     vmid = number(p['VMID'], 100, 999999999) if p['VMID'].strip() else None
     if template == vmid:
@@ -145,6 +150,8 @@ def main(p):
             run('qm', 'set', str(vmid), '--cicustom', 'meta=' + volume)
             run('qm', 'cloudinit', 'update', str(vmid))
             run('qm', 'start', str(vmid))
+            if p.get('BootstrapPackageID'):
+                install_agent(vmid, hostname, str(address.ip), bootstrap)
             print('VM started. Temporary credentials are listed above. Guest preparation/password application/RDP readiness must be checked separately.')
         except Exception:
             print(f'Inspect VMID {vmid} before retry; partial clone may exist. No automatic deletion or resume.', file=sys.stderr)
@@ -155,10 +162,16 @@ if __name__ == '__main__':
     try:
         raw = Path(sys.argv[1]).read_text(encoding='utf-8').split('\n# WINHUB_INPUT\n', 1)[1]
         pairs = [line.split('=', 1) for line in raw.splitlines()]
-        expected = {'Mode', 'TemplateID', 'VMID', 'Name', 'WindowsHostname', 'Storage', 'IP', 'Mask', 'Gateway', 'DNS', 'Cores', 'MemoryMB', 'DiskGB', 'Bridge', 'VLAN'}
+        expected = {'Mode', 'TemplateID', 'VMID', 'Name', 'WindowsHostname', 'Storage', 'IP', 'Mask', 'Gateway', 'DNS', 'Cores', 'MemoryMB', 'DiskGB', 'Bridge', 'VLAN', 'BootstrapPackageID', 'BootstrapDescriptor'}
         if any(len(x) != 2 for x in pairs) or len(pairs) != len(expected) or {x[0] for x in pairs} != expected:
             raise ValueError('Invalid input fields; multiline values are forbidden')
-        main(dict(pairs))
+        bootstrap = None
+        if len(sys.argv) > 2 and sys.argv[2]:
+            descriptor_path = Path(sys.argv[2])
+            if descriptor_path.stat().st_size > 65536:
+                raise ValueError('Bootstrap descriptor too large')
+            bootstrap = json.loads(descriptor_path.read_text(encoding='utf-8'))
+        main(dict(pairs), bootstrap)
     except Exception as exc:
         print('ERROR: ' + (str(exc) if isinstance(exc, ValueError) else type(exc).__name__), file=sys.stderr)
         sys.exit(1)

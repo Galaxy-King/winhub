@@ -1,4 +1,5 @@
 import json
+import base64
 from pathlib import Path
 
 BASE = Path(__file__).resolve().parent
@@ -18,23 +19,28 @@ FIELDS = {
     'Cores': ('CPU cores (blank: inherit)', ''),
     'MemoryMB': ('Memory in MiB (blank: inherit)', ''),
     'DiskGB': ('System disk size in GiB (blank: inherit)', ''),
+    'BootstrapPackageID': ('Agent Bootstrap package ID (blank: skip installation)', ''),
 }
 
 
 
 def build():
-    source = (BASE / 'create_vm.py').read_text(encoding='utf-8')
+    helper = (BASE / 'bootstrap_guest.py').read_text(encoding='utf-8')
+    encoded = base64.b64encode((BASE / 'install_bootstrap.ps1').read_bytes()).decode()
+    helper = helper.replace('BOOTSTRAP_INSTALLER_B64 = ""', 'BOOTSTRAP_INSTALLER_B64 = ' + repr(encoded))
+    source = helper + '\n' + (BASE / 'create_vm.py').read_text(encoding='utf-8')
     # exec replaces Bash before it parses the untrusted input tail. Python reads
     # that tail as data and passes validated values using subprocess argv.
-    script = "#!/bin/bash\nexec /usr/bin/python3 - \"$0\" <<'WINHUB_PYTHON'\n" + source + '\nWINHUB_PYTHON\n# WINHUB_INPUT\n'
+    script = "#!/bin/bash\nexec /usr/bin/python3 - \"$0\" \"${1:-}\" <<'WINHUB_PYTHON'\n" + source + '\nWINHUB_PYTHON\n# WINHUB_INPUT\n'
     names = {key: f'A{index:02d}_{key}' for index, key in enumerate(FIELDS, 1)}
     script += ''.join(key + '={{' + names[key] + '}}\n' for key in FIELDS)
+    script += 'BootstrapDescriptor=WINHUB_BOOTSTRAP_DESCRIPTOR_V1\n'
     schema = {names[key]: {'type': 'text', 'label': label, 'default': default, 'order': index} for index, (key, (label, default)) in enumerate(FIELDS.items(), 1)}
     schema[names['Mode']].update(type='select', options=['Validate', 'Create'])
     return {'format': 'winhub-template-library', 'version': 1, 'exported_at': '2026-11-12T00:00:00Z',
             'templates': [{'id': '621061af-42d4-443f-b220-e251c8fab924', 'name': 'Proxmox — Create Windows VM',
                            'category': 'Proxmox', 'type': 'action', 'action_type': 'run_script', 'is_approved': False,
-                           'payload': {'script': script, '__variable_schema': schema,
+                           'payload': {'script': script, 'bootstrap_package_id': '{{' + names['BootstrapPackageID'] + '}}', 'bootstrap_mode': '{{' + names['Mode'] + '}}', '__variable_schema': schema,
                                        '__template_policy': {'hide_code': False, 'lock_edit': False, 'lock_delete': False}}}]}
 
 
