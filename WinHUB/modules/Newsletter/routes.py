@@ -30,11 +30,9 @@ from pathlib import Path
 from datetime import datetime
 from zoneinfo import ZoneInfo
 from flask import Blueprint, request, jsonify, session, render_template, current_app
-from flask_socketio import join_room
 from werkzeug.utils import secure_filename
 from cryptography.fernet import Fernet
 from core.database import db, User, Task, NewsletterCampaign, NewsletterDelivery
-from core import socketio
 from core.sdk import WinHubCore
 from core.config import Config
 from core.permissions import has_module_access, has_permission, user_permissions
@@ -169,12 +167,6 @@ except Exception:
 
 os.makedirs(DATA_DIR, exist_ok=True)
 os.makedirs(LISTS_DIR, exist_ok=True)
-
-@socketio.on('join_newsletter_logs')
-def join_newsletter_logs():
-    user_id = session.get('user_id')
-    if user_id:
-        join_room(str(user_id))
 
 def ensure_parent_dir(path):
     parent = os.path.dirname(path)
@@ -2685,14 +2677,19 @@ def newsletter_preflight():
 
     use_gpg = bool(data.get("use_gpg", True))
     missing_keys = []
+    keys_to_fetch = []
     if use_gpg:
         gpg_path = current_app.config.get('GPG_PATH') or os.environ.get('GPG_PATH', 'gpg')
         gpg_ok, gpg_message = validate_gpg(gpg_path)
         if not gpg_ok:
             return jsonify({"success": False, "message": f"GPG unavailable: {gpg_message}"}), 400
         for recipient in recipients:
-            if not get_gpg_key_status(gpg_path, recipient).get("usable"):
-                missing_keys.append(recipient)
+            status = get_gpg_key_status(gpg_path, recipient)
+            if not status.get("usable"):
+                if not status.get("exists") and not status.get("fingerprint") and delivery_key_discovery_enabled(profiles[sender_email].get("keyserver")):
+                    keys_to_fetch.append(recipient)
+                else:
+                    missing_keys.append(recipient)
 
     return jsonify({
         "success": not invalid and not missing_keys and bool(recipients),
@@ -2701,6 +2698,7 @@ def newsletter_preflight():
         "invalid_recipients": invalid[:50],
         "missing_gpg_keys": missing_keys[:50],
         "missing_gpg_keys_count": len(missing_keys),
+        "keys_to_fetch_count": len(keys_to_fetch),
         "per_list": per_list,
     })
 
@@ -2803,17 +2801,56 @@ def cancel_newsletter_campaign(campaign_id):
     return jsonify({"success": True, "campaign": campaign_summary(campaign, include_subject=True)})
 
 
-@newsletter_bp.route("/api/newsletter/campaigns/<campaign_id>/retry", methods=["POST"])
+def retry_error_category(delivery):
+    """Stable operator-facing categories without leaking raw error text into identifiers."""
+    text = str(delivery.error or "").lower()
+    if delivery.status == "Skipped":
+        return "skipped", "Skipped / cancelled"
+    if any(value in text for value in ("missing public key", "no public key", "no_pubkey", "no usable public key matching")):
+        return "missing_key", "Missing public key"
+    if any(value in text for value in ("recipient address", "5.1.1", "user unknown", "unknown user", "mailbox unavailable", "recipient refused")):
+        return "recipient_address", "Recipient address rejected"
+    if any(value in text for value in ("gpg", "encrypt", "fingerprint", "keyserver", "public key")):
+        return "encryption", "GPG key / encryption error"
+    if any(value in text for value in ("authentication", "authenticate", "535", "5.7.8")):
+        return "authentication", "SMTP authentication error"
+    if any(value in text for value in ("connection", "timeout", "timed out", "disconnected")):
+        return "connection", "Connection / timeout"
+    if re.search(r"\b4[0-9]{2}\b", text):
+        return "temporary", "Temporary SMTP error"
+    return "other", "Other delivery error"
+
+
+@newsletter_bp.route("/api/newsletter/campaigns/<campaign_id>/retry", methods=["GET", "POST"])
 def retry_newsletter_campaign(campaign_id):
     denied = require_permission("send_campaigns")
     if denied:
         return denied
-    campaign = db.session.get(NewsletterCampaign, campaign_id)
+    campaign = (NewsletterCampaign.query.filter_by(id=campaign_id).with_for_update().first()
+                if request.method == "POST" else db.session.get(NewsletterCampaign, campaign_id))
     if not campaign or not can_view_campaign(current_user(), campaign):
         return jsonify({"success": False, "message": "Campaign not found."}), 404
-    retryable = NewsletterDelivery.query.filter_by(campaign_id=campaign.id).filter(NewsletterDelivery.status.in_(["Failed", "Skipped"])).all()
-    if not retryable:
-        return jsonify({"success": False, "message": "No failed deliveries are available for retry."}), 409
+    if campaign.status not in {"Completed", "Partial", "Failed", "Cancelled"}:
+        return jsonify({"success": False, "message": "Wait until the campaign finishes before retrying failed deliveries."}), 409
+    query = NewsletterDelivery.query.filter_by(campaign_id=campaign.id).filter(NewsletterDelivery.status.in_(["Failed", "Skipped"]))
+    if request.method == "GET":
+        groups = {}
+        for delivery in query.order_by(NewsletterDelivery.recipient_hash).all():
+            category, label = retry_error_category(delivery)
+            group = groups.setdefault(category, {"id": category, "label": label, "recipients": []})
+            group["recipients"].append({"id": delivery.id, "recipient": delivery.recipient,
+                                         "status": delivery.status, "error": str(delivery.error or "")[:300]})
+        return jsonify({"success": True, "campaign_id": campaign.id,
+                        "groups": [{**group, "count": len(group["recipients"])} for group in groups.values()]})
+    data = request.get_json(silent=True)
+    selected = data.get("delivery_ids") if isinstance(data, dict) else None
+    if (not isinstance(selected, list) or not selected or len(selected) > 100000
+            or any(not isinstance(value, str) or not value or len(value) > 80 for value in selected)):
+        return jsonify({"success": False, "message": "Select the recipients to retry."}), 400
+    selected = set(selected)
+    retryable = query.filter(NewsletterDelivery.id.in_(selected)).all()
+    if len(retryable) != len(selected):
+        return jsonify({"success": False, "message": "The selection contains unavailable or non-retryable recipients. Reopen Retry failed and select again."}), 409
     for delivery in retryable:
         delivery.status = "Pending"
         delivery.error = None
@@ -2835,7 +2872,9 @@ def retry_newsletter_campaign(campaign_id):
             task.status = "Queued"
             task.ended_at = None
     db.session.commit()
-    return jsonify({"success": True, "campaign": campaign_summary(campaign, include_subject=True)})
+    WinHubCore.audit(user_id=session.get("user_id"), username=session.get("username"), module="Newsletter",
+                     action="Campaign Deliveries Retried", details={"campaign_id": campaign.id, "selected_count": len(retryable)}, status="Success")
+    return jsonify({"success": True, "retry_count": len(retryable), "campaign": campaign_summary(campaign, include_subject=True)})
 
 
 # --- GPG Functions ---
@@ -2984,35 +3023,40 @@ def check_gpg_key_exists(gpg_path, email):
     return get_gpg_key_status(gpg_path, email)["usable"]
 
 
-def ensure_gpg_key_ready(gpg_path, keyserver, email, emit_and_write=None, progress_prefix=""):
+def delivery_key_discovery_enabled(keyserver):
+    if not env_bool("NEWSLETTER_ALLOW_KEYSERVER_AUTO_IMPORT", False):
+        return False
+    try:
+        parts = urllib.parse.urlsplit(str(keyserver or "").strip().replace("hkps://", "https://"))
+        parts.port
+        return (parts.scheme == "https" and bool(parts.hostname) and not parts.username
+                and not parts.password and not parts.query and not parts.fragment)
+    except ValueError:
+        return False
+
+
+def ensure_gpg_key_ready(gpg_path, keyserver, email):
     status = get_gpg_key_status(gpg_path, email)
     if status["usable"]:
         return True, status["reason"]
-
     keyserver = (keyserver or "").strip()
     if not keyserver:
-        return False, status["reason"]
+        return False, f"{status['reason']}; configure a recipient keyserver for this route or mail profile"
     fingerprint = status.get("fingerprint")
-    if not fingerprint:
-        return False, f"{status['reason']}; use the list key check to explicitly discover and import a key"
+    if not fingerprint and (status.get("exists") or not delivery_key_discovery_enabled(keyserver)):
+        return False, (f"{status['reason']}; use the list key check to explicitly discover and import a key, "
+                       "or enable NEWSLETTER_ALLOW_KEYSERVER_AUTO_IMPORT for delivery-time discovery")
+    lookup = f"0x{fingerprint}" if fingerprint else email
+    fetched, message = fetch_gpg_key(gpg_path, keyserver, lookup)
+    if not fetched:
+        return False, f"{status['reason']}; keyserver fetch failed: {message}"
+    refreshed = get_gpg_key_status(gpg_path, email)
+    if fingerprint and refreshed.get("fingerprint") != fingerprint:
+        return False, "Key fingerprint changed unexpectedly after refresh; verify and import the replacement explicitly"
+    if not refreshed["usable"]:
+        return False, f"{refreshed['reason']} after keyserver fetch"
+    return True, "Public key refreshed successfully" if fingerprint else "Public key discovered and imported during delivery"
 
-    if emit_and_write:
-        emit_and_write(
-            f"{progress_prefix} ⚠️ {status['reason']} for {email}. Fetching from keyserver {keyserver}...",
-            "__HIDE__",
-        )
-
-    fetch_success, fetch_msg = fetch_gpg_key(gpg_path, keyserver, f"0x{fingerprint}")
-    if not fetch_success:
-        return False, f"{status['reason']}; keyserver fetch failed: {fetch_msg}"
-
-    refreshed_status = get_gpg_key_status(gpg_path, email)
-    if refreshed_status["usable"]:
-        if emit_and_write:
-            emit_and_write(f"{progress_prefix} 🔑 Public key refreshed successfully.", "__HIDE__")
-        return True, "Public key refreshed successfully"
-
-    return False, f"{refreshed_status['reason']} after keyserver refresh"
 
 def validate_gpg(gpg_path):
     if not gpg_path or not os.path.exists(gpg_path):
@@ -3031,63 +3075,41 @@ class _NewsletterNoRedirectHandler(urllib.request.HTTPRedirectHandler):
 
 
 def fetch_gpg_key(gpg_path, keyserver, email):
-    """Миттєве завантаження ключа через стандартний HTTPS API сервера SKS (Обхід багів dirmngr)"""
+    """Fetch one public key with verified TLS and validate its identity before import."""
     try:
-        base_url = keyserver.replace("hkps://", "https://").replace("hkp://", "http://")
-        api_url = f"{base_url}/pks/lookup?op=get&options=mr&search={urllib.parse.quote(email)}"
-
-        # ІГНОРУВАННЯ ПОМИЛОК SSL (Для самопідписаних сертифікатів)
-        ctx = ssl.create_default_context()
-        if not outbound_policy_enforced():
-            ctx.check_hostname = False
-            ctx.verify_mode = ssl.CERT_NONE
-
-        # Намагаємося завантажити ключ з HTTP/HTTPS
-        try:
-            web_schemes = ("https",) if outbound_policy_enforced() else ("https", "http")
-            with pinned_outbound_url(api_url, "Newsletter GPG keyserver", allowed_schemes=web_schemes):
-                req = urllib.request.Request(api_url, headers={'User-Agent': 'Mozilla/5.0 (WinHUB)'})
-                opener = urllib.request.build_opener(
-                    urllib.request.ProxyHandler({}),
-                    urllib.request.HTTPSHandler(context=ctx),
-                    _NewsletterNoRedirectHandler(),
-                )
-                with opener.open(req, timeout=10) as response:
-                    key_data = response.read(2 * 1024 * 1024 + 1).decode('utf-8', errors='replace')
-                    if len(key_data.encode('utf-8')) > 2 * 1024 * 1024:
-                        return False, "Keyserver response is too large."
-        except Exception as e:
-            return False, f"HTTP Fetch Error: {str(e)}"
-
-        # Перевіряємо, чи отримали ми саме ключ
-        if "-----BEGIN PGP PUBLIC KEY BLOCK-----" not in key_data:
-            return False, "Invalid response: No PGP public key block found in server reply."
-
-        # Зберігаємо у тимчасовий файл
-        fd, tmp_path = tempfile.mkstemp(suffix=".asc")
-        with os.fdopen(fd, 'w', encoding='utf-8') as f:
-            f.write(key_data)
-
-        # Спокійно імпортуємо локально в GPG
-        try:
-            cmd_import = [gpg_path, "--batch", "--yes", "--import", tmp_path]
-            proc = subprocess.run(cmd_import, capture_output=True, text=True, timeout=10, env=gpg_env(), **hidden_subprocess_kwargs())
-        except FileNotFoundError:
-            os.remove(tmp_path)
-            return False, f"GPG executable not found at '{gpg_path}'"
-
-        # Видаляємо тимчасовий файл
-        try: os.remove(tmp_path)
-        except: pass
-
-        if proc.returncode == 0:
-            return True, "Key imported successfully"
+        base_url = str(keyserver or "").strip().replace("hkps://", "https://")
+        parts = urllib.parse.urlsplit(base_url)
+        if parts.scheme != "https" or not parts.hostname or parts.username or parts.password or parts.query or parts.fragment:
+            return False, "Public key retrieval requires an HTTPS or HKPS keyserver URL."
+        parts.port
+        api_url = f"{base_url.rstrip('/')}/pks/lookup?" + urllib.parse.urlencode({"op": "get", "options": "mr", "search": email})
+        payload = download_recipient_source(api_url, "Newsletter GPG keyserver", 2 * 1024 * 1024)
+        listing = inspect_public_key_bundle(payload)
+        records = [line.split(":") for line in listing.splitlines()]
+        if sum(fields[0] == "pub" for fields in records) != 1:
+            return False, "Keyserver must return exactly one public key; ambiguous results require explicit review."
+        is_email = valid_email(email)
+        addresses = parse_public_key_bundle_listing(listing, email.rsplit("@", 1)[1].lower() if is_email else "invalid.example")
+        if is_email:
+            if email.lower() not in addresses:
+                return False, "Keyserver returned no usable public key matching the exact recipient address."
         else:
-            err_msg = proc.stderr.strip() if proc.stderr else "Unknown import error"
-            return False, f"GPG Import returned exit code {proc.returncode}: {err_msg}"
-    except Exception as e:
-        log.error(f"GPG HTTP Fetch Error: {str(e)}")
-        return False, f"System Error: {str(e)}"
+            expected = str(email).removeprefix("0x").upper()
+            primary_fingerprint = next((fields[9].upper() for fields in records if fields[0] == "fpr" and len(fields) > 9), "")
+            if not expected or primary_fingerprint != expected:
+                return False, "Keyserver returned a different fingerprint than requested."
+        with tempfile.TemporaryDirectory(prefix="winhub-key-fetch-") as directory:
+            path = Path(directory) / "public.pgp"
+            path.write_bytes(payload)
+            result = subprocess.run([gpg_path, "--no-options", "--batch", "--yes", "--import", str(path)],
+                                    capture_output=True, text=True, timeout=10, stdin=subprocess.DEVNULL,
+                                    env=gpg_env(), **hidden_subprocess_kwargs())
+        if result.returncode:
+            return False, f"GPG import failed: {(result.stderr or 'Unknown error').strip()}"
+        return True, "Public key imported successfully"
+    except Exception as error:
+        return False, f"Public key fetch failed: {error}"
+
 
 def encrypt_with_gpg(gpg_path, recipient_email, payload):
     unique_id = str(time.time()).replace(".", "")
@@ -3127,189 +3149,7 @@ def encrypt_with_gpg(gpg_path, recipient_email, payload):
                 try: os.remove(f)
                 except: pass
 
-# --- Background Worker ---
-def bg_send_execution(app, task_id, sender_email, smtp_config, target_users, subject, body, body_html, attachments, use_gpg, log_file, room_id, is_admin):
-    timestamp = kyiv_log_timestamp()
-    ensure_parent_dir(log_file)
-
-    def emit_and_write(full_line, public_line=None):
-        ensure_parent_dir(log_file)
-        with open(log_file, "a", encoding="utf-8") as f:
-            f.write(full_line + "\n")
-
-        display_line = public_line if public_line is not None else full_line
-
-        if display_line != "__HIDE__":
-            public_log_file = log_file.replace(".log", "_public.log")
-            ensure_parent_dir(public_log_file)
-            with open(public_log_file, "a", encoding="utf-8") as f:
-                f.write(display_line + "\n")
-
-        actual_emit = full_line if is_admin else display_line
-        if room_id and actual_emit != "__HIDE__":
-            socketio.emit('log_update', {'data': actual_emit}, to=room_id)
-
-    with app.app_context():
-        server = None
-        try:
-            keyserver = (smtp_config.get('_recipient_keyserver') or smtp_config.get('keyserver') or '').strip()
-            use_gpg = bool(use_gpg)
-
-            emit_and_write(f"========== [ {timestamp} ] NEWSLETTER MAILING ==========")
-            emit_and_write(f"--- 📤 Sender: {sender_email}")
-            emit_and_write(f"--- 👥 Recipients: {len(target_users)}", "__HIDE__")
-            emit_and_write(f"--- 📎 Attachments: {len(attachments or [])}", "__HIDE__")
-            emit_and_write(f"--- 🔒 GPG Encryption: {'ENABLED' if use_gpg else 'DISABLED'}")
-
-            if keyserver:
-                emit_and_write(f"--- 🌐 Keyserver Fallback: {keyserver}", "__HIDE__")
-
-            emit_and_write(f"----------------------------------------------------------\n")
-
-            # Строге зчитування з .env напряму (бо Flask config може не містити цього ключа)
-            gpg_path = app.config.get('GPG_PATH') or os.environ.get('GPG_PATH', 'gpg')
-            if use_gpg:
-                gpg_ok, gpg_message = validate_gpg(gpg_path)
-                if not gpg_ok:
-                    emit_and_write(f"❌ [CRITICAL ERROR] GPG unavailable: {gpg_message}", "❌ [CRITICAL ERROR] GPG is unavailable. Sending stopped.")
-                    raise Exception("GPG unavailable")
-
-            success_count = 0
-            error_count = 0
-            failure_reasons = {}
-
-            emit_and_write(f"⏳ Connecting to SMTP server ({smtp_config['host']}:{smtp_config['port']})...", "⏳ Connecting to mail server...")
-            try:
-                server = open_smtp_connection(smtp_config['host'], smtp_config['port'], "newsletter SMTP delivery", timeout=30)
-                decrypted_pass = decrypt_pass(smtp_config['password'])
-                server.login(sender_email, decrypted_pass)
-                emit_and_write(f"✅ SMTP Authentication Successful.\n", "✅ Mail server connection established.\n")
-            except Exception as e:
-                emit_and_write(f"❌ [CRITICAL ERROR] SMTP Connection Failed: {str(e)}", "❌ [CRITICAL ERROR] Mail server connection failed. Contact an administrator.")
-                raise Exception("SMTP Authentication failed")
-
-            emit_and_write(f"🚀 Starting dispatch to {len(target_users)} recipients...", "⏳ Sending emails...\n")
-
-            # Sending loop
-            for idx, recipient in enumerate(sorted(target_users), 1):
-                clear_msg = build_clear_message(sender_email, recipient, subject, body, body_html, attachments)
-                final_msg = clear_msg
-                if use_gpg:
-                    key_ready, key_message = ensure_gpg_key_ready(
-                        gpg_path,
-                        keyserver,
-                        recipient,
-                        emit_and_write=emit_and_write,
-                        progress_prefix=f"[{idx}/{len(target_users)}]",
-                    )
-
-                    if not key_ready:
-                        emit_and_write(f"[{idx}/{len(target_users)}] ❌ Failed: {recipient} (Encryption Error: {key_message})", "__HIDE__")
-                        error_count += 1
-                        failure_reasons["Missing/Invalid GPG Key"] = failure_reasons.get("Missing/Invalid GPG Key", 0) + 1
-                        continue
-
-                    is_encrypted, encrypted_payload = encrypt_with_gpg(gpg_path, recipient, clear_msg.as_bytes())
-
-                    if not is_encrypted:
-                        emit_and_write(f"[{idx}/{len(target_users)}] ❌ Failed: {recipient} (Encryption Error: {encrypted_payload})", "__HIDE__")
-                        error_count += 1
-                        failure_reasons["GPG Encryption Error"] = failure_reasons.get("GPG Encryption Error", 0) + 1
-                        continue
-                    final_msg = build_encrypted_message(sender_email, recipient, subject, encrypted_payload)
-                else:
-                    emit_and_write(f"[{idx}/{len(target_users)}] ⚠️ Sending without GPG encryption: {recipient}", "__HIDE__")
-
-                try:
-                    server.send_message(final_msg, from_addr=sender_email, to_addrs=[recipient])
-                    emit_and_write(f"[{idx}/{len(target_users)}] ✅ Sent: {recipient}", "__HIDE__")
-                    success_count += 1
-                except Exception as e:
-                    emit_and_write(f"[{idx}/{len(target_users)}] ❌ Failed: {recipient} (SMTP Send Error)", "__HIDE__")
-                    error_count += 1
-                    failure_reasons["SMTP Connection/Send Error"] = failure_reasons.get("SMTP Connection/Send Error", 0) + 1
-
-                time.sleep(0.01)
-
-            if server:
-                server.quit()
-                server = None
-
-            # --- FINAL NEWSLETTER SUMMARY ---
-            emit_and_write(f"\n==================================================", "__HIDE__")
-            emit_and_write(f"📊 NEWSLETTER SENDING SUMMARY", "__HIDE__")
-            emit_and_write(f"==================================================", "__HIDE__")
-
-            emit_and_write(f"✅ Total Successfully Sent: {success_count}", "__HIDE__")
-            emit_and_write(f"❌ Total Failed: {error_count}", "__HIDE__")
-
-            if error_count == 0:
-                emit_and_write("✅ Newsletter completed successfully.", "✅ Newsletter completed successfully.")
-            else:
-                emit_and_write("⚠️ Newsletter completed with errors.", "⚠️ Newsletter completed with errors. Contact an administrator.")
-
-            if error_count > 0:
-                emit_and_write(f"\nFailure Breakdown:", "__HIDE__")
-                for reason, count in failure_reasons.items():
-                    emit_and_write(f"   - {reason}: {count}", "__HIDE__")
-            emit_and_write(f"==================================================", "__HIDE__")
-
-            task = Task.query.get(task_id)
-            if task:
-                task.status = "Success" if error_count == 0 else "Warning"
-                task.ended_at = datetime.utcnow()
-                db.session.commit()
-            try:
-                WinHubCore.audit(
-                    module="Newsletter",
-                    action="Mailing Finished",
-                    details={
-                        "sender": sender_email,
-                        "recipients_count": len(target_users),
-                        "success_count": success_count,
-                        "error_count": error_count,
-                        "use_gpg": use_gpg,
-                        "attachments_count": len(attachments or []),
-                    },
-                    status="Success" if error_count == 0 else "Warning"
-                )
-            except Exception as audit_error:
-                log.error(f"Failed to audit Newsletter mailing finish: {audit_error}")
-
-        except Exception as e:
-            log.error(f"Newsletter Script Error: {traceback.format_exc()}")
-            try:
-                emit_and_write(f"\n❌ [CRITICAL ERROR] {str(e)}", f"\n❌ [CRITICAL ERROR] Sending was interrupted. Contact an administrator.")
-            except Exception as log_error:
-                log.error(f"Failed to write Newsletter error log: {log_error}")
-            task = Task.query.get(task_id)
-            if task:
-                task.status = "Error"
-                task.ended_at = datetime.utcnow()
-                db.session.commit()
-            try:
-                WinHubCore.audit(
-                    module="Newsletter",
-                    action="Mailing Failed",
-                    details={
-                        "sender": sender_email,
-                        "recipients_count": len(target_users),
-                        "error": str(e),
-                        "use_gpg": use_gpg,
-                        "attachments_count": len(attachments or []),
-                    },
-                    status="Error"
-                )
-            except Exception as audit_error:
-                log.error(f"Failed to audit Newsletter mailing failure: {audit_error}")
-        finally:
-            if server:
-                try:
-                    server.quit()
-                except Exception:
-                    pass
-
-
+# --- Durable campaign worker ---
 def _write_campaign_log(task, line):
     if not task or not task.log_file:
         return

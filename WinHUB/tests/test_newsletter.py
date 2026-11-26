@@ -347,6 +347,7 @@ class NewsletterSafetyTests(unittest.TestCase):
 
     def test_missing_key_is_not_silently_discovered_during_delivery(self):
         with (
+            mock.patch.dict(routes.os.environ, {"NEWSLETTER_ALLOW_KEYSERVER_AUTO_IMPORT": "false"}),
             mock.patch.object(routes, "get_gpg_key_status", return_value={
                 "exists": False, "usable": False, "reason": "Missing public key",
             }),
@@ -356,6 +357,64 @@ class NewsletterSafetyTests(unittest.TestCase):
         self.assertFalse(ok)
         self.assertIn("explicitly discover", message)
         fetch.assert_not_called()
+
+    def test_missing_key_is_fetched_once_during_delivery_when_policy_allows(self):
+        missing = {"exists": False, "usable": False, "reason": "Missing public key"}
+        ready = {"exists": True, "usable": True, "reason": "Public key is usable", "fingerprint": "A" * 40}
+        with (mock.patch.dict(routes.os.environ, {"NEWSLETTER_ALLOW_KEYSERVER_AUTO_IMPORT": "true"}),
+              mock.patch.object(routes, "get_gpg_key_status", side_effect=[missing, ready]),
+              mock.patch.object(routes, "fetch_gpg_key", return_value=(True, "ok")) as fetch):
+            self.assertTrue(routes.ensure_gpg_key_ready("gpg", "hkps://keys.example.org", "alice@example.org")[0])
+        fetch.assert_called_once_with("gpg", "hkps://keys.example.org", "alice@example.org")
+        with (mock.patch.dict(routes.os.environ, {"NEWSLETTER_ALLOW_KEYSERVER_AUTO_IMPORT": "true"}),
+              mock.patch.object(routes, "get_gpg_key_status", return_value=missing),
+              mock.patch.object(routes, "fetch_gpg_key", return_value=(False, "Unavailable")) as fetch):
+            ok, message = routes.ensure_gpg_key_ready("gpg", "hkps://keys.example.org", "alice@example.org")
+            self.assertFalse(ok)
+            self.assertIn("Unavailable", message)
+            fetch.assert_called_once()
+
+    def test_fetched_keys_must_match_address_or_known_fingerprint_before_import(self):
+        pub = self.bundle_listing_record("pub")
+        uid = self.bundle_listing_record("uid", uid="alice@example.org")
+        fingerprint = "A" * 40
+        listing = pub + "\nfpr:::::::::" + fingerprint + ":\n" + uid
+        with (mock.patch.object(routes, "download_recipient_source", return_value=b"public"),
+              mock.patch.object(routes, "inspect_public_key_bundle", return_value=listing),
+              mock.patch.object(routes.subprocess, "run", return_value=mock.Mock(returncode=0)) as run):
+            self.assertTrue(routes.fetch_gpg_key("gpg", "hkps://keys.example.org", "alice@example.org")[0])
+            run.assert_called_once()
+            run.reset_mock()
+            self.assertFalse(routes.fetch_gpg_key("gpg", "hkps://keys.example.org", "bob@example.org")[0])
+            self.assertFalse(routes.fetch_gpg_key("gpg", "hkps://keys.example.org", "0x" + "B" * 40)[0])
+            self.assertFalse(routes.fetch_gpg_key("gpg", "http://keys.example.org", "alice@example.org")[0])
+            run.assert_not_called()
+        with (mock.patch.object(routes, "download_recipient_source", return_value=b"public"),
+              mock.patch.object(routes, "inspect_public_key_bundle", return_value=listing + "\n" + pub),
+              mock.patch.object(routes.subprocess, "run") as run):
+            self.assertFalse(routes.fetch_gpg_key("gpg", "hkps://keys.example.org", "alice@example.org")[0])
+            run.assert_not_called()
+
+    def test_preflight_marks_missing_keys_for_delivery_time_fetch_when_enabled(self):
+        app = Flask(__name__)
+        with (app.test_request_context(json={"sender": "relay@example.org", "lists": ["team"], "use_gpg": True}),
+              mock.patch.dict(routes.os.environ, {"NEWSLETTER_ALLOW_KEYSERVER_AUTO_IMPORT": "true"}),
+              mock.patch.object(routes, "require_permission", return_value=None),
+              mock.patch.object(routes, "load_smtp_profiles", return_value={"relay@example.org": {"keyserver": "hkps://keys.example.org"}}),
+              mock.patch.object(routes, "resolve_campaign_recipients", return_value=(["alice@example.org"], [], {"team": 1})),
+              mock.patch.object(routes, "validate_gpg", return_value=(True, "ok")),
+              mock.patch.object(routes, "get_gpg_key_status", return_value={"exists": False, "usable": False})):
+            data = routes.newsletter_preflight().get_json()
+        self.assertTrue(data["success"])
+        self.assertEqual(data["keys_to_fetch_count"], 1)
+        self.assertEqual(data["missing_gpg_keys_count"], 0)
+
+    def test_newsletter_live_logs_and_unused_sender_are_removed(self):
+        template = (Path(routes.MODULE_DIR) / "templates/newsletter_index.html").read_text(encoding="utf-8")
+        for marker in ("logsModal", "openLogsModal", "appendLog(", "const socket", "socket.io.min.js"):
+            self.assertNotIn(marker, template)
+        self.assertFalse(hasattr(routes, "bg_send_execution"))
+        self.assertFalse(hasattr(routes, "join_newsletter_logs"))
 
     def test_inbound_decrypt_requires_valid_signature_status(self):
         completed = mock.Mock(returncode=0, stdout=b"Subject: signed\n\nbody", stderr=b"[GNUPG:] VALIDSIG " + b"A" * 40 + b" 2026")
@@ -555,6 +614,73 @@ class NewsletterQueueTests(unittest.TestCase):
                 self.assertIsNone(inner["Bcc"])
                 self.assertNotIn(other.encode(), plaintexts[recipient])
                 self.assertNotIn(b"private-team", plaintexts[recipient])
+
+    def test_retry_only_resets_failed_and_skipped_and_rejects_active_campaign(self):
+        with self.app.app_context():
+            user = User(username="retry-owner", email="operator@example.org", is_admin=True)
+            db.session.add(user)
+            db.session.commit()
+            campaign = routes.enqueue_campaign(user_id=user.id, source="manual", sender_email="relay@example.org",
+                subject="Retry", body_text="Body", body_html="", attachments=[],
+                recipients=[f"user{i}@example.org" for i in range(4)], selected_lists=["team"], use_gpg=False)
+            rows = NewsletterDelivery.query.filter_by(campaign_id=campaign.id).order_by(NewsletterDelivery.id).all()
+            for row, status in zip(rows, ["Sent", "Failed", "Skipped", "Unknown"]):
+                row.status = status
+                row.attempts = 1
+            campaign.status = "Sending"
+            db.session.commit()
+            with (self.app.test_request_context(method="POST", json={"delivery_ids": [rows[1].id, rows[2].id]}),
+                  mock.patch.object(routes, "require_permission", return_value=None),
+                  mock.patch.object(routes, "current_user", return_value=user)):
+                self.assertEqual(routes.retry_newsletter_campaign(campaign.id)[1], 409)
+                campaign.status = "Partial"
+                db.session.commit()
+                self.assertTrue(routes.retry_newsletter_campaign(campaign.id).get_json()["success"])
+            self.assertEqual([row.status for row in rows], ["Sent", "Pending", "Pending", "Unknown"])
+            self.assertEqual([row.attempts for row in rows], [1, 1, 1, 1])
+            self.assertEqual(campaign.status, "Queued")
+
+    def test_selective_retry_preview_and_server_validation(self):
+        with self.app.app_context():
+            user = User(username="selective-retry-owner", email="owner@example.org", is_admin=False)
+            other = User(username="selective-retry-other", email="other@example.org", is_admin=False)
+            db.session.add_all([user, other])
+            db.session.commit()
+            campaigns = []
+            for owner in (user, other):
+                campaign = routes.enqueue_campaign(user_id=owner.id, source="manual", sender_email="relay@example.org",
+                    subject="Selection", body_text="Body", body_html="", attachments=[],
+                    recipients=[f"u{i}@example.org" for i in range(5)], selected_lists=["team"], use_gpg=False)
+                campaign.status = "Partial"
+                campaigns.append(campaign)
+            rows = NewsletterDelivery.query.filter_by(campaign_id=campaigns[0].id).order_by(NewsletterDelivery.id).all()
+            for row, status, error in zip(rows, ["Failed", "Failed", "Skipped", "Sent", "Unknown"],
+                ["Missing public key; use the list key check", "550 5.1.1 Recipient address rejected", "Cancelled", None, "Uncertain"]):
+                row.status, row.error = status, error
+            db.session.commit()
+            with (mock.patch.object(routes, "require_permission", return_value=None),
+                  mock.patch.object(routes, "current_user", return_value=user),
+                  mock.patch.object(routes, "has_permission", return_value=False),
+                  mock.patch.object(routes.WinHubCore, "audit")):
+                with self.app.test_request_context(method="GET"):
+                    data = routes.retry_newsletter_campaign(campaigns[0].id).get_json()
+                    groups = {group["id"]: group for group in data["groups"]}
+                    self.assertEqual(set(groups), {"missing_key", "recipient_address", "skipped"})
+                    self.assertEqual(groups["missing_key"]["recipients"][0]["id"], rows[0].id)
+                    self.assertEqual(routes.retry_newsletter_campaign(campaigns[1].id)[1], 404)
+                foreign = NewsletterDelivery.query.filter_by(campaign_id=campaigns[1].id).first()
+                for payload in ({}, {"delivery_ids": []}, {"delivery_ids": [None]}, {"delivery_ids": [rows[3].id]},
+                                {"delivery_ids": [rows[4].id]}, {"delivery_ids": [foreign.id]}, {"delivery_ids": [rows[0].id, "missing"]}):
+                    with self.subTest(payload=payload), self.app.test_request_context(method="POST", json=payload):
+                        response = routes.retry_newsletter_campaign(campaigns[0].id)
+                        self.assertIn(response[1], (400, 409))
+                    self.assertEqual(rows[0].status, "Failed")
+                with self.app.test_request_context(method="POST", json={"delivery_ids": [rows[0].id]}):
+                    data = routes.retry_newsletter_campaign(campaigns[0].id).get_json()
+                self.assertEqual(data["retry_count"], 1)
+                self.assertEqual([row.status for row in rows], ["Pending", "Failed", "Skipped", "Sent", "Unknown"])
+                self.assertIsNone(rows[0].error)
+                self.assertIn("Recipient address", rows[1].error)
 
     def test_active_progress_uses_committed_delivery_counts_before_campaign_finishes(self):
         with self.app.app_context():

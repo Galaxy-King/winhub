@@ -28,15 +28,29 @@ class NewsletterReportBrowserTests(unittest.TestCase):
         modal = source[source.index('<div id="campaignReportModal"'):source.index('<!-- Modal: Newsletter Guide -->')]
         script = source[source.index("    function campaignStatusClass("):source.index("    async function loadCampaigns(")]
         script += source[source.index("    function campaignReportCard("):source.index("    async function campaignAction(")]
+        script += source[source.index("    async function retryCampaign("):source.index("    // --- Permission-controlled management functions ---")]
         test_script = r"""
 let campaignReportState = {id:null,status:'',page:1,pages:1};
 let campaignReportLoading=false;
 let campaignReportRequest=0;
 let campaignReportAutoRefresh=false;
 const escapeHtml = value => String(value ?? '').replace(/[&<>"']/g, ch => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[ch]));
+let retryDialog = {id:null,groups:[],selected:new Set(),pages:{},submitting:false};
+let retryDialogRequest=0;
+const loadCampaigns = async()=>{};
 const requests = [];
 const manyReports = location.hash === '#many-reports';
-window.fetch = async url => {
+window.fetch = async (url, options={}) => {
+    if(url.endsWith('/retry')) {
+        if(options.method==='POST'){
+            requests.push({retry:JSON.parse(options.body).delivery_ids});
+            return {ok:true,json:async()=>({success:true,retry_count:120})};
+        }
+        return {ok:true,json:async()=>({success:true,groups:[
+            {id:'missing_key',label:'Missing public key',count:120,recipients:Array.from({length:120},(_,i)=>({id:'missing-'+i,recipient:`missing-${i}@example.org`,status:'Failed',error:'Missing public key <img src=x onerror=alert(1)>'}))},
+            {id:'recipient_address',label:'Recipient address rejected',count:3880,recipients:Array.from({length:3880},(_,i)=>({id:'address-'+i,recipient:`address-${i}@example.org`,status:'Failed',error:'550 5.1.1 Recipient address rejected'}))}
+        ]})};
+    }
     const query = new URL(url, 'https://fixture.invalid').searchParams;
     const page = Number(query.get('page') || 1);
     requests.push({page,status:query.get('status') || '',summaryOnly:query.get('summary_only')==='1'});
@@ -95,6 +109,31 @@ window.addEventListener('load', async()=>{
         closeCampaignReport();
         assert(getComputedStyle(modal).display==='none','Close does not hide the report');
         assert(!campaignReportAutoRefresh,'Closed report continues progress polling');
+        await retryCampaign('fixture');
+        const retryModal=document.getElementById('campaignRetryModal');
+        assert(inside(retryModal.firstElementChild),'Retry dialog exceeds viewport');
+        assert(inside(document.getElementById('retryConfirm')),'Retry confirmation is outside viewport');
+        assert(document.getElementById('retryGroups').textContent.includes('Missing public key · 120'),'Retry category count is missing');
+        assert(retryDialog.selected.size===0 && document.getElementById('retryConfirm').disabled,'Retry selected recipients by default');
+        assert(document.querySelectorAll('.retry-recipient-cb').length===100,'Retry eagerly rendered all 4000 recipients');
+        assert(!document.querySelector('#retryGroups img'),'Retry error text created HTML');
+        const groupCheckbox=document.querySelector('.retry-group-cb[data-category="missing_key"]');
+        groupCheckbox.click();
+        assert(retryDialog.selected.size===120,'Group checkbox did not select recipients on all pages');
+        document.querySelector('details[data-category="missing_key"]').open=true;
+        document.querySelector('.retry-recipient-cb[data-delivery-id="missing-0"]').click();
+        assert(retryDialog.selected.size===119 && groupCheckbox.indeterminate,'Individual deselection did not update the group');
+        changeRetryPage('missing_key',1);
+        assert(document.querySelector('.retry-recipient-cb[data-delivery-id="missing-50"]').checked,'Selection was lost across pages');
+        const search=document.getElementById('retrySearch');
+        search.value='address-0@';search.dispatchEvent(new Event('input'));
+        assert(retryDialog.selected.size===119,'Search changed the selection');
+        document.querySelector('.retry-recipient-cb[data-delivery-id="address-0"]').click();
+        assert(retryDialog.selected.size===120,'Individual selection from another category failed');
+        await confirmSelectedRetry();
+        const submitted=requests.find(item=>item.retry)?.retry || [];
+        assert(submitted.length===120 && submitted.includes('address-0') && !submitted.includes('missing-0'),'Retry submitted the wrong recipient selection');
+        assert(getComputedStyle(retryModal).display==='none','Successful retry did not close the dialog');
     } catch(error){errors.push(error.stack || String(error));}
     const result=document.createElement('pre');
     result.id='browser-test-result';

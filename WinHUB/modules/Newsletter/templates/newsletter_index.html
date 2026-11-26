@@ -3,7 +3,6 @@
 {% block title %}Newsletter Manager - WinHUB{% endblock %}
 
 {% block extra_head %}
-<script nonce="{{ csp_nonce }}" src="{{ url_for('static', filename='vendor/socket.io/socket.io.min.js', v=app_version) }}"></script>
 <style nonce="{{ csp_nonce }}">
     /* Toggle Switch Custom CSS for GPG Slider */
     .toggle-switch { position: relative; display: inline-block; width: 44px; height: 24px; flex-shrink: 0;}
@@ -210,11 +209,7 @@
     .nl-list-option:nth-child(6n+5) { border-color: rgba(251, 191, 36, 0.38) !important; box-shadow: 0 0 16px rgba(251, 191, 36, 0.14); }
     .nl-list-option:nth-child(6n) { border-color: rgba(96, 165, 250, 0.38) !important; box-shadow: 0 0 16px rgba(96, 165, 250, 0.14); }
 
-    #logsModal > div {
-        background: #0f172a !important;
-        border: 1px solid rgba(34, 211, 238, 0.24) !important;
-        box-shadow: 0 30px 90px rgba(0, 0, 0, 0.58) !important;
-    }
+
 
     #newsletterGuideModal > div {
         background: #f8fafc !important;
@@ -563,6 +558,30 @@
         cursor: not-allowed;
         opacity: 0.42;
     }
+    #campaignRetryModal > div {
+        display: flex;
+        flex-direction: column;
+        width: 100%;
+        max-width: 64rem;
+        min-width: 0;
+        height: 88vh;
+        height: 88dvh;
+        max-height: calc(100dvh - 1.5rem);
+        padding: 1rem;
+        overflow: hidden;
+        background: #071b2c;
+        color: #e6f7ff;
+        border: 1px solid #246078;
+        border-radius: 1rem;
+    }
+    #retryGroups { flex: 1 1 0; min-height: 0; overflow: auto; overscroll-behavior: contain; }
+    #retryGroups > section { border: 1px solid #246078; border-radius: 0.75rem; padding: 0.75rem; margin: 0.75rem 0; }
+    #retryGroups label { display: flex; align-items: start; gap: 0.5rem; }
+    #retryGroups input[type="checkbox"] { margin-top: 0.25rem; flex-shrink: 0; }
+    #retryGroups .retry-recipient { padding: 0.5rem 0; border-bottom: 1px solid #163b50; overflow-wrap: anywhere; }
+    #retryGroups .retry-error { font-size: 0.75rem; color: #9cc5d7; }
+    #campaignRetryModal button:disabled { opacity: 0.45; cursor: not-allowed; }
+    #campaignRetryModal input[type="search"] { width: 100%; background: #03121f; color: #e6f7ff; border: 1px solid #246078; padding: 0.6rem; border-radius: 0.5rem; }
 </style>
 {% endblock %}
 
@@ -575,10 +594,7 @@
     <header class="h-16 bg-white border-b border-slate-200 flex items-center justify-between px-8 shrink-0 shadow-sm">
         <h2 class="text-lg font-bold text-slate-800">Newsletter</h2>
         <div class="flex items-center gap-4">
-            <button onclick="openLogsModal()" class="flex items-center gap-2 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold py-2 px-4 rounded-lg border border-slate-300 transition-colors text-sm">
-                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 9h8M8 13h6M5 5h14v14H5z"></path></svg>
-                Logs
-            </button>
+
             <button onclick="openNewsletterGuide()" class="flex items-center gap-2 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold py-2 px-4 rounded-lg border border-slate-300 transition-colors text-sm">
                 <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 6.253v13M5 5.5A2.5 2.5 0 017.5 3H20v15H7.5A2.5 2.5 0 005 20.5v-15z"></path></svg>
                 Guide
@@ -750,25 +766,6 @@
     </div>
 </main>
 
-<!-- Modal: Newsletter Logs -->
-<div id="logsModal" role="dialog" aria-modal="true" aria-label="Newsletter logs" class="hidden fixed inset-0 z-50 flex items-center justify-center bg-slate-900/80 p-6 backdrop-blur-sm">
-    <div class="w-full max-w-5xl h-[78vh] rounded-2xl shadow-2xl flex flex-col overflow-hidden">
-        <div class="h-12 bg-slate-800 border-b border-slate-700 flex items-center px-5 justify-between shrink-0">
-            <div class="flex items-center gap-2">
-                <div class="w-3 h-3 rounded-full bg-rose-500"></div>
-                <div class="w-3 h-3 rounded-full bg-amber-500"></div>
-                <div class="w-3 h-3 rounded-full bg-emerald-500"></div>
-                <span class="ml-2 text-sm font-mono text-slate-300 font-bold">Newsletter Sending Logs</span>
-            </div>
-            <div class="flex items-center gap-2">
-                <button onclick="document.getElementById('terminalBody').innerHTML = ''" class="text-xs font-bold text-slate-300 hover:text-white transition-colors border border-slate-600 px-3 py-1.5 rounded">CLEAR</button>
-                <button onclick="closeLogsModal()" class="text-xs font-bold text-slate-300 hover:text-white transition-colors border border-slate-600 px-3 py-1.5 rounded">CLOSE</button>
-            </div>
-        </div>
-        <div id="terminalBody" class="flex-1 p-5 overflow-y-auto font-mono text-sm leading-relaxed text-emerald-400 whitespace-pre-wrap bg-slate-950"></div>
-    </div>
-</div>
-
 <!-- Modal: Campaign Delivery Report -->
 <div id="campaignReportModal" role="dialog" aria-modal="true" aria-label="Campaign delivery report" class="hidden fixed inset-0 z-50 flex items-center justify-center bg-slate-900/80 p-3 lg:p-6 backdrop-blur-sm">
     <div class="newsletter-report-panel bg-white rounded-2xl shadow-2xl flex flex-col">
@@ -800,6 +797,25 @@
                 <button id="campaignReportPrev" type="button" onclick="changeCampaignReportPage(-1)" class="px-4 py-2 rounded-lg bg-slate-100 hover:bg-slate-200 text-sm font-bold">Previous</button>
                 <button id="campaignReportNext" type="button" onclick="changeCampaignReportPage(1)" class="px-4 py-2 rounded-lg bg-slate-100 hover:bg-slate-200 text-sm font-bold">Next</button>
             </div>
+        </div>
+    </div>
+</div>
+
+<!-- Modal: Selective retry of failed deliveries -->
+<div id="campaignRetryModal" role="dialog" aria-modal="true" aria-labelledby="retryDialogTitle" class="hidden fixed inset-0 z-50 flex items-center justify-center bg-slate-900/80 p-3 backdrop-blur-sm">
+    <div>
+        <div class="flex items-start justify-between gap-3 shrink-0">
+            <div><h3 id="retryDialogTitle" class="text-xl font-black">Retry failed — choose recipients</h3>
+            <p class="text-xs mt-1">Select error groups or individual recipients. Sent and Unknown deliveries are excluded.</p></div>
+            <button type="button" onclick="closeRetryDialog()" class="px-3 py-2 rounded-lg bg-slate-800 font-bold">Close</button>
+        </div>
+        <input type="search" id="retrySearch" aria-label="Search retry recipients" placeholder="Search recipient or error…" oninput="searchRetryRecipients()" class="mt-3">
+        <label class="flex items-center gap-2 mt-3"><input type="checkbox" id="retrySelectAll" onchange="selectAllRetryRecipients(this.checked)"> Select all eligible recipients</label>
+        <p id="retryDialogMessage" role="status" class="text-xs mt-2"></p>
+        <div id="retryGroups"></div>
+        <div class="flex flex-wrap items-center justify-between gap-3 pt-3 shrink-0">
+            <span id="retrySelectedCount" class="text-sm font-bold">Selected: 0</span>
+            <button id="retryConfirm" type="button" onclick="confirmSelectedRetry()" disabled class="px-4 py-2 rounded-lg bg-indigo-600 text-white font-bold">Queue selected recipients</button>
         </div>
     </div>
 </div>
@@ -974,7 +990,7 @@ runuser -u winhub -- env GNUPGHOME=/var/lib/winhub/gnupg /usr/bin/gpg --with-col
                     <ul>
                         <li>Use <code>Test Mail Profile</code> to verify SMTP and IMAP access.</li>
                         <li>Use <code>Test LDAP / Check Groups</code> to verify LDAP credentials and group lookup.</li>
-                        <li>Open <code>Logs</code> while sending a test message. Accepted messages move to the processed folder; rejected messages move to the failed folder.</li>
+                        <li>Open <code>Recent campaigns → View report</code> after the test message is accepted. Accepted messages move to the processed folder; rejected messages move to the failed folder.</li>
                         <li>If a recipient does not receive mail, check the public GPG key, recipient email address, SMTP result, and task log.</li>
                     </ul>
                 </div>
@@ -1134,7 +1150,7 @@ runuser -u winhub -- env GNUPGHOME=/var/lib/winhub/gnupg /usr/bin/gpg --with-col
                     <ul>
                         <li>Використовуй <code>Test Mail Profile</code>, щоб перевірити SMTP та IMAP доступ.</li>
                         <li>Використовуй <code>Test LDAP / Check Groups</code>, щоб перевірити LDAP-доступ і пошук груп.</li>
-                        <li>Відкрий <code>Logs</code> під час тестової відправки. Успішні листи переходять у processed folder, помилкові у failed folder.</li>
+                        <li>Після прийняття тестового листа відкрий <code>Recent campaigns → View report</code>. Успішні листи переходять у processed folder, помилкові у failed folder.</li>
                         <li>Якщо отримувач не отримав лист, перевір public GPG key, email-адресу, SMTP-результат і task log.</li>
                     </ul>
                 </div>
@@ -1510,8 +1526,6 @@ runuser -u winhub -- env GNUPGHOME=/var/lib/winhub/gnupg /usr/bin/gpg --with-col
 {% endif %}
 
 <script nonce="{{ csp_nonce }}">
-    const socket = io();
-    const terminal = document.getElementById('terminalBody');
     let moduleData = { senders: [], lists: {} };
     let currentEditListUsers = [];
     let originalEditListName = null;
@@ -1532,6 +1546,8 @@ runuser -u winhub -- env GNUPGHOME=/var/lib/winhub/gnupg /usr/bin/gpg --with-col
     let campaignReportLoading = false;
     let campaignReportRequest = 0;
     let campaignReportAutoRefresh = false;
+    let retryDialog = {id: null, groups: [], selected: new Set(), pages: {}, submitting: false};
+    let retryDialogRequest = 0;
 
     function escapeHtml(value) {
         return String(value ?? '').replace(/[&<>"']/g, ch => ({
@@ -1588,13 +1604,9 @@ runuser -u winhub -- env GNUPGHOME=/var/lib/winhub/gnupg /usr/bin/gpg --with-col
 
     document.addEventListener('keydown', event => {
         if (event.key !== 'Escape') return;
-        ['logsModal', 'campaignReportModal', 'newsletterGuideModal', 'listModal', 'smtpModal'].forEach(id => document.getElementById(id)?.classList.add('hidden'));
+        closeRetryDialog();
+        ['campaignReportModal', 'newsletterGuideModal', 'listModal', 'smtpModal'].forEach(id => document.getElementById(id)?.classList.add('hidden'));
     });
-
-    socket.on('connect', function() {
-        socket.emit('join_newsletter_logs');
-    });
-    socket.on('log_update', function(msg) { appendLog(msg.data); });
 
     document.getElementById('nlUseGpg')?.addEventListener('change', function() {
         if (!this.checked) {
@@ -1602,28 +1614,6 @@ runuser -u winhub -- env GNUPGHOME=/var/lib/winhub/gnupg /usr/bin/gpg --with-col
             if (!confirmed) this.checked = true;
         }
     });
-
-    function appendLog(msg) {
-        const div = document.createElement('div');
-        div.className = "mb-0.5 text-emerald-400";
-        if(msg.includes("❌") || msg.includes("ERROR") || msg.includes("Failed")) div.className = "mb-0.5 text-rose-400";
-        else if(msg.includes("===") || msg.includes("---")) div.className = "mb-0.5 text-blue-400 font-bold mt-2";
-        else if(msg.includes("⏳") || msg.includes("⚠️") || msg.includes("🔑")) div.className = "mb-0.5 text-amber-400";
-        else if(msg.includes("📊") || msg.includes("Total") || msg.includes("Newsletter completed")) div.className = "mb-0.5 text-white font-bold";
-
-        div.innerText = msg;
-        terminal.appendChild(div);
-        terminal.scrollTop = terminal.scrollHeight;
-    }
-
-    function openLogsModal() {
-        document.getElementById('logsModal').classList.remove('hidden');
-        terminal.scrollTop = terminal.scrollHeight;
-    }
-
-    function closeLogsModal() {
-        document.getElementById('logsModal').classList.add('hidden');
-    }
 
     function openNewsletterGuide() {
         document.getElementById('newsletterGuideModal').classList.remove('hidden');
@@ -1906,7 +1896,7 @@ runuser -u winhub -- env GNUPGHOME=/var/lib/winhub/gnupg /usr/bin/gpg --with-col
                 preflightApprovedHash = campaignPayloadFingerprint();
                 document.getElementById('btnSend').disabled = false;
                 summary.className = 'mb-4 rounded-xl border border-emerald-200 bg-emerald-50 p-4 text-sm text-emerald-800';
-                summary.innerHTML = `<div class="font-black">Ready to launch</div><div class="mt-1">Unique recipients: <strong>${data.recipients_count}</strong>. Lists: <strong>${payload.lists.length}</strong>. Mode: <strong>${payload.use_gpg ? 'GPG encrypted' : 'unencrypted'}</strong>.</div><details class="mt-3"><summary class="cursor-pointer font-bold">Message preview</summary><div class="mt-3 rounded-lg border border-slate-200 bg-white p-4"><div class="font-black mb-3">${escapeHtml(payload.subject)}</div><div>${sanitizeNewsletterHtml(payload.body_html)}</div></div></details>`;
+                summary.innerHTML = `<div class="font-black">Ready to launch</div><div class="mt-1">Unique recipients: <strong>${data.recipients_count}</strong>. Lists: <strong>${payload.lists.length}</strong>. Mode: <strong>${payload.use_gpg ? 'GPG encrypted' : 'unencrypted'}</strong>.</div>${data.keys_to_fetch_count ? `<div class="mt-2 font-bold">${data.keys_to_fetch_count} missing public keys will be requested from the mail profile keyserver during delivery. Failed retrievals will be recorded in View report; no plaintext fallback.</div>` : ''}<details class="mt-3"><summary class="cursor-pointer font-bold">Message preview</summary><div class="mt-3 rounded-lg border border-slate-200 bg-white p-4"><div class="font-black mb-3">${escapeHtml(payload.subject)}</div><div>${sanitizeNewsletterHtml(payload.body_html)}</div></div></details>`;
             } else {
                 preflightApprovedHash = null;
                 document.getElementById('btnSend').disabled = true;
@@ -1958,7 +1948,6 @@ runuser -u winhub -- env GNUPGHOME=/var/lib/winhub/gnupg /usr/bin/gpg --with-col
         btn.innerHTML = '<svg class="animate-spin h-5 w-5 border-2 border-white border-t-transparent rounded-full"></svg> Executing...';
         btn.classList.add('opacity-75', 'cursor-not-allowed');
 
-        appendLog("\n\n⏳ [BACKGROUND PROCESS] NEWSLETTER STARTED. Waiting for server logs...");
 
         try {
             payload.attachments = await collectAttachments();
@@ -1967,10 +1956,11 @@ runuser -u winhub -- env GNUPGHOME=/var/lib/winhub/gnupg /usr/bin/gpg --with-col
             });
             const data = await res.json();
             if (!res.ok || !data.success) {
-                appendLog(`[SYSTEM ERROR] ${data.message || 'Could not queue the campaign.'}`);
+                alert(data.message || 'Could not queue the campaign. Your draft was preserved.');
                 return;
             }
-            appendLog(`✅ Campaign ${data.campaign.id} was queued.`);
+            await loadCampaigns();
+            await openCampaignReport(data.campaign.id);
             localStorage.removeItem(newsletterStateKey);
             preflightApprovedHash = null;
             lastPreflight = null;
@@ -1987,7 +1977,7 @@ runuser -u winhub -- env GNUPGHOME=/var/lib/winhub/gnupg /usr/bin/gpg --with-col
                 loadCampaigns();
             }, 1000);
         } catch(err) {
-            appendLog(`[NETWORK ERROR] The request failed. Your draft was preserved.`);
+            alert('The request failed. Your draft was preserved.');
         }
         finally {
             if (!lastPreflight) {
@@ -2149,8 +2139,142 @@ runuser -u winhub -- env GNUPGHOME=/var/lib/winhub/gnupg /usr/bin/gpg --with-col
         if (confirm('Cancel all deliveries that have not started yet?')) campaignAction(id, 'cancel');
     }
 
-    function retryCampaign(id) {
-        if (confirm('Queue only failed and skipped deliveries again?')) campaignAction(id, 'retry');
+    async function retryCampaign(id) {
+        closeCampaignReport();
+        const requestId = ++retryDialogRequest;
+        retryDialog = {id, groups: [], selected: new Set(), pages: {}, submitting: false};
+        document.getElementById('retrySearch').value = '';
+        document.getElementById('retryGroups').innerHTML = '';
+        document.getElementById('retryDialogMessage').innerText = 'Loading retry groups…';
+        document.getElementById('retrySearch').value = '';
+        document.getElementById('retryGroups').innerHTML = '';
+        document.getElementById('retryDialogMessage').innerText = 'Loading retryable recipients…';
+        updateRetrySelection();
+        document.getElementById('campaignRetryModal').classList.remove('hidden');
+        updateRetrySelection();
+        document.getElementById('retrySearch').focus();
+        try {
+            const response = await fetch(`/api/newsletter/campaigns/${encodeURIComponent(id)}/retry`);
+            const data = await response.json();
+            if (requestId !== retryDialogRequest) return;
+            if (!response.ok || !data.success) throw new Error(data.message || 'Could not load retry recipients.');
+            retryDialog.groups = data.groups;
+            document.getElementById('retryDialogMessage').innerText = data.groups.length
+                ? 'Nothing is selected yet. Selecting a group includes all its recipients, including those on other pages.'
+                : 'No failed or skipped deliveries are available for retry.';
+            renderRetryGroups();
+        } catch (error) {
+            if (requestId === retryDialogRequest) document.getElementById('retryDialogMessage').innerText = error.message;
+        }
+    }
+
+    function closeRetryDialog() {
+        if (retryDialog.submitting) return;
+        retryDialogRequest++;
+        document.getElementById('campaignRetryModal').classList.add('hidden');
+    }
+
+    function renderRetryGroups() {
+        const container = document.getElementById('retryGroups');
+        const opened = new Set(Array.from(container.querySelectorAll('details[open]')).map(node => node.dataset.category));
+        const search = document.getElementById('retrySearch').value.trim().toLowerCase();
+        container.innerHTML = retryDialog.groups.map(group => {
+            const filtered = group.recipients.filter(item => !search || `${item.recipient} ${item.error}`.toLowerCase().includes(search));
+            const pages = Math.max(1, Math.ceil(filtered.length / 50));
+            const page = Math.min(retryDialog.pages[group.id] || 0, pages - 1);
+            retryDialog.pages[group.id] = page;
+            const category = escapeHtml(group.id);
+            return `<section>
+                <label class="font-bold"><input class="retry-group-cb" type="checkbox" data-category="${category}" onchange="setRetryGroup(this.dataset.category,this.checked)"><span>${escapeHtml(group.label)} · ${group.count}</span></label>
+                <details data-category="${category}" ${opened.has(group.id) ? 'open' : ''} class="mt-2">
+                    <summary class="cursor-pointer text-sm">Recipients (${filtered.length}${search ? ' matching' : ''})</summary>
+                    ${filtered.slice(page * 50, (page + 1) * 50).map(item => `<label class="retry-recipient"><input class="retry-recipient-cb" type="checkbox" data-delivery-id="${escapeHtml(item.id)}" onchange="setRetryRecipient(this.dataset.deliveryId,this.checked)"><span><span class="font-mono text-sm">${escapeHtml(item.recipient)}</span><br><span class="retry-error">${escapeHtml(item.error || item.status)}</span></span></label>`).join('')}
+                    <div class="flex flex-wrap items-center gap-3 mt-2 text-xs">
+                        <button type="button" data-category="${category}" onclick="changeRetryPage(this.dataset.category,-1)" ${page === 0 ? 'disabled' : ''}>Previous</button>
+                        <span>Page ${page + 1} / ${pages}</span>
+                        <button type="button" data-category="${category}" onclick="changeRetryPage(this.dataset.category,1)" ${page + 1 >= pages ? 'disabled' : ''}>Next</button>
+                    </div>
+                </details>
+            </section>`;
+        }).join('');
+        updateRetrySelection();
+    }
+
+    function updateRetrySelection() {
+        const selected = retryDialog.selected;
+        const total = retryDialog.groups.reduce((count, group) => count + group.recipients.length, 0);
+        document.getElementById('retrySelectedCount').innerText = `Selected: ${selected.size} / ${total}`;
+        document.getElementById('retryConfirm').disabled = !selected.size || retryDialog.submitting;
+        const all = document.getElementById('retrySelectAll');
+        all.checked = !!total && selected.size === total;
+        all.indeterminate = selected.size > 0 && selected.size < total;
+        all.disabled = !total || retryDialog.submitting;
+        document.querySelectorAll('#retryGroups .retry-group-cb').forEach(input => {
+            const group = retryDialog.groups.find(item => item.id === input.dataset.category);
+            const count = group.recipients.filter(item => selected.has(item.id)).length;
+            input.checked = count === group.recipients.length;
+            input.indeterminate = count > 0 && count < group.recipients.length;
+            input.disabled = retryDialog.submitting;
+        });
+        document.querySelectorAll('#retryGroups .retry-recipient-cb').forEach(input => {
+            input.checked = selected.has(input.dataset.deliveryId);
+            input.disabled = retryDialog.submitting;
+        });
+    }
+
+    function setRetryGroup(category, checked) {
+        if (retryDialog.submitting) return;
+        const group = retryDialog.groups.find(item => item.id === category);
+        if (!group) return;
+        group.recipients.forEach(item => checked ? retryDialog.selected.add(item.id) : retryDialog.selected.delete(item.id));
+        updateRetrySelection();
+    }
+
+    function setRetryRecipient(id, checked) {
+        if (retryDialog.submitting) return;
+        if (checked) retryDialog.selected.add(id); else retryDialog.selected.delete(id);
+        updateRetrySelection();
+    }
+
+    function selectAllRetryRecipients(checked) {
+        if (retryDialog.submitting) return;
+        retryDialog.groups.forEach(group => group.recipients.forEach(item => checked ? retryDialog.selected.add(item.id) : retryDialog.selected.delete(item.id)));
+        updateRetrySelection();
+    }
+
+    function searchRetryRecipients() {
+        retryDialog.pages = {};
+        renderRetryGroups();
+    }
+
+    function changeRetryPage(category, delta) {
+        retryDialog.pages[category] = Math.max(0, (retryDialog.pages[category] || 0) + delta);
+        renderRetryGroups();
+    }
+
+    async function confirmSelectedRetry() {
+        if (!retryDialog.selected.size || retryDialog.submitting) return;
+        retryDialog.submitting = true;
+        updateRetrySelection();
+        document.getElementById('retryDialogMessage').innerText = 'Queuing selected recipients…';
+        try {
+            const id = retryDialog.id;
+            const response = await fetch(`/api/newsletter/campaigns/${encodeURIComponent(id)}/retry`, {
+                method: 'POST', headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({delivery_ids: Array.from(retryDialog.selected)})
+            });
+            const data = await response.json();
+            if (!response.ok || !data.success) throw new Error(data.message || 'Could not queue the selected recipients.');
+            retryDialog.submitting = false;
+            closeRetryDialog();
+            await loadCampaigns();
+            await openCampaignReport(id);
+        } catch (error) {
+            document.getElementById('retryDialogMessage').innerText = error.message;
+        } finally {
+            retryDialog.submitting = false;
+            updateRetrySelection();
+        }
     }
 
     // --- Permission-controlled management functions ---
